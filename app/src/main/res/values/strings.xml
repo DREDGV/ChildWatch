@@ -30,4 +30,85 @@
     <string name="permissions_required">Необходимы все разрешения для работы</string>
     <string name="monitoring_started">Мониторинг запущен</string>
     <string name="monitoring_stopped">Мониторинг остановлен</string>
+    
+    <!-- Main Menu Strings -->
+    <string name="main_menu">Главное меню</string>
+    <string name="monitoring_status">Статус мониторинга</string>
+    <string name="last_update_never">Последнее обновление: никогда</string>
+    <string name="home">Главная</string>
+    <string name="location">Геолокация</string>
+    <string name="audio">Аудио</string>
+    <string name="chat">Чат</string>
+    <string name="photo">Фото</string>
+    <string name="sos">SOS</string>
+    <string name="emergency_contacts">Экстренные контакты</string>
+    <string name="quick_actions">Быстрые действия</string>
+    <string name="last_update">Последнее обновление: %1$s</string>
+    <string name="monitoring_active_status">Активен</string>
+    <string name="monitoring_inactive_status">Неактивен</string>
+    
+    <!-- Consent Screen Strings -->
+    <string name="privacy_notice_title">Важная информация о конфиденциальности</string>
+    <string name="privacy_notice_text">Все собранные данные используются исключительно для обеспечения безопасности ребенка и передаются только родителям/опекунам. Данные не передаются третьим лицам и не используются для рекламы.</string>
+    <string name="features_title">Функции мониторинга:</string>
+    <string name="feature_location">Отслеживание местоположения для обеспечения безопасности</string>
+    <string name="feature_audio">Запись звука в экстренных ситуациях</string>
+    <string name="feature_photo">Создание фотографий по запросу родителей</string>
+    <string name="consent_footer">Вы можете отозвать согласие в любое время в настройках приложения</string>
+    
+    <!-- Enhanced Status Strings -->
+    <string name="status_location_active">Геолокация: активна</string>
+    <string name="status_location_inactive">Геолокация: неактивна</string>
+    <string name="status_audio_active">Аудио: активно</string>
+    <string name="status_audio_inactive">Аудио: неактивно</string>
+    <string name="status_photo_active">Фото: активно</string>
+    <string name="status_photo_inactive">Фото: неактивно</string>
+    <string name="last_location_update">Последняя геолокация: %1$s</string>
+    <string name="last_audio_update">Последняя аудиозапись: %1$s</string>
+    <string name="last_photo_update">Последнее фото: %1$s</string>
+    <string name="service_running_time">Сервис работает: %1$s</string>
+    <string name="battery_optimization_warning">⚠️ Отключите оптимизацию батареи для стабильной работы</string>
+    <string name="permissions_status">Разрешения: %1$s</string>
+    <string name="permissions_all_granted">все предоставлены</string>
+    <string name="permissions_missing">отсутствуют: %1$s</string>
+    
+    <!-- Settings Screen Strings -->
+    <string name="monitoring_settings_title">Настройки мониторинга</string>
+    <string name="location_interval_help">Интервал отправки геолокации в секундах (10-300)</string>
+    <string name="audio_duration_help">Длительность аудиозаписи в секундах (5-60)</string>
+    <string name="server_url_help">URL сервера для отправки данных</string>
+    <string name="feature_toggles_title">Включенные функции</string>
+    <string name="enable_location_monitoring">Отслеживание геолокации</string>
+    <string name="enable_audio_monitoring">Запись аудио</string>
+    <string name="enable_photo_monitoring">Создание фотографий</string>
+    <string name="privacy_settings_title">Конфиденциальность</string>
+    <string name="revoke_consent">Отозвать согласие</string>
+    <string name="about_app">О приложении</string>
+    <string name="save_settings">Сохранить настройки</string>
+    <string name="reset_to_defaults">Сбросить к умолчанию</string>
+    
+    <!-- About Screen Strings -->
+    <string name="app_info_title">Информация о приложении</string>
+    <string name="app_description">ChildWatch - приложение для обеспечения безопасности детей через отслеживание геолокации, запись аудио и создание фотографий. Все данные передаются только родителям/опекунам.</string>
+    <string name="device_id">ID устройства: %1$s</string>
+    <string name="server_version">Версия сервера: %1$s</string>
+    <string name="changelog_title">История изменений</string>
+    <string name="changelog_content">v1.0.0 (1)\n• Первый релиз\n• Базовое отслеживание геолокации\n• Запись аудио\n• Главное меню\n• Настройки мониторинга\n• Экран согласия</string>
+    <string name="roadmap_title">Планы развития</string>
+    <string name="roadmap_content">• Улучшение UI/UX\n• Добавление чата с ребенком\n• Создание приложения для родителей\n• Геозоны и алерты\n• SOS-функции\n• Веб-интерфейс для родителей</string>
+    <string name="instructions_title">Инструкция по использованию</string>
+    <string name="instructions_content">1. Дайте согласие на мониторинг\n2. Предоставьте необходимые разрешения\n3. Настройте параметры мониторинга\n4. Запустите мониторинг\n5. Данные будут отправляться на сервер</string>
+    <string name="open_github">Открыть GitHub</string>
+    <string name="send_feedback">Отправить отзыв</string>
+    <string name="copy_app_info">Копировать информацию</string>
+    
+    <!-- Enhanced Notification Strings -->
+    <string name="notification_action_start">Запустить</string>
+    <string name="notification_action_stop">Остановить</string>
+    <string name="notification_action_location">Геолокация</string>
+    <string name="notification_action_audio">Аудио</string>
+    <string name="notification_status_running">Работает</string>
+    <string name="notification_status_stopped">Остановлен</string>
+    <string name="notification_status_recording">Записывает аудио</string>
+    <string name="notification_last_update">Последнее обновление: %1$s</string>
 </resources>

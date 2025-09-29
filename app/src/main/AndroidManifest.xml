@@ -46,16 +46,37 @@
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
         
-        <!-- Main Activity -->
+        <!-- Consent Activity - shown first -->
         <activity
-            android:name=".MainActivity"
+            android:name=".ConsentActivity"
             android:exported="true"
-            android:theme="@style/Theme.ChildWatch">
+            android:theme="@style/Theme.ChildWatch"
+            android:noHistory="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        
+        <!-- Main Activity -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ChildWatch" />
+        
+        <!-- Settings Activity -->
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ChildWatch"
+            android:parentActivityName=".MainActivity" />
+        
+        <!-- About Activity -->
+        <activity
+            android:name=".AboutActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ChildWatch"
+            android:parentActivityName=".SettingsActivity" />
         
         <!-- Monitor Service - foreground service for location and audio monitoring -->
         <service
