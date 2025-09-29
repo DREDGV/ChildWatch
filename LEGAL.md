@@ -6,13 +6,13 @@ This application is designed for LEGITIMATE MONITORING PURPOSES ONLY with explic
 
 ## Legal Use Cases
 
-### вњ… PERMITTED USES:
+### ✅ PERMITTED USES:
 - **Parental Control**: Monitoring minor children for safety
 - **Elderly Care**: Monitoring elderly family members with their consent
 - **Corporate Devices**: Employee monitoring with written consent
 - **Lost Device Recovery**: Tracking your own lost/stolen devices
 
-### вќЊ PROHIBITED USES:
+### ❌ PROHIBITED USES:
 - Spying on adults without consent
 - Monitoring spouses/partners without permission
 - Any surveillance without explicit consent

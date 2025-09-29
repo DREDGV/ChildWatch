@@ -7,26 +7,26 @@ ChildWatch is a comprehensive Android monitoring application designed for legiti
 ## Architecture Diagram
 
 ```
-в”Њв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”ђ    HTTPS     в”Њв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”ђ
-в”‚   Android App   в”‚ в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв–є в”‚  Node.js Server в”‚
-в”‚                 в”‚              в”‚                 в”‚
-в”‚ в”Њв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”ђ в”‚              в”‚ в”Њв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”ђ в”‚
-в”‚ в”‚MainActivity в”‚ в”‚              в”‚ в”‚Express API в”‚ в”‚
-в”‚ в””в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв” в”‚              в”‚ в””в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв” в”‚
-в”‚ в”Њв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”ђ в”‚              в”‚ в”Њв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”ђ в”‚
-в”‚ в”‚MonitorServiceв”‚ в”‚              в”‚ в”‚File Storage в”‚ в”‚
-в”‚ в”‚(Foreground) в”‚ в”‚              в”‚ в””в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв” в”‚
-в”‚ в””в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв” в”‚              в””в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”
-в”‚ в”Њв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”ђ в”‚
-в”‚ в”‚LocationMgr  в”‚ в”‚
-в”‚ в””в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв” в”‚
-в”‚ в”Њв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”ђ в”‚
-в”‚ в”‚AudioRecorderв”‚ в”‚
-в”‚ в””в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв” в”‚
-в”‚ в”Њв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”ђ в”‚
-в”‚ в”‚NetworkClientв”‚ в”‚
-в”‚ в””в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв” в”‚
-в””в”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”Ђв”
+┌─────────────────────────┐    HTTPS     ┌─────────────────────────┐
+│   Android App           │ ────────────► │  Node.js Server         │
+│                         │              │                         │
+│ ┌─────────────────────┐ │              │ ┌─────────────────────┐ │
+│ │MainActivity         │ │              │ │Express API           │ │
+│ └─────────────────────┘ │              │ └─────────────────────┘ │
+│ ┌─────────────────────┐ │              │ ┌─────────────────────┐ │
+│ │MonitorService       │ │              │ │File Storage          │ │
+│ │(Foreground)         │ │              │ └─────────────────────┘ │
+│ └─────────────────────┘ │              └─────────────────────────┘
+│ ┌─────────────────────┐ │
+│ │LocationMgr          │ │
+│ └─────────────────────┘ │
+│ ┌─────────────────────┐ │
+│ │AudioRecorder        │ │
+│ └─────────────────────┘ │
+│ ┌─────────────────────┐ │
+│ │NetworkClient        │ │
+│ └─────────────────────┘ │
+└─────────────────────────┘
 ```
 
 ## Component Details
@@ -145,19 +145,19 @@ ChildWatch is a comprehensive Android monitoring application designed for legiti
 ## Security Considerations
 
 ### Client-Side Security
-- вњ… HTTPS-only communication
-- вњ… Local preference encryption
-- вњ… Temporary file cleanup
-- вњ… Explicit user consent
-- вњ… Visible monitoring notifications
+- ✅ HTTPS-only communication
+- ✅ Local preference encryption
+- ✅ Temporary file cleanup
+- ✅ Explicit user consent
+- ✅ Visible monitoring notifications
 
 ### Server-Side Security (Production Recommendations)
-- рџ”ђ Implement authentication
-- рџ”ђ Encrypt stored data
-- рџ”ђ Rate limiting
-- рџ”ђ Input validation
-- рџ”ђ Certificate pinning
-- рџ”ђ Regular security audits
+- 🔐 Implement authentication
+- 🔐 Encrypt stored data
+- 🔐 Rate limiting
+- 🔐 Input validation
+- 🔐 Certificate pinning
+- 🔐 Regular security audits
 
 ## Performance Optimizations
 
