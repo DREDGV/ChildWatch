@@ -108,9 +108,11 @@ class LocationManager(private val context: Context) {
             // Set timeout
             android.os.Handler(Looper.getMainLooper()).postDelayed({
                 fusedLocationClient.removeLocationUpdates(callback)
-                if (continuation.context.isActive) {
+                try {
                     Log.w(TAG, "Location request timed out")
                     continuation.resume(null)
+                } catch (e: IllegalStateException) {
+                    // Continuation already completed
                 }
             }, 15000L)
             

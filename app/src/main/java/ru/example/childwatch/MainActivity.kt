@@ -128,7 +128,7 @@ class MainActivity : AppCompatActivity() {
         
         updateUIState()
         
-        Toast.makeText(this, "РЎРѕРіР»Р°СЃРёРµ РїСЂРµРґРѕСЃС‚Р°РІР»РµРЅРѕ", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.consent_given), Toast.LENGTH_SHORT).show()
     }
     
     private fun revokeConsent() {
@@ -142,7 +142,7 @@ class MainActivity : AppCompatActivity() {
         
         updateUIState()
         
-        Toast.makeText(this, "РЎРѕРіР»Р°СЃРёРµ РѕС‚РѕР·РІР°РЅРѕ", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.consent_revoked), Toast.LENGTH_SHORT).show()
     }
     
     private fun requestPermissions() {
@@ -157,7 +157,7 @@ class MainActivity : AppCompatActivity() {
             }
         } else {
             // All permissions already granted
-            Toast.makeText(this, "Р’СЃРµ СЂР°Р·СЂРµС€РµРЅРёСЏ РїСЂРµРґРѕСЃС‚Р°РІР»РµРЅС‹", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.all_permissions_granted), Toast.LENGTH_SHORT).show()
         }
     }
     
@@ -179,9 +179,9 @@ class MainActivity : AppCompatActivity() {
         val deniedPermissions = permissions.filter { !it.value }.keys
         
         if (deniedPermissions.isEmpty()) {
-            Toast.makeText(this, "Р’СЃРµ СЂР°Р·СЂРµС€РµРЅРёСЏ РїСЂРµРґРѕСЃС‚Р°РІР»РµРЅС‹", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.all_permissions_granted), Toast.LENGTH_SHORT).show()
         } else {
-            val message = "РћС‚РєР»РѕРЅРµРЅС‹ СЂР°Р·СЂРµС€РµРЅРёСЏ: ${deniedPermissions.joinToString(", ")}"
+            val message = getString(R.string.permissions_denied, deniedPermissions.joinToString(", "))
             Toast.makeText(this, message, Toast.LENGTH_LONG).show()
             
             // Note: For background location on Android 10+, user needs to manually grant in settings
@@ -189,7 +189,7 @@ class MainActivity : AppCompatActivity() {
                 deniedPermissions.contains(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
                 Toast.makeText(
                     this, 
-                    "Р”Р»СЏ С„РѕРЅРѕРІРѕРіРѕ РѕС‚СЃР»РµР¶РёРІР°РЅРёСЏ РјРµСЃС‚РѕРїРѕР»РѕР¶РµРЅРёСЏ РїРµСЂРµР№РґРёС‚Рµ РІ РќР°СЃС‚СЂРѕР№РєРё > Р Р°Р·СЂРµС€РµРЅРёСЏ > РњРµСЃС‚РѕРїРѕР»РѕР¶РµРЅРёРµ > Р Р°Р·СЂРµС€РёС‚СЊ РІСЃРµ РІСЂРµРјСЏ",
+                    getString(R.string.background_location_manual),
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -198,12 +198,12 @@ class MainActivity : AppCompatActivity() {
     
     private fun startMonitoring() {
         if (!hasConsent) {
-            Toast.makeText(this, "РЎРЅР°С‡Р°Р»Р° РґР°Р№С‚Рµ СЃРѕРіР»Р°СЃРёРµ", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.consent_required), Toast.LENGTH_SHORT).show()
             return
         }
         
         if (!PermissionHelper.hasAllRequiredPermissions(this)) {
-            Toast.makeText(this, "РќРµРѕР±С…РѕРґРёРјС‹ РІСЃРµ СЂР°Р·СЂРµС€РµРЅРёСЏ РґР»СЏ СЂР°Р±РѕС‚С‹", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.permissions_required), Toast.LENGTH_SHORT).show()
             requestPermissions()
             return
         }
@@ -223,7 +223,7 @@ class MainActivity : AppCompatActivity() {
         }
         
         updateUIState()
-        Toast.makeText(this, "РњРѕРЅРёС‚РѕСЂРёРЅРі Р·Р°РїСѓС‰РµРЅ", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.monitoring_started), Toast.LENGTH_SHORT).show()
     }
     
     private fun stopMonitoring() {
@@ -233,7 +233,7 @@ class MainActivity : AppCompatActivity() {
         startService(intent)
         
         updateUIState()
-        Toast.makeText(this, "РњРѕРЅРёС‚РѕСЂРёРЅРі РѕСЃС‚Р°РЅРѕРІР»РµРЅ", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.monitoring_stopped), Toast.LENGTH_SHORT).show()
     }
     
     private fun loadSettings() {
