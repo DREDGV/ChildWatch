@@ -3,6 +3,7 @@ package ru.example.childwatch
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -94,9 +95,41 @@ class ConsentActivity : AppCompatActivity() {
         if (PermissionHelper.hasAllRequiredPermissions(this)) {
             proceedToMainActivity()
         } else {
-            // Request permissions first
-            PermissionHelper.requestAllRequiredPermissions(this)
+            // Show custom permission dialog in Russian
+            showPermissionDialog()
         }
+    }
+    
+    private fun showPermissionDialog() {
+        val missingPermissions = PermissionHelper.getMissingPermissions(this)
+        val permissionNames = missingPermissions.map { permission ->
+            when (permission) {
+                android.Manifest.permission.ACCESS_FINE_LOCATION -> "Определение местоположения"
+                android.Manifest.permission.ACCESS_COARSE_LOCATION -> "Приблизительное местоположение"
+                android.Manifest.permission.ACCESS_BACKGROUND_LOCATION -> "Фоновое определение местоположения"
+                android.Manifest.permission.RECORD_AUDIO -> "Запись звука"
+                android.Manifest.permission.CAMERA -> "Камера"
+                else -> permission
+            }
+        }
+        
+        val message = "Для работы приложения необходимы следующие разрешения:\n\n" +
+                permissionNames.joinToString("\n• ", "• ") + "\n\n" +
+                "Нажмите 'Разрешить' для предоставления разрешений."
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Необходимые разрешения")
+            .setMessage(message)
+            .setPositiveButton("Разрешить") { _, _ ->
+                // Request permissions
+                PermissionHelper.requestAllRequiredPermissions(this)
+            }
+            .setNegativeButton("Отмена") { _, _ ->
+                Toast.makeText(this, "Приложение не может работать без разрешений", Toast.LENGTH_LONG).show()
+                finish()
+            }
+            .setCancelable(false)
+            .show()
     }
     
     private fun declineConsent() {
@@ -131,16 +164,48 @@ class ConsentActivity : AppCompatActivity() {
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
         
-        if (PermissionHelper.hasAllRequiredPermissions(this)) {
-            proceedToMainActivity()
-        } else {
-            // Show error and finish
-            Toast.makeText(
-                this, 
-                getString(R.string.permissions_denied, PermissionHelper.getDeniedPermissions(this).joinToString(", ")),
-                Toast.LENGTH_LONG
-            ).show()
-            finish()
+        Log.d(TAG, "Permission result: requestCode=$requestCode, granted=${grantResults.all { it == PackageManager.PERMISSION_GRANTED }}")
+        
+        if (requestCode == PermissionHelper.REQUEST_CODE_ALL_PERMISSIONS) {
+            if (PermissionHelper.hasAllRequiredPermissions(this)) {
+                Log.d(TAG, "All permissions granted, proceeding to main activity")
+                proceedToMainActivity()
+            } else {
+                Log.w(TAG, "Some permissions denied")
+                val deniedPermissions = permissions.filterIndexed { index, _ ->
+                    grantResults[index] != PackageManager.PERMISSION_GRANTED
+                }
+                
+                val deniedNames = deniedPermissions.map { permission ->
+                    when (permission) {
+                        android.Manifest.permission.ACCESS_FINE_LOCATION -> "Определение местоположения"
+                        android.Manifest.permission.ACCESS_COARSE_LOCATION -> "Приблизительное местоположение"
+                        android.Manifest.permission.ACCESS_BACKGROUND_LOCATION -> "Фоновое определение местоположения"
+                        android.Manifest.permission.RECORD_AUDIO -> "Запись звука"
+                        android.Manifest.permission.CAMERA -> "Камера"
+                        else -> permission
+                    }
+                }
+                
+                val message = "Отклонены разрешения:\n${deniedNames.joinToString("\n• ", "• ")}\n\n" +
+                        "Приложение не может работать без этих разрешений. Вы можете предоставить их в настройках устройства."
+                
+                androidx.appcompat.app.AlertDialog.Builder(this)
+                    .setTitle("Разрешения отклонены")
+                    .setMessage(message)
+                    .setPositiveButton("Настройки") { _, _ ->
+                        // Open app settings
+                        val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+                        intent.data = android.net.Uri.fromParts("package", packageName, null)
+                        startActivity(intent)
+                        finish()
+                    }
+                    .setNegativeButton("Выход") { _, _ ->
+                        finish()
+                    }
+                    .setCancelable(false)
+                    .show()
+            }
         }
     }
     

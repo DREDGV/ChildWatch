@@ -11,23 +11,29 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import ru.example.childwatch.databinding.ActivityMainBinding
+import ru.example.childwatch.databinding.ActivityMainMenuBinding
 import ru.example.childwatch.service.MonitorService
 import ru.example.childwatch.utils.PermissionHelper
+import ru.example.childwatch.utils.SecurityChecker
+import ru.example.childwatch.utils.SecureSettingsManager
+import kotlinx.coroutines.*
+import java.text.SimpleDateFormat
+import java.util.*
 
 /**
- * Main Activity with onboarding screen and monitoring controls
+ * Main Activity with modern menu interface
  * 
  * Features:
- * - Consent screen with clear explanation of monitoring
- * - Permission requests with rationale
- * - Start/Stop monitoring controls
- * - Settings for intervals and server URL
+ * - Modern card-based menu interface
+ * - Status monitoring display
+ * - Quick actions for monitoring
+ * - Navigation to different features
  */
 class MainActivity : AppCompatActivity() {
 
-    private lateinit var binding: ActivityMainBinding
+    private lateinit var binding: ActivityMainMenuBinding
     private lateinit var prefs: SharedPreferences
+    private lateinit var secureSettings: SecureSettingsManager
     private var hasConsent = false
     
     // Required permissions for the app
@@ -51,167 +57,285 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityMainBinding.inflate(layoutInflater)
+        binding = ActivityMainMenuBinding.inflate(layoutInflater)
         setContentView(binding.root)
         
         prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-        hasConsent = prefs.getBoolean("consent_given", false)
+        secureSettings = SecureSettingsManager(this)
+        hasConsent = ConsentActivity.hasConsent(this) // Используем правильный метод
         
         setupUI()
         updateUIState()
+        
+        // Perform security checks
+        performSecurityChecks()
     }
     
     private fun setupUI() {
-        // Consent buttons
-        binding.btnAgreeConsent.setOnClickListener {
-            giveConsent()
-        }
-        
-        binding.btnDeclineConsent.setOnClickListener {
-            revokeConsent()
-        }
-        
-        // Monitoring controls
-        binding.btnStartMonitoring.setOnClickListener {
+        // Quick action buttons
+        binding.startMonitoringBtn.setOnClickListener {
             startMonitoring()
         }
         
-        binding.btnStopMonitoring.setOnClickListener {
+        binding.stopMonitoringBtn.setOnClickListener {
             stopMonitoring()
         }
         
-        binding.switchMonitoring.setOnCheckedChangeListener { _, isChecked ->
-            if (isChecked) {
-                startMonitoring()
-            } else {
-                stopMonitoring()
-            }
+        // Menu card click listeners
+        binding.homeCard.setOnClickListener {
+            showToast("Главная - уже здесь!")
         }
         
-        // Load settings from preferences
-        loadSettings()
+        binding.locationCard.setOnClickListener {
+            val intent = Intent(this, LocationMapActivity::class.java)
+            startActivity(intent)
+        }
+        
+        binding.audioCard.setOnClickListener {
+            val intent = Intent(this, AudioActivity::class.java)
+            startActivity(intent)
+        }
+        
+        binding.chatCard.setOnClickListener {
+            val intent = Intent(this, ChatActivity::class.java)
+            startActivity(intent)
+        }
+        
+        binding.photoCard.setOnClickListener {
+            val intent = Intent(this, PhotoActivity::class.java)
+            startActivity(intent)
+        }
+        
+        binding.settingsCard.setOnClickListener {
+            val intent = Intent(this, SettingsAuthActivity::class.java)
+            startActivity(intent)
+        }
+        
+        
     }
     
     private fun updateUIState() {
-        val isMonitoring = MonitorService.isRunning
+        // Check consent first
+        hasConsent = ConsentActivity.hasConsent(this)
         
         if (hasConsent) {
-            // Show main interface
-            binding.consentCard.visibility = View.GONE
-            binding.statusCard.visibility = View.VISIBLE
-            binding.settingsCard.visibility = View.VISIBLE
+            val isMonitoring = MonitorService.isRunning
             
-            // Update monitoring status
-            binding.tvStatus.text = if (isMonitoring) {
-                getString(R.string.monitoring_active)
-            } else {
-                getString(R.string.monitoring_inactive)
-            }
+            // Update status display
+            updateStatusDisplay(isMonitoring)
             
-            binding.switchMonitoring.isChecked = isMonitoring
-            binding.btnStartMonitoring.isEnabled = !isMonitoring
-            binding.btnStopMonitoring.isEnabled = isMonitoring
+            // Update button states
+            binding.startMonitoringBtn.isEnabled = !isMonitoring
+            binding.stopMonitoringBtn.isEnabled = isMonitoring
+            
         } else {
             // Show consent screen
-            binding.consentCard.visibility = View.VISIBLE
-            binding.statusCard.visibility = View.GONE
-            binding.settingsCard.visibility = View.GONE
+            showConsentScreen()
         }
     }
     
-    private fun giveConsent() {
-        hasConsent = true
-        prefs.edit().putBoolean("consent_given", true).apply()
+    private fun updateStatusDisplay(isMonitoring: Boolean) {
+        val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
         
-        // Request necessary permissions
-        requestPermissions()
-        
-        updateUIState()
-        
-        Toast.makeText(this, getString(R.string.consent_given), Toast.LENGTH_SHORT).show()
-    }
-    
-    private fun revokeConsent() {
-        hasConsent = false
-        prefs.edit().putBoolean("consent_given", false).apply()
-        
-        // Stop monitoring if it's running
-        if (MonitorService.isRunning) {
-            stopMonitoring()
-        }
-        
-        updateUIState()
-        
-        Toast.makeText(this, getString(R.string.consent_revoked), Toast.LENGTH_SHORT).show()
-    }
-    
-    private fun requestPermissions() {
-        val permissionsToRequest = requiredPermissions.filter { permission ->
-            ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED
-        }
-        
-        if (permissionsToRequest.isNotEmpty()) {
-            // Show rationale for sensitive permissions
-            showPermissionRationale {
-                permissionLauncher.launch(permissionsToRequest.toTypedArray())
-            }
-        } else {
-            // All permissions already granted
-            Toast.makeText(this, getString(R.string.all_permissions_granted), Toast.LENGTH_SHORT).show()
-        }
-    }
-    
-    private fun showPermissionRationale(onContinue: () -> Unit) {
-        // TODO: Show a proper dialog explaining why permissions are needed
-        // For now, just show toast and continue
-        val message = getString(R.string.permission_location_rationale) + "\n" +
-                     getString(R.string.permission_audio_rationale)
-        
-        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
-        
-        // Wait a bit and then request permissions
-        binding.root.postDelayed({
-            onContinue()
-        }, 2000)
-    }
-    
-    private fun handlePermissionResults(permissions: Map<String, Boolean>) {
-        val deniedPermissions = permissions.filter { !it.value }.keys
-        
-        if (deniedPermissions.isEmpty()) {
-            Toast.makeText(this, getString(R.string.all_permissions_granted), Toast.LENGTH_SHORT).show()
-        } else {
-            val message = getString(R.string.permissions_denied, deniedPermissions.joinToString(", "))
-            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+        if (isMonitoring) {
+            binding.statusText.text = getString(R.string.monitoring_active_status)
+            binding.statusIcon.setImageResource(android.R.drawable.ic_dialog_alert)
+            binding.statusIcon.setColorFilter(ContextCompat.getColor(this, R.color.colorAccent))
             
-            // Note: For background location on Android 10+, user needs to manually grant in settings
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && 
-                deniedPermissions.contains(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
-                Toast.makeText(
-                    this, 
-                    getString(R.string.background_location_manual),
-                    Toast.LENGTH_LONG
-                ).show()
+            // Update service running time
+            val serviceStartTime = secureSettings.getServiceStartTime()
+            if (serviceStartTime > 0) {
+                val runningTime = System.currentTimeMillis() - serviceStartTime
+                val hours = runningTime / (1000 * 60 * 60)
+                val minutes = (runningTime % (1000 * 60 * 60)) / (1000 * 60)
+                val timeString = "${hours}ч ${minutes}м"
+                binding.serviceRunningTimeText.text = getString(R.string.service_running_time, timeString)
+            } else {
+                binding.serviceRunningTimeText.text = getString(R.string.service_running_time, "неизвестно")
             }
+            
+            // Update feature status
+            binding.locationStatusText.text = getString(R.string.status_location_active)
+            binding.audioStatusText.text = getString(R.string.status_audio_active)
+            binding.photoStatusText.text = getString(R.string.status_photo_active)
+            
+        } else {
+            binding.statusText.text = getString(R.string.monitoring_inactive_status)
+            binding.statusIcon.setImageResource(android.R.drawable.ic_dialog_alert)
+            binding.statusIcon.setColorFilter(ContextCompat.getColor(this, android.R.color.darker_gray))
+            
+            binding.serviceRunningTimeText.text = getString(R.string.service_running_time, "не работает")
+            
+            // Update feature status
+            binding.locationStatusText.text = getString(R.string.status_location_inactive)
+            binding.audioStatusText.text = getString(R.string.status_audio_inactive)
+            binding.photoStatusText.text = getString(R.string.status_photo_inactive)
         }
+        
+        // Update last update times
+        updateLastUpdateTimes(dateFormat)
+        
+        // Update permissions status
+        updatePermissionsStatus()
+        
+        // Check battery optimization
+        checkBatteryOptimization()
+    }
+    
+    private fun updateLastUpdateTimes(dateFormat: SimpleDateFormat) {
+        // Location update
+        val lastLocationUpdate = secureSettings.getLastLocationUpdate()
+        if (lastLocationUpdate > 0) {
+            val timeString = dateFormat.format(Date(lastLocationUpdate))
+            binding.lastUpdateText.text = getString(R.string.last_location_update, timeString)
+        } else {
+            binding.lastUpdateText.text = getString(R.string.last_location_update, "никогда")
+        }
+        
+        // Audio update
+        val lastAudioUpdate = secureSettings.getLastAudioUpdate()
+        if (lastAudioUpdate > 0) {
+            val timeString = dateFormat.format(Date(lastAudioUpdate))
+            binding.lastAudioUpdateText.text = getString(R.string.last_audio_update, timeString)
+        } else {
+            binding.lastAudioUpdateText.text = getString(R.string.last_audio_update, "никогда")
+        }
+        
+        // Photo update
+        val lastPhotoUpdate = secureSettings.getLastPhotoUpdate()
+        if (lastPhotoUpdate > 0) {
+            val timeString = dateFormat.format(Date(lastPhotoUpdate))
+            binding.lastPhotoUpdateText.text = getString(R.string.last_photo_update, timeString)
+        } else {
+            binding.lastPhotoUpdateText.text = getString(R.string.last_photo_update, "никогда")
+        }
+    }
+    
+    private fun updatePermissionsStatus() {
+        val missingPermissions = PermissionHelper.getMissingPermissions(this)
+        if (missingPermissions.isEmpty()) {
+            binding.permissionsStatusText.text = getString(R.string.permissions_status, getString(R.string.permissions_all_granted))
+        } else {
+            val missingList = missingPermissions.joinToString(", ")
+            binding.permissionsStatusText.text = getString(R.string.permissions_status, getString(R.string.permissions_missing, missingList))
+        }
+    }
+    
+    private fun checkBatteryOptimization() {
+        // TODO: Implement battery optimization check
+        // For now, hide the warning
+        binding.batteryWarningText.visibility = View.GONE
+    }
+    
+    private fun performSecurityChecks() {
+        try {
+            val securityReport = SecurityChecker.getSecurityReport(this)
+            val securityWarnings = SecurityChecker.getSecurityWarnings(this)
+            
+            // Log security events
+            if (securityReport.isDebugBuild) {
+                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
+                //     SecurityEventType.DEBUG_BUILD_DETECTED,
+                //     "Приложение собрано в debug режиме",
+                //     true,
+                //     System.currentTimeMillis()
+                // ))
+            }
+            
+            if (securityReport.isDeveloperOptionsEnabled) {
+                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
+                //     SecurityEventType.DEVELOPER_OPTIONS_ENABLED,
+                //     "Включены опции разработчика",
+                //     true,
+                //     System.currentTimeMillis()
+                // ))
+            }
+            
+            if (securityReport.isUsbDebuggingEnabled) {
+                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
+                //     SecurityEventType.USB_DEBUGGING_ENABLED,
+                //     "Включена отладка по USB",
+                //     true,
+                //     System.currentTimeMillis()
+                // ))
+            }
+            
+            if (securityReport.isDeviceRooted) {
+                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
+                //     SecurityEventType.ROOT_DETECTED,
+                //     "Устройство имеет root права",
+                //     true,
+                //     System.currentTimeMillis()
+                // ))
+            }
+            
+            if (securityReport.isEmulator) {
+                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
+                //     SecurityEventType.EMULATOR_DETECTED,
+                //     "Приложение запущено в эмуляторе",
+                //     true,
+                //     System.currentTimeMillis()
+                // ))
+            }
+            
+            if (securityReport.isDebuggerAttached) {
+                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
+                //     SecurityEventType.DEBUGGER_ATTACHED,
+                //     "Подключен отладчик",
+                //     true,
+                //     System.currentTimeMillis()
+                // ))
+            }
+            
+            if (securityReport.isAppDebuggable) {
+                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
+                //     SecurityEventType.APP_DEBUGGABLE,
+                //     "Приложение доступно для отладки",
+                //     true,
+                //     System.currentTimeMillis()
+                // ))
+            }
+            
+            if (securityReport.isMockLocationEnabled) {
+                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
+                //     SecurityEventType.MOCK_LOCATION_ENABLED,
+                //     "Включены mock-локации",
+                //     true,
+                //     System.currentTimeMillis()
+                // ))
+            }
+            
+            // Show security warnings if any
+            if (securityWarnings.isNotEmpty()) {
+                val warningText = securityWarnings.joinToString("\n")
+                Toast.makeText(this, "Предупреждения безопасности:\n$warningText", Toast.LENGTH_LONG).show()
+            }
+            
+            // Log security score
+            android.util.Log.i("Security", "Security score: ${securityReport.securityScore}/100 (${securityReport.securityLevel})")
+            
+        } catch (e: Exception) {
+            android.util.Log.e("Security", "Error performing security checks", e)
+        }
+    }
+    
+    private fun showConsentScreen() {
+        val intent = Intent(this, ConsentActivity::class.java)
+        startActivity(intent)
+        finish()
     }
     
     private fun startMonitoring() {
         if (!hasConsent) {
-            Toast.makeText(this, getString(R.string.consent_required), Toast.LENGTH_SHORT).show()
+            showToast(getString(R.string.consent_required))
             return
         }
         
         if (!PermissionHelper.hasAllRequiredPermissions(this)) {
-            Toast.makeText(this, getString(R.string.permissions_required), Toast.LENGTH_SHORT).show()
             requestPermissions()
             return
         }
         
-        // Save settings before starting
-        saveSettings()
-        
-        // Start the monitoring service
         val intent = Intent(this, MonitorService::class.java).apply {
             action = MonitorService.ACTION_START_MONITORING
         }
@@ -222,8 +346,8 @@ class MainActivity : AppCompatActivity() {
             startService(intent)
         }
         
+        showToast(getString(R.string.monitoring_started))
         updateUIState()
-        Toast.makeText(this, getString(R.string.monitoring_started), Toast.LENGTH_SHORT).show()
     }
     
     private fun stopMonitoring() {
@@ -232,27 +356,42 @@ class MainActivity : AppCompatActivity() {
         }
         startService(intent)
         
+        showToast(getString(R.string.monitoring_stopped))
         updateUIState()
-        Toast.makeText(this, getString(R.string.monitoring_stopped), Toast.LENGTH_SHORT).show()
     }
     
-    private fun loadSettings() {
-        binding.etLocationInterval.setText(prefs.getInt("location_interval", 30).toString())
-        binding.etAudioDuration.setText(prefs.getInt("audio_duration", 20).toString())
-        binding.etServerUrl.setText(prefs.getString("server_url", "https://your-server.com"))
-    }
-    
-    private fun saveSettings() {
-        val locationInterval = binding.etLocationInterval.text.toString().toIntOrNull() ?: 30
-        val audioDuration = binding.etAudioDuration.text.toString().toIntOrNull() ?: 20
-        val serverUrl = binding.etServerUrl.text.toString().ifEmpty { "https://your-server.com" }
-        
-        prefs.edit().apply {
-            putInt("location_interval", locationInterval)
-            putInt("audio_duration", audioDuration)
-            putString("server_url", serverUrl)
-            apply()
+    private fun requestPermissions() {
+        val permissionsToRequest = requiredPermissions.filter { permission ->
+            ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED
         }
+        
+        if (permissionsToRequest.isNotEmpty()) {
+            permissionLauncher.launch(permissionsToRequest.toTypedArray())
+        }
+    }
+    
+    private fun handlePermissionResults(permissions: Map<String, Boolean>) {
+        val deniedPermissions = permissions.filter { !it.value }.keys
+        
+        if (deniedPermissions.isEmpty()) {
+            showToast(getString(R.string.all_permissions_granted))
+            // Try to start monitoring if consent is given
+            if (hasConsent) {
+                startMonitoring()
+            }
+        } else {
+            val deniedList = deniedPermissions.joinToString(", ")
+            showToast(getString(R.string.permissions_denied, deniedList))
+            
+            // Check if background location permission was denied
+            if (deniedPermissions.contains(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
+                showToast(getString(R.string.background_location_manual))
+            }
+        }
+    }
+    
+    private fun showToast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
     
     override fun onResume() {

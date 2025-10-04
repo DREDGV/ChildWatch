@@ -240,7 +240,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/copy_app_info"
                 android:textSize="16sp"
-                app:icon="@android:drawable/ic_menu_copy"
+                app:icon="@android:drawable/ic_dialog_info"
                 app:iconGravity="textStart"
                 style="@style/Widget.Material3.Button.OutlinedButton" />
 

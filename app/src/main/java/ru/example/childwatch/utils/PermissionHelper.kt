@@ -1,9 +1,11 @@
 ﻿package ru.example.childwatch.utils
 
 import android.Manifest
+import android.app.Activity
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Build
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 
 /**
@@ -11,6 +13,8 @@ import androidx.core.content.ContextCompat
  * Handles runtime permission checks for location, audio, and other features
  */
 object PermissionHelper {
+    
+    const val REQUEST_CODE_ALL_PERMISSIONS = 1001
     
     /**
      * Check if all required permissions are granted
@@ -93,11 +97,52 @@ object PermissionHelper {
     }
     
     /**
+     * Check if phone call permission is granted (for SOS)
+     */
+    fun hasPhonePermission(context: Context): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context, 
+            Manifest.permission.CALL_PHONE
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+    
+    /**
+     * Check if SMS permission is granted (for SOS)
+     */
+    fun hasSMSPermission(context: Context): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context, 
+            Manifest.permission.SEND_SMS
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+    
+    /**
      * Get permissions that are missing
      */
     fun getMissingPermissions(context: Context): List<String> {
         return getRequiredPermissions().filter { permission ->
             ContextCompat.checkSelfPermission(context, permission) != PackageManager.PERMISSION_GRANTED
+        }
+    }
+    
+    /**
+     * Get denied permissions (alias for getMissingPermissions for compatibility)
+     */
+    fun getDeniedPermissions(context: Context): List<String> {
+        return getMissingPermissions(context)
+    }
+    
+    /**
+     * Request all required permissions
+     */
+    fun requestAllRequiredPermissions(activity: Activity) {
+        val missingPermissions = getMissingPermissions(activity)
+        if (missingPermissions.isNotEmpty()) {
+            ActivityCompat.requestPermissions(
+                activity,
+                missingPermissions.toTypedArray(),
+                REQUEST_CODE_ALL_PERMISSIONS
+            )
         }
     }
 }

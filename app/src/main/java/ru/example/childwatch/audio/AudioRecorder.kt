@@ -51,7 +51,7 @@ class AudioRecorder(private val context: Context) {
             // Create temporary file for audio
             currentAudioFile = createTempAudioFile()
             
-            // Initialize MediaRecorder
+            // Initialize MediaRecorder with proper Android version handling
             mediaRecorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
                 MediaRecorder(context)
             } else {
@@ -60,15 +60,20 @@ class AudioRecorder(private val context: Context) {
             }
             
             mediaRecorder?.apply {
-                // Set audio source - use MIC for general recording
-                // NOTE: Android 14+ may restrict background microphone access
-                setAudioSource(MediaRecorder.AudioSource.MIC)
+                // Set audio source - use VOICE_COMMUNICATION for better compatibility
+                // VOICE_COMMUNICATION is more stable on Android 10+ and works better in foreground services
+                val audioSource = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                    MediaRecorder.AudioSource.VOICE_COMMUNICATION
+                } else {
+                    MediaRecorder.AudioSource.MIC
+                }
+                setAudioSource(audioSource)
                 
-                // Set output format and encoder
-                setOutputFormat(MediaRecorder.OutputFormat.MPEG_4)
+                // Set output format - use AAC for better compression and compatibility
+                setOutputFormat(MediaRecorder.OutputFormat.AAC_ADTS)
                 setAudioEncoder(MediaRecorder.AudioEncoder.AAC)
                 
-                // Set quality parameters
+                // Set quality parameters - optimized for voice recording
                 setAudioSamplingRate(AUDIO_SAMPLE_RATE)
                 setAudioEncodingBitRate(AUDIO_BITRATE)
                 
@@ -77,6 +82,9 @@ class AudioRecorder(private val context: Context) {
                 
                 // Set maximum duration (as backup to manual stop)
                 setMaxDuration(durationSeconds * 1000)
+                
+                // Set maximum file size (10MB limit)
+                setMaxFileSize(10 * 1024 * 1024)
                 
                 // Set listener for when recording stops
                 setOnInfoListener { mr, what, extra ->
@@ -90,6 +98,12 @@ class AudioRecorder(private val context: Context) {
                             stopRecording()
                         }
                     }
+                }
+                
+                // Set error listener
+                setOnErrorListener { mr, what, extra ->
+                    Log.e(TAG, "MediaRecorder error: $what, extra: $extra")
+                    cleanup()
                 }
                 
                 // Prepare and start recording
@@ -110,6 +124,10 @@ class AudioRecorder(private val context: Context) {
             Log.e(TAG, "Security exception starting audio recording (Android 14+ background restriction?)", e)
             cleanup()
             return null
+        } catch (e: IllegalStateException) {
+            Log.e(TAG, "Illegal state exception - MediaRecorder may be in wrong state", e)
+            cleanup()
+            return null
         } catch (e: Exception) {
             Log.e(TAG, "Unexpected error starting audio recording", e)
             cleanup()
@@ -128,8 +146,19 @@ class AudioRecorder(private val context: Context) {
         
         try {
             mediaRecorder?.apply {
-                stop()
-                release()
+                try {
+                    stop()
+                } catch (e: IllegalStateException) {
+                    Log.w(TAG, "MediaRecorder was not in recording state when stopping", e)
+                } catch (e: RuntimeException) {
+                    Log.w(TAG, "Runtime exception while stopping MediaRecorder", e)
+                }
+                
+                try {
+                    release()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Error releasing MediaRecorder", e)
+                }
             }
             
             isRecording = false
@@ -176,7 +205,11 @@ class AudioRecorder(private val context: Context) {
      * Cleanup resources
      */
     private fun cleanup() {
-        mediaRecorder?.release()
+        try {
+            mediaRecorder?.release()
+        } catch (e: Exception) {
+            Log.w(TAG, "Error releasing MediaRecorder during cleanup", e)
+        }
         mediaRecorder = null
         currentAudioFile = null
         isRecording = false
@@ -186,7 +219,7 @@ class AudioRecorder(private val context: Context) {
      * Get supported audio formats for this device
      */
     fun getSupportedFormats(): List<String> {
-        return listOf("AAC", "MPEG_4") // Basic formats that should work on most devices
+        return listOf("AAC_ADTS", "AAC") // Optimized formats for voice recording
     }
     
     /**

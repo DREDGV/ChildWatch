@@ -68,8 +68,8 @@ class AboutActivity : AppCompatActivity() {
     private fun loadAppInfo() {
         try {
             // Load app version
-            val versionName = BuildConfig.VERSION_NAME
-            val versionCode = BuildConfig.VERSION_CODE
+            val versionName = "1.0.0"
+            val versionCode = "1"
             binding.versionText.text = "Версия $versionName ($versionCode)"
             
             // Load device ID
@@ -158,8 +158,8 @@ class AboutActivity : AppCompatActivity() {
     
     private fun createFeedbackText(): String {
         val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-        val versionName = BuildConfig.VERSION_NAME
-        val versionCode = BuildConfig.VERSION_CODE
+        val versionName = "1.0.0"
+        val versionCode = "1"
         
         return """
             Приложение: ChildWatch
@@ -175,8 +175,8 @@ class AboutActivity : AppCompatActivity() {
         try {
             val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
             val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-            val versionName = BuildConfig.VERSION_NAME
-            val versionCode = BuildConfig.VERSION_CODE
+            val versionName = "1.0.0"
+            val versionCode = "1"
             
             val appInfo = """
                 ChildWatch

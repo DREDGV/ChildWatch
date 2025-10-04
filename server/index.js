@@ -1,281 +1,601 @@
 ﻿const express = require('express');
 const multer = require('multer');
-const cors = require('cors');
-const morgan = require('morgan');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
+
+// Import our custom modules
+const AuthManager = require('./auth/AuthManager');
+const AuthMiddleware = require('./middleware/AuthMiddleware');
+const DataValidator = require('./validators/DataValidator');
+const DatabaseManager = require('./database/DatabaseManager');
+
+// Import route modules
+const chatRoutes = require('./routes/chat');
+const locationRoutes = require('./routes/location');
+const mediaRoutes = require('./routes/media');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// Middleware
-app.use(cors());
-app.use(morgan('combined'));
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Initialize managers
+const authManager = new AuthManager();
+const authMiddleware = new AuthMiddleware(authManager);
+const validator = new DataValidator();
+const dbManager = new DatabaseManager();
 
-// Create uploads directory if it doesn't exist
-const uploadsDir = path.join(__dirname, 'uploads');
-if (!fs.existsSync(uploadsDir)) {
-    fs.mkdirSync(uploadsDir);
+// Initialize database
+let isDbInitialized = false;
+async function initializeDatabase() {
+    try {
+        await dbManager.initialize();
+        isDbInitialized = true;
+        console.log('✅ Database initialized successfully');
+    } catch (error) {
+        console.error('❌ Database initialization failed:', error);
+        process.exit(1);
+    }
 }
+
+// Initialize database on startup
+initializeDatabase();
+
+// Middleware
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+app.use(express.static('public'));
+
+// Apply security middleware
+app.use(authMiddleware.securityHeaders());
+app.use(authMiddleware.cors());
+app.use(authMiddleware.requestLogger());
+app.use(authMiddleware.errorHandler());
 
 // Configure multer for file uploads
 const storage = multer.diskStorage({
-    destination: function (req, file, cb) {
-        cb(null, uploadsDir);
+    destination: (req, file, cb) => {
+        const uploadDir = 'uploads';
+        if (!fs.existsSync(uploadDir)) {
+            fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        cb(null, uploadDir);
     },
-    filename: function (req, file, cb) {
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const deviceId = req.body.deviceId || 'unknown';
+    filename: (req, file, cb) => {
+        const timestamp = Date.now();
         const ext = path.extname(file.originalname);
-        cb(null, `${deviceId}_${timestamp}${ext}`);
+        cb(null, `${file.fieldname}_${timestamp}${ext}`);
     }
 });
 
 const upload = multer({ 
     storage: storage,
     limits: {
-        fileSize: 50 * 1024 * 1024 // 50MB limit
+        fileSize: 10 * 1024 * 1024 // 10MB limit
     }
 });
 
-// Logging function
-function logData(type, data) {
-    const timestamp = new Date().toISOString();
-    const logEntry = {
-        timestamp,
-        type,
-        data
-    };
-    
-    console.log(`[${timestamp}] ${type.toUpperCase()}:`, JSON.stringify(data, null, 2));
-    
-    // Optionally save to file
-    const logFile = path.join(__dirname, 'server.log');
-    fs.appendFileSync(logFile, JSON.stringify(logEntry) + '\n');
+// In-memory token storage (in production, use a database)
+const deviceTokens = new Map();
+const refreshTokens = new Map();
+
+// Generate secure tokens
+function generateToken() {
+    return crypto.randomBytes(32).toString('hex');
 }
 
-// Health check endpoint
+function generateRefreshToken() {
+    return crypto.randomBytes(32).toString('hex');
+}
+
+// Authentication middleware
+function authenticateToken(req, res, next) {
+    const authHeader = req.headers['authorization'];
+    const token = authHeader && authHeader.split(' ')[1];
+
+    if (!token) {
+        return res.status(401).json({ error: 'Access token required' });
+    }
+
+    // Check if token exists and is valid
+    const deviceId = Array.from(deviceTokens.keys()).find(id => 
+        deviceTokens.get(id).authToken === token
+    );
+
+    if (!deviceId) {
+        return res.status(403).json({ error: 'Invalid token' });
+    }
+
+    const tokenData = deviceTokens.get(deviceId);
+    
+    // Check if token is expired
+    if (Date.now() > tokenData.expiresAt) {
+        return res.status(401).json({ error: 'Token expired' });
+    }
+
+    req.deviceId = deviceId;
+    req.tokenData = tokenData;
+    next();
+}
+
+// API Routes
+app.use('/api/chat', chatRoutes);
+app.use('/api/location', locationRoutes);
+app.use('/api/media', mediaRoutes);
+
+// Routes
+
+// Health check
 app.get('/api/health', (req, res) => {
     res.json({ 
         status: 'OK', 
         timestamp: new Date().toISOString(),
-        server: 'ChildWatch Test Server'
+        version: '1.0.0'
     });
 });
 
-// Location endpoint - receives GPS coordinates
-app.post('/api/loc', (req, res) => {
-    try {
-        const locationData = {
-            latitude: req.body.latitude,
-            longitude: req.body.longitude,
-            accuracy: req.body.accuracy,
-            timestamp: req.body.timestamp,
-            deviceId: req.body.deviceId,
-            receivedAt: Date.now()
-        };
-        
-        // Validate required fields
-        if (!locationData.latitude || !locationData.longitude) {
-            return res.status(400).json({ 
-                error: 'Missing required fields: latitude, longitude' 
-            });
+// Device registration
+app.post('/api/auth/register', 
+    authMiddleware.validateRequest({
+        body: {
+            deviceId: { required: true, type: 'string', minLength: 10, maxLength: 100 },
+            deviceName: { required: true, type: 'string', maxLength: 100 },
+            deviceType: { required: true, type: 'string', pattern: /^(android|ios)$/ },
+            appVersion: { required: true, type: 'string', pattern: /^\d+\.\d+\.\d+$/ }
         }
-        
-        logData('location', locationData);
-        
-        res.json({ 
-            success: true, 
-            message: 'Location data received',
-            receivedAt: locationData.receivedAt
-        });
-        
-    } catch (error) {
-        console.error('Error processing location data:', error);
-        res.status(500).json({ 
-            error: 'Internal server error',
-            message: error.message 
-        });
-    }
-});
+    }),
+    authMiddleware.rateLimit(60000, 10), // 10 requests per minute for registration
+    (req, res) => {
+        try {
+            const { deviceId, deviceName, deviceType, appVersion } = req.body;
 
-// Audio endpoint - receives audio files
-app.post('/api/audio', upload.single('audio'), (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ 
-                error: 'No audio file uploaded' 
-            });
-        }
-        
-        const audioData = {
-            filename: req.file.filename,
-            originalName: req.file.originalname,
-            size: req.file.size,
-            mimetype: req.file.mimetype,
-            deviceId: req.body.deviceId,
-            timestamp: req.body.timestamp,
-            duration: req.body.duration,
-            receivedAt: Date.now()
-        };
-        
-        logData('audio', audioData);
-        
-        res.json({ 
-            success: true, 
-            message: 'Audio file received',
-            filename: req.file.filename,
-            size: req.file.size,
-            receivedAt: audioData.receivedAt
-        });
-        
-    } catch (error) {
-        console.error('Error processing audio file:', error);
-        res.status(500).json({ 
-            error: 'Internal server error',
-            message: error.message 
-        });
-    }
-});
-
-// Photo endpoint - receives photo files (for future use)
-app.post('/api/photo', upload.single('photo'), (req, res) => {
-    try {
-        if (!req.file) {
-            return res.status(400).json({ 
-                error: 'No photo file uploaded' 
-            });
-        }
-        
-        const photoData = {
-            filename: req.file.filename,
-            originalName: req.file.originalname,
-            size: req.file.size,
-            mimetype: req.file.mimetype,
-            deviceId: req.body.deviceId,
-            timestamp: req.body.timestamp,
-            receivedAt: Date.now()
-        };
-        
-        logData('photo', photoData);
-        
-        res.json({ 
-            success: true, 
-            message: 'Photo file received',
-            filename: req.file.filename,
-            size: req.file.size,
-            receivedAt: photoData.receivedAt
-        });
-        
-    } catch (error) {
-        console.error('Error processing photo file:', error);
-        res.status(500).json({ 
-            error: 'Internal server error',
-            message: error.message 
-        });
-    }
-});
-
-// Get recent data endpoint (for debugging)
-app.get('/api/data', (req, res) => {
-    try {
-        const logFile = path.join(__dirname, 'server.log');
-        
-        if (!fs.existsSync(logFile)) {
-            return res.json({ data: [] });
-        }
-        
-        const logContent = fs.readFileSync(logFile, 'utf8');
-        const lines = logContent.trim().split('\n').filter(line => line);
-        const recentData = lines.slice(-50).map(line => {
-            try {
-                return JSON.parse(line);
-            } catch {
-                return null;
+            // Validate device ID format
+            if (!validator.validateDeviceIdFormat(deviceId)) {
+                return res.status(400).json({ 
+                    error: 'Invalid device ID format',
+                    code: 'INVALID_DEVICE_ID'
+                });
             }
-        }).filter(item => item);
-        
-        res.json({ data: recentData });
-        
-    } catch (error) {
-        console.error('Error reading log data:', error);
-        res.status(500).json({ 
-            error: 'Internal server error',
-            message: error.message 
-        });
-    }
-});
 
-// Serve uploaded files (for debugging)
-app.use('/uploads', express.static(uploadsDir));
+            // Register device
+            const result = authManager.registerDevice({
+                deviceId,
+                deviceName: validator.sanitizeString(deviceName),
+                deviceType,
+                appVersion
+            });
 
-// Root endpoint
-app.get('/', (req, res) => {
-    res.json({
-        message: 'ChildWatch Test Server',
-        version: '1.0.0',
-        endpoints: {
-            'GET /api/health': 'Health check',
-            'POST /api/loc': 'Receive location data',
-            'POST /api/audio': 'Receive audio files',
-            'POST /api/photo': 'Receive photo files',
-            'GET /api/data': 'Get recent received data',
-            'GET /uploads/:filename': 'Access uploaded files'
-        }
-    });
-});
+            if (result.success) {
+                res.json({
+                    success: true,
+                    authToken: result.authToken,
+                    refreshToken: result.refreshToken,
+                    expiresIn: result.expiresIn
+                });
+            } else {
+                res.status(400).json({
+                    error: result.error,
+                    code: 'REGISTRATION_FAILED'
+                });
+            }
 
-// Error handling middleware
-app.use((error, req, res, next) => {
-    if (error instanceof multer.MulterError) {
-        if (error.code === 'LIMIT_FILE_SIZE') {
-            return res.status(400).json({ 
-                error: 'File too large',
-                maxSize: '50MB'
+        } catch (error) {
+            console.error('Registration error:', error);
+            res.status(500).json({ 
+                error: 'Internal server error',
+                code: 'REGISTRATION_ERROR'
             });
         }
     }
-    
-    console.error('Unhandled error:', error);
-    res.status(500).json({ 
-        error: 'Internal server error',
-        message: error.message 
+);
+
+// Token refresh
+app.post('/api/auth/refresh',
+    authMiddleware.validateRequest({
+        body: {
+            refreshToken: { required: true, type: 'string', minLength: 64, maxLength: 64 },
+            deviceId: { required: true, type: 'string', minLength: 10, maxLength: 100 }
+        }
+    }),
+    authMiddleware.rateLimit(60000, 20), // 20 requests per minute for refresh
+    (req, res) => {
+        try {
+            const { refreshToken, deviceId } = req.body;
+
+            // Validate device ID format
+            if (!validator.validateDeviceIdFormat(deviceId)) {
+                return res.status(400).json({ 
+                    error: 'Invalid device ID format',
+                    code: 'INVALID_DEVICE_ID'
+                });
+            }
+
+            // Refresh token
+            const result = authManager.refreshToken(refreshToken, deviceId);
+
+            if (result.success) {
+                res.json({
+                    success: true,
+                    authToken: result.authToken,
+                    refreshToken: result.refreshToken,
+                    expiresIn: result.expiresIn
+                });
+            } else {
+                res.status(401).json({
+                    error: result.error,
+                    code: 'REFRESH_FAILED'
+                });
+            }
+
+        } catch (error) {
+            console.error('Token refresh error:', error);
+            res.status(500).json({ 
+                error: 'Internal server error',
+                code: 'REFRESH_ERROR'
+            });
+        }
+    }
+);
+
+// Token validation
+app.get('/api/auth/validate', authenticateToken, (req, res) => {
+    res.json({ 
+        valid: true, 
+        deviceId: req.deviceId,
+        expiresAt: req.tokenData.expiresAt
     });
 });
+
+// Location upload (protected)
+app.post('/api/loc', 
+    authMiddleware.authenticate(),
+    authMiddleware.rateLimit(60000, 120), // 120 requests per minute for location
+    authMiddleware.validateRequest({
+        body: {
+            latitude: { required: true, type: 'number', min: -90, max: 90 },
+            longitude: { required: true, type: 'number', min: -180, max: 180 },
+            accuracy: { required: true, type: 'number', min: 0, max: 1000 },
+            timestamp: { required: true, type: 'number', min: 0 }
+        }
+    }),
+    async (req, res) => {
+        try {
+            const { latitude, longitude, accuracy, timestamp } = req.body;
+            const deviceId = req.deviceId;
+
+            // Validate location data
+            const validation = validator.validateLocationData({
+                latitude,
+                longitude,
+                accuracy,
+                timestamp,
+                deviceId
+            });
+
+            if (!validation.isValid) {
+                return res.status(400).json({
+                    error: 'Invalid location data',
+                    code: 'INVALID_LOCATION_DATA',
+                    details: validation.errors
+                });
+            }
+
+            // Check for suspicious location (too fast movement)
+            const deviceInfo = authManager.getDeviceInfo(deviceId);
+            if (deviceInfo && deviceInfo.lastLocation) {
+                const suspiciousCheck = validator.checkSuspiciousLocation(
+                    { latitude, longitude, timestamp },
+                    deviceInfo.lastLocation
+                );
+
+                if (suspiciousCheck.suspicious) {
+                    authManager.updateDeviceActivity(deviceId, 'suspicious', {
+                        type: 'suspicious_location',
+                        description: suspiciousCheck.reason
+                    });
+
+                    console.warn(`Suspicious location from ${deviceId}: ${suspiciousCheck.reason}`);
+                }
+            }
+
+            // Save location to database
+            await dbManager.saveLocation(deviceId, {
+                latitude,
+                longitude,
+                accuracy,
+                timestamp
+            });
+
+            // Log activity
+            await dbManager.logActivity(deviceId, 'location', {
+                latitude,
+                longitude,
+                accuracy
+            }, timestamp);
+
+            console.log(`[${new Date().toISOString()}] Location from ${deviceId}: Lat ${latitude}, Lng ${longitude}, Acc ${accuracy} at ${new Date(timestamp)}`);
+            
+            res.json({ 
+                success: true,
+                message: 'Location received and saved',
+                deviceId: deviceId,
+                timestamp: Date.now()
+            });
+
+        } catch (error) {
+            console.error('Location upload error:', error);
+            res.status(500).json({ 
+                error: 'Internal server error',
+                code: 'LOCATION_UPLOAD_ERROR'
+            });
+        }
+    }
+);
+
+// Audio upload (protected)
+app.post('/api/audio', 
+    authMiddleware.authenticate(),
+    authMiddleware.rateLimit(60000, 30), // 30 requests per minute for audio
+    upload.single('audio'),
+    async (req, res) => {
+        try {
+            if (!req.file) {
+                return res.status(400).json({ 
+                    error: 'No audio file provided',
+                    code: 'NO_AUDIO_FILE'
+                });
+            }
+
+            const deviceId = req.deviceId;
+            const { timestamp } = req.body;
+
+            // Validate file upload
+            const fileValidation = validator.validateFileUpload(req.file, ['audio']);
+            if (!fileValidation.isValid) {
+                return res.status(400).json({
+                    error: 'Invalid audio file',
+                    code: 'INVALID_AUDIO_FILE',
+                    details: fileValidation.errors
+                });
+            }
+
+            const audioTimestamp = timestamp ? parseInt(timestamp) : Date.now();
+
+            // Save audio file metadata to database
+            await dbManager.saveAudioFile(deviceId, {
+                filename: req.file.filename,
+                filePath: req.file.path,
+                fileSize: req.file.size,
+                mimeType: req.file.mimetype,
+                duration: null, // Could be extracted with ffprobe
+                timestamp: audioTimestamp
+            });
+
+            // Log activity
+            await dbManager.logActivity(deviceId, 'audio', {
+                filename: req.file.filename,
+                size: req.file.size
+            }, audioTimestamp);
+
+            console.log(`[${new Date().toISOString()}] Audio from ${deviceId}: ${req.file.filename} (${req.file.size} bytes)`);
+
+            res.json({ 
+                success: true,
+                message: 'Audio received and saved',
+                filename: req.file.filename,
+                deviceId: deviceId,
+                timestamp: Date.now()
+            });
+
+        } catch (error) {
+            console.error('Audio upload error:', error);
+            res.status(500).json({ 
+                error: 'Internal server error',
+                code: 'AUDIO_UPLOAD_ERROR'
+            });
+        }
+    }
+);
+
+// Photo upload (protected)
+app.post('/api/photo', 
+    authMiddleware.authenticate(),
+    authMiddleware.rateLimit(60000, 20), // 20 requests per minute for photos
+    upload.single('photo'),
+    async (req, res) => {
+        try {
+            if (!req.file) {
+                return res.status(400).json({ 
+                    error: 'No photo file provided',
+                    code: 'NO_PHOTO_FILE'
+                });
+            }
+
+            const deviceId = req.deviceId;
+            const { timestamp } = req.body;
+
+            // Validate file upload
+            const fileValidation = validator.validateFileUpload(req.file, ['image']);
+            if (!fileValidation.isValid) {
+                return res.status(400).json({
+                    error: 'Invalid photo file',
+                    code: 'INVALID_PHOTO_FILE',
+                    details: fileValidation.errors
+                });
+            }
+
+            const photoTimestamp = timestamp ? parseInt(timestamp) : Date.now();
+
+            // Save photo file metadata to database
+            await dbManager.savePhotoFile(deviceId, {
+                filename: req.file.filename,
+                filePath: req.file.path,
+                fileSize: req.file.size,
+                mimeType: req.file.mimetype,
+                width: null, // Could be extracted with image processing
+                height: null,
+                timestamp: photoTimestamp
+            });
+
+            // Log activity
+            await dbManager.logActivity(deviceId, 'photo', {
+                filename: req.file.filename,
+                size: req.file.size
+            }, photoTimestamp);
+
+            console.log(`[${new Date().toISOString()}] Photo from ${deviceId}: ${req.file.filename} (${req.file.size} bytes)`);
+
+            res.json({ 
+                success: true,
+                message: 'Photo received and saved',
+                filename: req.file.filename,
+                deviceId: deviceId,
+                timestamp: Date.now()
+            });
+
+        } catch (error) {
+            console.error('Photo upload error:', error);
+            res.status(500).json({ 
+                error: 'Internal server error',
+                code: 'PHOTO_UPLOAD_ERROR'
+            });
+        }
+    }
+);
+
+// Get device info (protected)
+app.get('/api/device/info', 
+    authMiddleware.authenticate(),
+    authMiddleware.rateLimit(60000, 60), // 60 requests per minute
+    (req, res) => {
+        try {
+            const deviceId = req.deviceId;
+            const deviceInfo = authManager.getDeviceInfo(deviceId);
+            
+            if (!deviceInfo) {
+                return res.status(404).json({
+                    error: 'Device not found',
+                    code: 'DEVICE_NOT_FOUND'
+                });
+            }
+
+            res.json({
+                success: true,
+                device: deviceInfo
+            });
+
+        } catch (error) {
+            console.error('Get device info error:', error);
+            res.status(500).json({ 
+                error: 'Internal server error',
+                code: 'DEVICE_INFO_ERROR'
+            });
+        }
+    }
+);
+
+// Get server statistics (protected)
+app.get('/api/admin/stats', 
+    authMiddleware.authenticate(),
+    authMiddleware.rateLimit(60000, 10), // 10 requests per minute
+    (req, res) => {
+        try {
+            const deviceId = req.deviceId;
+            
+            // Check if device has admin permissions
+            if (!authManager.checkDevicePermissions(deviceId, 'admin')) {
+                return res.status(403).json({
+                    error: 'Admin access required',
+                    code: 'ADMIN_ACCESS_REQUIRED'
+                });
+            }
+
+            const authStats = authManager.getAuthStats();
+            const validatorStats = {
+                rateLimitEntries: validator.rateLimitMap.size,
+                maxRequestsPerMinute: validator.maxRequestsPerMinute,
+                maxRequestsPerHour: validator.maxRequestsPerHour
+            };
+
+            res.json({
+                success: true,
+                stats: {
+                    auth: authStats,
+                    validator: validatorStats,
+                    server: {
+                        uptime: process.uptime(),
+                        memory: process.memoryUsage(),
+                        version: '1.0.0'
+                    }
+                }
+            });
+
+        } catch (error) {
+            console.error('Get stats error:', error);
+            res.status(500).json({ 
+                error: 'Internal server error',
+                code: 'STATS_ERROR'
+            });
+        }
+    }
+);
+
+// Revoke device access (protected)
+app.post('/api/admin/revoke', 
+    authMiddleware.authenticate(),
+    authMiddleware.rateLimit(60000, 5), // 5 requests per minute
+    authMiddleware.validateRequest({
+        body: {
+            targetDeviceId: { required: true, type: 'string', minLength: 10, maxLength: 100 }
+        }
+    }),
+    (req, res) => {
+        try {
+            const adminDeviceId = req.deviceId;
+            const { targetDeviceId } = req.body;
+            
+            // Check if device has admin permissions
+            if (!authManager.checkDevicePermissions(adminDeviceId, 'admin')) {
+                return res.status(403).json({
+                    error: 'Admin access required',
+                    code: 'ADMIN_ACCESS_REQUIRED'
+                });
+            }
+
+            const success = authManager.revokeDeviceAccess(targetDeviceId);
+            
+            if (success) {
+                res.json({
+                    success: true,
+                    message: 'Device access revoked',
+                    deviceId: targetDeviceId
+                });
+            } else {
+                res.status(404).json({
+                    error: 'Device not found',
+                    code: 'DEVICE_NOT_FOUND'
+                });
+            }
+
+        } catch (error) {
+            console.error('Revoke device error:', error);
+            res.status(500).json({ 
+                error: 'Internal server error',
+                code: 'REVOKE_ERROR'
+            });
+        }
+    }
+);
 
 // 404 handler
-app.use('*', (req, res) => {
-    res.status(404).json({ 
-        error: 'Not found',
-        path: req.originalUrl 
-    });
-});
+app.use(authMiddleware.notFoundHandler());
 
 // Start server
 app.listen(PORT, () => {
-    console.log(`ChildWatch Test Server running on port ${PORT}`);
+    console.log(`ChildWatch Server running on port ${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/api/health`);
-    console.log(`Uploads directory: ${uploadsDir}`);
-    
-    // Log startup
-    logData('server', { 
-        event: 'startup', 
-        port: PORT,
-        pid: process.pid
-    });
+    console.log(`Register device: POST http://localhost:${PORT}/api/auth/register`);
+    console.log(`Server version: 1.0.0`);
+    console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
-// Graceful shutdown
-process.on('SIGTERM', () => {
-    console.log('SIGTERM received, shutting down gracefully');
-    logData('server', { event: 'shutdown', reason: 'SIGTERM' });
-    process.exit(0);
-});
-
-process.on('SIGINT', () => {
-    console.log('SIGINT received, shutting down gracefully');
-    logData('server', { event: 'shutdown', reason: 'SIGINT' });
-    process.exit(0);
-});
+module.exports = app;
