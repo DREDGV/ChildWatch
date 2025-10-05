@@ -12,8 +12,6 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import ru.example.childwatch.databinding.ActivitySettingsBinding
 import ru.example.childwatch.utils.PermissionHelper
-import ru.example.childwatch.utils.SecureSettingsManager
-import ru.example.childwatch.utils.SettingsAuthManager
 import ru.example.childwatch.service.MonitorService
 
 /**
@@ -48,7 +46,6 @@ class SettingsActivity : AppCompatActivity() {
     
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var prefs: SharedPreferences
-    private lateinit var authManager: SettingsAuthManager
 
     // QR Scanner result launcher
     private val qrScannerLauncher = registerForActivityResult(
@@ -69,19 +66,7 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(binding.root)
         
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        authManager = SettingsAuthManager(this)
-        
-        // Check authentication before showing settings
-        // TEMPORARILY DISABLED FOR TESTING
-        /*
-        if (!authManager.isSessionActive()) {
-            val intent = Intent(this, SettingsAuthActivity::class.java)
-            startActivity(intent)
-            finish()
-            return
-        }
-        */
-        
+
         setupUI()
         loadSettings()
     }

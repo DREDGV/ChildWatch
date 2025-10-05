@@ -20,15 +20,24 @@
         android:text="ParentWatch"
         android:textSize="28sp"
         android:textStyle="bold"
-        android:layout_marginBottom="8dp"
+        android:layout_marginBottom="4dp"
         android:textColor="?attr/colorPrimary" />
+
+    <TextView
+        android:id="@+id/appVersionText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="v3.0.0"
+        android:textSize="12sp"
+        android:layout_marginBottom="8dp"
+        android:textColor="?android:attr/textColorSecondary" />
 
     <TextView
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Отслеживание местоположения"
         android:textSize="14sp"
-        android:layout_marginBottom="32dp"
+        android:layout_marginBottom="24dp"
         android:textColor="?android:attr/textColorSecondary" />
 
     <com.google.android.material.card.MaterialCardView

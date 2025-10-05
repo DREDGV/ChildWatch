@@ -83,6 +83,9 @@ class MainActivity : AppCompatActivity() {
 
         prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
 
+        // Set app version
+        binding.appVersionText.text = "v${BuildConfig.VERSION_NAME}"
+
         setupUI()
         loadSettings()
         updateUI()
@@ -141,10 +144,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestPermissionsAndStart() {
-        // First request foreground location permissions
+        // First request foreground location and audio permissions
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
-            Manifest.permission.ACCESS_COARSE_LOCATION
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.RECORD_AUDIO
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -174,32 +178,44 @@ class MainActivity : AppCompatActivity() {
                 Manifest.permission.ACCESS_BACKGROUND_LOCATION
             ) == PackageManager.PERMISSION_GRANTED
 
+            // For debugging: start service anyway, permission dialog will show if needed
             if (!hasBackgroundPermission) {
+                Toast.makeText(this, "Будет запрошено фоновое разрешение", Toast.LENGTH_SHORT).show()
                 backgroundLocationPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-            } else {
-                startLocationService()
             }
+            // Start service regardless of background permission
+            startLocationService()
         } else {
             startLocationService()
         }
     }
 
     private fun startLocationService() {
+        Toast.makeText(this, "Запуск сервиса...", Toast.LENGTH_LONG).show()
+        android.util.Log.d("ParentWatch", "Starting LocationService...")
+
         val intent = Intent(this, LocationService::class.java).apply {
             action = LocationService.ACTION_START
         }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(intent)
-        } else {
-            startService(intent)
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(intent)
+            } else {
+                startService(intent)
+            }
+
+            android.util.Log.d("ParentWatch", "Service started successfully")
+
+            isServiceRunning = true
+            prefs.edit().putBoolean("service_running", true).apply()
+            updateUI()
+
+            Toast.makeText(this, "Сервис запущен", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            android.util.Log.e("ParentWatch", "Failed to start service", e)
+            Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_LONG).show()
         }
-
-        isServiceRunning = true
-        prefs.edit().putBoolean("service_running", true).apply()
-        updateUI()
-
-        Toast.makeText(this, "Сервис запущен", Toast.LENGTH_SHORT).show()
     }
 
     private fun stopLocationService() {
@@ -232,9 +248,9 @@ class MainActivity : AppCompatActivity() {
     private fun getUniqueDeviceId(): String {
         var deviceId = prefs.getString("device_id", null)
         if (deviceId == null) {
-            // Generate simple readable device ID (last 4 digits of Android ID)
+            // Generate device ID in format: child-XXXX (10 chars minimum for server)
             val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-            deviceId = androidId.takeLast(4).uppercase()
+            deviceId = "child-${androidId.takeLast(4).uppercase()}"
             prefs.edit().putString("device_id", deviceId).apply()
         }
         return deviceId

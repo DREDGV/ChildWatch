@@ -136,6 +136,101 @@ class NetworkHelper(private val context: Context) {
     }
 
     /**
+     * Get streaming commands for device
+     */
+    suspend fun getStreamingCommands(serverUrl: String, deviceId: String): List<StreamCommand> = withContext(Dispatchers.IO) {
+        try {
+            val url = "${serverUrl.trimEnd('/')}/api/streaming/commands/$deviceId"
+
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .build()
+
+            Log.d(TAG, "Getting streaming commands for: $deviceId")
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string()
+                    val json = JSONObject(responseBody ?: "{}")
+
+                    val commandsArray = json.optJSONArray("commands")
+                    val commands = mutableListOf<StreamCommand>()
+
+                    if (commandsArray != null) {
+                        for (i in 0 until commandsArray.length()) {
+                            val cmdObj = commandsArray.getJSONObject(i)
+                            commands.add(
+                                StreamCommand(
+                                    id = cmdObj.getString("id"),
+                                    type = cmdObj.getString("type"),
+                                    timestamp = cmdObj.getLong("timestamp")
+                                )
+                            )
+                        }
+                    }
+
+                    Log.d(TAG, "Received ${commands.size} commands")
+                    return@withContext commands
+                }
+
+                Log.e(TAG, "Get commands failed: ${response.code}")
+                return@withContext emptyList()
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Get commands error", e)
+            return@withContext emptyList()
+        }
+    }
+
+    /**
+     * Upload audio chunk to server
+     */
+    suspend fun uploadAudioChunk(
+        serverUrl: String,
+        deviceId: String,
+        audioData: ByteArray,
+        sequence: Int,
+        recording: Boolean
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = "${serverUrl.trimEnd('/')}/api/streaming/chunk"
+
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("deviceId", deviceId)
+                .addFormDataPart("sequence", sequence.toString())
+                .addFormDataPart("recording", recording.toString())
+                .addFormDataPart(
+                    "audio",
+                    "chunk_$sequence.webm",
+                    audioData.toRequestBody("audio/webm".toMediaType())
+                )
+                .build()
+
+            val request = Request.Builder()
+                .url(url)
+                .post(requestBody)
+                .build()
+
+            Log.d(TAG, "Uploading audio chunk: sequence=$sequence, size=${audioData.size}, recording=$recording")
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    Log.d(TAG, "Audio chunk uploaded successfully")
+                    return@withContext true
+                } else {
+                    Log.e(TAG, "Upload chunk failed: ${response.code}")
+                    return@withContext false
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Upload chunk error", e)
+            return@withContext false
+        }
+    }
+
+    /**
      * Interceptor to add auth token to requests
      */
     private inner class AuthInterceptor : Interceptor {
@@ -146,11 +241,11 @@ class NetworkHelper(private val context: Context) {
             val request = if (token != null) {
                 original.newBuilder()
                     .header("Authorization", "Bearer $token")
-                    .header("User-Agent", "ParentWatch/1.0")
+                    .header("User-Agent", "ParentWatch/3.1.0")
                     .build()
             } else {
                 original.newBuilder()
-                    .header("User-Agent", "ParentWatch/1.0")
+                    .header("User-Agent", "ParentWatch/3.1.0")
                     .build()
             }
 
@@ -158,3 +253,12 @@ class NetworkHelper(private val context: Context) {
         }
     }
 }
+
+/**
+ * Data class for streaming command
+ */
+data class StreamCommand(
+    val id: String,
+    val type: String,
+    val timestamp: Long
+)

@@ -9,11 +9,13 @@ const AuthManager = require('./auth/AuthManager');
 const AuthMiddleware = require('./middleware/AuthMiddleware');
 const DataValidator = require('./validators/DataValidator');
 const DatabaseManager = require('./database/DatabaseManager');
+const CommandManager = require('./managers/CommandManager');
 
 // Import route modules
 const chatRoutes = require('./routes/chat');
 const locationRoutes = require('./routes/location');
 const mediaRoutes = require('./routes/media');
+const streamingRoutes = require('./routes/streaming');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -23,6 +25,7 @@ const authManager = new AuthManager();
 const authMiddleware = new AuthMiddleware(authManager);
 const validator = new DataValidator();
 const dbManager = new DatabaseManager();
+const commandManager = new CommandManager();
 
 // Initialize database
 let isDbInitialized = false;
@@ -117,10 +120,14 @@ function authenticateToken(req, res, next) {
     next();
 }
 
+// Initialize streaming routes with managers
+streamingRoutes.init(commandManager, dbManager);
+
 // API Routes
 app.use('/api/chat', chatRoutes);
 app.use('/api/location', locationRoutes);
 app.use('/api/media', mediaRoutes);
+app.use('/api/streaming', streamingRoutes);
 
 // Routes
 
@@ -692,12 +699,18 @@ app.post('/api/admin/revoke',
 // 404 handler
 app.use(authMiddleware.notFoundHandler());
 
+// Cleanup interval for streaming sessions
+setInterval(() => {
+    commandManager.cleanup();
+}, 60000); // Every minute
+
 // Start server
-app.listen(PORT, () => {
+app.listen(PORT, '0.0.0.0', () => {
     console.log(`ChildWatch Server running on port ${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/api/health`);
     console.log(`Register device: POST http://localhost:${PORT}/api/auth/register`);
-    console.log(`Server version: 1.0.0`);
+    console.log(`Audio streaming: POST http://localhost:${PORT}/api/streaming/start`);
+    console.log(`Server version: 1.1.0`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 
