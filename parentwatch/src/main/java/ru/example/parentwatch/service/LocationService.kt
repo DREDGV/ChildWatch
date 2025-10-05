@@ -303,6 +303,14 @@ class LocationService : Service() {
             ) != PackageManager.PERMISSION_GRANTED
         ) {
             Log.e(TAG, "Audio permission not granted")
+            serviceScope.launch(Dispatchers.Main) {
+                android.widget.Toast.makeText(
+                    this@LocationService,
+                    "⚠️ Нет разрешения на микрофон! Откройте настройки и дайте разрешение.",
+                    android.widget.Toast.LENGTH_LONG
+                ).show()
+            }
+            updateNotification("⚠️ Нужно разрешение на микрофон")
             return
         }
 
