@@ -1,11 +1,13 @@
 package ru.example.childwatch
 
+import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import ru.example.childwatch.databinding.ActivitySettingsBinding
@@ -47,7 +49,20 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var prefs: SharedPreferences
     private lateinit var authManager: SettingsAuthManager
-    
+
+    // QR Scanner result launcher
+    private val qrScannerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK) {
+            val scannedCode = result.data?.getStringExtra("SCANNED_QR_CODE")
+            if (!scannedCode.isNullOrEmpty()) {
+                binding.childDeviceIdInput.setText(scannedCode)
+                Toast.makeText(this, "QR-код отсканирован: $scannedCode", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsBinding.inflate(layoutInflater)
@@ -76,7 +91,13 @@ class SettingsActivity : AppCompatActivity() {
         binding.saveSettingsBtn.setOnClickListener {
             saveSettings()
         }
-        
+
+        // QR Scanner button
+        binding.scanQrButton.setOnClickListener {
+            val intent = Intent(this, QrScannerActivity::class.java)
+            qrScannerLauncher.launch(intent)
+        }
+
         // Reset settings button
         binding.resetSettingsBtn.setOnClickListener {
             showResetConfirmation()

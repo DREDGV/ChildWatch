@@ -38,17 +38,39 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private var isServiceRunning = false
 
-    // Permission launcher
-    private val permissionLauncher = registerForActivityResult(
+    // Permission launchers
+    private val locationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
         val allGranted = permissions.values.all { it }
         if (allGranted) {
-            startLocationService()
+            // After foreground location is granted, request background location separately (Android 10+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                requestBackgroundLocationPermission()
+            } else {
+                startLocationService()
+            }
         } else {
             Toast.makeText(
                 this,
                 "Необходимы разрешения для работы приложения",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    private val backgroundLocationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        // Start service regardless - it will work with foreground-only permission if background was denied
+        // User can always grant "Allow all the time" later from Settings
+        startLocationService()
+
+        if (!granted && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // Just inform the user, don't block them
+            Toast.makeText(
+                this,
+                "Совет: для работы в фоне выберите 'Разрешить всегда' в настройках приложения",
                 Toast.LENGTH_LONG
             ).show()
         }
@@ -119,25 +141,44 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestPermissionsAndStart() {
+        // First request foreground location permissions
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            permissions.add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-        }
-
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             permissions.add(Manifest.permission.POST_NOTIFICATIONS)
         }
 
-        val needsPermissions = permissions.any {
+        val needsForegroundPermissions = permissions.any {
             ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
         }
 
-        if (needsPermissions) {
-            permissionLauncher.launch(permissions.toTypedArray())
+        if (needsForegroundPermissions) {
+            locationPermissionLauncher.launch(permissions.toTypedArray())
+        } else {
+            // Foreground permissions already granted, check background
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                requestBackgroundLocationPermission()
+            } else {
+                startLocationService()
+            }
+        }
+    }
+
+    private fun requestBackgroundLocationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val hasBackgroundPermission = ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_BACKGROUND_LOCATION
+            ) == PackageManager.PERMISSION_GRANTED
+
+            if (!hasBackgroundPermission) {
+                backgroundLocationPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            } else {
+                startLocationService()
+            }
         } else {
             startLocationService()
         }

@@ -125,7 +125,14 @@
             android:exported="false"
             android:theme="@style/Theme.ChildWatch"
             android:parentActivityName=".MainActivity" />
-        
+
+        <!-- QR Scanner Activity -->
+        <activity
+            android:name=".QrScannerActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ChildWatch"
+            android:parentActivityName=".SettingsActivity" />
+
         <!-- About Activity -->
         <activity
             android:name=".AboutActivity"

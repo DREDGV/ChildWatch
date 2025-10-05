@@ -103,23 +103,52 @@
                 </com.google.android.material.textfield.TextInputLayout>
 
                 <!-- Child Device ID -->
-                <com.google.android.material.textfield.TextInputLayout
+                <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:hint="@string/child_device_id"
-                    app:helperText="@string/child_device_id_help"
-                    app:helperTextEnabled="true"
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+                    android:text="@string/child_device_id"
+                    android:textSize="14sp"
+                    android:layout_marginBottom="8dp" />
 
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/childDeviceIdInput"
-                        android:layout_width="match_parent"
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="16dp">
+
+                    <com.google.android.material.textfield.TextInputLayout
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:inputType="text"
-                        android:hint="@string/child_device_id_hint" />
+                        android:layout_weight="1"
+                        android:layout_marginEnd="8dp"
+                        android:hint="@string/child_device_id_hint"
+                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
 
-                </com.google.android.material.textfield.TextInputLayout>
+                        <com.google.android.material.textfield.TextInputEditText
+                            android:id="@+id/childDeviceIdInput"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:inputType="text" />
+
+                    </com.google.android.material.textfield.TextInputLayout>
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/scanQrButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="QR"
+                        app:icon="@android:drawable/ic_menu_camera"
+                        style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="@string/child_device_id_help"
+                    android:textSize="12sp"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:layout_marginBottom="16dp" />
 
             </LinearLayout>
 
