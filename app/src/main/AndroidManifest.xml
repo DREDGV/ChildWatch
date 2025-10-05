@@ -45,7 +45,12 @@
         android:theme="@style/Theme.ChildWatch"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
-        
+
+        <!-- Google Maps API Key -->
+        <meta-data
+            android:name="com.google.android.geo.API_KEY"
+            android:value="@string/google_maps_key" />
+
         <!-- Consent Activity - shown first -->
         <activity
             android:name=".ConsentActivity"
@@ -70,7 +75,14 @@
             android:exported="false"
             android:theme="@style/Theme.ChildWatch" />
         
-        <!-- Location Map Activity -->
+        <!-- Location Map Activity (2GIS) -->
+        <activity
+            android:name=".LocationMapActivity2GIS"
+            android:exported="false"
+            android:theme="@style/Theme.ChildWatch"
+            android:parentActivityName=".MainActivity" />
+
+        <!-- Location Map Activity (Google Maps - backup) -->
         <activity
             android:name=".LocationMapActivity"
             android:exported="false"

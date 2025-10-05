@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+    TODO: Замените YOUR_API_KEY на ваш реальный Google Maps API ключ
+
+    Получить ключ можно здесь:
+    https://console.cloud.google.com/google/maps-apis/
+
+    1. Создайте проект в Google Cloud Console
+    2. Включите Maps SDK for Android
+    3. Создайте API ключ
+    4. Ограничьте ключ для Android приложений
+    5. Добавьте SHA-1 отпечаток вашего signing сертификата
+
+    Для debug сертификата используйте:
+    keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
+    -->
+    <string name="google_maps_key" translatable="false">AIzaSyDummy_Key_Replace_With_Your_Real_Key</string>
+</resources>

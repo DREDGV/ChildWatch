@@ -581,4 +581,68 @@ class NetworkClient(private val context: Context) {
             Log.d(TAG, "Offline queue cleared")
         }
     }
+
+    /**
+     * Get child location from server using Retrofit
+     */
+    suspend fun getChildLocation(childDeviceId: String): retrofit2.Response<LocationResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+                val serverUrl = prefs.getString("server_url", "http://10.0.2.2:3000") ?: "http://10.0.2.2:3000"
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+
+                Log.d(TAG, "Getting child location from server: $serverUrl")
+                Log.d(TAG, "Child device ID: $childDeviceId")
+
+                api.getChildLocation(childDeviceId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting child location", e)
+                throw e
+            }
+        }
+    }
+
+    /**
+     * Create Retrofit client with authentication
+     */
+    private fun createRetrofitClient(baseUrl: String): retrofit2.Retrofit {
+        val loggingInterceptor = HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        }
+
+        val authInterceptor = okhttp3.Interceptor { chain ->
+            val original = chain.request()
+            val token = getAuthToken()
+
+            val request = if (token != null) {
+                original.newBuilder()
+                    .header("Authorization", "Bearer $token")
+                    .header("User-Agent", "ChildWatch/1.0")
+                    .build()
+            } else {
+                original.newBuilder()
+                    .header("User-Agent", "ChildWatch/1.0")
+                    .build()
+            }
+
+            chain.proceed(request)
+        }
+
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
+            .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
+            .writeTimeout(WRITE_TIMEOUT, TimeUnit.SECONDS)
+            .addInterceptor(authInterceptor)
+            .addInterceptor(loggingInterceptor)
+            .build()
+
+        return retrofit2.Retrofit.Builder()
+            .baseUrl(baseUrl)
+            .client(okHttpClient)
+            .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
+            .build()
+    }
 }

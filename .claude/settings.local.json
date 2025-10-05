@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node:*)",
+      "Bash(curl:*)",
+      "Bash(tasklist)",
+      "Bash(findstr:*)",
+      "Bash(netstat:*)",
+      "Bash(taskkill:*)",
+      "Bash(npm run dev:*)",
+      "Bash(timeout 5 curl -s http://localhost:3000/api/health)",
+      "Bash(timeout:*)",
+      "Bash(./gradlew:*)",
+      "Bash(dir:*)",
+      "Bash(gradlew.bat assembleDebug:*)",
+      "Bash(.\\gradlew.bat:*)",
+      "Bash(where adb)",
+      "Bash(adb:*)",
+      "Bash(emulator:*)",
+      "Bash(gradle:*)",
+      "Bash(for:*)",
+      "Bash(do cp /c/Users/dr-ed/ChildWatch/app/src/main/res/mipmap-$dir/ic_launcher.png /c/Users/dr-ed/ChildWatch/parentwatch/src/main/res/mipmap-$dir/)",
+      "Bash(done)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

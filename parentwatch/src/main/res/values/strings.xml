@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ParentWatch</string>
+    <string name="service_running">ParentWatch активен</string>
+    <string name="location_tracking">Отслеживание местоположения</string>
+    <string name="start_service">Запустить мониторинг</string>
+    <string name="stop_service">Остановить мониторинг</string>
+    <string name="status_running">Работает</string>
+    <string name="status_stopped">Остановлен</string>
+    <string name="server_url_hint">http://10.0.2.2:3000</string>
+    <string name="notification_channel_name">Отслеживание местоположения</string>
+    <string name="notification_channel_description">Уведомления о работе службы отслеживания</string>
+</resources>

@@ -463,14 +463,14 @@ app.post('/api/photo',
 );
 
 // Get device info (protected)
-app.get('/api/device/info', 
+app.get('/api/device/info',
     authMiddleware.authenticate(),
     authMiddleware.rateLimit(60000, 60), // 60 requests per minute
     (req, res) => {
         try {
             const deviceId = req.deviceId;
             const deviceInfo = authManager.getDeviceInfo(deviceId);
-            
+
             if (!deviceInfo) {
                 return res.status(404).json({
                     error: 'Device not found',
@@ -485,9 +485,112 @@ app.get('/api/device/info',
 
         } catch (error) {
             console.error('Get device info error:', error);
-            res.status(500).json({ 
+            res.status(500).json({
                 error: 'Internal server error',
                 code: 'DEVICE_INFO_ERROR'
+            });
+        }
+    }
+);
+
+// Get latest location of a device (protected)
+app.get('/api/location/latest/:deviceId?',
+    authMiddleware.authenticate(),
+    authMiddleware.rateLimit(60000, 120), // 120 requests per minute
+    async (req, res) => {
+        try {
+            // If deviceId is provided in params, use it; otherwise use authenticated device's own location
+            const targetDeviceId = req.params.deviceId || req.deviceId;
+
+            // Validate device ID
+            if (!validator.validateDeviceIdFormat(targetDeviceId)) {
+                return res.status(400).json({
+                    error: 'Invalid device ID format',
+                    code: 'INVALID_DEVICE_ID'
+                });
+            }
+
+            // Get latest location from database
+            const location = await dbManager.getLatestLocation(targetDeviceId);
+
+            if (!location) {
+                return res.status(404).json({
+                    error: 'No location data found for this device',
+                    code: 'LOCATION_NOT_FOUND',
+                    deviceId: targetDeviceId
+                });
+            }
+
+            res.json({
+                success: true,
+                deviceId: targetDeviceId,
+                location: {
+                    latitude: location.latitude,
+                    longitude: location.longitude,
+                    accuracy: location.accuracy,
+                    timestamp: location.timestamp,
+                    recordedAt: new Date(location.timestamp).toISOString()
+                }
+            });
+
+        } catch (error) {
+            console.error('Get latest location error:', error);
+            res.status(500).json({
+                error: 'Internal server error',
+                code: 'LOCATION_FETCH_ERROR'
+            });
+        }
+    }
+);
+
+// Get location history of a device (protected)
+app.get('/api/location/history/:deviceId?',
+    authMiddleware.authenticate(),
+    authMiddleware.rateLimit(60000, 60), // 60 requests per minute
+    async (req, res) => {
+        try {
+            const targetDeviceId = req.params.deviceId || req.deviceId;
+            const limit = parseInt(req.query.limit) || 100;
+            const offset = parseInt(req.query.offset) || 0;
+
+            // Validate parameters
+            if (!validator.validateDeviceIdFormat(targetDeviceId)) {
+                return res.status(400).json({
+                    error: 'Invalid device ID format',
+                    code: 'INVALID_DEVICE_ID'
+                });
+            }
+
+            if (limit < 1 || limit > 1000) {
+                return res.status(400).json({
+                    error: 'Limit must be between 1 and 1000',
+                    code: 'INVALID_LIMIT'
+                });
+            }
+
+            // Get location history from database
+            const locations = await dbManager.getLocationHistory(targetDeviceId, limit, offset);
+
+            res.json({
+                success: true,
+                deviceId: targetDeviceId,
+                count: locations.length,
+                limit: limit,
+                offset: offset,
+                locations: locations.map(loc => ({
+                    latitude: loc.latitude,
+                    longitude: loc.longitude,
+                    accuracy: loc.accuracy,
+                    timestamp: loc.timestamp,
+                    recordedAt: new Date(loc.timestamp).toISOString()
+                }))
+            });
+
+        } catch (error) {
+            console.error('Get location history error:', error);
+            res.status(500).json({
+                error: 'Internal server error',
+                code: 'LOCATION_HISTORY_ERROR'
             });
         }
     }

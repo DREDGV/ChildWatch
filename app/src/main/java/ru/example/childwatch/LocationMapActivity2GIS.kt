@@ -2,61 +2,61 @@ package ru.example.childwatch
 
 import android.Manifest
 import android.content.pm.PackageManager
-import android.location.Location
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.GoogleMap
-import com.google.android.gms.maps.OnMapReadyCallback
-import com.google.android.gms.maps.SupportMapFragment
-import com.google.android.gms.maps.model.LatLng
-import com.google.android.gms.maps.model.MarkerOptions
-import com.google.android.gms.maps.model.BitmapDescriptorFactory
-import ru.example.childwatch.databinding.ActivityLocationMapNewBinding
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.*
+import ru.dgis.sdk.Context
+import ru.dgis.sdk.DGis
+import ru.dgis.sdk.coordinates.GeoPoint
+import ru.dgis.sdk.map.*
+import ru.example.childwatch.databinding.ActivityLocationMap2gisBinding
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.LocationData
 import ru.example.childwatch.utils.PermissionHelper
-import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * Location Map Activity with Google Maps integration
+ * Location Map Activity with 2GIS Maps integration
  *
  * Features:
- * - Google Map display
+ * - 2GIS Map display (perfect for Russia)
  * - Child location marker
  * - Real-time location updates from server
- * - Location history
- * - Auto-refresh
+ * - Auto-refresh every 30 seconds
  */
-class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
+class LocationMapActivity2GIS : AppCompatActivity() {
 
     companion object {
-        private const val TAG = "LocationMapActivity"
+        private const val TAG = "LocationMapActivity2GIS"
         private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
-        private const val DEFAULT_ZOOM = 15f
+        private const val DEFAULT_ZOOM = 16.0
         private const val AUTO_REFRESH_INTERVAL = 30000L // 30 seconds
     }
 
-    private lateinit var binding: ActivityLocationMapNewBinding
+    private lateinit var binding: ActivityLocationMap2gisBinding
     private lateinit var networkClient: NetworkClient
-    private var googleMap: GoogleMap? = null
-    private var currentMarker: com.google.android.gms.maps.model.Marker? = null
+    private lateinit var sdkContext: Context
+    private var map: Map? = null
+    private var currentMarker: Marker? = null
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var autoRefreshJob: Job? = null
 
-    // Child device ID (should be configured in settings or obtained from server)
+    // Child device ID (from settings)
     private var childDeviceId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityLocationMapNewBinding.inflate(layoutInflater)
+
+        // Initialize 2GIS SDK
+        sdkContext = DGis.initialize(this)
+
+        binding = ActivityLocationMap2gisBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
         // Initialize network client
@@ -70,15 +70,18 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
         setupUI()
 
         // Initialize map
-        val mapFragment = supportFragmentManager
-            .findFragmentById(R.id.mapFragment) as SupportMapFragment
-        mapFragment.getMapAsync(this)
+        lifecycleScope.launch {
+            binding.mapView.getMapAsync { map ->
+                this@LocationMapActivity2GIS.map = map
+                onMapReady()
+            }
+        }
     }
 
     private fun setupUI() {
         // Set up action bar
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = "Карта местоположения"
+        supportActionBar?.title = "Карта местоположения (2GIS)"
 
         // Refresh button
         binding.refreshLocationButton.setOnClickListener {
@@ -93,28 +96,18 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
         // View history button
         binding.viewHistoryButton.setOnClickListener {
             Toast.makeText(this, "История перемещений (в разработке)", Toast.LENGTH_SHORT).show()
-            // TODO: Implement history view
         }
 
         // Show initial message
         updateLocationInfo("Подключение к серверу...", null)
     }
 
-    override fun onMapReady(map: GoogleMap) {
-        googleMap = map
-
-        // Configure map
-        googleMap?.apply {
-            uiSettings.isZoomControlsEnabled = true
-            uiSettings.isCompassEnabled = true
-            uiSettings.isMyLocationButtonEnabled = false
-        }
+    private fun onMapReady() {
+        Log.d(TAG, "Map ready")
 
         // Request location permission
         if (!PermissionHelper.hasLocationPermissions(this)) {
             requestLocationPermission()
-        } else {
-            enableMyLocation()
         }
 
         // Load initial location
@@ -122,16 +115,6 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
 
         // Start auto-refresh
         startAutoRefresh()
-    }
-
-    private fun enableMyLocation() {
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
-            googleMap?.isMyLocationEnabled = true
-        }
     }
 
     private fun refreshLocation() {
@@ -178,45 +161,63 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
                         "Ошибка загрузки: ${response.code()}"
                     }
                     updateLocationInfo("❌ $errorMsg", null)
-                    Toast.makeText(this@LocationMapActivity, errorMsg, Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@LocationMapActivity2GIS, errorMsg, Toast.LENGTH_SHORT).show()
                 }
 
             } catch (e: Exception) {
                 Log.e(TAG, "Location refresh error", e)
                 binding.loadingProgress.hide()
                 updateLocationInfo("❌ Ошибка подключения к серверу", null)
-                Toast.makeText(this@LocationMapActivity, "Ошибка: ${e.message}", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this@LocationMapActivity2GIS, "Ошибка: ${e.message}", Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     private fun updateMapLocation(latitude: Double, longitude: Double, accuracy: Float, timestamp: Long) {
-        val position = LatLng(latitude, longitude)
+        val position = GeoPoint(latitude, longitude)
 
-        googleMap?.apply {
+        map?.let { map ->
             // Remove old marker
-            currentMarker?.remove()
+            currentMarker?.let { map.mapObjectManager.removeObject(it) }
 
-            // Add new marker
-            currentMarker = addMarker(
-                MarkerOptions()
-                    .position(position)
-                    .title("Местоположение ребенка")
-                    .snippet("Точность: ${accuracy.toInt()} м\nВремя: ${formatTime(timestamp)}")
-                    .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE))
+            // Create marker options
+            val markerOptions = MarkerOptions(
+                position = position,
+                icon = sdkContext.imageFactory.fromResource(android.R.drawable.ic_menu_mylocation)
             )
 
-            // Show info window
-            currentMarker?.showInfoWindow()
+            // Add new marker
+            currentMarker = map.mapObjectManager.addMarker(markerOptions)
 
-            // Move camera
-            animateCamera(CameraUpdateFactory.newLatLngZoom(position, DEFAULT_ZOOM))
+            // Move camera to position
+            val cameraPosition = CameraPosition(
+                point = position,
+                zoom = Zoom(DEFAULT_ZOOM)
+            )
+
+            map.camera.move(
+                cameraPosition,
+                Duration.ofSeconds(1),
+                CameraAnimationType.LINEAR
+            )
+
+            Log.d(TAG, "Map updated: $latitude, $longitude")
         }
     }
 
     private fun centerMapOnChild() {
         currentMarker?.let { marker ->
-            googleMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(marker.position, DEFAULT_ZOOM))
+            map?.let { map ->
+                val cameraPosition = CameraPosition(
+                    point = marker.position,
+                    zoom = Zoom(DEFAULT_ZOOM)
+                )
+                map.camera.move(
+                    cameraPosition,
+                    Duration.ofSeconds(1),
+                    CameraAnimationType.LINEAR
+                )
+            }
         } ?: run {
             Toast.makeText(this, "Местоположение недоступно", Toast.LENGTH_SHORT).show()
         }
@@ -295,7 +296,6 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
 
         if (requestCode == LOCATION_PERMISSION_REQUEST_CODE) {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                enableMyLocation()
                 refreshLocation()
             } else {
                 Toast.makeText(this, "Разрешение на геолокацию необходимо для работы", Toast.LENGTH_LONG).show()
@@ -305,16 +305,19 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onResume() {
         super.onResume()
+        binding.mapView.onResume()
         startAutoRefresh()
     }
 
     override fun onPause() {
         super.onPause()
+        binding.mapView.onPause()
         stopAutoRefresh()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        binding.mapView.onDestroy()
         serviceScope.cancel()
     }
 
