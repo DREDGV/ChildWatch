@@ -34,6 +34,11 @@ import java.util.*
  */
 class MainActivity : AppCompatActivity() {
 
+    companion object {
+        private const val LOCALHOST_URL = "http://10.0.2.2:3000"
+        private const val RAILWAY_URL = "https://childwatch-production.up.railway.app"
+    }
+
     private lateinit var binding: ActivityMainBinding
     private lateinit var prefs: SharedPreferences
     private var isServiceRunning = false
@@ -123,6 +128,17 @@ class MainActivity : AppCompatActivity() {
         // Show QR code button
         binding.showQrButton.setOnClickListener {
             showQrCodeDialog(deviceId)
+        }
+
+        // Server URL preset buttons
+        binding.useLocalhostBtn.setOnClickListener {
+            binding.serverUrlInput.setText(LOCALHOST_URL)
+            Toast.makeText(this, "Localhost URL установлен", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.useRailwayBtn.setOnClickListener {
+            binding.serverUrlInput.setText(RAILWAY_URL)
+            Toast.makeText(this, "Railway URL установлен", Toast.LENGTH_SHORT).show()
         }
     }
 

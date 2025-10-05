@@ -28,11 +28,15 @@ class SettingsActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "SettingsActivity"
         private const val PREFS_NAME = "childwatch_prefs"
-        
+
         // Default values
         private const val DEFAULT_LOCATION_INTERVAL = 30
         private const val DEFAULT_AUDIO_DURATION = 20
         private const val DEFAULT_SERVER_URL = "http://10.0.2.2:3000/"
+
+        // Server URL presets
+        private const val LOCALHOST_URL = "http://10.0.2.2:3000"
+        private const val RAILWAY_URL = "https://childwatch-production.up.railway.app"
         
         // Keys
         private const val KEY_LOCATION_INTERVAL = "location_interval"
@@ -81,6 +85,17 @@ class SettingsActivity : AppCompatActivity() {
         binding.scanQrButton.setOnClickListener {
             val intent = Intent(this, QrScannerActivity::class.java)
             qrScannerLauncher.launch(intent)
+        }
+
+        // Server URL preset buttons
+        binding.useLocalhostBtn.setOnClickListener {
+            binding.serverUrlInput.setText(LOCALHOST_URL)
+            Toast.makeText(this, "Localhost URL установлен", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.useRailwayBtn.setOnClickListener {
+            binding.serverUrlInput.setText(RAILWAY_URL)
+            Toast.makeText(this, "Railway URL установлен", Toast.LENGTH_SHORT).show()
         }
 
         // Reset settings button
