@@ -101,7 +101,23 @@ class MainActivity : AppCompatActivity() {
             val intent = Intent(this, AudioActivity::class.java)
             startActivity(intent)
         }
-        
+
+        binding.audioStreamingCard.setOnClickListener {
+            val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+            val serverUrl = prefs.getString("server_url", "http://10.0.2.2:3000") ?: "http://10.0.2.2:3000"
+            val childDeviceId = prefs.getString("child_device_id", "")
+
+            if (childDeviceId.isNullOrEmpty()) {
+                showToast("Сначала укажите Device ID ребёнка в Настройках")
+            } else {
+                val intent = Intent(this, AudioStreamingActivity::class.java).apply {
+                    putExtra(AudioStreamingActivity.EXTRA_DEVICE_ID, childDeviceId)
+                    putExtra(AudioStreamingActivity.EXTRA_SERVER_URL, serverUrl)
+                }
+                startActivity(intent)
+            }
+        }
+
         binding.chatCard.setOnClickListener {
             val intent = Intent(this, ChatActivity::class.java)
             startActivity(intent)

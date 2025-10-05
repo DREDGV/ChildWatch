@@ -646,4 +646,264 @@ class NetworkClient(private val context: Context) {
             .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
             .build()
     }
+
+    // ========== Audio Streaming Methods ==========
+
+    /**
+     * Start audio streaming from child device
+     */
+    suspend fun startAudioStreaming(serverUrl: String, deviceId: String, recordingMode: Boolean = false): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val url = "${serverUrl.trimEnd('/')}/api/streaming/start"
+                val json = JSONObject().apply {
+                    put("deviceId", deviceId)
+                    put("recording", recordingMode)
+                }
+
+                val requestBody = json.toString()
+                    .toRequestBody("application/json".toMediaType())
+
+                val request = Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .build()
+
+                val response = client.newCall(request).execute()
+                val success = response.isSuccessful
+
+                if (success) {
+                    Log.d(TAG, "Audio streaming started for device $deviceId (recording: $recordingMode)")
+                } else {
+                    Log.e(TAG, "Failed to start streaming: ${response.code} ${response.body?.string()}")
+                }
+
+                response.close()
+                success
+            } catch (e: Exception) {
+                Log.e(TAG, "Error starting audio streaming", e)
+                false
+            }
+        }
+    }
+
+    /**
+     * Stop audio streaming
+     */
+    suspend fun stopAudioStreaming(serverUrl: String, deviceId: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val url = "${serverUrl.trimEnd('/')}/api/streaming/stop"
+                val json = JSONObject().apply {
+                    put("deviceId", deviceId)
+                }
+
+                val requestBody = json.toString()
+                    .toRequestBody("application/json".toMediaType())
+
+                val request = Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .build()
+
+                val response = client.newCall(request).execute()
+                val success = response.isSuccessful
+
+                if (success) {
+                    Log.d(TAG, "Audio streaming stopped for device $deviceId")
+                } else {
+                    Log.e(TAG, "Failed to stop streaming: ${response.code}")
+                }
+
+                response.close()
+                success
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping audio streaming", e)
+                false
+            }
+        }
+    }
+
+    /**
+     * Start recording during streaming
+     */
+    suspend fun startRecording(serverUrl: String, deviceId: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val url = "${serverUrl.trimEnd('/')}/api/streaming/record/start"
+                val json = JSONObject().apply {
+                    put("deviceId", deviceId)
+                }
+
+                val requestBody = json.toString()
+                    .toRequestBody("application/json".toMediaType())
+
+                val request = Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .build()
+
+                val response = client.newCall(request).execute()
+                val success = response.isSuccessful
+
+                if (success) {
+                    Log.d(TAG, "Recording started for device $deviceId")
+                } else {
+                    Log.e(TAG, "Failed to start recording: ${response.code}")
+                }
+
+                response.close()
+                success
+            } catch (e: Exception) {
+                Log.e(TAG, "Error starting recording", e)
+                false
+            }
+        }
+    }
+
+    /**
+     * Stop recording
+     */
+    suspend fun stopRecording(serverUrl: String, deviceId: String): Boolean {
+        return withContext(Dispatchers.IO) {
+            try {
+                val url = "${serverUrl.trimEnd('/')}/api/streaming/record/stop"
+                val json = JSONObject().apply {
+                    put("deviceId", deviceId)
+                }
+
+                val requestBody = json.toString()
+                    .toRequestBody("application/json".toMediaType())
+
+                val request = Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .build()
+
+                val response = client.newCall(request).execute()
+                val success = response.isSuccessful
+
+                if (success) {
+                    Log.d(TAG, "Recording stopped for device $deviceId")
+                } else {
+                    Log.e(TAG, "Failed to stop recording: ${response.code}")
+                }
+
+                response.close()
+                success
+            } catch (e: Exception) {
+                Log.e(TAG, "Error stopping recording", e)
+                false
+            }
+        }
+    }
+
+    /**
+     * Get audio chunks from server
+     */
+    suspend fun getAudioChunks(serverUrl: String, deviceId: String): List<AudioChunk>? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val url = "${serverUrl.trimEnd('/')}/api/streaming/chunks/$deviceId"
+
+                val request = Request.Builder()
+                    .url(url)
+                    .get()
+                    .build()
+
+                val response = client.newCall(request).execute()
+
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    response.close()
+
+                    if (body != null) {
+                        val json = JSONObject(body)
+                        val chunksArray = json.optJSONArray("chunks")
+
+                        if (chunksArray != null) {
+                            val chunks = mutableListOf<AudioChunk>()
+                            for (i in 0 until chunksArray.length()) {
+                                val chunkObj = chunksArray.getJSONObject(i)
+                                chunks.add(
+                                    AudioChunk(
+                                        sequence = chunkObj.getInt("sequence"),
+                                        data = android.util.Base64.decode(chunkObj.getString("data"), android.util.Base64.DEFAULT),
+                                        timestamp = chunkObj.getLong("timestamp")
+                                    )
+                                )
+                            }
+                            Log.d(TAG, "Received ${chunks.size} audio chunks")
+                            return@withContext chunks
+                        }
+                    }
+                } else {
+                    Log.e(TAG, "Failed to get audio chunks: ${response.code}")
+                    response.close()
+                }
+
+                null
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting audio chunks", e)
+                null
+            }
+        }
+    }
+
+    /**
+     * Get streaming status
+     */
+    suspend fun getStreamingStatus(serverUrl: String, deviceId: String): StreamingStatus? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val url = "${serverUrl.trimEnd('/')}/api/streaming/status/$deviceId"
+
+                val request = Request.Builder()
+                    .url(url)
+                    .get()
+                    .build()
+
+                val response = client.newCall(request).execute()
+
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    response.close()
+
+                    if (body != null) {
+                        val json = JSONObject(body)
+                        return@withContext StreamingStatus(
+                            active = json.getBoolean("active"),
+                            recording = json.optBoolean("recording", false),
+                            startedAt = json.optLong("startedAt", 0L)
+                        )
+                    }
+                } else {
+                    response.close()
+                }
+
+                null
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting streaming status", e)
+                null
+            }
+        }
+    }
+
+    /**
+     * Data class for audio chunk
+     */
+    data class AudioChunk(
+        val sequence: Int,
+        val data: ByteArray,
+        val timestamp: Long
+    )
+
+    /**
+     * Data class for streaming status
+     */
+    data class StreamingStatus(
+        val active: Boolean,
+        val recording: Boolean,
+        val startedAt: Long
+    )
 }
