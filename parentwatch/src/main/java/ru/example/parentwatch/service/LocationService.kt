@@ -257,7 +257,9 @@ class LocationService : Service() {
         val deviceId = this.deviceId ?: return
         val serverUrl = this.serverUrl ?: return
 
+        Log.d(TAG, "Checking commands for device $deviceId at $serverUrl")
         val commands = networkHelper.getStreamingCommands(serverUrl, deviceId)
+        Log.d(TAG, "Received ${commands.size} commands from server")
 
         for (command in commands) {
             Log.d(TAG, "Processing command: ${command.type}")
