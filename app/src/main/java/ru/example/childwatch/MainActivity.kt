@@ -96,11 +96,6 @@ class MainActivity : AppCompatActivity() {
             val intent = Intent(this, LocationMapActivity::class.java)
             startActivity(intent)
         }
-        
-        binding.audioCard.setOnClickListener {
-            val intent = Intent(this, AudioActivity::class.java)
-            startActivity(intent)
-        }
 
         binding.audioStreamingCard.setOnClickListener {
             val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)

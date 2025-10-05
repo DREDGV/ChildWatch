@@ -323,45 +323,6 @@
 
             </com.google.android.material.card.MaterialCardView>
 
-            <!-- Audio Button -->
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/audioCard"
-                android:layout_width="0dp"
-                android:layout_height="120dp"
-                android:layout_columnWeight="1"
-                android:layout_margin="8dp"
-                app:cardElevation="4dp"
-                app:cardCornerRadius="12dp"
-                android:clickable="true"
-                android:focusable="true"
-                android:foreground="?android:attr/selectableItemBackground">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:orientation="vertical"
-                    android:gravity="center"
-                    android:padding="16dp">
-
-                    <ImageView
-                        android:layout_width="48dp"
-                        android:layout_height="48dp"
-                        android:src="@android:drawable/ic_media_play"
-                        android:tint="?attr/colorPrimary" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/audio"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:layout_marginTop="8dp"
-                        android:textColor="?attr/colorOnSurface" />
-
-                </LinearLayout>
-
-            </com.google.android.material.card.MaterialCardView>
-
             <!-- Audio Streaming Button -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/audioStreamingCard"
