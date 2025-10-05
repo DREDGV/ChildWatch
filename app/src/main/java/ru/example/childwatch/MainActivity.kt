@@ -87,8 +87,8 @@ class MainActivity : AppCompatActivity() {
         }
         
         binding.locationCard.setOnClickListener {
-            // Use 2GIS map for Russia
-            val intent = Intent(this, LocationMapActivity2GIS::class.java)
+            // Use Google Maps
+            val intent = Intent(this, LocationMapActivity::class.java)
             startActivity(intent)
         }
         

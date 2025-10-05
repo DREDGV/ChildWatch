@@ -207,7 +207,11 @@ class ErrorHandler(private val context: Context) {
      */
     private fun showUserMessage(message: String, duration: Int) {
         CoroutineScope(Dispatchers.Main).launch {
-            Toast.makeText(context, message, duration).show()
+            try {
+                Toast.makeText(context, message, duration).show()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to show toast: ${e.message}")
+            }
         }
     }
 

@@ -600,7 +600,8 @@ class NetworkClient(private val context: Context) {
                 api.getChildLocation(childDeviceId)
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting child location", e)
-                throw e
+                // Return empty response instead of throwing
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
             }
         }
     }

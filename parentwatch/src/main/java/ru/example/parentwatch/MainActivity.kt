@@ -1,16 +1,26 @@
 package ru.example.parentwatch
 
 import android.Manifest
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.WriterException
+import com.google.zxing.common.BitMatrix
+import com.google.zxing.qrcode.QRCodeWriter
 import ru.example.parentwatch.databinding.ActivityMainBinding
 import ru.example.parentwatch.service.LocationService
 import java.text.SimpleDateFormat
@@ -71,7 +81,22 @@ class MainActivity : AppCompatActivity() {
 
         // Display device ID
         val deviceId = getUniqueDeviceId()
-        binding.deviceIdText.text = deviceId
+        binding.deviceIdText.setText(deviceId)
+        
+        // Copy ID button
+        binding.copyIdButton.setOnClickListener {
+            copyDeviceIdToClipboard(deviceId)
+        }
+        
+        // Click on ID field to copy
+        binding.deviceIdText.setOnClickListener {
+            copyDeviceIdToClipboard(deviceId)
+        }
+        
+        // Show QR code button
+        binding.showQrButton.setOnClickListener {
+            showQrCodeDialog(deviceId)
+        }
     }
 
     private fun loadSettings() {
@@ -164,11 +189,77 @@ class MainActivity : AppCompatActivity() {
     private fun getUniqueDeviceId(): String {
         var deviceId = prefs.getString("device_id", null)
         if (deviceId == null) {
-            // Generate unique device ID
-            deviceId = "child-${Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)}"
+            // Generate simple readable device ID (last 4 digits of Android ID)
+            val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+            deviceId = androidId.takeLast(4).uppercase()
             prefs.edit().putString("device_id", deviceId).apply()
         }
         return deviceId
+    }
+    
+    private fun copyDeviceIdToClipboard(deviceId: String) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clip = ClipData.newPlainText("Device ID", deviceId)
+        clipboard.setPrimaryClip(clip)
+        
+        Toast.makeText(this, "ID устройства скопирован в буфер обмена", Toast.LENGTH_SHORT).show()
+    }
+    
+    private fun showQrCodeDialog(deviceId: String) {
+        try {
+            // Generate QR code bitmap
+            val qrBitmap = generateQRCode(deviceId, 400, 400)
+            
+            // Create custom layout for dialog
+            val layout = layoutInflater.inflate(android.R.layout.simple_list_item_1, null)
+            val imageView = ImageView(this).apply {
+                setImageBitmap(qrBitmap)
+                scaleType = ImageView.ScaleType.CENTER_INSIDE
+            }
+            
+            AlertDialog.Builder(this)
+                .setTitle("QR-код устройства")
+                .setMessage("ID: $deviceId\n\nОтсканируйте QR-код в приложении ChildWatch")
+                .setView(imageView)
+                .setPositiveButton("ОК") { dialog, _ ->
+                    dialog.dismiss()
+                }
+                .setNeutralButton("Копировать") { _, _ ->
+                    copyDeviceIdToClipboard(deviceId)
+                }
+                .show()
+        } catch (e: Exception) {
+            // Fallback to text dialog if QR generation fails
+            val message = "ID устройства: $deviceId\n\nВведите этот ID в приложении ChildWatch вручную."
+            
+            AlertDialog.Builder(this)
+                .setTitle("ID устройства")
+                .setMessage(message)
+                .setPositiveButton("ОК") { dialog, _ ->
+                    dialog.dismiss()
+                }
+                .setNeutralButton("Копировать") { _, _ ->
+                    copyDeviceIdToClipboard(deviceId)
+                }
+                .show()
+        }
+    }
+    
+    private fun generateQRCode(text: String, width: Int, height: Int): Bitmap? {
+        return try {
+            val writer = QRCodeWriter()
+            val bitMatrix: BitMatrix = writer.encode(text, BarcodeFormat.QR_CODE, width, height)
+            val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.RGB_565)
+            
+            for (x in 0 until width) {
+                for (y in 0 until height) {
+                    bitmap.setPixel(x, y, if (bitMatrix[x, y]) 0xFF000000.toInt() else 0xFFFFFFFF.toInt())
+                }
+            }
+            bitmap
+        } catch (e: WriterException) {
+            null
+        }
     }
 
     override fun onResume() {

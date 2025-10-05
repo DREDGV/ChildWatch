@@ -11,6 +11,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.*
@@ -89,13 +90,22 @@ class LocationService : Service() {
 
         // Register device
         serviceScope.launch {
-            val registered = networkHelper.registerDevice(serverUrl!!, deviceId!!)
-            if (registered) {
-                Log.d(TAG, "Device registered")
-                startLocationUpdates()
-            } else {
-                Log.e(TAG, "Failed to register device")
+            try {
+                val registered = networkHelper.registerDevice(serverUrl!!, deviceId!!)
+                if (registered) {
+                    Log.d(TAG, "Device registered")
+                    startLocationUpdates()
+                } else {
+                    Log.e(TAG, "Failed to register device")
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@LocationService, "Ошибка регистрации устройства", Toast.LENGTH_LONG).show()
+                        stopSelf()
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Registration error", e)
                 withContext(Dispatchers.Main) {
+                    Toast.makeText(this@LocationService, "Ошибка подключения к серверу", Toast.LENGTH_LONG).show()
                     stopSelf()
                 }
             }

@@ -77,6 +77,12 @@
     <string name="location_interval_help">Интервал отправки геолокации в секундах (10-300)</string>
     <string name="audio_duration_help">Длительность аудиозаписи в секундах (5-60)</string>
     <string name="server_url_help">URL сервера для отправки данных</string>
+    
+    <!-- Child Device ID Strings -->
+    <string name="child_device_id">ID устройства ребенка</string>
+    <string name="child_device_id_help">Введите ID устройства ребенка для отслеживания</string>
+    <string name="child_device_id_hint">Например: child-device-001</string>
+    
     <string name="feature_toggles_title">Включенные функции</string>
     <string name="enable_location_monitoring">Отслеживание геолокации</string>
     <string name="enable_audio_monitoring">Запись аудио</string>

@@ -16,4 +16,13 @@
     keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
     -->
     <string name="google_maps_key" translatable="false">AIzaSyDummy_Key_Replace_With_Your_Real_Key</string>
+    <!-- 
+    ВРЕМЕННЫЙ КЛЮЧ ДЛЯ ТЕСТИРОВАНИЯ:
+    Замените на ваш реальный ключ из Google Cloud Console
+    
+    SHA-1 отпечаток для ограничения:
+    51:43:7F:5D:56:3A:63:D6:CC:6C:D5:40:94:EF:1C:86:01:33:85:F6
+    
+    Package name: ru.example.childwatch
+    -->
 </resources>

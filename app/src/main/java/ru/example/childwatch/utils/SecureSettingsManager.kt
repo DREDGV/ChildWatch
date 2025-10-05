@@ -23,6 +23,7 @@ class SecureSettingsManager(private val context: Context) {
         private const val KEY_AUTH_TOKEN = "auth_token"
         private const val KEY_REFRESH_TOKEN = "refresh_token"
         private const val KEY_DEVICE_ID = "device_id"
+        private const val KEY_CHILD_DEVICE_ID = "child_device_id"
         private const val KEY_SERVER_URL = "server_url"
         private const val KEY_USER_CONSENT = "user_consent"
         private const val KEY_MONITORING_ENABLED = "monitoring_enabled"
@@ -81,6 +82,19 @@ class SecureSettingsManager(private val context: Context) {
     }
     
     fun getDeviceId(): String? = securePrefs.getString(KEY_DEVICE_ID)
+    
+    // Child device ID
+    fun setChildDeviceId(childDeviceId: String) {
+        securePrefs.putString(KEY_CHILD_DEVICE_ID, childDeviceId)
+        Log.d(TAG, "Child device ID set to: $childDeviceId")
+    }
+    
+    fun getChildDeviceId(): String? = securePrefs.getString(KEY_CHILD_DEVICE_ID)
+    
+    fun clearChildDeviceId() {
+        securePrefs.remove(KEY_CHILD_DEVICE_ID)
+        Log.d(TAG, "Child device ID cleared")
+    }
     
     // Server settings
     fun setServerUrl(url: String?) {

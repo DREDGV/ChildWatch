@@ -198,7 +198,11 @@ class ConsentActivity : AppCompatActivity() {
                         val intent = android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                         intent.data = android.net.Uri.fromParts("package", packageName, null)
                         startActivity(intent)
-                        finish()
+                        // Don't finish - let user come back and try again
+                    }
+                    .setNeutralButton("Попробовать снова") { _, _ ->
+                        // Try requesting permissions again
+                        PermissionHelper.requestAllRequiredPermissions(this)
                     }
                     .setNegativeButton("Выход") { _, _ ->
                         finish()
@@ -206,6 +210,16 @@ class ConsentActivity : AppCompatActivity() {
                     .setCancelable(false)
                     .show()
             }
+        }
+    }
+    
+    override fun onResume() {
+        super.onResume()
+        
+        // Check if user came back from settings and now has permissions
+        if (PermissionHelper.hasAllRequiredPermissions(this)) {
+            Log.d(TAG, "All permissions now granted, proceeding to main activity")
+            proceedToMainActivity()
         }
     }
     
