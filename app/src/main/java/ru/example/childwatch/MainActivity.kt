@@ -23,6 +23,8 @@ import java.util.*
 /**
  * Main Activity with modern menu interface
  * 
+ * ChildWatch v2.0.0 - Parental Monitoring Application
+ * 
  * Features:
  * - Modern card-based menu interface
  * - Status monitoring display

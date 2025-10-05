@@ -28,6 +28,8 @@ import java.util.*
 
 /**
  * Main Activity for ParentWatch
+ * 
+ * ParentWatch v2.0.0 - Child Location Tracking
  * Simple UI to start/stop location tracking service
  */
 class MainActivity : AppCompatActivity() {
