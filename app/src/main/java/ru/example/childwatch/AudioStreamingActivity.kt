@@ -44,6 +44,7 @@ class AudioStreamingActivity : AppCompatActivity() {
     private var isRecording = false
     private var audioTrack: AudioTrack? = null
     private var updateJob: Job? = null
+    private var streamingStartTime: Long = 0L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -98,8 +99,11 @@ class AudioStreamingActivity : AppCompatActivity() {
 
                 if (success) {
                     isStreaming = true
+                    streamingStartTime = System.currentTimeMillis()
                     binding.statusText.text = "Прослушка активна"
-                    binding.startTimeText.text = "Начало: ${getCurrentTime()}"
+                    binding.startTimeText.text = getCurrentTime()
+                    binding.durationText.text = "00:00:00"
+                    binding.chunksReceivedText.text = "0"
                     Toast.makeText(this@AudioStreamingActivity, "Прослушка запущена", Toast.LENGTH_SHORT).show()
 
                     // Initialize audio playback
@@ -226,12 +230,19 @@ class AudioStreamingActivity : AppCompatActivity() {
 
             while (isActive && isStreaming) {
                 try {
+                    // Update duration timer
+                    val duration = System.currentTimeMillis() - streamingStartTime
+                    val seconds = (duration / 1000) % 60
+                    val minutes = (duration / 60000) % 60
+                    val hours = duration / 3600000
+                    binding.durationText.text = String.format("%02d:%02d:%02d", hours, minutes, seconds)
+
                     // Get audio chunks from server
                     val chunks = networkClient.getAudioChunks(serverUrl, deviceId)
 
                     if (chunks != null && chunks.isNotEmpty()) {
                         totalChunks += chunks.size
-                        binding.chunksReceivedText.text = "Получено фрагментов: $totalChunks"
+                        binding.chunksReceivedText.text = "$totalChunks"
 
                         // Play audio chunks
                         chunks.forEach { chunk ->

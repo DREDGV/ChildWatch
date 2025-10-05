@@ -67,7 +67,7 @@ router.get('/commands/:deviceId', async (req, res) => {
  */
 router.post('/start', async (req, res) => {
     try {
-        const { deviceId, parentId } = req.body;
+        const { deviceId, parentId, timeoutMinutes } = req.body;
 
         if (!deviceId) {
             return res.status(400).json({
@@ -76,8 +76,9 @@ router.post('/start', async (req, res) => {
             });
         }
 
-        // Start streaming session
-        const result = commandManager.startStreaming(deviceId, parentId || 'parent');
+        // Start streaming session with optional timeout (default 10 minutes)
+        const timeout = timeoutMinutes || 10;
+        const result = commandManager.startStreaming(deviceId, parentId || 'parent', timeout);
 
         if (result) {
             res.json({

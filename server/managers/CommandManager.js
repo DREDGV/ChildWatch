@@ -9,7 +9,7 @@ class CommandManager {
         // Command queue: { deviceId: [commands] }
         this.commandQueue = new Map();
 
-        // Active streaming sessions: { deviceId: { parentId, startTime, recording } }
+        // Active streaming sessions: { deviceId: { parentId, startTime, recording, timeout } }
         this.streamingSessions = new Map();
 
         // Audio buffer for streaming: { deviceId: [chunks] }
@@ -23,6 +23,9 @@ class CommandManager {
             STOP_RECORDING: 'stop_recording',
             TAKE_PHOTO: 'take_photo'
         };
+
+        // Default timeout for streaming sessions (10 minutes)
+        this.DEFAULT_TIMEOUT = 10 * 60 * 1000;
     }
 
     /**
@@ -68,13 +71,19 @@ class CommandManager {
 
     /**
      * Start audio streaming session
+     * @param {string} deviceId - Device ID
+     * @param {string} parentId - Parent device ID
+     * @param {number} timeoutMinutes - Timeout in minutes (default: 10 minutes)
      */
-    startStreaming(deviceId, parentId) {
+    startStreaming(deviceId, parentId, timeoutMinutes = 10) {
+        const timeout = timeoutMinutes * 60 * 1000; // Convert minutes to milliseconds
+
         this.streamingSessions.set(deviceId, {
             parentId: parentId,
             startTime: Date.now(),
             recording: false,
-            chunks: 0
+            chunks: 0,
+            timeout: timeout
         });
 
         // Initialize audio buffer
@@ -217,11 +226,14 @@ class CommandManager {
      */
     cleanup() {
         const now = Date.now();
-        const TIMEOUT = 5 * 60 * 1000; // 5 minutes
 
         for (const [deviceId, session] of this.streamingSessions.entries()) {
-            if (now - session.startTime > TIMEOUT) {
-                console.log(`🧹 Cleaning up old session for ${deviceId}`);
+            const timeout = session.timeout || this.DEFAULT_TIMEOUT;
+            const elapsed = now - session.startTime;
+
+            if (elapsed > timeout) {
+                const minutes = Math.floor(elapsed / 60000);
+                console.log(`🧹 Cleaning up old session for ${deviceId} (${minutes} minutes)`);
                 this.stopStreaming(deviceId);
             }
         }

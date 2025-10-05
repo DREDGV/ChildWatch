@@ -1,17 +1,18 @@
 package ru.example.parentwatch.audio
 
 import android.content.Context
+import android.media.AudioFormat
+import android.media.AudioRecord
 import android.media.MediaRecorder
-import android.os.Build
 import android.util.Log
 import kotlinx.coroutines.*
 import ru.example.parentwatch.network.NetworkHelper
 import java.io.File
-import java.io.FileInputStream
 
 /**
  * Audio Stream Recorder
  * Records audio in chunks and uploads to server for real-time streaming
+ * Uses PCM format for compatibility with AudioTrack playback
  */
 class AudioStreamRecorder(
     private val context: Context,
@@ -21,10 +22,11 @@ class AudioStreamRecorder(
         private const val TAG = "AudioStreamRecorder"
         private const val CHUNK_DURATION_MS = 2000L // 2 seconds per chunk
         private const val SAMPLE_RATE = 44100
-        private const val BIT_RATE = 64000 // 64 kbps
+        private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
+        private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
     }
 
-    private var mediaRecorder: MediaRecorder? = null
+    private var audioRecord: AudioRecord? = null
     private var isRecording = false
     private var recordingJob: Job? = null
     private var sequence = 0
@@ -32,6 +34,10 @@ class AudioStreamRecorder(
     private var deviceId: String? = null
     private var serverUrl: String? = null
     private var recordingMode: Boolean = false // true if saving recording
+
+    private val bufferSize: Int by lazy {
+        AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+    }
 
     private val cacheDir: File by lazy {
         File(context.cacheDir, "audio_chunks").apply {
@@ -99,14 +105,14 @@ class AudioStreamRecorder(
      * Record one chunk and upload to server
      */
     private suspend fun recordAndUploadChunk() {
-        val chunkFile = File(cacheDir, "chunk_${sequence}.webm")
-
         try {
             // Record chunk
-            recordChunk(chunkFile)
+            val audioData = recordChunk()
 
-            // Read chunk data
-            val audioData = FileInputStream(chunkFile).use { it.readBytes() }
+            if (audioData == null || audioData.isEmpty()) {
+                Log.w(TAG, "No audio data recorded")
+                return
+            }
 
             // Upload to server
             val deviceId = this.deviceId ?: return
@@ -130,59 +136,72 @@ class AudioStreamRecorder(
 
         } catch (e: Exception) {
             Log.e(TAG, "Error recording/uploading chunk", e)
-        } finally {
-            // Clean up chunk file
-            if (!recordingMode) {
-                chunkFile.delete()
-            }
         }
     }
 
     /**
-     * Record single audio chunk
+     * Record single audio chunk using AudioRecord (PCM format)
      */
-    private suspend fun recordChunk(outputFile: File) = withContext(Dispatchers.IO) {
+    private suspend fun recordChunk(): ByteArray? = withContext(Dispatchers.IO) {
         try {
-            releaseRecorder()
+            // Initialize AudioRecord
+            audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                SAMPLE_RATE,
+                CHANNEL_CONFIG,
+                AUDIO_FORMAT,
+                bufferSize * 4
+            )
 
-            mediaRecorder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                MediaRecorder(context)
-            } else {
-                @Suppress("DEPRECATION")
-                MediaRecorder()
+            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+                Log.e(TAG, "AudioRecord not initialized")
+                releaseRecorder()
+                return@withContext null
             }
 
-            mediaRecorder?.apply {
-                setAudioSource(MediaRecorder.AudioSource.MIC)
-                setOutputFormat(MediaRecorder.OutputFormat.WEBM)
-                setAudioEncoder(MediaRecorder.AudioEncoder.OPUS)
-                setAudioSamplingRate(SAMPLE_RATE)
-                setAudioEncodingBitRate(BIT_RATE)
-                setOutputFile(outputFile.absolutePath)
+            audioRecord?.startRecording()
 
-                prepare()
-                start()
+            // Calculate buffer size for CHUNK_DURATION_MS
+            val chunkSize = (SAMPLE_RATE * (CHUNK_DURATION_MS / 1000.0) * 2).toInt() // 2 bytes per sample (16-bit)
+            val audioBuffer = ByteArray(chunkSize)
+            var totalRead = 0
 
-                // Record for CHUNK_DURATION_MS
-                delay(CHUNK_DURATION_MS)
+            // Read audio data for CHUNK_DURATION_MS
+            val startTime = System.currentTimeMillis()
+            while (totalRead < chunkSize && System.currentTimeMillis() - startTime < CHUNK_DURATION_MS) {
+                val bytesRead = audioRecord?.read(audioBuffer, totalRead, chunkSize - totalRead) ?: 0
+                if (bytesRead > 0) {
+                    totalRead += bytesRead
+                } else if (bytesRead == AudioRecord.ERROR_INVALID_OPERATION || bytesRead == AudioRecord.ERROR_BAD_VALUE) {
+                    Log.e(TAG, "Error reading audio data: $bytesRead")
+                    break
+                }
+            }
 
-                stop()
-                reset()
+            audioRecord?.stop()
+            releaseRecorder()
+
+            if (totalRead > 0) {
+                Log.d(TAG, "Recorded $totalRead bytes of PCM audio")
+                audioBuffer.copyOf(totalRead)
+            } else {
+                null
             }
 
         } catch (e: Exception) {
             Log.e(TAG, "Error recording chunk", e)
             releaseRecorder()
+            null
         }
     }
 
     /**
-     * Release media recorder
+     * Release audio recorder
      */
     private fun releaseRecorder() {
         try {
-            mediaRecorder?.release()
-            mediaRecorder = null
+            audioRecord?.release()
+            audioRecord = null
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing recorder", e)
         }
