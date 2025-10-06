@@ -834,6 +834,9 @@ class NetworkClient(private val context: Context) {
                                 )
                             }
                             Log.d(TAG, "Received ${chunks.size} audio chunks")
+                            chunks.forEach { chunk ->
+                                Log.d(TAG, "Chunk: sequence=${chunk.sequence}, size=${chunk.data.size}, timestamp=${chunk.timestamp}")
+                            }
                             return@withContext chunks
                         }
                     }

@@ -32,7 +32,7 @@ class LocationService : Service() {
         private const val CHANNEL_ID = "location_tracking"
         private const val LOCATION_UPDATE_INTERVAL = 30000L // 30 seconds
         private const val LOCATION_FASTEST_INTERVAL = 15000L // 15 seconds
-        private const val COMMAND_CHECK_INTERVAL = 30000L // 30 seconds
+        private const val COMMAND_CHECK_INTERVAL = 5000L // 5 seconds - quick response for audio streaming
 
         const val ACTION_START = "start"
         const val ACTION_STOP = "stop"

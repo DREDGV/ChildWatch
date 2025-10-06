@@ -181,7 +181,7 @@ class CommandManager {
     }
 
     /**
-     * Get latest audio chunks for streaming
+     * Get latest audio chunks for streaming (and remove them from buffer)
      */
     getAudioChunks(deviceId, count = 5) {
         if (!this.audioBuffers.has(deviceId)) {
@@ -189,7 +189,11 @@ class CommandManager {
         }
 
         const buffer = this.audioBuffers.get(deviceId);
-        return buffer.slice(-count);
+
+        // Get all available chunks (up to count)
+        const chunks = buffer.splice(0, Math.min(count, buffer.length));
+
+        return chunks;
     }
 
     /**

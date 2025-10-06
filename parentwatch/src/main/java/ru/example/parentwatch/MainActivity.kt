@@ -11,6 +11,7 @@ import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -263,11 +264,27 @@ class MainActivity : AppCompatActivity() {
 
     private fun getUniqueDeviceId(): String {
         var deviceId = prefs.getString("device_id", null)
+
+        // Check if old format (4 chars) and regenerate with new UUID format (8 chars)
+        if (deviceId != null && deviceId.startsWith("child-") && deviceId.length < 12) {
+            Log.d("MainActivity", "Old Device ID format detected: $deviceId - regenerating...")
+            deviceId = null  // Force regeneration
+        }
+
         if (deviceId == null) {
-            // Generate device ID in format: child-XXXX (10 chars minimum for server)
-            val androidId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-            deviceId = "child-${androidId.takeLast(4).uppercase()}"
-            prefs.edit().putString("device_id", deviceId).apply()
+            // Generate permanent unique device ID using UUID
+            // Format: child-XXXXXXXX (child- + 8 chars from UUID)
+            val uuid = java.util.UUID.randomUUID().toString().replace("-", "").takeLast(8).uppercase()
+            deviceId = "child-$uuid"
+
+            // Save permanently with flag
+            prefs.edit()
+                .putString("device_id", deviceId)
+                .putBoolean("device_id_permanent", true)
+                .putLong("device_id_created", System.currentTimeMillis())
+                .apply()
+
+            Log.d("MainActivity", "Generated permanent Device ID: $deviceId")
         }
         return deviceId
     }

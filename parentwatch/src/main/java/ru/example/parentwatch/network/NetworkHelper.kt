@@ -203,8 +203,8 @@ class NetworkHelper(private val context: Context) {
                 .addFormDataPart("recording", recording.toString())
                 .addFormDataPart(
                     "audio",
-                    "chunk_$sequence.webm",
-                    audioData.toRequestBody("audio/webm".toMediaType())
+                    "chunk_$sequence.pcm",
+                    audioData.toRequestBody("audio/pcm".toMediaType())
                 )
                 .build()
 

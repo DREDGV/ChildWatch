@@ -305,7 +305,8 @@ router.get('/chunks/:deviceId', async (req, res) => {
         res.json({
             success: true,
             deviceId: deviceId,
-            chunks: chunks.map(chunk => ({
+            chunks: chunks.map((chunk, index) => ({
+                sequence: index,
                 data: chunk.data.toString('base64'),
                 timestamp: chunk.timestamp
             })),

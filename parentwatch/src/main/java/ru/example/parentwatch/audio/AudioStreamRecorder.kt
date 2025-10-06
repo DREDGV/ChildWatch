@@ -182,9 +182,10 @@ class AudioStreamRecorder(
             releaseRecorder()
 
             if (totalRead > 0) {
-                Log.d(TAG, "Recorded $totalRead bytes of PCM audio")
+                Log.d(TAG, "Recorded $totalRead bytes of PCM audio (${totalRead/2} samples)")
                 audioBuffer.copyOf(totalRead)
             } else {
+                Log.w(TAG, "No audio data recorded")
                 null
             }
 

@@ -216,7 +216,7 @@ class AudioStreamingActivity : AppCompatActivity() {
                 .build()
 
             audioTrack?.play()
-            Log.d(TAG, "AudioTrack initialized and playing")
+            Log.d(TAG, "AudioTrack initialized and playing - state: ${audioTrack?.playState}")
 
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing AudioTrack", e)
@@ -246,7 +246,12 @@ class AudioStreamingActivity : AppCompatActivity() {
 
                         // Play audio chunks
                         chunks.forEach { chunk ->
-                            audioTrack?.write(chunk.data, 0, chunk.data.size)
+                            if (audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                                val bytesWritten = audioTrack?.write(chunk.data, 0, chunk.data.size) ?: 0
+                                Log.d(TAG, "Wrote $bytesWritten bytes to AudioTrack (chunk size: ${chunk.data.size})")
+                            } else {
+                                Log.w(TAG, "AudioTrack not playing, state: ${audioTrack?.playState}")
+                            }
                         }
 
                         Log.d(TAG, "Played ${chunks.size} audio chunks (total: $totalChunks)")
