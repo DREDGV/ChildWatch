@@ -20,7 +20,7 @@ class AudioStreamRecorder(
 ) {
     companion object {
         private const val TAG = "AudioStreamRecorder"
-        private const val CHUNK_DURATION_MS = 2000L // 2 seconds per chunk
+        private const val CHUNK_DURATION_MS = 3000L // 3 seconds per chunk (increased for network stability)
         private const val SAMPLE_RATE = 44100
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT

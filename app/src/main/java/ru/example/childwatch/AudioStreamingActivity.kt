@@ -33,7 +33,7 @@ class AudioStreamingActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "AudioStreamingActivity"
         private const val UPDATE_INTERVAL_MS = 2000L // Poll for chunks every 2 seconds
-        private const val MIN_BUFFER_CHUNKS = 3 // Minimum chunks before starting playback
+        private const val MIN_BUFFER_CHUNKS = 7 // Minimum chunks before starting playback (increased for smoother playback)
         const val EXTRA_DEVICE_ID = "device_id"
         const val EXTRA_SERVER_URL = "server_url"
     }
@@ -224,7 +224,7 @@ class AudioStreamingActivity : AppCompatActivity() {
                         .setEncoding(audioFormat)
                         .build()
                 )
-                .setBufferSizeInBytes(bufferSize * 4)
+                .setBufferSizeInBytes(bufferSize * 8) // Increased buffer for smoother playback
                 .setTransferMode(AudioTrack.MODE_STREAM)
                 .build()
 
