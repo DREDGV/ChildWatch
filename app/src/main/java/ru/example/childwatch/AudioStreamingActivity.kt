@@ -8,10 +8,12 @@ import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ru.example.childwatch.databinding.ActivityAudioStreamingBinding
 import ru.example.childwatch.network.NetworkClient
 import java.text.SimpleDateFormat
@@ -31,6 +33,7 @@ class AudioStreamingActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "AudioStreamingActivity"
         private const val UPDATE_INTERVAL_MS = 2000L // Poll for chunks every 2 seconds
+        private const val MIN_BUFFER_CHUNKS = 3 // Minimum chunks before starting playback
         const val EXTRA_DEVICE_ID = "device_id"
         const val EXTRA_SERVER_URL = "server_url"
     }
@@ -44,7 +47,12 @@ class AudioStreamingActivity : AppCompatActivity() {
     private var isRecording = false
     private var audioTrack: AudioTrack? = null
     private var updateJob: Job? = null
+    private var playbackJob: Job? = null
     private var streamingStartTime: Long = 0L
+
+    // Buffering queue for smooth playback
+    private val chunkQueue = java.util.concurrent.ConcurrentLinkedQueue<ByteArray>()
+    private var isBuffering = true
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -133,9 +141,14 @@ class AudioStreamingActivity : AppCompatActivity() {
                 binding.statusText.text = "Остановка..."
                 binding.toggleStreamingBtn.isEnabled = false
 
-                // Stop update job
+                // Stop update and playback jobs
                 updateJob?.cancel()
                 updateJob = null
+                playbackJob?.cancel()
+                playbackJob = null
+
+                // Clear queue
+                chunkQueue.clear()
 
                 // Stop audio playback
                 audioTrack?.stop()
@@ -225,6 +238,10 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun startAudioUpdate() {
+        isBuffering = true
+        chunkQueue.clear()
+
+        // Job 1: Fetch chunks from server and add to queue
         updateJob = lifecycleScope.launch {
             var totalChunks = 0
 
@@ -244,17 +261,19 @@ class AudioStreamingActivity : AppCompatActivity() {
                         totalChunks += chunks.size
                         binding.chunksReceivedText.text = "$totalChunks"
 
-                        // Play audio chunks
+                        // Add chunks to playback queue
                         chunks.forEach { chunk ->
-                            if (audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                                val bytesWritten = audioTrack?.write(chunk.data, 0, chunk.data.size) ?: 0
-                                Log.d(TAG, "Wrote $bytesWritten bytes to AudioTrack (chunk size: ${chunk.data.size})")
-                            } else {
-                                Log.w(TAG, "AudioTrack not playing, state: ${audioTrack?.playState}")
-                            }
+                            chunkQueue.offer(chunk.data)
                         }
 
-                        Log.d(TAG, "Played ${chunks.size} audio chunks (total: $totalChunks)")
+                        Log.d(TAG, "Added ${chunks.size} chunks to queue (total: $totalChunks, queue size: ${chunkQueue.size})")
+
+                        // Start playback after buffering MIN_BUFFER_CHUNKS
+                        if (isBuffering && chunkQueue.size >= MIN_BUFFER_CHUNKS) {
+                            isBuffering = false
+                            binding.statusText.text = "Воспроизведение..."
+                            Log.d(TAG, "Buffering complete, starting playback")
+                        }
                     }
 
                 } catch (e: Exception) {
@@ -263,6 +282,40 @@ class AudioStreamingActivity : AppCompatActivity() {
 
                 delay(UPDATE_INTERVAL_MS)
             }
+        }
+
+        // Job 2: Continuous playback from queue
+        startContinuousPlayback()
+    }
+
+    private fun startContinuousPlayback() {
+        playbackJob = lifecycleScope.launch(Dispatchers.IO) {
+            Log.d(TAG, "Starting continuous playback thread")
+
+            while (isActive && isStreaming) {
+                try {
+                    if (!isBuffering && chunkQueue.isNotEmpty()) {
+                        val chunk = chunkQueue.poll()
+                        if (chunk != null && audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                            val bytesWritten = audioTrack?.write(chunk, 0, chunk.size, AudioTrack.WRITE_BLOCKING) ?: 0
+                            Log.d(TAG, "Played chunk: $bytesWritten bytes (queue size: ${chunkQueue.size})")
+                        }
+                    } else {
+                        // Queue empty or still buffering - wait a bit
+                        if (!isBuffering && chunkQueue.isEmpty()) {
+                            withContext(Dispatchers.Main) {
+                                binding.statusText.text = "Буферизация..."
+                            }
+                            Log.w(TAG, "Queue empty, waiting for chunks...")
+                        }
+                        delay(100)
+                    }
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in playback loop", e)
+                }
+            }
+
+            Log.d(TAG, "Playback thread stopped")
         }
     }
 

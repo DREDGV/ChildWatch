@@ -123,6 +123,7 @@
         <activity
             android:name=".AudioStreamingActivity"
             android:exported="false"
+            android:configChanges="orientation|screenSize|keyboardHidden"
             android:theme="@style/Theme.ChildWatch"
             android:parentActivityName=".MainActivity" />
         
