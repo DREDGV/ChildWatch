@@ -1,0 +1,176 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "🚀 Запустить эмуляторы ParentWatch + ChildWatch",
+            "type": "shell",
+            "command": "emulator -avd Pixel_8_API_35 -no-snapshot-load & sleep 3 && emulator -avd Medium_Phone_API_35 -no-snapshot-load &",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "📱 Запустить эмулятор ParentWatch",
+            "type": "shell",
+            "command": "emulator -avd Pixel_8_API_35 -no-snapshot-load &",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "📱 Запустить эмулятор ChildWatch",
+            "type": "shell",
+            "command": "emulator -avd Medium_Phone_API_35 -no-snapshot-load &",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "new"
+            }
+        },
+        {
+            "label": "🔨 Собрать все APK",
+            "type": "shell",
+            "command": "${workspaceFolder}/gradlew.bat assembleDebug",
+            "problemMatcher": ["$gradle"],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always"
+            }
+        },
+        {
+            "label": "🔨 Собрать ParentWatch APK",
+            "type": "shell",
+            "command": "${workspaceFolder}/gradlew.bat :parentwatch:assembleDebug",
+            "problemMatcher": ["$gradle"],
+            "group": "build"
+        },
+        {
+            "label": "🔨 Собрать ChildWatch APK",
+            "type": "shell",
+            "command": "${workspaceFolder}/gradlew.bat :app:assembleDebug",
+            "problemMatcher": ["$gradle"],
+            "group": "build"
+        },
+        {
+            "label": "📲 Установить ParentWatch на эмулятор",
+            "type": "shell",
+            "command": "adb -s emulator-5554 install -r ${workspaceFolder}/parentwatch/build/outputs/apk/debug/ParentWatch-v3.1.0-debug.apk",
+            "problemMatcher": [],
+            "dependsOn": "🔨 Собрать ParentWatch APK"
+        },
+        {
+            "label": "📲 Установить ChildWatch на эмулятор",
+            "type": "shell",
+            "command": "adb -s emulator-5556 install -r ${workspaceFolder}/app/build/outputs/apk/debug/ChildWatch-v3.1.0-debug.apk",
+            "problemMatcher": [],
+            "dependsOn": "🔨 Собрать ChildWatch APK"
+        },
+        {
+            "label": "🎯 Полный цикл: Собрать и установить оба приложения",
+            "dependsOn": [
+                "🔨 Собрать все APK",
+                "📲 Установить ParentWatch на эмулятор",
+                "📲 Установить ChildWatch на эмулятор"
+            ],
+            "dependsOrder": "sequence",
+            "problemMatcher": []
+        },
+        {
+            "label": "🔑 Дать разрешения ParentWatch",
+            "type": "shell",
+            "command": "adb -s emulator-5554 shell pm grant ru.example.parentwatch.debug android.permission.RECORD_AUDIO && adb -s emulator-5554 shell pm grant ru.example.parentwatch.debug android.permission.ACCESS_FINE_LOCATION && adb -s emulator-5554 shell pm grant ru.example.parentwatch.debug android.permission.ACCESS_COARSE_LOCATION && adb -s emulator-5554 shell pm grant ru.example.parentwatch.debug android.permission.POST_NOTIFICATIONS",
+            "problemMatcher": []
+        },
+        {
+            "label": "🔑 Дать разрешения ChildWatch",
+            "type": "shell",
+            "command": "adb -s emulator-5556 shell pm grant ru.example.childwatch.debug android.permission.ACCESS_FINE_LOCATION && adb -s emulator-5556 shell pm grant ru.example.childwatch.debug android.permission.ACCESS_COARSE_LOCATION && adb -s emulator-5556 shell pm grant ru.example.childwatch.debug android.permission.POST_NOTIFICATIONS",
+            "problemMatcher": []
+        },
+        {
+            "label": "▶️ Запустить ParentWatch",
+            "type": "shell",
+            "command": "adb -s emulator-5554 shell monkey -p ru.example.parentwatch.debug 1",
+            "problemMatcher": []
+        },
+        {
+            "label": "▶️ Запустить ChildWatch",
+            "type": "shell",
+            "command": "adb -s emulator-5556 shell monkey -p ru.example.childwatch.debug 1",
+            "problemMatcher": []
+        },
+        {
+            "label": "📝 Логи ParentWatch (фильтр)",
+            "type": "shell",
+            "command": "adb -s emulator-5554 logcat AudioStreamRecorder:D LocationService:D NetworkHelper:D MainActivity:D *:S",
+            "problemMatcher": [],
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "📝 Логи ChildWatch (фильтр)",
+            "type": "shell",
+            "command": "adb -s emulator-5556 logcat AudioStreamingActivity:D NetworkClient:D MainActivity:D *:S",
+            "problemMatcher": [],
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "🧹 Очистить данные ParentWatch",
+            "type": "shell",
+            "command": "adb -s emulator-5554 shell pm clear ru.example.parentwatch.debug",
+            "problemMatcher": []
+        },
+        {
+            "label": "🧹 Очистить данные ChildWatch",
+            "type": "shell",
+            "command": "adb -s emulator-5556 shell pm clear ru.example.childwatch.debug",
+            "problemMatcher": []
+        },
+        {
+            "label": "🌐 Запустить локальный сервер",
+            "type": "shell",
+            "command": "npm run dev",
+            "options": {
+                "cwd": "${workspaceFolder}/server"
+            },
+            "problemMatcher": [],
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            }
+        },
+        {
+            "label": "🛑 Остановить эмуляторы",
+            "type": "shell",
+            "command": "adb -s emulator-5554 emu kill; adb -s emulator-5556 emu kill",
+            "problemMatcher": []
+        },
+        {
+            "label": "🔄 Перезапустить ADB",
+            "type": "shell",
+            "command": "adb kill-server && adb start-server && adb devices",
+            "problemMatcher": []
+        },
+        {
+            "label": "📋 Показать подключенные устройства",
+            "type": "shell",
+            "command": "adb devices",
+            "problemMatcher": []
+        }
+    ]
+}
