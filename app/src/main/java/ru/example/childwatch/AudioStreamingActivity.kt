@@ -32,7 +32,7 @@ class AudioStreamingActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "AudioStreamingActivity"
-        private const val UPDATE_INTERVAL_MS = 2000L // Poll for chunks every 2 seconds
+        private const val UPDATE_INTERVAL_MS = 1500L // Poll for chunks every 1.5 seconds (faster polling for smoother streaming)
         private const val MIN_BUFFER_CHUNKS = 7 // Minimum chunks before starting playback (increased for smoother playback)
         const val EXTRA_DEVICE_ID = "device_id"
         const val EXTRA_SERVER_URL = "server_url"

@@ -181,7 +181,8 @@ class CommandManager {
     }
 
     /**
-     * Get latest audio chunks for streaming (and remove them from buffer)
+     * Get latest audio chunks for streaming (WITHOUT removing from buffer)
+     * Chunks are auto-cleaned after 60 seconds by TTL
      */
     getAudioChunks(deviceId, count = 5) {
         if (!this.audioBuffers.has(deviceId)) {
@@ -190,8 +191,16 @@ class CommandManager {
 
         const buffer = this.audioBuffers.get(deviceId);
 
-        // Get all available chunks (up to count)
-        const chunks = buffer.splice(0, Math.min(count, buffer.length));
+        // Clean up old chunks (older than 60 seconds)
+        const now = Date.now();
+        const validChunks = buffer.filter(chunk => (now - chunk.timestamp) < 60000);
+
+        // Update buffer with only valid chunks
+        this.audioBuffers.set(deviceId, validChunks);
+
+        // Return latest chunks WITHOUT removing (use slice, not splice!)
+        // This allows retries if client missed a request
+        const chunks = validChunks.slice(-count); // Get last 'count' chunks
 
         return chunks;
     }
