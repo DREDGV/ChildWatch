@@ -10,6 +10,8 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.provider.Settings
 import android.util.Log
 import android.widget.ImageView
@@ -264,16 +266,30 @@ class MainActivity : AppCompatActivity() {
 
     private fun getUniqueDeviceId(): String {
         var deviceId = prefs.getString("device_id", null)
+        var needsServiceRestart = false
+        val isPermanent = prefs.getBoolean("device_id_permanent", false)
 
-        // Check if old format (4 chars) and regenerate with new UUID format (8 chars)
-        if (deviceId != null && deviceId.startsWith("child-") && deviceId.length < 12) {
-            Log.d("MainActivity", "Old Device ID format detected: $deviceId - regenerating...")
+        // Check if old format and regenerate with new UUID format
+        // New format: child-XXXXXXXX (exactly 14 chars, UUID-based, marked as permanent)
+        // Old formats:
+        //   - child-XXXX (10 chars, Android ID last 4)
+        //   - child-c6d2c18b3632b5ac (21 chars, full hex Android ID)
+        //   - device_XXXXXXXXXXXXXXXX (old prefix)
+        if (deviceId != null && !isPermanent) {
+            Log.d("MainActivity", "⚠️ Old Device ID detected (not marked permanent): $deviceId - regenerating with UUID...")
+
+            // Stop service if running to prevent using old ID
+            if (isServiceRunning) {
+                stopLocationService()
+                needsServiceRestart = true
+            }
+
             deviceId = null  // Force regeneration
         }
 
         if (deviceId == null) {
             // Generate permanent unique device ID using UUID
-            // Format: child-XXXXXXXX (child- + 8 chars from UUID)
+            // Format: child-XXXXXXXX (child- + 8 hex chars = 14 chars total)
             val uuid = java.util.UUID.randomUUID().toString().replace("-", "").takeLast(8).uppercase()
             deviceId = "child-$uuid"
 
@@ -284,7 +300,19 @@ class MainActivity : AppCompatActivity() {
                 .putLong("device_id_created", System.currentTimeMillis())
                 .apply()
 
-            Log.d("MainActivity", "Generated permanent Device ID: $deviceId")
+            Log.d("MainActivity", "✅ Generated new permanent Device ID: $deviceId (${deviceId.length} chars)")
+
+            // Show toast to inform user
+            Toast.makeText(this, "Новый ID устройства: $deviceId", Toast.LENGTH_LONG).show()
+
+            // Restart service if it was running
+            if (needsServiceRestart) {
+                Handler(Looper.getMainLooper()).postDelayed({
+                    requestPermissionsAndStart()
+                }, 1000)
+            }
+        } else {
+            Log.d("MainActivity", "Using existing permanent Device ID: $deviceId (${deviceId.length} chars)")
         }
         return deviceId
     }

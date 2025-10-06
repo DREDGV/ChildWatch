@@ -322,6 +322,15 @@ class LocationService : Service() {
 
         updateNotification("🎙️ Прослушка активна")
         Log.d(TAG, "Audio streaming started")
+
+        // Show toast to confirm streaming started
+        serviceScope.launch(Dispatchers.Main) {
+            android.widget.Toast.makeText(
+                this@LocationService,
+                "🎙️ Прослушка начата! Отправка аудио...",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+        }
     }
 
     /**
