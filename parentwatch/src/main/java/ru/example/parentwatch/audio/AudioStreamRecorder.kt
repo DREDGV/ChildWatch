@@ -7,11 +7,12 @@ import android.media.MediaRecorder
 import android.util.Log
 import kotlinx.coroutines.*
 import ru.example.parentwatch.network.NetworkHelper
+import ru.example.parentwatch.network.WebSocketClient
 import java.io.File
 
 /**
  * Audio Stream Recorder
- * Records audio in chunks and uploads to server for real-time streaming
+ * Records audio in chunks and transmits via WebSocket for real-time streaming
  * Uses PCM format for compatibility with AudioTrack playback
  */
 class AudioStreamRecorder(
@@ -20,7 +21,7 @@ class AudioStreamRecorder(
 ) {
     companion object {
         private const val TAG = "AudioStreamRecorder"
-        private const val CHUNK_DURATION_MS = 3000L // 3 seconds per chunk (increased for network stability)
+        private const val CHUNK_DURATION_MS = 2000L // 2 seconds per chunk (WebSocket is faster than HTTP)
         private const val SAMPLE_RATE = 44100
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
@@ -34,6 +35,7 @@ class AudioStreamRecorder(
     private var deviceId: String? = null
     private var serverUrl: String? = null
     private var recordingMode: Boolean = false // true if saving recording
+    private var webSocketClient: WebSocketClient? = null
 
     private val bufferSize: Int by lazy {
         AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
@@ -46,7 +48,7 @@ class AudioStreamRecorder(
     }
 
     /**
-     * Start audio streaming
+     * Start audio streaming via WebSocket
      */
     fun startStreaming(
         deviceId: String,
@@ -63,14 +65,29 @@ class AudioStreamRecorder(
         this.recordingMode = recordingMode
         this.sequence = 0
 
-        Log.d(TAG, "Starting audio streaming - recording mode: $recordingMode")
+        Log.d(TAG, "🎙️ Starting audio streaming via WebSocket - recording mode: $recordingMode")
+
+        // Initialize WebSocket connection
+        webSocketClient = WebSocketClient(serverUrl, deviceId)
+        webSocketClient?.connect(
+            onConnected = {
+                Log.d(TAG, "✅ WebSocket connected - starting audio recording")
+                webSocketClient?.startHeartbeat()
+            },
+            onError = { error ->
+                Log.e(TAG, "❌ WebSocket connection failed: $error")
+            }
+        )
 
         isRecording = true
         recordingJob = CoroutineScope(Dispatchers.IO).launch {
             try {
+                // Wait a bit for WebSocket to connect
+                delay(1000)
+
                 while (isRecording) {
-                    recordAndUploadChunk()
-                    delay(CHUNK_DURATION_MS)
+                    recordAndSendChunk()
+                    // No delay needed - send immediately after recording
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Streaming error", e)
@@ -83,11 +100,15 @@ class AudioStreamRecorder(
      * Stop audio streaming
      */
     fun stopStreaming() {
-        Log.d(TAG, "Stopping audio streaming")
+        Log.d(TAG, "🛑 Stopping audio streaming")
 
         isRecording = false
         recordingJob?.cancel()
         recordingJob = null
+
+        // Cleanup WebSocket
+        webSocketClient?.cleanup()
+        webSocketClient = null
 
         releaseRecorder()
         cleanupChunks()
@@ -102,9 +123,9 @@ class AudioStreamRecorder(
     }
 
     /**
-     * Record one chunk and upload to server
+     * Record one chunk and send via WebSocket
      */
-    private suspend fun recordAndUploadChunk() {
+    private suspend fun recordAndSendChunk() {
         try {
             // Record chunk
             val audioData = recordChunk()
@@ -114,28 +135,26 @@ class AudioStreamRecorder(
                 return
             }
 
-            // Upload to server
-            val deviceId = this.deviceId ?: return
-            val serverUrl = this.serverUrl ?: return
-
-            val uploaded = networkHelper.uploadAudioChunk(
-                serverUrl = serverUrl,
-                deviceId = deviceId,
-                audioData = audioData,
+            // Send via WebSocket (instant transmission)
+            webSocketClient?.sendAudioChunk(
                 sequence = sequence,
-                recording = recordingMode
+                audioData = audioData,
+                recording = recordingMode,
+                onSuccess = {
+                    // Log every 10th chunk to reduce spam
+                    if (sequence % 10 == 0) {
+                        Log.d(TAG, "✅ Chunk $sequence sent via WebSocket (${audioData.size} bytes)")
+                    }
+                },
+                onError = { error ->
+                    Log.e(TAG, "❌ Failed to send chunk $sequence: $error")
+                }
             )
-
-            if (uploaded) {
-                Log.d(TAG, "Chunk $sequence uploaded successfully (${audioData.size} bytes)")
-            } else {
-                Log.e(TAG, "Failed to upload chunk $sequence")
-            }
 
             sequence++
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error recording/uploading chunk", e)
+            Log.e(TAG, "Error recording/sending chunk", e)
         }
     }
 

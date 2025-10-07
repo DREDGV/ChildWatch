@@ -1,4 +1,6 @@
 ﻿const express = require('express');
+const http = require('http');
+const { Server } = require('socket.io');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
@@ -10,6 +12,7 @@ const AuthMiddleware = require('./middleware/AuthMiddleware');
 const DataValidator = require('./validators/DataValidator');
 const DatabaseManager = require('./database/DatabaseManager');
 const CommandManager = require('./managers/CommandManager');
+const WebSocketManager = require('./managers/WebSocketManager');
 
 // Import route modules
 const chatRoutes = require('./routes/chat');
@@ -18,6 +21,19 @@ const mediaRoutes = require('./routes/media');
 const streamingRoutes = require('./routes/streaming');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+    cors: {
+        origin: "*",
+        methods: ["GET", "POST"],
+        credentials: true
+    },
+    pingTimeout: 60000,
+    pingInterval: 25000,
+    maxHttpBufferSize: 1e7, // 10MB for audio chunks
+    transports: ['websocket', 'polling'] // WebSocket preferred, polling fallback
+});
+
 const PORT = process.env.PORT || 3000;
 
 // Initialize managers
@@ -26,6 +42,7 @@ const authMiddleware = new AuthMiddleware(authManager);
 const validator = new DataValidator();
 const dbManager = new DatabaseManager();
 const commandManager = new CommandManager();
+const wsManager = new WebSocketManager(io);
 
 // Initialize database
 let isDbInitialized = false;
@@ -42,6 +59,9 @@ async function initializeDatabase() {
 
 // Initialize database on startup
 initializeDatabase();
+
+// Initialize WebSocket handlers
+wsManager.initialize();
 
 // Middleware
 app.use(express.json({ limit: '10mb' }));
@@ -121,7 +141,7 @@ function authenticateToken(req, res, next) {
 }
 
 // Initialize streaming routes with managers
-streamingRoutes.init(commandManager, dbManager);
+streamingRoutes.init(commandManager, dbManager, wsManager);
 
 // API Routes
 app.use('/api/chat', chatRoutes);
@@ -704,13 +724,14 @@ setInterval(() => {
     commandManager.cleanup();
 }, 60000); // Every minute
 
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
+// Start server (use server.listen instead of app.listen for Socket.IO)
+server.listen(PORT, '0.0.0.0', () => {
     console.log(`ChildWatch Server running on port ${PORT}`);
     console.log(`Health check: http://localhost:${PORT}/api/health`);
     console.log(`Register device: POST http://localhost:${PORT}/api/auth/register`);
     console.log(`Audio streaming: POST http://localhost:${PORT}/api/streaming/start`);
-    console.log(`Server version: 1.1.0`);
+    console.log(`WebSocket: ws://localhost:${PORT}`);
+    console.log(`Server version: 1.2.0 (WebSocket enabled)`);
     console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
 });
 

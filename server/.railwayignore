@@ -1,8 +1,7 @@
 node_modules/
-.git/
 *.log
-.env.local
-.DS_Store
+.env
+database.db
 uploads/
-childwatch.db
-test/
+recordings/
+.DS_Store

@@ -16,15 +16,17 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.example.childwatch.databinding.ActivityAudioStreamingBinding
 import ru.example.childwatch.network.NetworkClient
+import ru.example.childwatch.network.WebSocketClient
 import java.text.SimpleDateFormat
 import java.util.*
 
 /**
- * Audio Streaming Activity
+ * Audio Streaming Activity (WebSocket Version)
  *
  * Features:
- * - Start/stop audio streaming from child device
- * - Real-time audio playback
+ * - Real-time audio streaming via WebSocket
+ * - Instant chunk delivery (no polling)
+ * - Buffering queue for smooth playback
  * - Optional recording mode
  * - Live status updates
  */
@@ -32,8 +34,7 @@ class AudioStreamingActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "AudioStreamingActivity"
-        private const val UPDATE_INTERVAL_MS = 1500L // Poll for chunks every 1.5 seconds (faster polling for smoother streaming)
-        private const val MIN_BUFFER_CHUNKS = 7 // Minimum chunks before starting playback (increased for smoother playback)
+        private const val MIN_BUFFER_CHUNKS = 3 // Minimum chunks before starting playback (WebSocket is faster)
         const val EXTRA_DEVICE_ID = "device_id"
         const val EXTRA_SERVER_URL = "server_url"
     }
@@ -46,9 +47,12 @@ class AudioStreamingActivity : AppCompatActivity() {
     private var isStreaming = false
     private var isRecording = false
     private var audioTrack: AudioTrack? = null
-    private var updateJob: Job? = null
     private var playbackJob: Job? = null
     private var streamingStartTime: Long = 0L
+    private var chunksReceived = 0
+
+    // WebSocket client for real-time audio
+    private var webSocketClient: WebSocketClient? = null
 
     // Buffering queue for smooth playback
     private val chunkQueue = java.util.concurrent.ConcurrentLinkedQueue<ByteArray>()
@@ -100,25 +104,28 @@ class AudioStreamingActivity : AppCompatActivity() {
     private fun startStreaming() {
         lifecycleScope.launch {
             try {
-                binding.statusText.text = "Запуск прослушки..."
+                binding.statusText.text = "Подключение к WebSocket..."
                 binding.toggleStreamingBtn.isEnabled = false
 
+                // HTTP request to start streaming session
                 val success = networkClient.startAudioStreaming(serverUrl, deviceId, isRecording)
 
                 if (success) {
                     isStreaming = true
                     streamingStartTime = System.currentTimeMillis()
-                    binding.statusText.text = "Прослушка активна"
+                    chunksReceived = 0
                     binding.startTimeText.text = getCurrentTime()
                     binding.durationText.text = "00:00:00"
                     binding.chunksReceivedText.text = "0"
-                    Toast.makeText(this@AudioStreamingActivity, "Прослушка запущена", Toast.LENGTH_SHORT).show()
 
                     // Initialize audio playback
                     initializeAudioTrack()
 
-                    // Start polling for audio chunks
-                    startAudioUpdate()
+                    // Connect to WebSocket for real-time audio
+                    connectWebSocket()
+
+                    binding.statusText.text = "Прослушка активна (WebSocket)"
+                    Toast.makeText(this@AudioStreamingActivity, "🎙️ WebSocket подключен", Toast.LENGTH_SHORT).show()
                 } else {
                     binding.statusText.text = "Ошибка запуска"
                     Toast.makeText(this@AudioStreamingActivity, "Не удалось запустить прослушку", Toast.LENGTH_LONG).show()
@@ -135,17 +142,74 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
     }
 
+    private fun connectWebSocket() {
+        try {
+            webSocketClient = WebSocketClient(serverUrl, deviceId)
+
+            // Set callback for receiving audio chunks
+            webSocketClient?.setAudioChunkCallback { audioData, sequence, timestamp ->
+                // Add chunk to playback queue
+                chunkQueue.offer(audioData)
+                chunksReceived++
+
+                // Update UI every 10 chunks
+                if (chunksReceived % 10 == 0) {
+                    lifecycleScope.launch(Dispatchers.Main) {
+                        binding.chunksReceivedText.text = chunksReceived.toString()
+                    }
+                }
+
+                // Start playback if buffered enough
+                if (isBuffering && chunkQueue.size >= MIN_BUFFER_CHUNKS) {
+                    isBuffering = false
+                    lifecycleScope.launch(Dispatchers.Main) {
+                        binding.statusText.text = "Воспроизведение..."
+                    }
+                }
+            }
+
+            // Set callback for child disconnect
+            webSocketClient?.setChildDisconnectedCallback {
+                lifecycleScope.launch(Dispatchers.Main) {
+                    Toast.makeText(this@AudioStreamingActivity, "⚠️ Устройство отключилось", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            // Connect
+            webSocketClient?.connect(
+                onConnected = {
+                    Log.d(TAG, "✅ WebSocket connected")
+                    webSocketClient?.startHeartbeat()
+
+                    // Start playback job
+                    startPlaybackJob()
+                },
+                onError = { error ->
+                    Log.e(TAG, "❌ WebSocket error: $error")
+                    lifecycleScope.launch(Dispatchers.Main) {
+                        Toast.makeText(this@AudioStreamingActivity, "WebSocket ошибка: $error", Toast.LENGTH_LONG).show()
+                    }
+                }
+            )
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error connecting WebSocket", e)
+        }
+    }
+
     private fun stopStreaming() {
         lifecycleScope.launch {
             try {
                 binding.statusText.text = "Остановка..."
                 binding.toggleStreamingBtn.isEnabled = false
 
-                // Stop update and playback jobs
-                updateJob?.cancel()
-                updateJob = null
+                // Stop playback job
                 playbackJob?.cancel()
                 playbackJob = null
+
+                // Disconnect WebSocket
+                webSocketClient?.cleanup()
+                webSocketClient = null
 
                 // Clear queue
                 chunkQueue.clear()
@@ -155,6 +219,7 @@ class AudioStreamingActivity : AppCompatActivity() {
                 audioTrack?.release()
                 audioTrack = null
 
+                // HTTP request to stop streaming
                 val success = networkClient.stopAudioStreaming(serverUrl, deviceId)
 
                 if (success) {
@@ -162,7 +227,7 @@ class AudioStreamingActivity : AppCompatActivity() {
                     isRecording = false
                     binding.statusText.text = "Остановлено"
                     binding.recordingSwitch.isChecked = false
-                    Toast.makeText(this@AudioStreamingActivity, "Прослушка остановлена", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@AudioStreamingActivity, "🛑 Прослушка остановлена", Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(this@AudioStreamingActivity, "Ошибка остановки", Toast.LENGTH_LONG).show()
                 }
@@ -237,13 +302,13 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
     }
 
-    private fun startAudioUpdate() {
+    private fun startPlaybackJob() {
         isBuffering = true
         chunkQueue.clear()
 
-        // Job 1: Fetch chunks from server and add to queue
-        updateJob = lifecycleScope.launch {
-            var totalChunks = 0
+        // Continuous playback from WebSocket queue
+        playbackJob = lifecycleScope.launch(Dispatchers.IO) {
+            Log.d(TAG, "🎧 Starting continuous playback from WebSocket")
 
             while (isActive && isStreaming) {
                 try {
@@ -252,53 +317,20 @@ class AudioStreamingActivity : AppCompatActivity() {
                     val seconds = (duration / 1000) % 60
                     val minutes = (duration / 60000) % 60
                     val hours = duration / 3600000
-                    binding.durationText.text = String.format("%02d:%02d:%02d", hours, minutes, seconds)
-
-                    // Get audio chunks from server
-                    val chunks = networkClient.getAudioChunks(serverUrl, deviceId)
-
-                    if (chunks != null && chunks.isNotEmpty()) {
-                        totalChunks += chunks.size
-                        binding.chunksReceivedText.text = "$totalChunks"
-
-                        // Add chunks to playback queue
-                        chunks.forEach { chunk ->
-                            chunkQueue.offer(chunk.data)
-                        }
-
-                        Log.d(TAG, "Added ${chunks.size} chunks to queue (total: $totalChunks, queue size: ${chunkQueue.size})")
-
-                        // Start playback after buffering MIN_BUFFER_CHUNKS
-                        if (isBuffering && chunkQueue.size >= MIN_BUFFER_CHUNKS) {
-                            isBuffering = false
-                            binding.statusText.text = "Воспроизведение..."
-                            Log.d(TAG, "Buffering complete, starting playback")
-                        }
+                    withContext(Dispatchers.Main) {
+                        binding.durationText.text = String.format("%02d:%02d:%02d", hours, minutes, seconds)
                     }
 
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error in audio update loop", e)
-                }
-
-                delay(UPDATE_INTERVAL_MS)
-            }
-        }
-
-        // Job 2: Continuous playback from queue
-        startContinuousPlayback()
-    }
-
-    private fun startContinuousPlayback() {
-        playbackJob = lifecycleScope.launch(Dispatchers.IO) {
-            Log.d(TAG, "Starting continuous playback thread")
-
-            while (isActive && isStreaming) {
-                try {
+                    // Play chunks from queue
                     if (!isBuffering && chunkQueue.isNotEmpty()) {
                         val chunk = chunkQueue.poll()
                         if (chunk != null && audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
                             val bytesWritten = audioTrack?.write(chunk, 0, chunk.size, AudioTrack.WRITE_BLOCKING) ?: 0
-                            Log.d(TAG, "Played chunk: $bytesWritten bytes (queue size: ${chunkQueue.size})")
+
+                            // Log every 10th chunk
+                            if (chunksReceived % 10 == 0) {
+                                Log.d(TAG, "▶️ Played chunk: $bytesWritten bytes (queue: ${chunkQueue.size})")
+                            }
                         }
                     } else {
                         // Queue empty or still buffering - wait a bit
@@ -306,7 +338,7 @@ class AudioStreamingActivity : AppCompatActivity() {
                             withContext(Dispatchers.Main) {
                                 binding.statusText.text = "Буферизация..."
                             }
-                            Log.w(TAG, "Queue empty, waiting for chunks...")
+                            Log.w(TAG, "⏸️ Queue empty, waiting for chunks...")
                         }
                         delay(100)
                     }
@@ -315,7 +347,7 @@ class AudioStreamingActivity : AppCompatActivity() {
                 }
             }
 
-            Log.d(TAG, "Playback thread stopped")
+            Log.d(TAG, "🛑 Playback thread stopped")
         }
     }
 
@@ -340,7 +372,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
 
         // Clean up audio resources
-        updateJob?.cancel()
+        playbackJob?.cancel()
         audioTrack?.stop()
         audioTrack?.release()
     }

@@ -19,11 +19,12 @@ const upload = multer({
 /**
  * Initialize with managers
  */
-let commandManager, dbManager;
+let commandManager, dbManager, wsManager;
 
-router.init = (cmdMgr, dbMgr) => {
+router.init = (cmdMgr, dbMgr, wsMgr) => {
     commandManager = cmdMgr;
     dbManager = dbMgr;
+    wsManager = wsMgr;
 };
 
 /**
@@ -64,10 +65,13 @@ router.get('/commands/:deviceId', async (req, res) => {
 /**
  * POST /api/streaming/start
  * Start audio streaming session (called by parent)
+ *
+ * NOTE: Audio chunks are now transmitted via WebSocket for real-time streaming
+ * This endpoint still uses HTTP to initiate the session and send commands
  */
 router.post('/start', async (req, res) => {
     try {
-        const { deviceId, parentId, timeoutMinutes } = req.body;
+        const { deviceId, parentId, timeoutMinutes, recording } = req.body;
 
         if (!deviceId) {
             return res.status(400).json({
@@ -81,11 +85,16 @@ router.post('/start', async (req, res) => {
         const result = commandManager.startStreaming(deviceId, parentId || 'parent', timeout);
 
         if (result) {
+            // Check if child device is connected via WebSocket
+            const childConnected = wsManager.isChildConnected(deviceId);
+
             res.json({
                 success: true,
                 message: 'Audio streaming started',
                 deviceId: deviceId,
                 sessionId: `stream_${Date.now()}`,
+                webSocketEnabled: true,
+                childConnected: childConnected,
                 timestamp: Date.now()
             });
         } else {
@@ -325,7 +334,7 @@ router.get('/chunks/:deviceId', async (req, res) => {
 
 /**
  * GET /api/streaming/status/:deviceId
- * Get streaming session status
+ * Get streaming session status including WebSocket connection state
  */
 router.get('/status/:deviceId', async (req, res) => {
     try {
@@ -339,13 +348,21 @@ router.get('/status/:deviceId', async (req, res) => {
         }
 
         const session = commandManager.getSessionInfo(deviceId);
+        const wsStats = wsManager.getStats();
+        const childConnected = wsManager.isChildConnected(deviceId);
+        const hasListener = wsManager.hasActiveListener(deviceId);
 
         if (!session) {
             return res.json({
                 success: true,
                 streaming: false,
                 recording: false,
-                deviceId: deviceId
+                deviceId: deviceId,
+                webSocket: {
+                    childConnected,
+                    hasListener,
+                    totalConnections: wsStats.totalConnections
+                }
             });
         }
 
@@ -358,6 +375,13 @@ router.get('/status/:deviceId', async (req, res) => {
             startTime: session.startTime,
             duration: Date.now() - session.startTime,
             chunks: session.chunks,
+            webSocket: {
+                enabled: true,
+                childConnected,
+                hasListener,
+                totalConnections: wsStats.totalConnections,
+                activeStreams: wsStats.activeStreams
+            },
             timestamp: Date.now()
         });
 
