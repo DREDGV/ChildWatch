@@ -1,10 +1,13 @@
 package ru.example.parentwatch.audio
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.util.Log
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import ru.example.parentwatch.network.NetworkHelper
 import ru.example.parentwatch.network.WebSocketClient
@@ -130,13 +133,17 @@ class AudioStreamRecorder(
      */
     private suspend fun recordAndSendChunk() {
         try {
+            Log.d(TAG, "🎙️ Recording chunk #$sequence...")
+            
             // Record chunk
             val audioData = recordChunk()
 
             if (audioData == null || audioData.isEmpty()) {
-                Log.w(TAG, "No audio data recorded")
+                Log.w(TAG, "⚠️ No audio data recorded for chunk #$sequence")
                 return
             }
+
+            Log.d(TAG, "📤 Sending chunk #$sequence (${audioData.size} bytes) via WebSocket...")
 
             // Send via WebSocket (instant transmission)
             webSocketClient?.sendAudioChunk(
@@ -144,20 +151,19 @@ class AudioStreamRecorder(
                 audioData = audioData,
                 recording = recordingMode,
                 onSuccess = {
-                    // Log every 10th chunk to reduce spam
-                    if (sequence % 10 == 0) {
-                        Log.d(TAG, "✅ Chunk $sequence sent via WebSocket (${audioData.size} bytes)")
-                    }
+                    Log.d(TAG, "✅ Chunk #$sequence sent successfully via WebSocket (${audioData.size} bytes)")
                 },
                 onError = { error ->
-                    Log.e(TAG, "❌ Failed to send chunk $sequence: $error")
+                    Log.e(TAG, "❌ Failed to send chunk #$sequence: $error")
                 }
             )
 
             sequence++
+            Log.d(TAG, "🔄 Next chunk will be #$sequence")
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error recording/sending chunk", e)
+            Log.e(TAG, "💥 Error recording/sending chunk #$sequence", e)
+            // Don't stop the loop - continue trying
         }
     }
 
@@ -166,6 +172,13 @@ class AudioStreamRecorder(
      */
     private fun initializeAudioRecord() {
         try {
+            // Check for RECORD_AUDIO permission
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO) 
+                != PackageManager.PERMISSION_GRANTED) {
+                Log.e(TAG, "RECORD_AUDIO permission not granted")
+                return
+            }
+            
             audioRecord = AudioRecord(
                 MediaRecorder.AudioSource.MIC,
                 SAMPLE_RATE,
@@ -192,9 +205,11 @@ class AudioStreamRecorder(
      */
     private suspend fun recordChunk(): ByteArray? = withContext(Dispatchers.IO) {
         try {
+            Log.d(TAG, "🎤 Starting to record chunk #$sequence...")
+            
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED ||
                 audioRecord?.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
-                Log.e(TAG, "AudioRecord not recording")
+                Log.e(TAG, "❌ AudioRecord not recording - state: ${audioRecord?.state}, recording: ${audioRecord?.recordingState}")
                 return@withContext null
             }
 
@@ -203,29 +218,32 @@ class AudioStreamRecorder(
             val audioBuffer = ByteArray(chunkSize)
             var totalRead = 0
 
+            Log.d(TAG, "📊 Reading $chunkSize bytes for chunk #$sequence...")
+
             // Read audio data for CHUNK_DURATION_MS (continuous stream, no gaps!)
             while (totalRead < chunkSize && isRecording) {
                 val bytesRead = audioRecord?.read(audioBuffer, totalRead, chunkSize - totalRead) ?: 0
                 if (bytesRead > 0) {
                     totalRead += bytesRead
+                    Log.d(TAG, "📈 Read $bytesRead bytes, total: $totalRead/$chunkSize")
                 } else if (bytesRead == AudioRecord.ERROR_INVALID_OPERATION || bytesRead == AudioRecord.ERROR_BAD_VALUE) {
-                    Log.e(TAG, "Error reading audio data: $bytesRead")
+                    Log.e(TAG, "❌ Error reading audio data: $bytesRead")
                     break
+                } else {
+                    Log.w(TAG, "⚠️ No data read, bytesRead: $bytesRead")
                 }
             }
 
             if (totalRead > 0) {
-                // Only log every 10th chunk to reduce spam
-                if (sequence % 10 == 0) {
-                    Log.d(TAG, "Recorded $totalRead bytes of PCM audio (${totalRead/2} samples)")
-                }
+                Log.d(TAG, "✅ Recorded $totalRead bytes of PCM audio for chunk #$sequence (${totalRead/2} samples)")
                 audioBuffer.copyOf(totalRead)
             } else {
+                Log.w(TAG, "⚠️ No audio data recorded for chunk #$sequence")
                 null
             }
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error recording chunk", e)
+            Log.e(TAG, "💥 Error recording chunk #$sequence", e)
             null
         }
     }

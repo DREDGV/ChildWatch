@@ -67,7 +67,6 @@
     <string name="last_audio_update">Последняя аудиозапись: %1$s</string>
     <string name="last_photo_update">Последнее фото: %1$s</string>
     <string name="service_running_time">Сервис работает: %1$s</string>
-    <string name="battery_optimization_warning">⚠️ Отключите оптимизацию батареи для стабильной работы</string>
     <string name="permissions_status">Разрешения: %1$s</string>
     <string name="permissions_all_granted">все предоставлены</string>
     <string name="permissions_missing">отсутствуют: %1$s</string>
@@ -183,7 +182,6 @@
     <string name="battery_alert_title">ChildWatch: питание устройства</string>
     <string name="battery_status_critical">Критический уровень заряда. ChildWatch ограничил фоновые задачи.</string>
     <string name="battery_status_low">Низкий заряд батареи. ChildWatch переключился в щадящий режим.</string>
-    <string name="battery_optimization_warning">Отключите оптимизацию батареи, чтобы сервис работал без остановок</string>
     <string name="battery_optimization_button">Отключить</string>
     <string name="battery_optimization_dialog_title">Разрешите работу в фоне</string>
     <string name="battery_optimization_dialog_message">Android может останавливать службы ChildWatch из-за оптимизации батареи. Разрешите приложению игнорировать оптимизацию, чтобы мониторинг не прерывался.</string>

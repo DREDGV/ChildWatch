@@ -10,6 +10,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.PrintWriter
 import ru.example.childwatch.utils.AlertNotifier
+import ru.example.childwatch.alerts.CriticalEventReporter
 import java.io.StringWriter
 
 /**
@@ -202,7 +203,7 @@ class ErrorHandler(private val context: Context) {
             notificationId = 4000 + errorInfo.type.ordinal
         )
 
-        CriticalEventReporter.report(
+        CriticalEventReporter(context).report(
             context = context,
             eventType = errorInfo.type.name,
             severity = errorInfo.severity.name,

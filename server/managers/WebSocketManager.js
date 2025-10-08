@@ -92,14 +92,15 @@ class WebSocketManager {
 
         // SIMPLIFIED ARCHITECTURE - Auto-link with parent if exists
         // Check if there's already a parent listening for this device
-        const parentSocketId = this.activeStreams.get(deviceId);
-        if (parentSocketId && parentSocketId.size > 0) {
-            const firstParentId = Array.from(parentSocketId)[0];
-            this.io.to(firstParentId).emit('child_connected', {
-                deviceId,
-                timestamp: Date.now()
+        const parentSockets = this.activeStreams.get(deviceId);
+        if (parentSockets && parentSockets.size > 0) {
+            parentSockets.forEach(parentSocketId => {
+                this.io.to(parentSocketId).emit('child_connected', {
+                    deviceId,
+                    timestamp: Date.now()
+                });
             });
-            console.log(`🔗 Auto-linked child ${socket.id} with existing parent ${firstParentId} for ${deviceId}`);
+            console.log(`🔗 Auto-linked child ${socket.id} with ${parentSockets.size} existing parent(s) for ${deviceId}`);
         } else {
             console.log(`⚠️ No parent listening for ${deviceId} yet - will auto-link when parent connects`);
         }
@@ -170,28 +171,29 @@ class WebSocketManager {
             return;
         }
 
-        // Get parent socket for this child device
-        const parentSocketId = this.activeStreams.get(deviceId);
+        // Get parent sockets for this child device
+        const parentSockets = this.activeStreams.get(deviceId);
 
-        if (!parentSocketId) {
+        if (!parentSockets || parentSockets.size === 0) {
             // No parent listening - just acknowledge receipt
+            console.log(`⚠️ No parent listening for ${deviceId} - chunk ${sequence} ignored`);
             return;
         }
 
-        // Forward chunk to parent device in real-time
+        // Forward chunk to ALL parent devices in real-time
         // Send metadata and binary data separately
-        this.io.to(parentSocketId).emit('audio_chunk', {
-            deviceId,
-            sequence,
-            timestamp: timestamp || Date.now(),
-            recording,
-            receivedAt: Date.now()
-        }, binaryData); // Binary data as second argument
+        parentSockets.forEach(parentSocketId => {
+            this.io.to(parentSocketId).emit('audio_chunk', {
+                deviceId,
+                sequence,
+                timestamp: timestamp || Date.now(),
+                recording,
+                receivedAt: Date.now()
+            }, binaryData); // Binary data as second argument
+        });
 
-        // Log every 10th chunk to avoid spam
-        if (sequence % 10 === 0) {
-            console.log(`🎙️ Forwarded chunk ${sequence} from ${deviceId} to parent (${binaryData.length} bytes)`);
-        }
+        // Log every chunk for debugging
+        console.log(`🎙️ Forwarded chunk ${sequence} from ${deviceId} to ${parentSockets.size} parent(s) (${binaryData.length} bytes)`);
     }
 
     emitCriticalAlert(deviceId, alertPayload) {
@@ -221,12 +223,14 @@ class WebSocketManager {
             // Remove child socket mapping
             this.childSockets.delete(deviceId);
 
-            // Notify parent that child disconnected
-            const parentSocketId = this.activeStreams.get(deviceId);
-            if (parentSocketId) {
-                this.io.to(parentSocketId).emit('child_disconnected', {
-                    deviceId,
-                    timestamp: Date.now()
+            // Notify ALL parents that child disconnected
+            const parentSockets = this.activeStreams.get(deviceId);
+            if (parentSockets && parentSockets.size > 0) {
+                parentSockets.forEach(parentSocketId => {
+                    this.io.to(parentSocketId).emit('child_disconnected', {
+                        deviceId,
+                        timestamp: Date.now()
+                    });
                 });
             }
 
@@ -241,8 +245,16 @@ class WebSocketManager {
             // Remove parent socket mapping
             this.parentSockets.delete(socketId);
 
-            // Remove streaming session
-            this.activeStreams.delete(childDeviceId);
+            // Remove this parent from streaming session (but keep others)
+            const parentSockets = this.activeStreams.get(childDeviceId);
+            if (parentSockets) {
+                parentSockets.delete(socketId);
+                
+                // If no more parents listening, remove the session
+                if (parentSockets.size === 0) {
+                    this.activeStreams.delete(childDeviceId);
+                }
+            }
 
             // Notify child that parent stopped listening
             const childSocketId = this.childSockets.get(childDeviceId);

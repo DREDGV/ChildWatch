@@ -520,13 +520,16 @@ class NetworkClient(private val context: Context) {
         val map = mutableMapOf<String, Any?>()
         val keys = obj.keys()
         while (keys.hasNext()) {
-            val key = keys.next()
+            val key = keys.next() as String
             map[key] = obj.get(key)
         }
         return map
     }
 
-\n    /**\n     * Ensure URL uses HTTPS\n     */\n    private fun ensureHttpsUrl(url: String): String {
+    /**
+     * Ensure URL uses HTTPS
+     */
+    private fun ensureHttpsUrl(url: String): String {
         return when {
             url.startsWith("https://") -> url
             url.startsWith("http://") -> url.replace("http://", "https://")
@@ -929,8 +932,6 @@ class NetworkClient(private val context: Context) {
         val recording: Boolean,
         val startedAt: Long
     )
-}
-
     suspend fun sendCriticalEvent(
         serverUrl: String,
         deviceId: String,
@@ -940,7 +941,7 @@ class NetworkClient(private val context: Context) {
         metadata: Map<String, Any?> = emptyMap()
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}\/api\/alerts"
+            val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}/api/alerts"
             val json = JSONObject().apply {
                 put("deviceId", deviceId)
                 put("eventType", eventType)
@@ -977,7 +978,7 @@ class NetworkClient(private val context: Context) {
         limit: Int = 20
     ): List<CriticalAlert> = withContext(Dispatchers.IO) {
         try {
-            val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}\/api\/alerts\/pending/$deviceId?limit=$limit"
+            val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}/api/alerts/pending/$deviceId?limit=$limit"
             val request = Request.Builder().url(url).get().build()
 
             client.newCall(request).execute().use { response ->
@@ -1019,7 +1020,7 @@ class NetworkClient(private val context: Context) {
     ): Boolean = withContext(Dispatchers.IO) {
         if (alertIds.isEmpty()) return@withContext true
         try {
-            val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}\/api\/alerts\/ack"
+            val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}/api/alerts/ack"
             val json = JSONObject().apply {
                 put("deviceId", deviceId)
                 put("alertIds", alertIds)
@@ -1043,10 +1044,6 @@ class NetworkClient(private val context: Context) {
             false
         }
     }
-
-
-
-
 }
 
 

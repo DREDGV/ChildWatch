@@ -80,6 +80,27 @@ class StreamRecorder(private val context: Context) {
         return try {
             raf.channel.force(true)
             updateHeader(raf, totalBytes)
+<<<<<<< Current (Your changes)
+            file?.let {
+                RecordingMetadata(
+                    id = it.nameWithoutExtension,
+                    fileName = it.name,
+                    filePath = it.absolutePath,
+                    durationMs = (totalBytes / (sampleRate * channelCount * 2)).toLong(),
+                    createdAt = System.currentTimeMillis(),
+                    sizeBytes = totalBytes
+                )
+            }
+=======
+            RecordingMetadata(
+                id = System.currentTimeMillis().toString(),
+                fileName = file?.name ?: "unknown.wav",
+                filePath = file?.absolutePath ?: "",
+                createdAt = System.currentTimeMillis(),
+                durationMs = (totalBytes / (sampleRate * 2) * 1000).toLong(),
+                sizeBytes = totalBytes
+            )
+>>>>>>> Incoming (Background Agent changes)
         } catch (e: Exception) {
             Log.e(TAG, "Failed to finalize WAV header", e)
             null

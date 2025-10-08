@@ -168,7 +168,7 @@ class MonitorService : Service() {
         }
         val statusText = when {
             !batteryOptimizer.isIgnoringBatteryOptimizations() -> getString(R.string.notification_status_battery_optimization)
-            batteryOptimizer.isPowerSaveModeEnabled() -> getString(R.string.notification_status_power_save)
+            batteryOptimizer.isPowerSaveEnabled() -> getString(R.string.notification_status_power_save)
             else -> baseText
         }
         

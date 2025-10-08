@@ -89,14 +89,16 @@ class WebSocketClient(
         onError: (String) -> Unit = {}
     ) {
         try {
+            Log.d(TAG, "📤 Attempting to send chunk #$sequence (${audioData.size} bytes)...")
+            
             if (!isConnected) {
-                Log.w(TAG, "Not connected - cannot send audio chunk")
+                Log.w(TAG, "❌ Not connected - cannot send audio chunk #$sequence")
                 onError("Not connected to server")
                 return
             }
 
             if (socket == null) {
-                Log.e(TAG, "Socket is null")
+                Log.e(TAG, "❌ Socket is null - cannot send chunk #$sequence")
                 onError("Socket not initialized")
                 return
             }
@@ -109,19 +111,17 @@ class WebSocketClient(
                 put("recording", recording)
             }
 
+            Log.d(TAG, "📋 Sending metadata: $metadata")
+
             // Emit audio chunk with metadata and binary data separately
             // Socket.IO will encode binary data properly when sent as separate argument
             socket?.emit("audio_chunk", metadata, audioData)
 
-            // Log every 10th chunk to reduce spam
-            if (sequence % 10 == 0) {
-                Log.d(TAG, "Sent audio chunk #$sequence (${audioData.size} bytes)")
-            }
-
+            Log.d(TAG, "✅ Chunk #$sequence emitted via Socket.IO (${audioData.size} bytes)")
             onSuccess()
 
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending audio chunk", e)
+            Log.e(TAG, "💥 Error sending audio chunk #$sequence", e)
             onError("Send error: ${e.message}")
         }
     }
@@ -131,9 +131,28 @@ class WebSocketClient(
      */
     fun sendPing() {
         try {
+            Log.d(TAG, "💓 Sending heartbeat ping...")
             socket?.emit("ping")
         } catch (e: Exception) {
-            Log.e(TAG, "Error sending ping", e)
+            Log.e(TAG, "💥 Error sending ping", e)
+        }
+    }
+
+    /**
+     * Start heartbeat to maintain connection
+     */
+    fun startHeartbeat() {
+        Log.d(TAG, "💓 Starting heartbeat...")
+        scope.launch {
+            while (isConnected) {
+                try {
+                    sendPing()
+                    delay(30000) // Send ping every 30 seconds
+                } catch (e: Exception) {
+                    Log.e(TAG, "💥 Heartbeat error", e)
+                    break
+                }
+            }
         }
     }
 
@@ -141,6 +160,7 @@ class WebSocketClient(
      * Check if connected
      */
     fun isConnected(): Boolean = isConnected
+
 
     // Event Handlers
 
@@ -238,9 +258,10 @@ class WebSocketClient(
     }
 
     /**
-     * Cleanup
+     * Cleanup resources
      */
     fun cleanup() {
+        Log.d(TAG, "🧹 Cleaning up WebSocket client...")
         stopHeartbeat()
         disconnect()
         scope.cancel()
