@@ -161,10 +161,15 @@ class MonitorService : Service() {
         )
         
         val title = getString(R.string.notification_monitoring_title)
-        val text = if (isRecording) {
+        val baseText = if (isRecording) {
             getString(R.string.notification_status_recording)
         } else {
             getString(R.string.notification_status_running)
+        }
+        val statusText = when {
+            !batteryOptimizer.isIgnoringBatteryOptimizations() -> getString(R.string.notification_status_battery_optimization)
+            batteryOptimizer.isPowerSaveModeEnabled() -> getString(R.string.notification_status_power_save)
+            else -> baseText
         }
         
         // Create action buttons
@@ -213,7 +218,7 @@ class MonitorService : Service() {
         
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
-            .setContentText(text)
+            .setContentText(statusText)
             .setSubText(lastUpdateText)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)

@@ -13,15 +13,21 @@ import android.media.AudioTrack
 import android.net.wifi.WifiManager
 import android.os.Binder
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.os.PowerManager
 import android.util.Log
+import android.widget.Toast
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import ru.example.childwatch.MainActivity
 import ru.example.childwatch.R
+import ru.example.childwatch.audio.AudioEnhancer
+import ru.example.childwatch.audio.RecordingRepository
+import ru.example.childwatch.audio.StreamRecorder
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketClient
 
@@ -38,6 +44,8 @@ class AudioPlaybackService : LifecycleService() {
 
         private const val MIN_BUFFER_CHUNKS = 3
         private const val MAX_BUFFER_CHUNKS = 6
+        private const val STREAM_SAMPLE_RATE = 44100
+        private const val STREAM_CHANNEL_COUNT = 1
 
         const val ACTION_START_PLAYBACK = "ru.example.childwatch.START_PLAYBACK"
         const val ACTION_STOP_PLAYBACK = "ru.example.childwatch.STOP_PLAYBACK"
@@ -98,6 +106,11 @@ class AudioPlaybackService : LifecycleService() {
     private var playbackJob: Job? = null
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+    private val audioEnhancer = AudioEnhancer()
+    private lateinit var recordingRepository: RecordingRepository
+    private var streamRecorder: StreamRecorder? = null
+    private var localRecordingActive = false
+    private val mainHandler: Handler = Handler(Looper.getMainLooper())
 
     private var deviceId: String? = null
     private var serverUrl: String? = null
@@ -127,6 +140,13 @@ class AudioPlaybackService : LifecycleService() {
         waveformCallback = callback
     }
 
+    fun updateAudioEnhancer(noiseSuppression: Boolean, gainBoostDb: Int) {
+        val normalizedGain = gainBoostDb.coerceIn(0, 12)
+        audioEnhancer.updateConfig(AudioEnhancer.Config(noiseSuppressionEnabled = noiseSuppression, gainBoostDb = normalizedGain))
+    }
+
+    fun getAudioEnhancerConfig(): AudioEnhancer.Config = audioEnhancer.getConfig()
+
     override fun onBind(intent: Intent): IBinder {
         super.onBind(intent)
         return binder
@@ -137,6 +157,8 @@ class AudioPlaybackService : LifecycleService() {
         Log.d(TAG, "AudioPlaybackService created")
 
         networkClient = NetworkClient(this)
+        recordingRepository = RecordingRepository(this)
+        streamRecorder = StreamRecorder(this)
         createNotificationChannel()
 
         // Initialize WakeLock
@@ -187,6 +209,13 @@ class AudioPlaybackService : LifecycleService() {
         this.serverUrl = serverUrl
         this.isRecording = recording
 
+        if (recording) {
+            startLocalRecording()
+        } else {
+            stopLocalRecording(save = false)
+        }
+
+
         Log.d(TAG, "🎧 Starting audio playback in foreground service")
 
         // Start foreground with notification
@@ -234,12 +263,33 @@ class AudioPlaybackService : LifecycleService() {
         }
     }
 
+    private fun handleCriticalAlert(alert: ru.example.childwatch.network.WebSocketClient.CriticalAlertMessage) {
+        val title = getString(R.string.critical_alert_title)
+        AlertNotifier.show(this, title, alert.message, notificationId = alert.id.toInt())
+
+        val currentDeviceId = deviceId
+        val currentServerUrl = serverUrl
+        val client = networkClient
+
+        if (client != null && !currentDeviceId.isNullOrBlank() && !currentServerUrl.isNullOrBlank()) {
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    client.acknowledgeCriticalAlerts(currentServerUrl, currentDeviceId, listOf(alert.id))
+                } catch (e: Exception) {
+                    Log.e(TAG, "Failed to acknowledge alert ${alert.id}", e)
+                }
+            }
+        }
+    }
+
     private fun stopPlayback() {
         Log.d(TAG, "🛑 Stopping audio playback")
 
         // CRITICAL: Set flags FIRST to stop all loops
         isPlaying = false
         AudioPlaybackService.isPlaying = false
+        stopLocalRecording(save = localRecordingActive)
+
         Log.d(TAG, "✅ isPlaying set to false")
 
         // Cancel playback job immediately
@@ -325,6 +375,13 @@ class AudioPlaybackService : LifecycleService() {
 
         isRecording = recording
 
+        if (recording) {
+            startLocalRecording()
+        } else {
+            stopLocalRecording(save = true)
+        }
+
+
         lifecycleScope.launch {
             try {
                 deviceId?.let { id ->
@@ -376,9 +433,44 @@ class AudioPlaybackService : LifecycleService() {
         AudioPlaybackService.lastChunkTimestamp = lastChunkTimestamp
     }
 
+    private fun startLocalRecording() {
+        if (localRecordingActive) return
+        val recorder = streamRecorder ?: StreamRecorder(this).also { streamRecorder = it }
+        if (recorder.start(STREAM_SAMPLE_RATE, STREAM_CHANNEL_COUNT)) {
+            localRecordingActive = true
+            showToast("Запись прослушки включена")
+        } else {
+            showToast("Не удалось начать запись прослушки", Toast.LENGTH_LONG)
+        }
+    }
+
+    private fun stopLocalRecording(save: Boolean) {
+        val recorder = streamRecorder ?: return
+        val shouldSave = save && localRecordingActive
+        val metadata = if (shouldSave) {
+            recorder.stop()
+        } else {
+            recorder.cancel()
+            null
+        }
+        localRecordingActive = false
+        if (metadata != null) {
+            recordingRepository.addRecording(metadata)
+            showToast("Запись сохранена: ${'$'}{metadata.fileName}")
+        } else if (shouldSave) {
+            showToast("Запись не содержит данных")
+        }
+    }
+
+    private fun showToast(message: String, duration: Int = Toast.LENGTH_SHORT) {
+        mainHandler.post {
+            Toast.makeText(this, message, duration).show()
+        }
+    }
+
     private fun initializeAudioTrack() {
         try {
-            val sampleRate = 44100
+            val sampleRate = STREAM_SAMPLE_RATE
             val channelConfig = AudioFormat.CHANNEL_OUT_MONO
             val audioFormat = AudioFormat.ENCODING_PCM_16BIT
 
@@ -420,6 +512,14 @@ class AudioPlaybackService : LifecycleService() {
             // Set callback for receiving audio chunks
             webSocketClient?.setAudioChunkCallback { audioData, _, _ ->
                 if (chunkQueue.size < MAX_BUFFER_CHUNKS) {
+            }
+
+            webSocketClient?.setCriticalAlertCallback { alert ->
+                handleCriticalAlert(alert)
+            }
+
+            webSocketClient?.setAudioChunkCallback { audioData, _, _ ->
+
                     chunkQueue.offer(audioData)
                 } else {
                     chunkQueue.poll()
@@ -480,10 +580,15 @@ class AudioPlaybackService : LifecycleService() {
                     if (!isBuffering && chunkQueue.isNotEmpty()) {
                         val chunk = chunkQueue.poll()
                         if (chunk != null && isPlaying && audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                            audioTrack?.write(chunk, 0, chunk.size, AudioTrack.WRITE_BLOCKING)
+                            val processedChunk = audioEnhancer.process(chunk)
+                            audioTrack?.write(processedChunk, 0, processedChunk.size, AudioTrack.WRITE_BLOCKING)
 
                             // Send chunk to waveform visualizer
-                            waveformCallback?.invoke(chunk)
+                            waveformCallback?.invoke(processedChunk)
+
+                            if (localRecordingActive) {
+                                streamRecorder?.write(processedChunk)
+                            }
 
                             // Check queue health
                             if (chunkQueue.size < 2) {
@@ -560,6 +665,7 @@ class AudioPlaybackService : LifecycleService() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "AudioPlaybackService destroyed")
+        stopLocalRecording(save = false)
 
         playbackJob?.cancel()
         audioTrack?.stop()

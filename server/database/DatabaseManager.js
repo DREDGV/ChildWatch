@@ -128,6 +128,19 @@ class DatabaseManager {
             )`,
 
             // Geofences (safe zones)
+            `CREATE TABLE IF NOT EXISTS critical_alerts (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id TEXT NOT NULL,
+                event_type TEXT NOT NULL,
+                severity TEXT NOT NULL,
+                message TEXT NOT NULL,
+                metadata TEXT,
+                created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                delivered INTEGER DEFAULT 0,
+                acknowledged INTEGER DEFAULT 0,
+                acknowledged_at INTEGER,
+                FOREIGN KEY (device_id) REFERENCES devices (device_id)
+            )`,
             `CREATE TABLE IF NOT EXISTS geofences (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_id TEXT NOT NULL,
@@ -152,6 +165,7 @@ class DatabaseManager {
             'CREATE INDEX IF NOT EXISTS idx_photo_device_timestamp ON photo_files (device_id, timestamp)',
             'CREATE INDEX IF NOT EXISTS idx_chat_device_timestamp ON chat_messages (device_id, timestamp)',
             'CREATE INDEX IF NOT EXISTS idx_activity_device_timestamp ON activity_logs (device_id, timestamp)',
+            'CREATE INDEX IF NOT EXISTS idx_alerts_device_created ON critical_alerts (device_id, created_at)'
             'CREATE INDEX IF NOT EXISTS idx_devices_auth_token ON devices (auth_token)'
         ];
 
@@ -162,6 +176,57 @@ class DatabaseManager {
         console.log('✅ Database tables created successfully');
     }
 
+
+    async saveCriticalAlert({ deviceId, eventType, severity, message, metadata }) {
+        const result = await this.run(`
+            INSERT INTO critical_alerts (device_id, event_type, severity, message, metadata)
+            VALUES (?, ?, ?, ?, ?)
+        `, [deviceId, eventType, severity, message, metadata ? JSON.stringify(metadata) : null]);
+
+        return {
+            id: result.id,
+            delivered: 0
+        };
+    }
+
+    async markAlertDelivered(alertId) {
+        await this.run(`
+            UPDATE critical_alerts
+            SET delivered = 1
+            WHERE id = ?
+        `, [alertId]);
+    }
+
+    async getPendingCriticalAlerts(deviceId, limit = 20) {
+        const rows = await this.all(`
+            SELECT id, device_id AS deviceId, event_type AS eventType, severity, message, metadata, created_at AS createdAt
+            FROM critical_alerts
+            WHERE device_id = ? AND acknowledged = 0
+            ORDER BY created_at DESC
+            LIMIT ?
+        `, [deviceId, limit]);
+
+        return rows.map(row => ({
+            ...row,
+            metadata: row.metadata ? JSON.parse(row.metadata) : null
+        }));
+    }
+
+    async acknowledgeCriticalAlerts(deviceId, alertIds) {
+        if (!alertIds || alertIds.length === 0) {
+            return;
+        }
+
+        const placeholders = alertIds.map(() => '?').join(',');
+        const params = [deviceId, ...alertIds];
+
+        await this.run(`
+            UPDATE critical_alerts
+            SET acknowledged = 1,
+                acknowledged_at = strftime('%s', 'now')
+            WHERE device_id = ? AND id IN (${placeholders})
+        `, params);
+    }
     /**
      * Execute SQL query
      */

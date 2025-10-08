@@ -4,6 +4,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.content.ServiceConnection
+import android.content.SharedPreferences
 import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
@@ -14,6 +15,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import ru.example.childwatch.databinding.ActivityAudioStreamingBinding
+import ru.example.childwatch.recordings.RecordingsLibraryActivity
 import ru.example.childwatch.service.AudioPlaybackService
 import java.text.SimpleDateFormat
 import java.util.*
@@ -38,6 +40,9 @@ class AudioStreamingActivity : AppCompatActivity() {
     private lateinit var binding: ActivityAudioStreamingBinding
     private lateinit var deviceId: String
     private lateinit var serverUrl: String
+    private lateinit var audioPrefs: SharedPreferences
+    private var noiseSuppressionEnabled = true
+    private var gainBoostDb = 0
 
     private var audioService: AudioPlaybackService? = null
     private var serviceBound = false
@@ -47,6 +52,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as AudioPlaybackService.LocalBinder
             audioService = binder.getService()
+            syncAudioEnhancerWithService()
             serviceBound = true
             Log.d(TAG, "Service connected")
 
@@ -97,6 +103,10 @@ class AudioStreamingActivity : AppCompatActivity() {
             return
         }
 
+        audioPrefs = getSharedPreferences("audio_streaming", MODE_PRIVATE)
+        noiseSuppressionEnabled = audioPrefs.getBoolean("noise_suppression", true)
+        gainBoostDb = audioPrefs.getInt("gain_boost_db", 0)
+
         setupUI()
 
         // Check if service is already running
@@ -112,6 +122,10 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
+        binding.noiseSuppressionSwitch.isChecked = noiseSuppressionEnabled
+        binding.gainBoostSlider.value = gainBoostDb.toFloat()
+        binding.gainBoostValueText.text = "$gainBoostDb дБ"
+
         binding.deviceIdText.text = "Устройство: $deviceId"
 
         // Start/Stop streaming button
@@ -131,6 +145,27 @@ class AudioStreamingActivity : AppCompatActivity() {
             if (AudioPlaybackService.isPlaying) {
                 toggleRecording(isChecked)
             }
+        }
+
+        binding.noiseSuppressionSwitch.setOnCheckedChangeListener { _, isChecked ->
+            noiseSuppressionEnabled = isChecked
+            persistAudioEnhancerPreferences()
+            audioService?.updateAudioEnhancer(noiseSuppressionEnabled, gainBoostDb)
+        }
+
+        binding.gainBoostSlider.addOnChangeListener { _, value, fromUser ->
+            val newGain = value.toInt()
+            if (!fromUser && newGain == gainBoostDb) {
+                return@addOnChangeListener
+            }
+            gainBoostDb = newGain
+            binding.gainBoostValueText.text = "$gainBoostDb дБ"
+            persistAudioEnhancerPreferences()
+            audioService?.updateAudioEnhancer(noiseSuppressionEnabled, gainBoostDb)
+        }
+
+        binding.openRecordingsButton.setOnClickListener {
+            startActivity(Intent(this, RecordingsLibraryActivity::class.java))
         }
 
         // Volume slider
@@ -203,6 +238,19 @@ class AudioStreamingActivity : AppCompatActivity() {
 
         val message = if (enabled) "Запись включена" else "Запись выключена"
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+
+    private fun persistAudioEnhancerPreferences() {
+        if (!::audioPrefs.isInitialized) return
+        audioPrefs.edit()
+            .putBoolean("noise_suppression", noiseSuppressionEnabled)
+            .putInt("gain_boost_db", gainBoostDb)
+            .apply()
+    }
+
+    private fun syncAudioEnhancerWithService() {
+        audioService?.updateAudioEnhancer(noiseSuppressionEnabled, gainBoostDb)
     }
 
     private fun startUIUpdateLoop() {

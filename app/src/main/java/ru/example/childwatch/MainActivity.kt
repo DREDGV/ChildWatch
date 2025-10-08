@@ -12,8 +12,12 @@ import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.isVisible
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import ru.example.childwatch.alerts.CriticalAlertSyncScheduler
 import ru.example.childwatch.databinding.ActivityMainMenuBinding
 import ru.example.childwatch.service.MonitorService
+import ru.example.childwatch.utils.BatteryOptimizationHelper
 import ru.example.childwatch.utils.PermissionHelper
 import ru.example.childwatch.utils.SecurityChecker
 import ru.example.childwatch.utils.SecureSettingsManager
@@ -24,7 +28,7 @@ import java.util.*
 /**
  * Main Activity with modern menu interface
  * 
- * ChildWatch v2.0.0 - Parental Monitoring Application
+ * ChildWatch v5.0.0 - Parental Monitoring Application
  * 
  * Features:
  * - Modern card-based menu interface
@@ -37,7 +41,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainMenuBinding
     private lateinit var prefs: SharedPreferences
     private lateinit var secureSettings: SecureSettingsManager
+    private lateinit var batteryOptimizationHelper: BatteryOptimizationHelper
     private var hasConsent = false
+    private var batteryOptimizationDialogDisplayed = false
     
     // Required permissions for the app
     private val requiredPermissions = mutableListOf(
@@ -65,6 +71,7 @@ class MainActivity : AppCompatActivity() {
         
         prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         secureSettings = SecureSettingsManager(this)
+        batteryOptimizationHelper = BatteryOptimizationHelper(this)
         hasConsent = ConsentActivity.hasConsent(this) // Используем правильный метод
 
         // Set app version
@@ -75,9 +82,15 @@ class MainActivity : AppCompatActivity() {
         
         // Perform security checks
         performSecurityChecks()
+        checkBatteryOptimizationStatus()
+        CriticalAlertSyncScheduler.schedule(this)
     }
     
+
+
     private fun setupUI() {
+        setupBatteryOptimizationUi()
+
         // Quick action buttons
         binding.startMonitoringBtn.setOnClickListener {
             startMonitoring()
@@ -137,6 +150,53 @@ class MainActivity : AppCompatActivity() {
         
     }
     
+    private fun setupBatteryOptimizationUi() {
+        binding.disableOptimizationButton.setOnClickListener {
+            batteryOptimizationHelper.requestDisableBatteryOptimization()
+        }
+        binding.openPowerSaverButton.setOnClickListener {
+            batteryOptimizationHelper.openPowerSaverSettings()
+        }
+    }
+
+    private fun checkBatteryOptimizationStatus() {
+        val ignoringOptimizations = batteryOptimizationHelper.isIgnoringBatteryOptimizations()
+        val powerSaveEnabled = batteryOptimizationHelper.isPowerSaveEnabled()
+
+        binding.batteryOptimizationRow.isVisible = !ignoringOptimizations
+        binding.powerSaverRow.isVisible = powerSaveEnabled
+        binding.powerSettingsCard.isVisible = !ignoringOptimizations || powerSaveEnabled
+
+        if (ignoringOptimizations) {
+            batteryOptimizationDialogDisplayed = false
+        } else {
+            maybeShowBatteryOptimizationDialog()
+        }
+    }
+
+    private fun maybeShowBatteryOptimizationDialog() {
+        if (prefs.getBoolean(KEY_BATTERY_PROMPT_SUPPRESSED, false) || batteryOptimizationDialogDisplayed) {
+            return
+        }
+        batteryOptimizationDialogDisplayed = true
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.battery_optimization_dialog_title)
+            .setMessage(R.string.battery_optimization_dialog_message)
+            .setPositiveButton(R.string.battery_optimization_button) { _, _ ->
+                batteryOptimizationHelper.requestDisableBatteryOptimization()
+            }
+            .setNegativeButton(R.string.battery_optimization_dialog_later, null)
+            .setNeutralButton(R.string.battery_optimization_dialog_never) { _, _ ->
+                prefs.edit().putBoolean(KEY_BATTERY_PROMPT_SUPPRESSED, true).apply()
+            }
+            .setOnDismissListener {
+                if (batteryOptimizationHelper.isIgnoringBatteryOptimizations()) {
+                    batteryOptimizationDialogDisplayed = false
+                }
+            }
+            .show()
+    }
+
     private fun updateUIState() {
         // Check consent first
         hasConsent = ConsentActivity.hasConsent(this)
@@ -155,6 +215,7 @@ class MainActivity : AppCompatActivity() {
             // Show consent screen
             showConsentScreen()
         }
+        checkBatteryOptimizationStatus()
     }
     
     private fun updateStatusDisplay(isMonitoring: Boolean) {
@@ -448,5 +509,10 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateUIState()
+        CriticalAlertSyncScheduler.triggerImmediate(this)
+    }
+
+    companion object {
+        private const val KEY_BATTERY_PROMPT_SUPPRESSED = "battery_prompt_suppressed"
     }
 }

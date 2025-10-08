@@ -168,5 +168,27 @@
     <string name="notification_status_running">Работает</string>
     <string name="notification_status_stopped">Остановлен</string>
     <string name="notification_status_recording">Записывает аудио</string>
+    <string name="notification_status_battery_optimization">Отключите оптимизацию батареи для стабильной работы</string>
+    <string name="notification_status_power_save">Экономия энергии включена — сервис может остановиться</string>
     <string name="notification_last_update">Последнее обновление: %1$s</string>
+    <string name="title_recordings_library">Записи прослушки</string>
+    <string name="recording_play">Слушать</string>
+    <string name="recording_stop">Остановить</string>
+    <string name="recording_deleted">Запись удалена</string>
+    <string name="recording_delete_failed">Не удалось удалить запись</string>
+    <string name="recording_play_failed">Не удалось воспроизвести запись</string>
+    <string name="alert_channel_name">Критические уведомления</string>
+    <string name="alert_channel_description">Важные события и ошибки ChildWatch</string>
+    <string name="critical_alert_title">ChildWatch: требуется внимание</string>
+    <string name="battery_alert_title">ChildWatch: питание устройства</string>
+    <string name="battery_status_critical">Критический уровень заряда. ChildWatch ограничил фоновые задачи.</string>
+    <string name="battery_status_low">Низкий заряд батареи. ChildWatch переключился в щадящий режим.</string>
+    <string name="battery_optimization_warning">Отключите оптимизацию батареи, чтобы сервис работал без остановок</string>
+    <string name="battery_optimization_button">Отключить</string>
+    <string name="battery_optimization_dialog_title">Разрешите работу в фоне</string>
+    <string name="battery_optimization_dialog_message">Android может останавливать службы ChildWatch из-за оптимизации батареи. Разрешите приложению игнорировать оптимизацию, чтобы мониторинг не прерывался.</string>
+    <string name="battery_optimization_dialog_later">Позже</string>
+    <string name="battery_optimization_dialog_never">Не напоминать</string>
+    <string name="power_save_warning">Экономия энергии включена — работа сервисов может быть ограничена</string>
+    <string name="power_save_button">Настройки питания</string>
 </resources>

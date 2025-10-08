@@ -4,10 +4,12 @@ import android.content.Context
 import android.util.Log
 import android.widget.Toast
 import kotlinx.coroutines.CoroutineScope
+import ru.example.childwatch.R
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.PrintWriter
+import ru.example.childwatch.utils.AlertNotifier
 import java.io.StringWriter
 
 /**
@@ -75,11 +77,14 @@ class ErrorHandler(private val context: Context) {
                 Log.e(TAG, "High severity error: ${errorInfo.message}", errorInfo.throwable)
                 showUserMessage(errorInfo.message, Toast.LENGTH_LONG)
                 executeFallback(errorInfo)
+                notifyCritical(errorInfo)
             }
             Severity.CRITICAL -> {
                 Log.e(TAG, "Critical error: ${errorInfo.message}", errorInfo.throwable)
                 showUserMessage("Критическая ошибка: ${errorInfo.message}", Toast.LENGTH_LONG)
                 executeFallback(errorInfo)
+                reportCriticalError(errorInfo)
+                notifyCritical(errorInfo)
                 // Для критических ошибок можно добавить отправку в аналитику
                 reportCriticalError(errorInfo)
             }
@@ -97,7 +102,7 @@ class ErrorHandler(private val context: Context) {
     ) {
         val errorInfo = ErrorInfo(
             type = ErrorType.NETWORK,
-            severity = Severity.MEDIUM,
+            severity = Severity.HIGH,
             message = "Ошибка сети при $operation: ${getNetworkErrorMessage(throwable)}",
             throwable = throwable,
             context = operation,
@@ -154,7 +159,7 @@ class ErrorHandler(private val context: Context) {
     ) {
         val errorInfo = ErrorInfo(
             type = ErrorType.AUDIO,
-            severity = Severity.MEDIUM,
+            severity = Severity.HIGH,
             message = "Ошибка записи аудио: ${getAudioErrorMessage(throwable)}",
             throwable = throwable,
             context = "AudioRecorder",
@@ -187,6 +192,25 @@ class ErrorHandler(private val context: Context) {
     /**
      * Выполняет fallback действие если оно доступно.
      */
+    private fun notifyCritical(errorInfo: ErrorInfo) {
+        val title = context.getString(R.string.critical_alert_title)
+        val message = errorInfo.message
+        AlertNotifier.show(
+            context,
+            title,
+            message,
+            notificationId = 4000 + errorInfo.type.ordinal
+        )
+
+        CriticalEventReporter.report(
+            context = context,
+            eventType = errorInfo.type.name,
+            severity = errorInfo.severity.name,
+            message = message,
+            metadata = mapOf("context" to errorInfo.context)
+        )
+    }
+
     private fun executeFallback(errorInfo: ErrorInfo) {
         errorInfo.fallbackAction?.let { action ->
             try {

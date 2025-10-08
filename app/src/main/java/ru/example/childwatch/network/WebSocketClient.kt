@@ -20,8 +20,18 @@ class WebSocketClient(
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // Callbacks
+    data class CriticalAlertMessage(
+        val id: Long,
+        val eventType: String,
+        val severity: String,
+        val message: String,
+        val metadata: String?,
+        val createdAt: Long
+    )
+
     private var onAudioChunkReceived: ((ByteArray, Int, Long) -> Unit)? = null
     private var onChildDisconnected: (() -> Unit)? = null
+    private var onCriticalAlertCallback: ((CriticalAlertMessage) -> Unit)? = null
     private var onConnectedCallback: (() -> Unit)? = null
     private var onErrorCallback: ((String) -> Unit)? = null
 
@@ -66,6 +76,7 @@ class WebSocketClient(
             socket?.on(Socket.EVENT_CONNECT_ERROR, onConnectError)
             socket?.on("registered", onRegistered)
             socket?.on("audio_chunk", onAudioChunk)
+            socket?.on("critical_alert", onCriticalAlert)
             socket?.on("child_disconnected", onChildDisconnectedEvent)
             socket?.on("pong", onPong)
 
@@ -84,6 +95,7 @@ class WebSocketClient(
         try {
             Log.d(TAG, "Disconnecting from WebSocket")
             socket?.disconnect()
+            socket?.off("critical_alert")
             socket?.off()
             socket = null
             isConnected = false
@@ -105,6 +117,10 @@ class WebSocketClient(
     fun setChildDisconnectedCallback(callback: () -> Unit) {
         onChildDisconnected = callback
     }
+    fun setCriticalAlertCallback(callback: (CriticalAlertMessage) -> Unit) {
+        onCriticalAlertCallback = callback
+    }
+
 
     /**
      * Send heartbeat/ping
