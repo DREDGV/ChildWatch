@@ -336,11 +336,15 @@ app.post('/api/loc',
             });
 
             // Log activity
-            await dbManager.logActivity(deviceId, 'location', {
-                latitude,
-                longitude,
-                accuracy
-            }, timestamp);
+            await dbManager.logActivity(deviceId, {
+                activity_type: 'location',
+                activity_data: {
+                    latitude,
+                    longitude,
+                    accuracy
+                },
+                timestamp
+            });
 
             console.log(`[${new Date().toISOString()}] Location from ${deviceId}: Lat ${latitude}, Lng ${longitude}, Acc ${accuracy} at ${new Date(timestamp)}`);
             
@@ -401,10 +405,14 @@ app.post('/api/audio',
             });
 
             // Log activity
-            await dbManager.logActivity(deviceId, 'audio', {
-                filename: req.file.filename,
-                size: req.file.size
-            }, audioTimestamp);
+            await dbManager.logActivity(deviceId, {
+                activity_type: 'audio',
+                activity_data: {
+                    filename: req.file.filename,
+                    size: req.file.size
+                },
+                timestamp: audioTimestamp
+            });
 
             console.log(`[${new Date().toISOString()}] Audio from ${deviceId}: ${req.file.filename} (${req.file.size} bytes)`);
 
@@ -467,10 +475,14 @@ app.post('/api/photo',
             });
 
             // Log activity
-            await dbManager.logActivity(deviceId, 'photo', {
-                filename: req.file.filename,
-                size: req.file.size
-            }, photoTimestamp);
+            await dbManager.logActivity(deviceId, {
+                activity_type: 'photo',
+                activity_data: {
+                    filename: req.file.filename,
+                    size: req.file.size
+                },
+                timestamp: photoTimestamp
+            });
 
             console.log(`[${new Date().toISOString()}] Photo from ${deviceId}: ${req.file.filename} (${req.file.size} bytes)`);
 

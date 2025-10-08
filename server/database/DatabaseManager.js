@@ -475,6 +475,13 @@ class DatabaseManager {
     }
 
     /**
+     * Log activity (alias for saveActivityLog for compatibility)
+     */
+    async logActivity(deviceId, activityData) {
+        return this.saveActivityLog(deviceId, activityData);
+    }
+
+    /**
      * Close database connection
      */
     close() {
