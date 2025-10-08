@@ -159,7 +159,7 @@ class DatabaseManager {
             await this.run(sql);
         }
 
-        console.log('Database tables created successfully');
+        console.log('✅ Database tables created successfully');
     }
 
     /**
@@ -169,7 +169,7 @@ class DatabaseManager {
         return new Promise((resolve, reject) => {
             this.db.run(sql, params, function(err) {
                 if (err) {
-                    console.error('Database run error:', err);
+                    console.error('❌ Database run error:', err);
                     reject(err);
                 } else {
                     resolve({ id: this.lastID, changes: this.changes });
@@ -179,13 +179,29 @@ class DatabaseManager {
     }
 
     /**
-     * Get single row
+     * Get all rows from query
+     */
+    all(sql, params = []) {
+        return new Promise((resolve, reject) => {
+            this.db.all(sql, params, (err, rows) => {
+                if (err) {
+                    console.error('❌ Database query error:', err);
+                    reject(err);
+                } else {
+                    resolve(rows);
+                }
+            });
+        });
+    }
+
+    /**
+     * Get single row from query
      */
     get(sql, params = []) {
         return new Promise((resolve, reject) => {
             this.db.get(sql, params, (err, row) => {
                 if (err) {
-                    console.error('Database get error:', err);
+                    console.error('❌ Database query error:', err);
                     reject(err);
                 } else {
                     resolve(row);
@@ -195,212 +211,219 @@ class DatabaseManager {
     }
 
     /**
-     * Get multiple rows
+     * Register or update device
      */
-    all(sql, params = []) {
-        return new Promise((resolve, reject) => {
-            this.db.all(sql, params, (err, rows) => {
-                if (err) {
-                    console.error('Database all error:', err);
-                    reject(err);
-                } else {
-                    resolve(rows);
-                }
-            });
-        });
+    async registerDevice(deviceId, deviceData) {
+        const {
+            device_name = 'Unknown Device',
+            device_type = 'android',
+            app_version = '1.0.0'
+        } = deviceData;
+
+        const sql = `
+            INSERT INTO devices (device_id, device_name, device_type, app_version)
+            VALUES (?, ?, ?, ?)
+            ON CONFLICT(device_id) DO UPDATE SET
+                device_name = excluded.device_name,
+                device_type = excluded.device_type,
+                app_version = excluded.app_version,
+                updated_at = strftime('%s', 'now')
+        `;
+
+        return this.run(sql, [deviceId, device_name, device_type, app_version]);
     }
 
-    // Device operations
-    async registerDevice(deviceData) {
-        const { deviceId, deviceName, deviceType, appVersion, authToken, refreshToken, tokenExpiresAt } = deviceData;
-        
-        const sql = `INSERT OR REPLACE INTO devices 
-                     (device_id, device_name, device_type, app_version, auth_token, refresh_token, token_expires_at, updated_at)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, strftime('%s', 'now'))`;
-        
-        return await this.run(sql, [deviceId, deviceName, deviceType, appVersion, authToken, refreshToken, tokenExpiresAt]);
+    /**
+     * Get device by ID
+     */
+    async getDevice(deviceId) {
+        const sql = 'SELECT * FROM devices WHERE device_id = ?';
+        return this.get(sql, [deviceId]);
     }
 
-    async getDeviceByToken(authToken) {
-        const sql = 'SELECT * FROM devices WHERE auth_token = ? AND is_active = 1';
-        return await this.get(sql, [authToken]);
-    }
-
-    async getDeviceById(deviceId) {
-        const sql = 'SELECT * FROM devices WHERE device_id = ? AND is_active = 1';
-        return await this.get(sql, [deviceId]);
-    }
-
-    async updateDeviceTokens(deviceId, authToken, refreshToken, tokenExpiresAt) {
-        const sql = `UPDATE devices 
-                     SET auth_token = ?, refresh_token = ?, token_expires_at = ?, updated_at = strftime('%s', 'now')
-                     WHERE device_id = ?`;
-        
-        return await this.run(sql, [authToken, refreshToken, tokenExpiresAt, deviceId]);
-    }
-
-    // Location operations
+    /**
+     * Save location
+     */
     async saveLocation(deviceId, locationData) {
         const { latitude, longitude, accuracy, timestamp } = locationData;
-        
-        const sql = `INSERT INTO locations (device_id, latitude, longitude, accuracy, timestamp)
-                     VALUES (?, ?, ?, ?, ?)`;
-        
-        return await this.run(sql, [deviceId, latitude, longitude, accuracy, timestamp]);
+
+        const sql = `
+            INSERT INTO locations (device_id, latitude, longitude, accuracy, timestamp)
+            VALUES (?, ?, ?, ?, ?)
+        `;
+
+        return this.run(sql, [deviceId, latitude, longitude, accuracy, timestamp]);
     }
 
-    async getLocationHistory(deviceId, limit = 100, offset = 0) {
-        const sql = `SELECT * FROM locations 
-                     WHERE device_id = ? 
-                     ORDER BY timestamp DESC 
-                     LIMIT ? OFFSET ?`;
-        
-        return await this.all(sql, [deviceId, limit, offset]);
+    /**
+     * Get location history
+     */
+    async getLocationHistory(deviceId, limit = 100) {
+        const sql = `
+            SELECT * FROM locations
+            WHERE device_id = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        `;
+
+        return this.all(sql, [deviceId, limit]);
     }
 
+    /**
+     * Get latest location
+     */
     async getLatestLocation(deviceId) {
-        const sql = `SELECT * FROM locations 
-                     WHERE device_id = ? 
-                     ORDER BY timestamp DESC 
-                     LIMIT 1`;
-        
-        return await this.get(sql, [deviceId]);
+        const sql = `
+            SELECT * FROM locations
+            WHERE device_id = ?
+            ORDER BY timestamp DESC
+            LIMIT 1
+        `;
+
+        return this.get(sql, [deviceId]);
     }
 
-    // Audio file operations
+    /**
+     * Save audio file metadata
+     */
     async saveAudioFile(deviceId, fileData) {
-        const { filename, filePath, fileSize, mimeType, duration, timestamp } = fileData;
-        
-        const sql = `INSERT INTO audio_files (device_id, filename, file_path, file_size, mime_type, duration, timestamp)
-                     VALUES (?, ?, ?, ?, ?, ?, ?)`;
-        
-        return await this.run(sql, [deviceId, filename, filePath, fileSize, mimeType, duration, timestamp]);
+        const { filename, file_path, file_size, mime_type, duration, timestamp } = fileData;
+
+        const sql = `
+            INSERT INTO audio_files (device_id, filename, file_path, file_size, mime_type, duration, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `;
+
+        return this.run(sql, [deviceId, filename, file_path, file_size, mime_type, duration, timestamp]);
     }
 
-    async getAudioFiles(deviceId, limit = 50, offset = 0) {
-        const sql = `SELECT * FROM audio_files 
-                     WHERE device_id = ? 
-                     ORDER BY timestamp DESC 
-                     LIMIT ? OFFSET ?`;
-        
-        return await this.all(sql, [deviceId, limit, offset]);
+    /**
+     * Get audio files
+     */
+    async getAudioFiles(deviceId, limit = 50) {
+        const sql = `
+            SELECT * FROM audio_files
+            WHERE device_id = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        `;
+
+        return this.all(sql, [deviceId, limit]);
     }
 
-    // Photo file operations
+    /**
+     * Save photo file metadata
+     */
     async savePhotoFile(deviceId, fileData) {
-        const { filename, filePath, fileSize, mimeType, width, height, timestamp } = fileData;
-        
-        const sql = `INSERT INTO photo_files (device_id, filename, file_path, file_size, mime_type, width, height, timestamp)
-                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`;
-        
-        return await this.run(sql, [deviceId, filename, filePath, fileSize, mimeType, width, height, timestamp]);
+        const { filename, file_path, file_size, mime_type, width, height, timestamp } = fileData;
+
+        const sql = `
+            INSERT INTO photo_files (device_id, filename, file_path, file_size, mime_type, width, height, timestamp)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+
+        return this.run(sql, [deviceId, filename, file_path, file_size, mime_type, width, height, timestamp]);
     }
 
-    async getPhotoFiles(deviceId, limit = 50, offset = 0) {
-        const sql = `SELECT * FROM photo_files 
-                     WHERE device_id = ? 
-                     ORDER BY timestamp DESC 
-                     LIMIT ? OFFSET ?`;
-        
-        return await this.all(sql, [deviceId, limit, offset]);
+    /**
+     * Get photo files
+     */
+    async getPhotoFiles(deviceId, limit = 50) {
+        const sql = `
+            SELECT * FROM photo_files
+            WHERE device_id = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        `;
+
+        return this.all(sql, [deviceId, limit]);
     }
 
-    // Chat operations
+    /**
+     * Save chat message
+     */
     async saveChatMessage(deviceId, messageData) {
-        const { sender, message, timestamp, isRead } = messageData;
-        
-        const sql = `INSERT INTO chat_messages (device_id, sender, message, timestamp, is_read)
-                     VALUES (?, ?, ?, ?, ?)`;
-        
-        return await this.run(sql, [deviceId, sender, message, timestamp, isRead ? 1 : 0]);
+        const { sender, message, timestamp } = messageData;
+
+        const sql = `
+            INSERT INTO chat_messages (device_id, sender, message, timestamp)
+            VALUES (?, ?, ?, ?)
+        `;
+
+        return this.run(sql, [deviceId, sender, message, timestamp]);
     }
 
-    async getChatMessages(deviceId, limit = 100, offset = 0) {
-        const sql = `SELECT * FROM chat_messages 
-                     WHERE device_id = ? 
-                     ORDER BY timestamp ASC 
-                     LIMIT ? OFFSET ?`;
-        
-        return await this.all(sql, [deviceId, limit, offset]);
+    /**
+     * Get chat messages
+     */
+    async getChatMessages(deviceId, limit = 100) {
+        const sql = `
+            SELECT * FROM chat_messages
+            WHERE device_id = ?
+            ORDER BY timestamp ASC
+            LIMIT ?
+        `;
+
+        return this.all(sql, [deviceId, limit]);
     }
 
-    async markMessageAsRead(messageId) {
-        const sql = 'UPDATE chat_messages SET is_read = 1 WHERE id = ?';
-        return await this.run(sql, [messageId]);
+    /**
+     * Mark chat messages as read
+     */
+    async markMessagesAsRead(deviceId) {
+        const sql = `
+            UPDATE chat_messages
+            SET is_read = 1
+            WHERE device_id = ? AND is_read = 0
+        `;
+
+        return this.run(sql, [deviceId]);
     }
 
-    // Activity logging
-    async logActivity(deviceId, activityType, activityData, timestamp) {
-        const sql = `INSERT INTO activity_logs (device_id, activity_type, activity_data, timestamp)
-                     VALUES (?, ?, ?, ?)`;
-        
-        return await this.run(sql, [deviceId, activityType, JSON.stringify(activityData), timestamp]);
+    /**
+     * Save activity log
+     */
+    async saveActivityLog(deviceId, activityData) {
+        const { activity_type, activity_data, timestamp } = activityData;
+
+        const sql = `
+            INSERT INTO activity_logs (device_id, activity_type, activity_data, timestamp)
+            VALUES (?, ?, ?, ?)
+        `;
+
+        const dataJson = typeof activity_data === 'object' ? JSON.stringify(activity_data) : activity_data;
+        return this.run(sql, [deviceId, activity_type, dataJson, timestamp]);
     }
 
-    async getActivityLogs(deviceId, limit = 100, offset = 0) {
-        const sql = `SELECT * FROM activity_logs 
-                     WHERE device_id = ? 
-                     ORDER BY timestamp DESC 
-                     LIMIT ? OFFSET ?`;
-        
-        return await this.all(sql, [deviceId, limit, offset]);
-    }
+    /**
+     * Get activity logs
+     */
+    async getActivityLogs(deviceId, limit = 100) {
+        const sql = `
+            SELECT * FROM activity_logs
+            WHERE device_id = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        `;
 
-    // Statistics
-    async getDeviceStats(deviceId) {
-        const stats = {};
-        
-        // Location count
-        const locationCount = await this.get(
-            'SELECT COUNT(*) as count FROM locations WHERE device_id = ?',
-            [deviceId]
-        );
-        stats.locationCount = locationCount.count;
-
-        // Audio files count
-        const audioCount = await this.get(
-            'SELECT COUNT(*) as count FROM audio_files WHERE device_id = ?',
-            [deviceId]
-        );
-        stats.audioCount = audioCount.count;
-
-        // Photo files count
-        const photoCount = await this.get(
-            'SELECT COUNT(*) as count FROM photo_files WHERE device_id = ?',
-            [deviceId]
-        );
-        stats.photoCount = photoCount.count;
-
-        // Chat messages count
-        const chatCount = await this.get(
-            'SELECT COUNT(*) as count FROM chat_messages WHERE device_id = ?',
-            [deviceId]
-        );
-        stats.chatCount = chatCount.count;
-
-        // Last activity
-        const lastActivity = await this.get(
-            'SELECT * FROM activity_logs WHERE device_id = ? ORDER BY timestamp DESC LIMIT 1',
-            [deviceId]
-        );
-        stats.lastActivity = lastActivity;
-
-        return stats;
+        return this.all(sql, [deviceId, limit]);
     }
 
     /**
      * Close database connection
      */
     close() {
-        return new Promise((resolve) => {
+        return new Promise((resolve, reject) => {
             if (this.db) {
                 this.db.close((err) => {
                     if (err) {
-                        console.error('Error closing database:', err);
+                        console.error('❌ Error closing database:', err);
+                        reject(err);
                     } else {
-                        console.log('Database connection closed');
+                        console.log('✅ Database connection closed');
+                        this.isInitialized = false;
+                        resolve();
                     }
-                    resolve();
                 });
             } else {
                 resolve();
