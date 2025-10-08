@@ -1,4 +1,4 @@
-﻿package ru.example.childwatch.audio
+package ru.example.childwatch.audio
 
 import android.content.Context
 import android.os.Environment
@@ -80,6 +80,14 @@ class StreamRecorder(private val context: Context) {
         return try {
             raf.channel.force(true)
             updateHeader(raf, totalBytes)
+            RecordingMetadata(
+                id = System.currentTimeMillis().toString(),
+                fileName = file?.name ?: "unknown.wav",
+                filePath = file?.absolutePath ?: "",
+                createdAt = System.currentTimeMillis(),
+                durationMs = (totalBytes / (sampleRate * 2) * 1000).toLong(),
+                sizeBytes = totalBytes
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Failed to finalize WAV header", e)
             null

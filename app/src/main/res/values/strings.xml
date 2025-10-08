@@ -1,4 +1,4 @@
-﻿<resources>
+<resources>
     <string name="app_name">ChildWatch</string>
     <string name="monitoring_active">Мониторинг активен</string>
     <string name="monitoring_inactive">Мониторинг неактивен</string>
@@ -67,7 +67,6 @@
     <string name="last_audio_update">Последняя аудиозапись: %1$s</string>
     <string name="last_photo_update">Последнее фото: %1$s</string>
     <string name="service_running_time">Сервис работает: %1$s</string>
-    <string name="battery_optimization_warning">⚠️ Отключите оптимизацию батареи для стабильной работы</string>
     <string name="permissions_status">Разрешения: %1$s</string>
     <string name="permissions_all_granted">все предоставлены</string>
     <string name="permissions_missing">отсутствуют: %1$s</string>

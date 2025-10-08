@@ -1,4 +1,4 @@
-﻿package ru.example.childwatch.utils
+package ru.example.childwatch.utils
 
 import android.content.Context
 import android.os.BatteryManager
@@ -278,13 +278,6 @@ class BatteryOptimizationManager(private val context: Context) {
     }
 
     /**
-     * Проверяет, включен ли режим энергосбережения.
-     */
-    fun isPowerSaveModeEnabled(): Boolean {
-        return isPowerSaveMode
-    }
-
-    /**
      * Получает рекомендации по оптимизации.
      */
     fun getOptimizationRecommendations(): List<String> {
@@ -337,5 +330,28 @@ class BatteryOptimizationManager(private val context: Context) {
      */
     fun getAdaptivePhotoInterval(): Long {
         return adaptivePhotoInterval
+    }
+
+    /**
+     * Проверяет, игнорирует ли приложение оптимизацию батареи.
+     */
+    fun isIgnoringBatteryOptimizations(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+            powerManager.isIgnoringBatteryOptimizations(context.packageName)
+        } else {
+            true
+        }
+    }
+
+    /**
+     * Проверяет, включен ли режим энергосбережения.
+     */
+    fun isPowerSaveModeEnabled(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            powerManager.isPowerSaveMode
+        } else {
+            false
+        }
     }
 }
