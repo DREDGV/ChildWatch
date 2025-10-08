@@ -30,6 +30,16 @@ import javax.net.ssl.*
  * - Proper error handling and timeouts
  * - Logging for debugging
  */
+data class CriticalAlert(
+    val id: Long,
+    val deviceId: String,
+    val eventType: String,
+    val severity: String,
+    val message: String,
+    val metadata: Map<String, Any?>?,
+    val createdAt: Long
+)
+
 class NetworkClient(private val context: Context) {
     
     companion object {
@@ -506,7 +516,17 @@ class NetworkClient(private val context: Context) {
     /**
      * Ensure URL uses HTTPS
      */
-    private fun ensureHttpsUrl(url: String): String {
+    private fun jsonObjectToMap(obj: JSONObject): Map<String, Any?> {
+        val map = mutableMapOf<String, Any?>()
+        val keys = obj.keys()
+        while (keys.hasNext()) {
+            val key = keys.next()
+            map[key] = obj.get(key)
+        }
+        return map
+    }
+
+\n    /**\n     * Ensure URL uses HTTPS\n     */\n    private fun ensureHttpsUrl(url: String): String {
         return when {
             url.startsWith("https://") -> url
             url.startsWith("http://") -> url.replace("http://", "https://")
@@ -910,3 +930,123 @@ class NetworkClient(private val context: Context) {
         val startedAt: Long
     )
 }
+
+    suspend fun sendCriticalEvent(
+        serverUrl: String,
+        deviceId: String,
+        eventType: String,
+        severity: String,
+        message: String,
+        metadata: Map<String, Any?> = emptyMap()
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}\/api\/alerts"
+            val json = JSONObject().apply {
+                put("deviceId", deviceId)
+                put("eventType", eventType)
+                put("severity", severity)
+                put("message", message)
+                if (metadata.isNotEmpty()) {
+                    put("metadata", JSONObject(metadata))
+                }
+            }
+
+            val requestBody = json.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+            val request = Request.Builder()
+                .url(url)
+                .post(requestBody)
+                .addHeader("Content-Type", "application/json")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.e(TAG, "sendCriticalEvent failed: ${response.code}")
+                    return@withContext false
+                }
+                return@withContext true
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending critical event", e)
+            false
+        }
+    }
+
+    suspend fun fetchCriticalAlerts(
+        serverUrl: String,
+        deviceId: String,
+        limit: Int = 20
+    ): List<CriticalAlert> = withContext(Dispatchers.IO) {
+        try {
+            val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}\/api\/alerts\/pending/$deviceId?limit=$limit"
+            val request = Request.Builder().url(url).get().build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "fetchCriticalAlerts failed: ${response.code}")
+                    return@withContext emptyList()
+                }
+
+                val body = response.body?.string() ?: return@withContext emptyList()
+                val json = JSONObject(body)
+                val alertsArray = json.optJSONArray("alerts") ?: return@withContext emptyList()
+                val result = mutableListOf<CriticalAlert>()
+                for (i in 0 until alertsArray.length()) {
+                    val obj = alertsArray.getJSONObject(i)
+                    val metadataObj = obj.optJSONObject("metadata")
+                    val metadataMap = metadataObj?.let { jsonObjectToMap(it) }
+                    result += CriticalAlert(
+                        id = obj.getLong("id"),
+                        deviceId = obj.optString("deviceId", deviceId),
+                        eventType = obj.optString("eventType", ""),
+                        severity = obj.optString("severity", "INFO"),
+                        message = obj.optString("message", ""),
+                        metadata = metadataMap,
+                        createdAt = obj.optLong("createdAt", System.currentTimeMillis())
+                    )
+                }
+                result
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error fetching critical alerts", e)
+            emptyList()
+        }
+    }
+
+    suspend fun acknowledgeCriticalAlerts(
+        serverUrl: String,
+        deviceId: String,
+        alertIds: List<Long>
+    ): Boolean = withContext(Dispatchers.IO) {
+        if (alertIds.isEmpty()) return@withContext true
+        try {
+            val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}\/api\/alerts\/ack"
+            val json = JSONObject().apply {
+                put("deviceId", deviceId)
+                put("alertIds", alertIds)
+            }
+            val requestBody = json.toString().toRequestBody("application/json; charset=utf-8".toMediaType())
+            val request = Request.Builder()
+                .url(url)
+                .post(requestBody)
+                .addHeader("Content-Type", "application/json")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "acknowledgeCriticalAlerts failed: ${response.code}")
+                    return@withContext false
+                }
+                true
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error acknowledging alerts", e)
+            false
+        }
+    }
+
+
+
+
+}
+
+

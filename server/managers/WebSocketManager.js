@@ -108,8 +108,11 @@ class WebSocketManager {
         socket.childDeviceId = childDeviceId;
         socket.deviceType = 'parent';
 
-        // Create streaming session
-        this.activeStreams.set(childDeviceId, socket.id);
+        // Track listening parent sockets
+        if (!this.activeStreams.has(childDeviceId)) {
+            this.activeStreams.set(childDeviceId, new Set());
+        }
+        this.activeStreams.get(childDeviceId).add(socket.id);
 
         console.log(`👨‍👩‍👧 Parent device registered: monitoring ${childDeviceId} (socket: ${socket.id})`);
 
@@ -172,6 +175,18 @@ class WebSocketManager {
             console.log(`🎙️ Forwarded chunk ${sequence} from ${deviceId} to parent (${binaryData.length} bytes)`);
         }
     }
+
+    emitCriticalAlert(deviceId, alertPayload) {
+        const parentSockets = this.activeStreams.get(deviceId);
+        if (parentSockets && parentSockets.size > 0) {
+            parentSockets.forEach(socketId => {
+                this.io.to(socketId).emit('critical_alert', alertPayload);
+            });
+            return true;
+        }
+        return false;
+    }
+
 
     /**
      * Handle client disconnection

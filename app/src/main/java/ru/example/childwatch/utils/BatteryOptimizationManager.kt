@@ -1,21 +1,24 @@
-package ru.example.childwatch.utils
+﻿package ru.example.childwatch.utils
 
 import android.content.Context
 import android.os.BatteryManager
+import android.os.Build
 import android.os.PowerManager
 import android.util.Log
 import kotlinx.coroutines.*
+import ru.example.childwatch.R
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Менеджер оптимизации батареи.
- * Адаптивно управляет частотой обновлений и интенсивностью работы в зависимости от уровня заряда.
+ * РњРµРЅРµРґР¶РµСЂ РѕРїС‚РёРјРёР·Р°С†РёРё Р±Р°С‚Р°СЂРµРё.
+ * РђРґР°РїС‚РёРІРЅРѕ СѓРїСЂР°РІР»СЏРµС‚ С‡Р°СЃС‚РѕС‚РѕР№ РѕР±РЅРѕРІР»РµРЅРёР№ Рё РёРЅС‚РµРЅСЃРёРІРЅРѕСЃС‚СЊСЋ СЂР°Р±РѕС‚С‹ РІ Р·Р°РІРёСЃРёРјРѕСЃС‚Рё РѕС‚ СѓСЂРѕРІРЅСЏ Р·Р°СЂСЏРґР°.
  */
 class BatteryOptimizationManager(private val context: Context) {
 
     companion object {
         private const val TAG = "BatteryOptimizationManager"
-        private const val BATTERY_CHECK_INTERVAL = 60_000L // 1 минута
+        private const val BATTERY_NOTIFICATION_ID = 950
+        private const val BATTERY_CHECK_INTERVAL = 60_000L // 1 РјРёРЅСѓС‚Р°
         private const val LOW_BATTERY_THRESHOLD = 20 // 20%
         private const val CRITICAL_BATTERY_THRESHOLD = 10 // 10%
         private const val HIGH_BATTERY_THRESHOLD = 80 // 80%
@@ -30,13 +33,13 @@ class BatteryOptimizationManager(private val context: Context) {
     private var isCharging = false
     private var isPowerSaveMode = false
 
-    // Адаптивные интервалы в зависимости от уровня батареи
-    private var adaptiveLocationInterval = 5 * 60 * 1000L // 5 минут по умолчанию
-    private var adaptiveAudioDuration = 30 * 1000L // 30 секунд по умолчанию
-    private var adaptivePhotoInterval = 10 * 60 * 1000L // 10 минут по умолчанию
+    // РђРґР°РїС‚РёРІРЅС‹Рµ РёРЅС‚РµСЂРІР°Р»С‹ РІ Р·Р°РІРёСЃРёРјРѕСЃС‚Рё РѕС‚ СѓСЂРѕРІРЅСЏ Р±Р°С‚Р°СЂРµРё
+    private var adaptiveLocationInterval = 5 * 60 * 1000L // 5 РјРёРЅСѓС‚ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ
+    private var adaptiveAudioDuration = 30 * 1000L // 30 СЃРµРєСѓРЅРґ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ
+    private var adaptivePhotoInterval = 10 * 60 * 1000L // 10 РјРёРЅСѓС‚ РїРѕ СѓРјРѕР»С‡Р°РЅРёСЋ
 
     /**
-     * Запускает мониторинг батареи.
+     * Р—Р°РїСѓСЃРєР°РµС‚ РјРѕРЅРёС‚РѕСЂРёРЅРі Р±Р°С‚Р°СЂРµРё.
      */
     fun startBatteryMonitoring() {
         if (isMonitoring.compareAndSet(false, true)) {
@@ -57,7 +60,7 @@ class BatteryOptimizationManager(private val context: Context) {
     }
 
     /**
-     * Останавливает мониторинг батареи.
+     * РћСЃС‚Р°РЅР°РІР»РёРІР°РµС‚ РјРѕРЅРёС‚РѕСЂРёРЅРі Р±Р°С‚Р°СЂРµРё.
      */
     fun stopBatteryMonitoring() {
         if (isMonitoring.compareAndSet(true, false)) {
@@ -67,19 +70,19 @@ class BatteryOptimizationManager(private val context: Context) {
     }
 
     /**
-     * Обновляет статус батареи.
+     * РћР±РЅРѕРІР»СЏРµС‚ СЃС‚Р°С‚СѓСЃ Р±Р°С‚Р°СЂРµРё.
      */
     private fun updateBatteryStatus() {
         try {
-            // Получаем уровень заряда
+            // РџРѕР»СѓС‡Р°РµРј СѓСЂРѕРІРµРЅСЊ Р·Р°СЂСЏРґР°
             currentBatteryLevel = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
             
-            // Проверяем, заряжается ли устройство
+            // РџСЂРѕРІРµСЂСЏРµРј, Р·Р°СЂСЏР¶Р°РµС‚СЃСЏ Р»Рё СѓСЃС‚СЂРѕР№СЃС‚РІРѕ
             val batteryStatus = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_STATUS)
             isCharging = batteryStatus == BatteryManager.BATTERY_STATUS_CHARGING ||
                     batteryStatus == BatteryManager.BATTERY_STATUS_FULL
             
-            // Проверяем режим энергосбережения
+            // РџСЂРѕРІРµСЂСЏРµРј СЂРµР¶РёРј СЌРЅРµСЂРіРѕСЃР±РµСЂРµР¶РµРЅРёСЏ
             isPowerSaveMode = powerManager.isPowerSaveMode
             
             Log.d(TAG, "Battery status: $currentBatteryLevel%, charging: $isCharging, power save: $isPowerSaveMode")
@@ -89,7 +92,7 @@ class BatteryOptimizationManager(private val context: Context) {
     }
 
     /**
-     * Адаптивно настраивает параметры производительности.
+     * РђРґР°РїС‚РёРІРЅРѕ РЅР°СЃС‚СЂР°РёРІР°РµС‚ РїР°СЂР°РјРµС‚СЂС‹ РїСЂРѕРёР·РІРѕРґРёС‚РµР»СЊРЅРѕСЃС‚Рё.
      */
     private fun adjustPerformanceSettings() {
         when {
@@ -112,203 +115,224 @@ class BatteryOptimizationManager(private val context: Context) {
     }
 
     /**
-     * Режим критически низкого заряда батареи.
+     * Р РµР¶РёРј РєСЂРёС‚РёС‡РµСЃРєРё РЅРёР·РєРѕРіРѕ Р·Р°СЂСЏРґР° Р±Р°С‚Р°СЂРµРё.
      */
     private fun setCriticalBatteryMode() {
         Log.w(TAG, "Critical battery mode activated")
-        
-        // Минимальная активность
-        adaptiveLocationInterval = 30 * 60 * 1000L // 30 минут
-        adaptiveAudioDuration = 10 * 1000L // 10 секунд
-        adaptivePhotoInterval = 60 * 60 * 1000L // 1 час
-        
-        // Отключаем несущественные функции
+
+        adaptiveLocationInterval = 30 * 60 * 1000L
+        adaptiveAudioDuration = 10 * 1000L
+        adaptivePhotoInterval = 60 * 60 * 1000L
+
         disableNonEssentialFeatures()
-        
-        // Уведомляем пользователя
-        notifyBatteryStatus("Критически низкий заряд батареи. Приложение переведено в режим энергосбережения.")
+
+        if (lastNotificationMode != BatteryMode.CRITICAL) {
+            notifyBatteryStatus(context.getString(R.string.battery_status_critical), "CRITICAL")
+            lastNotificationMode = BatteryMode.CRITICAL
+        }
     }
 
     /**
-     * Режим низкого заряда батареи.
+     * Р РµР¶РёРј РЅРёР·РєРѕРіРѕ Р·Р°СЂСЏРґР° Р±Р°С‚Р°СЂРµРё.
      */
     private fun setLowBatteryMode() {
         Log.w(TAG, "Low battery mode activated")
-        
-        // Сниженная активность
-        adaptiveLocationInterval = 15 * 60 * 1000L // 15 минут
-        adaptiveAudioDuration = 20 * 1000L // 20 секунд
-        adaptivePhotoInterval = 30 * 60 * 1000L // 30 минут
-        
-        // Ограничиваем некоторые функции
+
+        adaptiveLocationInterval = 15 * 60 * 1000L
+        adaptiveAudioDuration = 20 * 1000L
+        adaptivePhotoInterval = 30 * 60 * 1000L
+
         limitNonEssentialFeatures()
-        
-        // Уведомляем пользователя
-        notifyBatteryStatus("Низкий заряд батареи. Частота обновлений снижена.")
+
+        if (lastNotificationMode != BatteryMode.LOW) {
+            notifyBatteryStatus(context.getString(R.string.battery_status_low), "WARNING")
+            lastNotificationMode = BatteryMode.LOW
+        }
     }
 
     /**
-     * Режим высокого заряда батареи (при зарядке).
+     * Р РµР¶РёРј РІС‹СЃРѕРєРѕРіРѕ Р·Р°СЂСЏРґР° Р±Р°С‚Р°СЂРµРё (РїСЂРё Р·Р°СЂСЏРґРєРµ).
      */
     private fun setHighBatteryMode() {
         Log.d(TAG, "High battery mode activated")
         
-        // Повышенная активность
-        adaptiveLocationInterval = 2 * 60 * 1000L // 2 минуты
-        adaptiveAudioDuration = 60 * 1000L // 60 секунд
-        adaptivePhotoInterval = 5 * 60 * 1000L // 5 минут
+        // РџРѕРІС‹С€РµРЅРЅР°СЏ Р°РєС‚РёРІРЅРѕСЃС‚СЊ
+        adaptiveLocationInterval = 2 * 60 * 1000L // 2 РјРёРЅСѓС‚С‹
+        adaptiveAudioDuration = 60 * 1000L // 60 СЃРµРєСѓРЅРґ
+        adaptivePhotoInterval = 5 * 60 * 1000L // 5 РјРёРЅСѓС‚
         
-        // Включаем все функции
+        // Р’РєР»СЋС‡Р°РµРј РІСЃРµ С„СѓРЅРєС†РёРё
         enableAllFeatures()
+        lastNotificationMode = BatteryMode.NORMAL
     }
 
     /**
-     * Режим энергосбережения системы.
+     * Р РµР¶РёРј СЌРЅРµСЂРіРѕСЃР±РµСЂРµР¶РµРЅРёСЏ СЃРёСЃС‚РµРјС‹.
      */
     private fun setPowerSaveMode() {
         Log.w(TAG, "Power save mode activated")
-        
-        // Адаптируемся к системному режиму энергосбережения
-        adaptiveLocationInterval = 20 * 60 * 1000L // 20 минут
-        adaptiveAudioDuration = 15 * 1000L // 15 секунд
-        adaptivePhotoInterval = 45 * 60 * 1000L // 45 минут
-        
-        // Ограничиваем фоновую активность
+
+        adaptiveLocationInterval = 20 * 60 * 1000L
+        adaptiveAudioDuration = 15 * 1000L
+        adaptivePhotoInterval = 45 * 60 * 1000L
+
         limitBackgroundActivity()
+
+        if (lastNotificationMode != BatteryMode.POWER_SAVE) {
+            notifyBatteryStatus(context.getString(R.string.power_save_warning), "WARNING")
+            lastNotificationMode = BatteryMode.POWER_SAVE
+        }
     }
 
     /**
-     * Обычный режим работы.
+     * РћР±С‹С‡РЅС‹Р№ СЂРµР¶РёРј СЂР°Р±РѕС‚С‹.
      */
     private fun setNormalMode() {
         Log.d(TAG, "Normal mode activated")
-        
-        // Стандартные интервалы
-        adaptiveLocationInterval = 5 * 60 * 1000L // 5 минут
-        adaptiveAudioDuration = 30 * 1000L // 30 секунд
-        adaptivePhotoInterval = 10 * 60 * 1000L // 10 минут
-        
-        // Включаем все функции
+
+        adaptiveLocationInterval = 5 * 60 * 1000L
+        adaptiveAudioDuration = 30 * 1000L
+        adaptivePhotoInterval = 10 * 60 * 1000L
+
         enableAllFeatures()
+        lastNotificationMode = BatteryMode.NORMAL
     }
 
     /**
-     * Отключает несущественные функции.
+     * РћС‚РєР»СЋС‡Р°РµС‚ РЅРµСЃСѓС‰РµСЃС‚РІРµРЅРЅС‹Рµ С„СѓРЅРєС†РёРё.
      */
     private fun disableNonEssentialFeatures() {
-        // Здесь можно добавить логику отключения несущественных функций
+        // Р—РґРµСЃСЊ РјРѕР¶РЅРѕ РґРѕР±Р°РІРёС‚СЊ Р»РѕРіРёРєСѓ РѕС‚РєР»СЋС‡РµРЅРёСЏ РЅРµСЃСѓС‰РµСЃС‚РІРµРЅРЅС‹С… С„СѓРЅРєС†РёР№
         Log.d(TAG, "Non-essential features disabled")
     }
 
     /**
-     * Ограничивает несущественные функции.
+     * РћРіСЂР°РЅРёС‡РёРІР°РµС‚ РЅРµСЃСѓС‰РµСЃС‚РІРµРЅРЅС‹Рµ С„СѓРЅРєС†РёРё.
      */
     private fun limitNonEssentialFeatures() {
-        // Здесь можно добавить логику ограничения функций
+        // Р—РґРµСЃСЊ РјРѕР¶РЅРѕ РґРѕР±Р°РІРёС‚СЊ Р»РѕРіРёРєСѓ РѕРіСЂР°РЅРёС‡РµРЅРёСЏ С„СѓРЅРєС†РёР№
         Log.d(TAG, "Non-essential features limited")
     }
 
     /**
-     * Включает все функции.
+     * Р’РєР»СЋС‡Р°РµС‚ РІСЃРµ С„СѓРЅРєС†РёРё.
      */
     private fun enableAllFeatures() {
-        // Здесь можно добавить логику включения всех функций
+        // Р—РґРµСЃСЊ РјРѕР¶РЅРѕ РґРѕР±Р°РІРёС‚СЊ Р»РѕРіРёРєСѓ РІРєР»СЋС‡РµРЅРёСЏ РІСЃРµС… С„СѓРЅРєС†РёР№
         Log.d(TAG, "All features enabled")
     }
 
     /**
-     * Ограничивает фоновую активность.
+     * РћРіСЂР°РЅРёС‡РёРІР°РµС‚ С„РѕРЅРѕРІСѓСЋ Р°РєС‚РёРІРЅРѕСЃС‚СЊ.
      */
     private fun limitBackgroundActivity() {
-        // Здесь можно добавить логику ограничения фоновой активности
+        // Р—РґРµСЃСЊ РјРѕР¶РЅРѕ РґРѕР±Р°РІРёС‚СЊ Р»РѕРіРёРєСѓ РѕРіСЂР°РЅРёС‡РµРЅРёСЏ С„РѕРЅРѕРІРѕР№ Р°РєС‚РёРІРЅРѕСЃС‚Рё
         Log.d(TAG, "Background activity limited")
     }
 
     /**
-     * Уведомляет о статусе батареи.
+     * РЈРІРµРґРѕРјР»СЏРµС‚ Рѕ СЃС‚Р°С‚СѓСЃРµ Р±Р°С‚Р°СЂРµРё.
      */
-    private fun notifyBatteryStatus(message: String) {
-        // Здесь можно добавить уведомление пользователя
+    private fun notifyBatteryStatus(message: String, severity: String) {
         Log.i(TAG, "Battery notification: $message")
+        AlertNotifier.show(
+            context,
+            context.getString(R.string.battery_alert_title),
+            message
+        )
+        CriticalEventReporter.report(
+            context = context,
+            eventType = "BATTERY",
+            severity = severity,
+            message = message
+        )
     }
 
     /**
-     * Получает адаптивный интервал для геолокации.
+     * РџРѕР»СѓС‡Р°РµС‚ Р°РґР°РїС‚РёРІРЅС‹Р№ РёРЅС‚РµСЂРІР°Р» РґР»СЏ РіРµРѕР»РѕРєР°С†РёРё.
      */
     fun getAdaptiveLocationInterval(): Long {
         return adaptiveLocationInterval
     }
 
     /**
-     * Получает адаптивную длительность аудиозаписи.
+     * РџРѕР»СѓС‡Р°РµС‚ Р°РґР°РїС‚РёРІРЅСѓСЋ РґР»РёС‚РµР»СЊРЅРѕСЃС‚СЊ Р°СѓРґРёРѕР·Р°РїРёСЃРё.
      */
     fun getAdaptiveAudioDuration(): Long {
         return adaptiveAudioDuration
     }
 
     /**
-     * Получает адаптивный интервал для фотографий.
+     * РџРѕР»СѓС‡Р°РµС‚ Р°РґР°РїС‚РёРІРЅС‹Р№ РёРЅС‚РµСЂРІР°Р» РґР»СЏ С„РѕС‚РѕРіСЂР°С„РёР№.
      */
     fun getAdaptivePhotoInterval(): Long {
         return adaptivePhotoInterval
     }
 
     /**
-     * Проверяет, нужно ли ограничить активность.
+     * РџСЂРѕРІРµСЂСЏРµС‚, РЅСѓР¶РЅРѕ Р»Рё РѕРіСЂР°РЅРёС‡РёС‚СЊ Р°РєС‚РёРІРЅРѕСЃС‚СЊ.
      */
     fun shouldLimitActivity(): Boolean {
         return currentBatteryLevel <= LOW_BATTERY_THRESHOLD || isPowerSaveMode
     }
 
     /**
-     * Проверяет, можно ли выполнять интенсивные операции.
+     * РџСЂРѕРІРµСЂСЏРµС‚, РјРѕР¶РЅРѕ Р»Рё РІС‹РїРѕР»РЅСЏС‚СЊ РёРЅС‚РµРЅСЃРёРІРЅС‹Рµ РѕРїРµСЂР°С†РёРё.
      */
     fun canPerformIntensiveOperations(): Boolean {
         return currentBatteryLevel >= HIGH_BATTERY_THRESHOLD && isCharging
     }
 
     /**
-     * Получает текущий уровень батареи.
+     * РџРѕР»СѓС‡Р°РµС‚ С‚РµРєСѓС‰РёР№ СѓСЂРѕРІРµРЅСЊ Р±Р°С‚Р°СЂРµРё.
      */
     fun getCurrentBatteryLevel(): Int {
         return currentBatteryLevel
     }
 
     /**
-     * Проверяет, заряжается ли устройство.
+     * РџСЂРѕРІРµСЂСЏРµС‚, Р·Р°СЂСЏР¶Р°РµС‚СЃСЏ Р»Рё СѓСЃС‚СЂРѕР№СЃС‚РІРѕ.
      */
     fun isDeviceCharging(): Boolean {
         return isCharging
     }
 
     /**
-     * Проверяет, включен ли режим энергосбережения.
+     * РџСЂРѕРІРµСЂСЏРµС‚, РІРєР»СЋС‡РµРЅ Р»Рё СЂРµР¶РёРј СЌРЅРµСЂРіРѕСЃР±РµСЂРµР¶РµРЅРёСЏ.
      */
+    fun isIgnoringBatteryOptimizations(): Boolean {
+        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            powerManager.isIgnoringBatteryOptimizations(context.packageName)
+        } else {
+            true
+        }
+    }
+
     fun isPowerSaveModeEnabled(): Boolean {
         return isPowerSaveMode
     }
 
     /**
-     * Получает рекомендации по оптимизации.
+     * РџРѕР»СѓС‡Р°РµС‚ СЂРµРєРѕРјРµРЅРґР°С†РёРё РїРѕ РѕРїС‚РёРјРёР·Р°С†РёРё.
      */
     fun getOptimizationRecommendations(): List<String> {
         val recommendations = mutableListOf<String>()
         
         when {
             currentBatteryLevel <= CRITICAL_BATTERY_THRESHOLD -> {
-                recommendations.add("Критически низкий заряд. Рекомендуется подключить зарядное устройство.")
-                recommendations.add("Приложение работает в режиме минимального энергопотребления.")
+                recommendations.add("РљСЂРёС‚РёС‡РµСЃРєРё РЅРёР·РєРёР№ Р·Р°СЂСЏРґ. Р РµРєРѕРјРµРЅРґСѓРµС‚СЃСЏ РїРѕРґРєР»СЋС‡РёС‚СЊ Р·Р°СЂСЏРґРЅРѕРµ СѓСЃС‚СЂРѕР№СЃС‚РІРѕ.")
+                recommendations.add("РџСЂРёР»РѕР¶РµРЅРёРµ СЂР°Р±РѕС‚Р°РµС‚ РІ СЂРµР¶РёРјРµ РјРёРЅРёРјР°Р»СЊРЅРѕРіРѕ СЌРЅРµСЂРіРѕРїРѕС‚СЂРµР±Р»РµРЅРёСЏ.")
             }
             currentBatteryLevel <= LOW_BATTERY_THRESHOLD -> {
-                recommendations.add("Низкий заряд батареи. Частота обновлений снижена.")
-                recommendations.add("Рассмотрите возможность подключения зарядного устройства.")
+                recommendations.add("РќРёР·РєРёР№ Р·Р°СЂСЏРґ Р±Р°С‚Р°СЂРµРё. Р§Р°СЃС‚РѕС‚Р° РѕР±РЅРѕРІР»РµРЅРёР№ СЃРЅРёР¶РµРЅР°.")
+                recommendations.add("Р Р°СЃСЃРјРѕС‚СЂРёС‚Рµ РІРѕР·РјРѕР¶РЅРѕСЃС‚СЊ РїРѕРґРєР»СЋС‡РµРЅРёСЏ Р·Р°СЂСЏРґРЅРѕРіРѕ СѓСЃС‚СЂРѕР№СЃС‚РІР°.")
             }
             isPowerSaveMode -> {
-                recommendations.add("Включен режим энергосбережения системы.")
-                recommendations.add("Приложение адаптировано к системным настройкам.")
+                recommendations.add("Р’РєР»СЋС‡РµРЅ СЂРµР¶РёРј СЌРЅРµСЂРіРѕСЃР±РµСЂРµР¶РµРЅРёСЏ СЃРёСЃС‚РµРјС‹.")
+                recommendations.add("РџСЂРёР»РѕР¶РµРЅРёРµ Р°РґР°РїС‚РёСЂРѕРІР°РЅРѕ Рє СЃРёСЃС‚РµРјРЅС‹Рј РЅР°СЃС‚СЂРѕР№РєР°Рј.")
             }
             else -> {
-                recommendations.add("Батарея в норме. Все функции доступны.")
+                recommendations.add("Р‘Р°С‚Р°СЂРµСЏ РІ РЅРѕСЂРјРµ. Р’СЃРµ С„СѓРЅРєС†РёРё РґРѕСЃС‚СѓРїРЅС‹.")
             }
         }
         
@@ -316,7 +340,7 @@ class BatteryOptimizationManager(private val context: Context) {
     }
 
     /**
-     * Освобождает ресурсы.
+     * РћСЃРІРѕР±РѕР¶РґР°РµС‚ СЂРµСЃСѓСЂСЃС‹.
      */
     fun cleanup() {
         stopBatteryMonitoring()
