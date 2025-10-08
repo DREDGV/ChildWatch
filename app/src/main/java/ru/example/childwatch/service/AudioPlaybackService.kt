@@ -30,6 +30,7 @@ import ru.example.childwatch.audio.RecordingRepository
 import ru.example.childwatch.audio.StreamRecorder
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketClient
+import ru.example.childwatch.utils.AlertNotifier
 
 /**
  * Foreground Service for audio playback
@@ -504,41 +505,38 @@ class AudioPlaybackService : LifecycleService() {
             val deviceId = this.deviceId ?: return
             val serverUrl = this.serverUrl ?: return
 
-            webSocketClient = WebSocketClient(serverUrl, deviceId)
-
-            // Set callback for receiving audio chunks
-            webSocketClient?.setAudioChunkCallback { audioData, _, _ ->
-                if (chunkQueue.size < MAX_BUFFER_CHUNKS) {
-            }
-
-            webSocketClient?.setCriticalAlertCallback { alert ->
-                handleCriticalAlert(alert)
-            }
-
-            webSocketClient?.setAudioChunkCallback { audioData, _, _ ->
-
-                    chunkQueue.offer(audioData)
-                } else {
-                    chunkQueue.poll()
-                    chunkQueue.offer(audioData)
+            webSocketClient = WebSocketClient(serverUrl, deviceId).apply {
+                setCriticalAlertCallback { alert ->
+                    handleCriticalAlert(alert)
                 }
-                chunksReceived++
-                AudioPlaybackService.chunksReceived = chunksReceived
 
-                // Update connection quality based on timing
-                updateConnectionQuality()
-
-                // Start playback if buffered enough
-                if (isBuffering && chunkQueue.size >= currentMinBuffer) {
-                    isBuffering = false
-                    bufferUnderrunCount = 0
-                    updateNotification("Воспроизведение...")
+                setChildDisconnectedCallback {
+                    updateNotification("Устройство отключилось")
                 }
-            }
 
-            // Set callback for child disconnect
-            webSocketClient?.setChildDisconnectedCallback {
-                updateNotification("Устройство отключилось")
+                setAudioChunkCallback { audioData, _, _ ->
+                    if (!isPlaying) {
+                        return@setAudioChunkCallback
+                    }
+
+                    if (chunkQueue.size >= MAX_BUFFER_CHUNKS) {
+                        chunkQueue.poll()
+                    }
+                    chunkQueue.offer(audioData)
+
+                    chunksReceived++
+                    AudioPlaybackService.chunksReceived = chunksReceived
+
+                    // Update connection quality based on timing
+                    updateConnectionQuality()
+
+                    // Start playback once we have enough data buffered
+                    if (isBuffering && chunkQueue.size >= currentMinBuffer) {
+                        isBuffering = false
+                        bufferUnderrunCount = 0
+                        updateNotification("Воспроизведение...")
+                    }
+                }
             }
 
             // Connect
