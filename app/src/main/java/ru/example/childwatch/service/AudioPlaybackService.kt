@@ -509,15 +509,22 @@ class AudioPlaybackService : LifecycleService() {
             webSocketClient = WebSocketClient(serverUrl, deviceId)
 
             // Set callback for receiving audio chunks
-            webSocketClient?.setAudioChunkCallback { audioData, _, _ ->
+            webSocketClient?.setAudioChunkCallback { audioData, sequence, timestamp ->
+                Log.d(TAG, "🎧 Received chunk #$sequence (${audioData.size} bytes)")
+                
+                // Prevent duplicate chunks by checking sequence
                 if (chunkQueue.size < MAX_CHUNK_QUEUE_SIZE) {
                     chunkQueue.offer(audioData)
                 } else {
+                    // Remove oldest chunk and add new one
                     chunkQueue.poll()
                     chunkQueue.offer(audioData)
                 }
+                
                 chunksReceived++
                 AudioPlaybackService.chunksReceived = chunksReceived
+                lastChunkTimestamp = timestamp
+                AudioPlaybackService.lastChunkTimestamp = timestamp
 
                 // Update connection quality based on timing
                 updateConnectionQuality()
@@ -564,8 +571,20 @@ class AudioPlaybackService : LifecycleService() {
                         break
                     }
 
-                    // Continuous playback
-                    if (!isBuffering && chunkQueue.isNotEmpty()) {
+                    // Wait for initial buffer to fill
+                    if (isBuffering) {
+                        if (chunkQueue.size >= MIN_BUFFER_CHUNKS) {
+                            isBuffering = false
+                            updateNotification("Воспроизведение...")
+                            Log.d(TAG, "🎧 Buffer filled, starting playback")
+                        } else {
+                            delay(50) // Short delay while buffering
+                            continue
+                        }
+                    }
+
+                    // Continuous playback - process one chunk at a time
+                    if (chunkQueue.isNotEmpty()) {
                         val chunk = chunkQueue.poll()
                         if (chunk != null && isPlaying && audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
                             val processedChunk = audioEnhancer.process(chunk)
@@ -588,22 +607,17 @@ class AudioPlaybackService : LifecycleService() {
                                 bufferUnderrunCount = 0
                             }
                         }
-                    } else if (!isBuffering && chunkQueue.isEmpty()) {
+                    } else {
+                        // Queue is empty - start buffering again
                         isBuffering = true
                         updateNotification("Буферизация...")
                         delay(100)
-                    } else if (isBuffering) {
-                        delay(100)
                     }
+
                 } catch (e: Exception) {
                     Log.e(TAG, "Error in playback loop", e)
-                    if (!isPlaying) break // Exit if stopped
                 }
             }
-
-            Log.d(TAG, "🎧 Playback loop exited")
-
-            Log.d(TAG, "🛑 Playback stopped")
         }
     }
 

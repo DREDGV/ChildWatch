@@ -34,6 +34,9 @@ class WebSocketClient(
     private var onCriticalAlertCallback: ((CriticalAlertMessage) -> Unit)? = null
     private var onConnectedCallback: (() -> Unit)? = null
     private var onErrorCallback: ((String) -> Unit)? = null
+    
+    // Track last processed sequence to prevent duplicates
+    private var lastProcessedSequence = -1
 
     companion object {
         private const val TAG = "WebSocketClient"
@@ -210,6 +213,14 @@ class WebSocketClient(
             val deviceId = metadata.optString("deviceId", "")
             val sequence = metadata.optInt("sequence", 0)
             val timestamp = metadata.optLong("timestamp", 0)
+
+            // Prevent duplicate chunks
+            if (sequence <= lastProcessedSequence) {
+                Log.w(TAG, "⚠️ Duplicate chunk #$sequence detected (last: $lastProcessedSequence) - ignoring")
+                return@Listener
+            }
+
+            lastProcessedSequence = sequence
 
             // Log every 10th chunk to reduce spam
             if (sequence % 10 == 0) {

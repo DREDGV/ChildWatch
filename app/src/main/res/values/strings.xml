@@ -1,5 +1,6 @@
 ﻿<resources>
     <string name="app_name">ChildWatch</string>
+    <string name="battery_optimization_warning">Для корректной работы приложения рекомендуется отключить оптимизацию батареи</string>
     <string name="monitoring_active">Мониторинг активен</string>
     <string name="monitoring_inactive">Мониторинг неактивен</string>
     <string name="start_monitoring">Начать мониторинг</string>
