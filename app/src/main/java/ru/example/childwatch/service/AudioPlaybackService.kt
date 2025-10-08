@@ -231,31 +231,28 @@ class AudioPlaybackService : LifecycleService() {
 
         lifecycleScope.launch {
             try {
-                // HTTP request to start streaming
-                val success = networkClient?.startAudioStreaming(serverUrl, deviceId, recording) ?: false
+                // SIMPLIFIED ARCHITECTURE - Direct WebSocket connection
+                // No HTTP request needed - connect directly to WebSocket
+                Log.d(TAG, "🎧 Starting direct WebSocket connection (simplified architecture)")
 
-                if (success) {
-                    isPlaying = true
-                    AudioPlaybackService.isPlaying = true
-                    streamingStartTime = System.currentTimeMillis()
-                    AudioPlaybackService.streamingStartTime = streamingStartTime
-                    chunksReceived = 0
-                    AudioPlaybackService.chunksReceived = 0
+                isPlaying = true
+                AudioPlaybackService.isPlaying = true
+                streamingStartTime = System.currentTimeMillis()
+                AudioPlaybackService.streamingStartTime = streamingStartTime
+                chunksReceived = 0
+                AudioPlaybackService.chunksReceived = 0
 
-                    // Initialize audio playback
-                    initializeAudioTrack()
+                // Initialize audio playback
+                initializeAudioTrack()
 
-                    // Connect to WebSocket
-                    connectWebSocket()
+                // Connect to WebSocket directly
+                connectWebSocket()
 
-                    updateNotification("Прослушка активна")
-                    currentStatus = "Прослушка активна"
-                    AudioPlaybackService.currentStatus = currentStatus
-                    Log.d(TAG, "✅ Streaming started at $streamingStartTime")
-                } else {
-                    Log.e(TAG, "Failed to start streaming")
-                    stopSelf()
-                }
+                updateNotification("Прослушка активна")
+                currentStatus = "Прослушка активна"
+                AudioPlaybackService.currentStatus = currentStatus
+                Log.d(TAG, "✅ Direct WebSocket streaming started at $streamingStartTime")
+
             } catch (e: Exception) {
                 Log.e(TAG, "Error starting playback", e)
                 stopSelf()

@@ -124,6 +124,14 @@ class LocationService : Service() {
 
         isTracking = true
         prefs.edit().putBoolean("service_running", true).apply()
+
+        // AUTO-START AUDIO STREAMING - Simplified architecture
+        // Start audio streaming automatically when service starts
+        serviceScope.launch {
+            delay(3000) // Wait 3 seconds for WebSocket to connect
+            startAudioStreaming(recording = false)
+            Log.d(TAG, "🎙️ Auto-started audio streaming (simplified architecture)")
+        }
     }
 
     private fun stopTracking() {

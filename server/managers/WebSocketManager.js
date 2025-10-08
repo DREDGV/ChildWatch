@@ -89,6 +89,20 @@ class WebSocketManager {
             role: 'child',
             timestamp: Date.now()
         });
+
+        // SIMPLIFIED ARCHITECTURE - Auto-link with parent if exists
+        // Check if there's already a parent listening for this device
+        const parentSocketId = this.activeStreams.get(deviceId);
+        if (parentSocketId && parentSocketId.size > 0) {
+            const firstParentId = Array.from(parentSocketId)[0];
+            this.io.to(firstParentId).emit('child_connected', {
+                deviceId,
+                timestamp: Date.now()
+            });
+            console.log(`🔗 Auto-linked child ${socket.id} with existing parent ${firstParentId} for ${deviceId}`);
+        } else {
+            console.log(`⚠️ No parent listening for ${deviceId} yet - will auto-link when parent connects`);
+        }
     }
 
     /**
@@ -122,12 +136,16 @@ class WebSocketManager {
             timestamp: Date.now()
         });
 
+        // SIMPLIFIED ARCHITECTURE - Auto-link devices
         // Notify child device that parent is listening
         const childSocketId = this.childSockets.get(childDeviceId);
         if (childSocketId) {
             this.io.to(childSocketId).emit('parent_connected', {
                 timestamp: Date.now()
             });
+            console.log(`🔗 Auto-linked parent ${socket.id} with child ${childSocketId} for ${childDeviceId}`);
+        } else {
+            console.log(`⚠️ Child device ${childDeviceId} not connected yet - will auto-link when it connects`);
         }
     }
 
