@@ -1,4 +1,4 @@
-﻿package ru.example.childwatch.utils
+package ru.example.childwatch.utils
 
 import android.app.Activity
 import android.content.ActivityNotFoundException
@@ -44,7 +44,7 @@ class BatteryOptimizationHelper(private val activity: Activity) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
         val intent = Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)
         startIntentSafely(intent) {
-            val fallback = Intent(Settings.ACTION_POWER_USAGE_SUMMARY)
+            val fallback = Intent(Settings.ACTION_SETTINGS)
             startIntentSafely(fallback)
         }
     }

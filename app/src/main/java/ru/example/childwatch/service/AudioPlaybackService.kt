@@ -30,6 +30,7 @@ import ru.example.childwatch.audio.RecordingRepository
 import ru.example.childwatch.audio.StreamRecorder
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketClient
+import ru.example.childwatch.utils.AlertNotifier
 
 /**
  * Foreground Service for audio playback
@@ -44,6 +45,7 @@ class AudioPlaybackService : LifecycleService() {
 
         private const val MIN_BUFFER_CHUNKS = 3
         private const val MAX_BUFFER_CHUNKS = 6
+        private const val MAX_CHUNK_QUEUE_SIZE = 10
         private const val STREAM_SAMPLE_RATE = 44100
         private const val STREAM_CHANNEL_COUNT = 1
 
@@ -508,15 +510,7 @@ class AudioPlaybackService : LifecycleService() {
 
             // Set callback for receiving audio chunks
             webSocketClient?.setAudioChunkCallback { audioData, _, _ ->
-                if (chunkQueue.size < MAX_BUFFER_CHUNKS) {
-            }
-
-            webSocketClient?.setCriticalAlertCallback { alert ->
-                handleCriticalAlert(alert)
-            }
-
-            webSocketClient?.setAudioChunkCallback { audioData, _, _ ->
-
+                if (chunkQueue.size < MAX_CHUNK_QUEUE_SIZE) {
                     chunkQueue.offer(audioData)
                 } else {
                     chunkQueue.poll()
@@ -527,13 +521,10 @@ class AudioPlaybackService : LifecycleService() {
 
                 // Update connection quality based on timing
                 updateConnectionQuality()
+            }
 
-                // Start playback if buffered enough
-                if (isBuffering && chunkQueue.size >= currentMinBuffer) {
-                    isBuffering = false
-                    bufferUnderrunCount = 0
-                    updateNotification("Воспроизведение...")
-                }
+            webSocketClient?.setCriticalAlertCallback { alert ->
+                handleCriticalAlert(alert)
             }
 
             // Set callback for child disconnect
