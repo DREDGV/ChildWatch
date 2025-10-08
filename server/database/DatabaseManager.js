@@ -165,7 +165,7 @@ class DatabaseManager {
             'CREATE INDEX IF NOT EXISTS idx_photo_device_timestamp ON photo_files (device_id, timestamp)',
             'CREATE INDEX IF NOT EXISTS idx_chat_device_timestamp ON chat_messages (device_id, timestamp)',
             'CREATE INDEX IF NOT EXISTS idx_activity_device_timestamp ON activity_logs (device_id, timestamp)',
-            'CREATE INDEX IF NOT EXISTS idx_alerts_device_created ON critical_alerts (device_id, created_at)'
+            'CREATE INDEX IF NOT EXISTS idx_alerts_device_created ON critical_alerts (device_id, created_at)',
             'CREATE INDEX IF NOT EXISTS idx_devices_auth_token ON devices (auth_token)'
         ];
 
