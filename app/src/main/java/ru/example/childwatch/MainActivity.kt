@@ -6,6 +6,7 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -85,7 +86,12 @@ class MainActivity : AppCompatActivity() {
         binding.stopMonitoringBtn.setOnClickListener {
             stopMonitoring()
         }
-        
+
+        // Emergency stop button
+        binding.emergencyStopBtn.setOnClickListener {
+            showEmergencyStopDialog()
+        }
+
         // Menu card click listeners
         binding.homeCard.setOnClickListener {
             showToast("Главная - уже здесь!")
@@ -372,11 +378,39 @@ class MainActivity : AppCompatActivity() {
             action = MonitorService.ACTION_STOP_MONITORING
         }
         startService(intent)
-        
+
         showToast(getString(R.string.monitoring_stopped))
         updateUIState()
     }
-    
+
+    private fun showEmergencyStopDialog() {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("🚨 Экстренная остановка")
+            .setMessage("Это немедленно остановит ВСЕ функции слежки:\n• Прослушку (если активна)\n• Мониторинг\n• Все фоновые процессы\n\nВы уверены?")
+            .setPositiveButton("Да, остановить всё") { _, _ ->
+                emergencyStopAll()
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    private fun emergencyStopAll() {
+        Log.w("ChildWatch", "🚨 EMERGENCY STOP triggered")
+
+        // Stop audio playback if running
+        if (ru.example.childwatch.service.AudioPlaybackService.isPlaying) {
+            ru.example.childwatch.service.AudioPlaybackService.stopPlayback(this)
+            Log.d("ChildWatch", "✅ Audio playback stopped")
+        }
+
+        // Stop monitoring
+        stopMonitoring()
+        Log.d("ChildWatch", "✅ Monitoring stopped")
+
+        showToast("🚨 Экстренная остановка выполнена")
+        Log.w("ChildWatch", "🚨 EMERGENCY STOP completed")
+    }
+
     private fun requestPermissions() {
         val permissionsToRequest = requiredPermissions.filter { permission ->
             ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED

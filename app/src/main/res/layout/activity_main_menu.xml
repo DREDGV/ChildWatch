@@ -520,6 +520,19 @@
 
         </LinearLayout>
 
+        <!-- Emergency Stop Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/emergencyStopBtn"
+            android:layout_width="match_parent"
+            android:layout_height="60dp"
+            android:layout_marginBottom="24dp"
+            android:text="🚨 ЭКСТРЕННАЯ ОСТАНОВКА ВСЕГО"
+            android:textSize="14sp"
+            android:backgroundTint="#D32F2F"
+            app:cornerRadius="12dp"
+            app:icon="@android:drawable/ic_delete"
+            style="@style/Widget.Material3.Button" />
+
     </LinearLayout>
 
 </ScrollView>

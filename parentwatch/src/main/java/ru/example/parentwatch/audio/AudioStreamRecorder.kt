@@ -21,7 +21,7 @@ class AudioStreamRecorder(
 ) {
     companion object {
         private const val TAG = "AudioStreamRecorder"
-        private const val CHUNK_DURATION_MS = 2000L // 2 seconds per chunk (WebSocket is faster than HTTP)
+        private const val CHUNK_DURATION_MS = 2000L // 2 seconds per chunk (smooth playback, balanced latency)
         private const val SAMPLE_RATE = 44100
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
@@ -78,6 +78,9 @@ class AudioStreamRecorder(
                 Log.e(TAG, "❌ WebSocket connection failed: $error")
             }
         )
+
+        // Initialize AudioRecord ONCE for continuous recording
+        initializeAudioRecord()
 
         isRecording = true
         recordingJob = CoroutineScope(Dispatchers.IO).launch {
@@ -159,11 +162,10 @@ class AudioStreamRecorder(
     }
 
     /**
-     * Record single audio chunk using AudioRecord (PCM format)
+     * Initialize AudioRecord for continuous recording
      */
-    private suspend fun recordChunk(): ByteArray? = withContext(Dispatchers.IO) {
+    private fun initializeAudioRecord() {
         try {
-            // Initialize AudioRecord
             audioRecord = AudioRecord(
                 MediaRecorder.AudioSource.MIC,
                 SAMPLE_RATE,
@@ -174,20 +176,35 @@ class AudioStreamRecorder(
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
                 Log.e(TAG, "AudioRecord not initialized")
-                releaseRecorder()
-                return@withContext null
+                return
             }
 
             audioRecord?.startRecording()
+            Log.d(TAG, "🎤 AudioRecord initialized and started - continuous recording")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing AudioRecord", e)
+        }
+    }
+
+    /**
+     * Record single audio chunk from continuous AudioRecord stream
+     */
+    private suspend fun recordChunk(): ByteArray? = withContext(Dispatchers.IO) {
+        try {
+            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED ||
+                audioRecord?.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                Log.e(TAG, "AudioRecord not recording")
+                return@withContext null
+            }
 
             // Calculate buffer size for CHUNK_DURATION_MS
             val chunkSize = (SAMPLE_RATE * (CHUNK_DURATION_MS / 1000.0) * 2).toInt() // 2 bytes per sample (16-bit)
             val audioBuffer = ByteArray(chunkSize)
             var totalRead = 0
 
-            // Read audio data for CHUNK_DURATION_MS
-            val startTime = System.currentTimeMillis()
-            while (totalRead < chunkSize && System.currentTimeMillis() - startTime < CHUNK_DURATION_MS) {
+            // Read audio data for CHUNK_DURATION_MS (continuous stream, no gaps!)
+            while (totalRead < chunkSize && isRecording) {
                 val bytesRead = audioRecord?.read(audioBuffer, totalRead, chunkSize - totalRead) ?: 0
                 if (bytesRead > 0) {
                     totalRead += bytesRead
@@ -197,20 +214,18 @@ class AudioStreamRecorder(
                 }
             }
 
-            audioRecord?.stop()
-            releaseRecorder()
-
             if (totalRead > 0) {
-                Log.d(TAG, "Recorded $totalRead bytes of PCM audio (${totalRead/2} samples)")
+                // Only log every 10th chunk to reduce spam
+                if (sequence % 10 == 0) {
+                    Log.d(TAG, "Recorded $totalRead bytes of PCM audio (${totalRead/2} samples)")
+                }
                 audioBuffer.copyOf(totalRead)
             } else {
-                Log.w(TAG, "No audio data recorded")
                 null
             }
 
         } catch (e: Exception) {
             Log.e(TAG, "Error recording chunk", e)
-            releaseRecorder()
             null
         }
     }
@@ -220,8 +235,10 @@ class AudioStreamRecorder(
      */
     private fun releaseRecorder() {
         try {
+            audioRecord?.stop()
             audioRecord?.release()
             audioRecord = null
+            Log.d(TAG, "🎤 AudioRecord stopped and released")
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing recorder", e)
         }

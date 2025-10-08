@@ -143,6 +143,19 @@ class MainActivity : AppCompatActivity() {
             binding.serverUrlInput.setText(RAILWAY_URL)
             Toast.makeText(this, "Railway URL установлен", Toast.LENGTH_SHORT).show()
         }
+
+        // Emergency stop button
+        binding.emergencyStopButton.setOnClickListener {
+            // Show confirmation dialog
+            AlertDialog.Builder(this)
+                .setTitle("🚨 Экстренная остановка")
+                .setMessage("Это немедленно остановит ВСЕ функции:\n• Прослушку\n• Отслеживание геолокации\n• Все фоновые процессы\n\nВы уверены?")
+                .setPositiveButton("Да, остановить всё") { _, _ ->
+                    emergencyStopAllFunctions()
+                }
+                .setNegativeButton("Отмена", null)
+                .show()
+        }
     }
 
     private fun loadSettings() {
@@ -248,6 +261,24 @@ class MainActivity : AppCompatActivity() {
         updateUI()
 
         Toast.makeText(this, "Сервис остановлен", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun emergencyStopAllFunctions() {
+        Log.w("ParentWatch", "🚨 EMERGENCY STOP triggered from UI")
+
+        // Send EMERGENCY_STOP action to service
+        val intent = Intent(this, LocationService::class.java).apply {
+            action = LocationService.ACTION_EMERGENCY_STOP
+        }
+        startService(intent)
+
+        // Update local state
+        isServiceRunning = false
+        prefs.edit().putBoolean("service_running", false).apply()
+        updateUI()
+
+        Toast.makeText(this, "🚨 Экстренная остановка выполнена", Toast.LENGTH_LONG).show()
+        Log.w("ParentWatch", "🚨 EMERGENCY STOP completed")
     }
 
     private fun updateUI() {

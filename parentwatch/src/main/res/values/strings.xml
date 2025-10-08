@@ -7,7 +7,7 @@
     <string name="stop_service">Остановить мониторинг</string>
     <string name="status_running">Работает</string>
     <string name="status_stopped">Остановлен</string>
-    <string name="server_url_hint">http://10.0.2.2:3000</string>
+    <string name="server_url_hint">https://childwatch-production.up.railway.app</string>
     <string name="notification_channel_name">Отслеживание местоположения</string>
     <string name="notification_channel_description">Уведомления о работе службы отслеживания</string>
 </resources>

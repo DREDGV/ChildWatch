@@ -147,16 +147,21 @@ class WebSocketClient(
     private val onConnect = Emitter.Listener {
         Log.d(TAG, "✅ WebSocket connected")
 
-        // Register as child device
+        // Register as child device (also on reconnect)
         val registerData = JSONObject().apply {
             put("deviceId", deviceId)
         }
         socket?.emit("register_child", registerData)
+
+        Log.d(TAG, "📤 Sent registration request")
     }
 
     private val onDisconnect = Emitter.Listener {
         isConnected = false
-        Log.w(TAG, "⚠️ WebSocket disconnected")
+        Log.w(TAG, "⚠️ WebSocket disconnected - will auto-reconnect")
+
+        // Socket.IO will automatically try to reconnect
+        // We just need to mark as disconnected
     }
 
     private val onConnectError = Emitter.Listener { args ->

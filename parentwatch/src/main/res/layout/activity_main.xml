@@ -207,6 +207,17 @@
         app:cornerRadius="12dp"
         app:icon="@android:drawable/ic_media_play" />
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/emergencyStopButton"
+        android:layout_width="match_parent"
+        android:layout_height="60dp"
+        android:layout_marginTop="12dp"
+        android:text="🚨 ЭКСТРЕННАЯ ОСТАНОВКА ВСЕГО"
+        android:textSize="14sp"
+        android:backgroundTint="#D32F2F"
+        app:cornerRadius="12dp"
+        app:icon="@android:drawable/ic_delete" />
+
     <TextView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"

@@ -29,6 +29,9 @@ class WebSocketClient(
         private const val TAG = "WebSocketClient"
         private const val CONNECTION_TIMEOUT = 20000L // 20 seconds
         private const val RECONNECTION_DELAY = 1000L // 1 second
+        private const val RECONNECTION_DELAY_MAX = 5000L // 5 seconds max
+        private const val PING_INTERVAL = 25000L // 25 seconds (heartbeat)
+        private const val PING_TIMEOUT = 60000L // 60 seconds
     }
 
     /**
@@ -50,7 +53,9 @@ class WebSocketClient(
                 reconnection = true
                 reconnectionAttempts = Int.MAX_VALUE
                 reconnectionDelay = RECONNECTION_DELAY
+                reconnectionDelayMax = RECONNECTION_DELAY_MAX
                 timeout = CONNECTION_TIMEOUT
+                // Socket.IO will handle ping/pong automatically
             }
 
             socket = IO.socket(serverUrl, opts)
@@ -129,9 +134,20 @@ class WebSocketClient(
         socket?.emit("register_parent", registerData)
     }
 
-    private val onDisconnect = Emitter.Listener {
+    private val onDisconnect = Emitter.Listener { args ->
         isConnected = false
-        Log.w(TAG, "⚠️ WebSocket disconnected")
+        val reason = args.getOrNull(0)?.toString() ?: "unknown"
+        Log.w(TAG, "⚠️ WebSocket disconnected - reason: $reason")
+
+        // Log different disconnect reasons
+        when (reason) {
+            "io server disconnect" -> Log.w(TAG, "  → Server closed the connection")
+            "io client disconnect" -> Log.w(TAG, "  → Client closed the connection")
+            "ping timeout" -> Log.w(TAG, "  → Ping timeout (connection lost)")
+            "transport close" -> Log.w(TAG, "  → Transport layer closed (network issue)")
+            "transport error" -> Log.w(TAG, "  → Transport error occurred")
+            else -> Log.w(TAG, "  → Unknown disconnect reason: $reason")
+        }
     }
 
     private val onConnectError = Emitter.Listener { args ->

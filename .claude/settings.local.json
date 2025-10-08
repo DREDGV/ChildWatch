@@ -1,7 +1,10 @@
 {
   "permissions": {
     "allow": [
-      "Read(//c/Users/dr-ed/Desktop/**)"
+      "Read(//c/Users/dr-ed/Desktop/**)",
+      "Bash(npm install:*)",
+      "Bash(findstr:*)",
+      "Bash(taskkill:*)"
     ],
     "deny": [],
     "ask": []

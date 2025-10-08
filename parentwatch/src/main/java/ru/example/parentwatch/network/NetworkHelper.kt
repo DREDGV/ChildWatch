@@ -86,7 +86,7 @@ class NetworkHelper(private val context: Context) {
     }
 
     /**
-     * Upload location to server
+     * Upload location to server with retry (for network change resilience)
      */
     suspend fun uploadLocation(
         serverUrl: String,
@@ -94,45 +94,59 @@ class NetworkHelper(private val context: Context) {
         longitude: Double,
         accuracy: Float
     ): Boolean = withContext(Dispatchers.IO) {
-        try {
-            val url = "${serverUrl.trimEnd('/')}/api/loc"
+        val maxRetries = 3
 
-            val jsonData = JSONObject().apply {
-                put("latitude", latitude)
-                put("longitude", longitude)
-                put("accuracy", accuracy)
-                put("timestamp", System.currentTimeMillis())
-            }
+        repeat(maxRetries) { attempt ->
+            try {
+                val url = "${serverUrl.trimEnd('/')}/api/loc"
 
-            val requestBody = jsonData.toString()
-                .toRequestBody("application/json; charset=utf-8".toMediaType())
+                val jsonData = JSONObject().apply {
+                    put("latitude", latitude)
+                    put("longitude", longitude)
+                    put("accuracy", accuracy)
+                    put("timestamp", System.currentTimeMillis())
+                }
 
-            val request = Request.Builder()
-                .url(url)
-                .post(requestBody)
-                .build()
+                val requestBody = jsonData.toString()
+                    .toRequestBody("application/json; charset=utf-8".toMediaType())
 
-            Log.d(TAG, "Uploading location: lat=$latitude, lng=$longitude")
+                val request = Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .build()
 
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    Log.d(TAG, "Location uploaded successfully")
-
-                    // Save last update time
-                    prefs.edit()
-                        .putLong("last_update", System.currentTimeMillis())
-                        .apply()
-
-                    return@withContext true
+                if (attempt > 0) {
+                    Log.d(TAG, "Retry attempt $attempt: Uploading location")
                 } else {
-                    Log.e(TAG, "Upload failed: ${response.code}")
-                    return@withContext false
+                    Log.d(TAG, "Uploading location: lat=$latitude, lng=$longitude")
+                }
+
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        Log.d(TAG, "Location uploaded successfully")
+
+                        // Save last update time
+                        prefs.edit()
+                            .putLong("last_update", System.currentTimeMillis())
+                            .apply()
+
+                        return@withContext true
+                    } else {
+                        Log.e(TAG, "Upload failed: ${response.code}")
+                        if (attempt < maxRetries - 1) {
+                            kotlinx.coroutines.delay(1000L * (attempt + 1)) // 1s, 2s
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Upload error (attempt ${attempt + 1})", e)
+                if (attempt < maxRetries - 1) {
+                    kotlinx.coroutines.delay(1000L * (attempt + 1)) // 1s, 2s delay
                 }
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Upload error", e)
-            return@withContext false
         }
+
+        return@withContext false
     }
 
     /**

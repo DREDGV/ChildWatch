@@ -32,7 +32,7 @@ class SettingsActivity : AppCompatActivity() {
         // Default values
         private const val DEFAULT_LOCATION_INTERVAL = 30
         private const val DEFAULT_AUDIO_DURATION = 20
-        private const val DEFAULT_SERVER_URL = "http://10.0.2.2:3000/"
+        private const val DEFAULT_SERVER_URL = "https://childwatch-production.up.railway.app"
 
         // Server URL presets
         private const val LOCALHOST_URL = "http://10.0.2.2:3000"
