@@ -31,7 +31,7 @@ android {
             shrinkResources true
             debuggable false
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-            signingConfig signingConfigs.debug // РСЃРїРѕР»СЊР·СѓРµРј debug signing РґР»СЏ С‚РµСЃС‚РёСЂРѕРІР°РЅРёСЏ
+            signingConfig signingConfigs.debug // Используем debug signing для тестирования
         }
     }
     compileOptions {
@@ -105,4 +105,3 @@ dependencies {
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test.espresso:espresso-core:3.5.1'
 }
-
