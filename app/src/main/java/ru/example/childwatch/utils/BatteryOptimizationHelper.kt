@@ -44,13 +44,7 @@ class BatteryOptimizationHelper(private val activity: Activity) {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.LOLLIPOP) return
         val intent = Intent(Settings.ACTION_BATTERY_SAVER_SETTINGS)
         startIntentSafely(intent) {
-<<<<<<< Current (Your changes)
-            val fallback = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.fromParts("package", activity.packageName, null)
-            }
-=======
             val fallback = Intent(Settings.ACTION_SETTINGS)
->>>>>>> Incoming (Background Agent changes)
             startIntentSafely(fallback)
         }
     }

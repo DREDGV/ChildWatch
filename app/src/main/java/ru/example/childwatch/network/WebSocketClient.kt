@@ -280,32 +280,6 @@ class WebSocketClient(
         }
     }
 
-    private val onCriticalAlert = Emitter.Listener { args ->
-        try {
-            Log.w(TAG, "🚨 Critical alert received")
-            
-            val alertData = args[0] as? JSONObject
-            if (alertData == null) {
-                Log.w(TAG, "Invalid critical alert format")
-                return@Listener
-            }
-
-            val alert = CriticalAlertMessage(
-                id = alertData.optLong("id", 0),
-                eventType = alertData.optString("eventType", ""),
-                severity = alertData.optString("severity", "INFO"),
-                message = alertData.optString("message", ""),
-                metadata = alertData.optJSONObject("metadata")?.toString(),
-                createdAt = alertData.optLong("createdAt", System.currentTimeMillis())
-            )
-
-            onCriticalAlertCallback?.invoke(alert)
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error handling critical alert", e)
-        }
-    }
-
     private fun jsonObjectToMap(obj: JSONObject): Map<String, Any?> {
         val map = mutableMapOf<String, Any?>()
         val keys = obj.keys()

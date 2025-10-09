@@ -203,7 +203,7 @@ class ErrorHandler(private val context: Context) {
             notificationId = 4000 + errorInfo.type.ordinal
         )
 
-        CriticalEventReporter(context).report(
+        CriticalEventReporter.report(
             context = context,
             eventType = errorInfo.type.name,
             severity = errorInfo.severity.name,

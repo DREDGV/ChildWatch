@@ -132,9 +132,23 @@ class MonitorService : Service() {
         stopMonitoring()
         
         // Cleanup resources
-        recoveryManager.cleanup()
-        batteryOptimizer.cleanup()
-        auditLogger.cleanup()
+        try {
+            recoveryManager.cleanup()
+        } catch (e: Exception) {
+            Log.w(TAG, "RecoveryManager cleanup failed", e)
+        }
+        
+        try {
+            batteryOptimizer.stopBatteryMonitoring()
+        } catch (e: Exception) {
+            Log.w(TAG, "BatteryOptimizer cleanup failed", e)
+        }
+        
+        try {
+            auditLogger.cleanup()
+        } catch (e: Exception) {
+            Log.w(TAG, "AuditLogger cleanup failed", e)
+        }
         
         serviceScope.cancel()
     }
@@ -315,7 +329,11 @@ class MonitorService : Service() {
         recoveryManager.stopHealthMonitoring()
         
         // Stop battery optimization
-        batteryOptimizer.stopBatteryMonitoring()
+        try {
+            batteryOptimizer.stopBatteryMonitoring()
+        } catch (e: Exception) {
+            Log.w(TAG, "BatteryOptimizer stop failed", e)
+        }
         
         // Stop location updates
         locationManager.stopLocationUpdates()
@@ -372,9 +390,9 @@ class MonitorService : Service() {
                     }
                 }
                 
-                // Wait for next update using adaptive interval
-                val adaptiveInterval = batteryOptimizer.getAdaptiveLocationInterval()
-                delay(adaptiveInterval)
+                // Wait for next update using fixed interval
+                val locationInterval = 30000L // 30 seconds
+                delay(locationInterval)
             }
         }
     }

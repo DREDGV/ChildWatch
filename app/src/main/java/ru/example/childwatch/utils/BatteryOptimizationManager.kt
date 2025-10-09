@@ -1,18 +1,33 @@
 ﻿package ru.example.childwatch.utils
 
 import android.content.Context
+import android.os.BatteryManager
 import android.os.PowerManager
 import android.util.Log
 
 class BatteryOptimizationManager(private val context: Context) {
     
     private val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
+    private val batteryManager = context.getSystemService(Context.BATTERY_SERVICE) as BatteryManager
+    
+    companion object {
+        private const val LOW_BATTERY_THRESHOLD = 20
+        private const val CRITICAL_BATTERY_THRESHOLD = 10
+    }
+    
+    private val batteryLevel: Int
+        get() = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
+    
+    private val isCharging: Boolean
+        get() = batteryManager.isCharging
+    
+    private val isPowerSaveMode: Boolean
+        get() = powerManager.isPowerSaveMode
     
     fun isIgnoringBatteryOptimizations(): Boolean {
         return android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.M ||
             powerManager.isIgnoringBatteryOptimizations(context.packageName)
     }
-<<<<<<< Current (Your changes)
     
     fun isPowerSaveEnabled(): Boolean {
         return android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.LOLLIPOP && 
@@ -21,20 +36,28 @@ class BatteryOptimizationManager(private val context: Context) {
     
     fun startBatteryMonitoring() {
         Log.d("BatteryOptimizationManager", "Battery monitoring started")
-=======
+    }
+    
+    fun stopBatteryMonitoring() {
+        Log.d("BatteryOptimizationManager", "Battery monitoring stopped")
+    }
+    
+    fun getAdaptiveLocationInterval(): Long {
+        return 30000L // 30 seconds default
+    }
 
     /**
      * Проверяет, можно ли выполнять интенсивные операции.
      */
     fun canPerformIntensiveOperations(): Boolean {
-        return currentBatteryLevel > LOW_BATTERY_THRESHOLD && !isPowerSaveMode
+        return batteryLevel > LOW_BATTERY_THRESHOLD && !isPowerSaveMode
     }
 
     /**
      * Получает текущий уровень батареи.
      */
     fun getCurrentBatteryLevel(): Int {
-        return currentBatteryLevel
+        return batteryLevel
     }
 
     /**
@@ -51,11 +74,11 @@ class BatteryOptimizationManager(private val context: Context) {
         val recommendations = mutableListOf<String>()
         
         when {
-            currentBatteryLevel <= CRITICAL_BATTERY_THRESHOLD -> {
+            batteryLevel <= CRITICAL_BATTERY_THRESHOLD -> {
                 recommendations.add("Критически низкий заряд. Рекомендуется подключить зарядное устройство.")
                 recommendations.add("Приложение работает в режиме минимального энергопотребления.")
             }
-            currentBatteryLevel <= LOW_BATTERY_THRESHOLD -> {
+            batteryLevel <= LOW_BATTERY_THRESHOLD -> {
                 recommendations.add("Низкий заряд батареи. Частота обновлений снижена.")
                 recommendations.add("Рассмотрите возможность подключения зарядного устройства.")
             }
@@ -69,41 +92,10 @@ class BatteryOptimizationManager(private val context: Context) {
         }
         
         return recommendations
->>>>>>> Incoming (Background Agent changes)
-    }
-    
-    fun stopBatteryMonitoring() {
-        Log.d("BatteryOptimizationManager", "Battery monitoring stopped")
-    }
-    
-    fun getAdaptiveLocationInterval(): Long {
-        return if (isPowerSaveEnabled()) 30000L else 10000L // 30s vs 10s
     }
     
     fun cleanup() {
         Log.d("BatteryOptimizationManager", "Cleanup completed")
     }
 
-    /**
-     * Проверяет, игнорирует ли приложение оптимизацию батареи.
-     */
-    fun isIgnoringBatteryOptimizations(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            val powerManager = context.getSystemService(Context.POWER_SERVICE) as PowerManager
-            powerManager.isIgnoringBatteryOptimizations(context.packageName)
-        } else {
-            true
-        }
-    }
-
-    /**
-     * Проверяет, включен ли режим энергосбережения.
-     */
-    fun isPowerSaveModeEnabled(): Boolean {
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            powerManager.isPowerSaveMode
-        } else {
-            false
-        }
-    }
 }
