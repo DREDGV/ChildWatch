@@ -13,6 +13,7 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
+import kotlinx.coroutines.CancellationException
 import ru.example.childwatch.MainActivity
 import ru.example.childwatch.R
 import ru.example.childwatch.location.LocationManager
@@ -49,12 +50,29 @@ class MonitorService : Service() {
         const val ACTION_STOP_MONITORING = "stop_monitoring"
         const val ACTION_REQUEST_LOCATION = "request_location"
         const val ACTION_START_AUDIO_CAPTURE = "start_audio_capture"
+        const val ACTION_STOP_AUDIO_CAPTURE = "stop_audio_capture"
         const val ACTION_TAKE_PHOTO = "take_photo"
         
         const val EXTRA_AUDIO_DURATION = "audio_duration"
         
         @Volatile
         var isRunning = false
+            private set
+        
+        @Volatile
+        var isRecording = false
+            private set
+        
+        @Volatile
+        var lastError: String? = null
+            private set
+        
+        @Volatile
+        var lastCommand: String? = null
+            private set
+        
+        @Volatile
+        var lastStartedAt: Long = 0L
             private set
     }
     
@@ -75,29 +93,47 @@ class MonitorService : Service() {
     private var audioRecordingJob: Job? = null
     
     private val isAudioRecording = AtomicBoolean(false)
+    private val isForegroundActive = AtomicBoolean(false)
     
     // Configuration
     private var locationIntervalSeconds = 30
     private var defaultAudioDurationSeconds = 20
     private var serverUrl = "https://your-server.com"
     
+    private fun setRecordingState(active: Boolean) {
+        isRecording = active
+    }
+    
+    private fun setLastErrorMessage(message: String?) {
+        lastError = message
+    }
+    
+    private fun setLastCommandValue(command: String?) {
+        lastCommand = command
+    }
+    
+    private fun setLastStartedTimestamp(timestamp: Long) {
+        lastStartedAt = timestamp
+    }
+    
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "Service created")
+        val appContext = applicationContext
         
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-        secureSettings = SecureSettingsManager(this)
-        errorHandler = ErrorHandler(this)
-        recoveryManager = RecoveryManager(this)
-        batteryOptimizer = BatteryOptimizationManager(this)
-        auditLogger = AuditLogger(this)
+        prefs = appContext.getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+        secureSettings = SecureSettingsManager(appContext)
+        errorHandler = ErrorHandler(appContext)
+        recoveryManager = RecoveryManager(appContext)
+        batteryOptimizer = BatteryOptimizationManager(appContext)
+        auditLogger = AuditLogger(appContext)
         
         // Initialize components
-        locationManager = LocationManager(this)
-        audioRecorder = AudioRecorder(this)
-        photoCapture = PhotoCapture(this)
-        networkClient = NetworkClient(this)
+        locationManager = LocationManager(appContext)
+        audioRecorder = AudioRecorder(appContext)
+        photoCapture = PhotoCapture(appContext)
+        networkClient = NetworkClient(appContext)
         
         // Load configuration
         loadConfiguration()
@@ -107,9 +143,17 @@ class MonitorService : Service() {
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        Log.d(TAG, "onStartCommand: ${intent?.action}")
+        val action = intent?.action
+        Log.d(TAG, "onStartCommand: action=$action, startId=$startId, flags=$flags")
         
-        when (intent?.action) {
+        if (action == null) {
+            handleNullStartCommand()
+            return START_STICKY
+        }
+        
+        setLastCommandValue(action)
+        
+        when (action) {
             ACTION_START_MONITORING -> startMonitoring()
             ACTION_STOP_MONITORING -> stopMonitoring()
             ACTION_REQUEST_LOCATION -> requestLocationNow()
@@ -117,10 +161,27 @@ class MonitorService : Service() {
                 val duration = intent.getIntExtra(EXTRA_AUDIO_DURATION, defaultAudioDurationSeconds)
                 startAudioCapture(duration)
             }
+            ACTION_STOP_AUDIO_CAPTURE -> stopAudioCapture("command")
             ACTION_TAKE_PHOTO -> takePhoto()
+            else -> Log.w(TAG, "Unknown action received: $action")
         }
         
         return START_STICKY // Restart service if killed by system
+    }
+    
+    private fun handleNullStartCommand() {
+        Log.w(TAG, "onStartCommand invoked with null intent/action, recovering state")
+        setLastCommandValue(null)
+        
+        if (!isRunning && secureSettings.isMonitoringEnabled()) {
+            Log.i(TAG, "Monitoring was enabled previously, restarting service after sticky restart")
+            startMonitoring()
+        } else if (isRunning || isAudioRecording.get()) {
+            Log.d(TAG, "Service already running, ensuring foreground notification is active")
+            ensureForeground(isRecording = isAudioRecording.get())
+        } else {
+            Log.d(TAG, "Service not running and monitoring disabled, no action required")
+        }
     }
     
     override fun onBind(intent: Intent?): IBinder? = null
@@ -153,40 +214,28 @@ class MonitorService : Service() {
         serviceScope.cancel()
     }
     
-    private fun createNotificationChannel() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
-                CHANNEL_ID,
-                getString(R.string.notification_channel_name),
-                NotificationManager.IMPORTANCE_LOW
-            ).apply {
-                description = getString(R.string.notification_channel_description)
-                setSound(null, null) // Silent notifications
-            }
-            notificationManager.createNotificationChannel(channel)
-        }
-    }
-    
-    private fun createNotification(isRecording: Boolean = false): Notification {
+    private fun createNotification(
+        isRecording: Boolean = false,
+        statusOverride: String? = null
+    ): Notification {
         val intent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
-            this, 0, intent, 
+            this, 0, intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        
+
         val title = getString(R.string.notification_monitoring_title)
-        val baseText = if (isRecording) {
+        val baseStatus = if (isRecording) {
             getString(R.string.notification_status_recording)
         } else {
             getString(R.string.notification_status_running)
         }
-        val statusText = when {
+        val statusText = statusOverride ?: when {
             !batteryOptimizer.isIgnoringBatteryOptimizations() -> getString(R.string.notification_status_battery_optimization)
             batteryOptimizer.isPowerSaveEnabled() -> getString(R.string.notification_status_power_save)
-            else -> baseText
+            else -> baseStatus
         }
-        
-        // Create action buttons
+
         val stopIntent = Intent(this, MonitorService::class.java).apply {
             action = ACTION_STOP_MONITORING
         }
@@ -194,7 +243,7 @@ class MonitorService : Service() {
             this, 1, stopIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        
+
         val locationIntent = Intent(this, MonitorService::class.java).apply {
             action = ACTION_REQUEST_LOCATION
         }
@@ -202,16 +251,23 @@ class MonitorService : Service() {
             this, 2, locationIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        
+
         val audioIntent = Intent(this, MonitorService::class.java).apply {
-            action = ACTION_START_AUDIO_CAPTURE
-            putExtra(EXTRA_AUDIO_DURATION, defaultAudioDurationSeconds)
+            action = if (isRecording) {
+                ACTION_STOP_AUDIO_CAPTURE
+            } else {
+                ACTION_START_AUDIO_CAPTURE
+            }
+
+            if (action == ACTION_START_AUDIO_CAPTURE) {
+                putExtra(EXTRA_AUDIO_DURATION, secureSettings.getAudioDuration())
+            }
         }
         val audioPendingIntent = PendingIntent.getService(
             this, 3, audioIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        
+
         val photoIntent = Intent(this, MonitorService::class.java).apply {
             action = ACTION_TAKE_PHOTO
         }
@@ -219,18 +275,27 @@ class MonitorService : Service() {
             this, 4, photoIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        
-        // Get last update time
+
         val lastUpdate = secureSettings.getLastLocationUpdate()
         val lastUpdateText = if (lastUpdate > 0) {
             val dateFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
             val timeString = dateFormat.format(java.util.Date(lastUpdate))
             getString(R.string.notification_last_update, timeString)
         } else {
-            getString(R.string.notification_last_update, "�������")
+            getString(R.string.notification_last_update, getString(R.string.notification_status_stopped))
         }
-        
-        return NotificationCompat.Builder(this, CHANNEL_ID)
+
+        val audioActionText = if (isRecording) {
+            getString(R.string.notification_action_stop)
+        } else {
+            getString(R.string.notification_action_audio)
+        }
+
+        val notificationStyle = NotificationCompat.BigTextStyle().bigText(statusText).apply {
+            lastError?.takeIf { !it.isNullOrBlank() }?.let { setSummaryText(it) }
+        }
+
+        val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)
             .setContentText(statusText)
             .setSubText(lastUpdateText)
@@ -238,7 +303,9 @@ class MonitorService : Service() {
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setStyle(notificationStyle)
             .addAction(
                 R.drawable.ic_notification,
                 getString(R.string.notification_action_stop),
@@ -251,7 +318,7 @@ class MonitorService : Service() {
             )
             .addAction(
                 R.drawable.ic_notification,
-                getString(R.string.notification_action_audio),
+                audioActionText,
                 audioPendingIntent
             )
             .addAction(
@@ -259,117 +326,143 @@ class MonitorService : Service() {
                 getString(R.string.notification_action_photo),
                 photoPendingIntent
             )
-            .build()
+
+        lastError?.takeIf { !it.isNullOrBlank() }?.let { builder.setTicker(it) }
+
+        return builder.build()
     }
-    
+
+    private fun ensureForeground(isRecording: Boolean = isAudioRecording.get(), statusOverride: String? = null) {
+        val notification = createNotification(isRecording, statusOverride)
+        startForeground(NOTIFICATION_ID, notification)
+        isForegroundActive.set(true)
+    }
+
+    private fun stopForegroundService(removeNotification: Boolean = true) {
+        if (isForegroundActive.compareAndSet(true, false)) {
+            stopForeground(removeNotification)
+        }
+    }
+
     private fun startMonitoring() {
         if (isRunning) {
             Log.d(TAG, "Monitoring already running")
+            ensureForeground(isRecording = isAudioRecording.get())
             return
         }
         
-        // Check permissions
+        loadConfiguration()
+        
         if (!PermissionHelper.hasAllRequiredPermissions(this)) {
-            Log.e(TAG, "Missing required permissions")
+            val message = "Missing required permissions for monitoring"
+            Log.e(TAG, message)
+            setLastErrorMessage(message)
+            ensureForeground(isRecording = false, statusOverride = message)
+            stopForegroundService(true)
             stopSelf()
             return
         }
         
-        Log.d(TAG, "Starting monitoring")
-        // auditLogger.logAudit("Monitoring started", AuditLogger.EventCategory.SYSTEM)
+        Log.i(
+            TAG,
+            "Starting monitoring (locationInterval=${locationIntervalSeconds}s, audioDuration=${defaultAudioDurationSeconds}s, server=$serverUrl)"
+        )
         isRunning = true
+        isAudioRecording.set(false)
+        setRecordingState(false)
+        val startedAt = System.currentTimeMillis()
+        setLastStartedTimestamp(startedAt)
+        setLastErrorMessage(null)
         
-        // Save service start time
-        secureSettings.setServiceStartTime(System.currentTimeMillis())
+        secureSettings.setServiceStartTime(startedAt)
+        secureSettings.setMonitoringEnabled(true)
+        prefs.edit().putBoolean("was_monitoring", true).apply()
         
-        // Start foreground service
-        startForeground(NOTIFICATION_ID, createNotification())
+        ensureForeground(isRecording = false)
         
-        // Register device and get auth token
-        CoroutineScope(Dispatchers.IO).launch {
-            val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app") ?: "https://childwatch-production.up.railway.app"
-            val token = networkClient.registerDevice(serverUrl)
-            if (token != null) {
-                Log.d(TAG, "Device registered successfully")
-            } else {
-                Log.w(TAG, "Failed to register device, continuing without auth")
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val token = networkClient.registerDevice(serverUrl)
+                if (token != null) {
+                    Log.d(TAG, "Device registered successfully")
+                } else {
+                    Log.w(TAG, "Failed to register device, continuing without auth")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Device registration failed", e)
+                setLastErrorMessage("Device registration failed: ${e.message}")
             }
         }
         
-        // Start recovery monitoring
         recoveryManager.startHealthMonitoring()
         
-        // Start battery optimization
-        batteryOptimizer.startBatteryMonitoring()
+        try {
+            batteryOptimizer.startBatteryMonitoring()
+        } catch (e: Exception) {
+            Log.w(TAG, "BatteryOptimizer start failed", e)
+        }
         
-        // Start location updates
         startLocationUpdates()
         
-        // Start periodic audio recording if enabled
         if (secureSettings.isAudioEnabled()) {
             startPeriodicAudioRecording()
         }
     }
     
     private fun stopMonitoring() {
-        if (!isRunning) {
+        if (!isRunning && !isAudioRecording.get()) {
             Log.d(TAG, "Monitoring already stopped")
             return
         }
         
-        Log.d(TAG, "Stopping monitoring")
-        // auditLogger.logAudit("Monitoring stopped", AuditLogger.EventCategory.SYSTEM)
+        Log.i(TAG, "Stopping monitoring")
         isRunning = false
+        secureSettings.setMonitoringEnabled(false)
+        prefs.edit().putBoolean("was_monitoring", false).apply()
+        setLastStartedTimestamp(0L)
         
-        // Cancel all jobs
         locationUpdateJob?.cancel()
-        audioRecordingJob?.cancel()
+        locationUpdateJob = null
         
-        // Stop recovery monitoring
         recoveryManager.stopHealthMonitoring()
         
-        // Stop battery optimization
         try {
             batteryOptimizer.stopBatteryMonitoring()
         } catch (e: Exception) {
             Log.w(TAG, "BatteryOptimizer stop failed", e)
         }
         
-        // Stop location updates
         locationManager.stopLocationUpdates()
         
-        // Stop audio recording if active
         if (isAudioRecording.get()) {
-            audioRecorder.stopRecording()
-            isAudioRecording.set(false)
+            stopAudioCapture("monitoring stop")
         }
+        audioRecordingJob = null
+        setRecordingState(false)
         
-        // Stop foreground service
-        stopForeground(true)
+        stopForegroundService(true)
         stopSelf()
     }
     
     private fun startLocationUpdates() {
         locationUpdateJob?.cancel()
+        val fallbackInterval = locationIntervalSeconds.coerceAtLeast(5) * 1000L
         locationUpdateJob = serviceScope.launch {
             while (isActive && isRunning) {
+                val intervalMs = try {
+                    batteryOptimizer.getAdaptiveLocationInterval().coerceAtLeast(fallbackInterval)
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to get adaptive location interval, using fallback", e)
+                    fallbackInterval
+                }
+                
                 try {
                     val location = locationManager.getCurrentLocation()
                     if (location != null) {
-                        Log.d(TAG, "Location: ${location.latitude}, ${location.longitude}")
+                        Log.d(TAG, "Location: ${location.latitude}, ${location.longitude} (accuracy=${location.accuracy})")
                         
-                        // Log location event
-                        // auditLogger.logLocationEvent(
-                        //     "Location updated",
-                        //     location.latitude,
-                        //     location.longitude,
-                        //     location.accuracy
-                        // )
-                        
-                        // Save last location update time
                         secureSettings.setLastLocationUpdate(System.currentTimeMillis())
                         
-                        // Upload location to server
                         networkClient.uploadLocation(
                             serverUrl,
                             location.latitude,
@@ -378,21 +471,20 @@ class MonitorService : Service() {
                             System.currentTimeMillis()
                         )
                     } else {
-                        Log.w(TAG, "Failed to get location")
-                        // auditLogger.logWarning("Failed to get location", AuditLogger.EventCategory.LOCATION)
+                        val message = "Failed to get location"
+                        Log.w(TAG, message)
+                        setLastErrorMessage(message)
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error in location update", e)
+                    val message = "Error in location update: ${e.message}"
+                    Log.e(TAG, message, e)
+                    setLastErrorMessage(message)
                     errorHandler.handleLocationError(e) {
-                        // Fallback: retry with longer interval
-                        // Note: delay() cannot be called in non-suspend context
                         Log.w(TAG, "Location error fallback triggered")
                     }
                 }
                 
-                // Wait for next update using fixed interval
-                val locationInterval = 30000L // 30 seconds
-                delay(locationInterval)
+                delay(intervalMs.coerceAtLeast(5_000L))
             }
         }
     }
@@ -405,8 +497,7 @@ class MonitorService : Service() {
                 if (location != null) {
                     Log.d(TAG, "Immediate location: ${location.latitude}, ${location.longitude}")
                     
-                    // Save last location update time
-                    prefs.edit().putLong("last_location_update", System.currentTimeMillis()).apply()
+                    secureSettings.setLastLocationUpdate(System.currentTimeMillis())
                     
                     // Upload location to server
                     networkClient.uploadLocation(
@@ -417,10 +508,14 @@ class MonitorService : Service() {
                         System.currentTimeMillis()
                     )
                 } else {
-                    Log.w(TAG, "Failed to get immediate location")
+                    val message = "Failed to get immediate location"
+                    Log.w(TAG, message)
+                    setLastErrorMessage(message)
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error getting immediate location", e)
+                val message = "Error getting immediate location: ${e.message}"
+                Log.e(TAG, message, e)
+                setLastErrorMessage(message)
             }
         }
     }
@@ -431,113 +526,105 @@ class MonitorService : Service() {
         serviceScope.launch {
             while (isActive && isRunning && secureSettings.isAudioEnabled()) {
                 try {
-                    // Wait for interval (e.g., 1 minute for testing, 5 minutes for production)
-                    val audioIntervalMs = 1 * 60 * 1000L // 1 minute for testing
-                    delay(audioIntervalMs)
+                    val duration = secureSettings.getAudioDuration().coerceAtLeast(5)
+                    val intervalMs = (duration * 1000L).coerceAtLeast(60_000L)
+                    delay(intervalMs)
                     
-                    // Start audio capture
                     if (!isAudioRecording.get()) {
-                        val duration = secureSettings.getAudioDuration()
                         startAudioCapture(duration)
-                        
-                        // Wait for recording to complete before next cycle
-                        delay((duration * 1000L) + 2000) // Add 2 second buffer
+                        delay((duration * 1000L) + 2_000L)
                     }
+                } catch (e: CancellationException) {
+                    throw e
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error in periodic audio recording", e)
+                    val message = "Error in periodic audio recording: ${e.message}"
+                    Log.e(TAG, message, e)
+                    setLastErrorMessage(message)
                 }
             }
         }
     }
     
     private fun startAudioCapture(durationSeconds: Int) {
-        if (isAudioRecording.get()) {
+        val safeDuration = durationSeconds.coerceAtLeast(5)
+        
+        if (!PermissionHelper.hasAudioPermission(this)) {
+            val message = "Audio permission not granted"
+            Log.e(TAG, message)
+            setLastErrorMessage(message)
+            return
+        }
+        
+        if (!audioRecorder.isAudioRecordingAvailable()) {
+            val message = "Audio recording is not available on this device"
+            Log.e(TAG, message)
+            setLastErrorMessage(message)
+            return
+        }
+        
+        if (!isAudioRecording.compareAndSet(false, true)) {
             Log.w(TAG, "Audio recording already in progress")
             return
         }
         
-        // Check audio permission
-        if (!PermissionHelper.hasAudioPermission(this)) {
-            Log.e(TAG, "Audio permission not granted")
-            return
-        }
-        
-        // Check if audio recording is available
-        if (!audioRecorder.isAudioRecordingAvailable()) {
-            Log.e(TAG, "Audio recording is not available on this device")
-            return
-        }
-        
-        // NOTE: Android 14+ restricts background microphone access
-        // This will only work in foreground service with proper notification
-        Log.d(TAG, "Starting audio capture for $durationSeconds seconds")
+        Log.d(TAG, "Starting audio capture for $safeDuration seconds")
+        setRecordingState(true)
+        ensureForeground(isRecording = true)
         
         audioRecordingJob?.cancel()
         audioRecordingJob = serviceScope.launch {
-            var audioFile: File? = null
             try {
-                isAudioRecording.set(true)
-                
-                // Update notification to show recording with microphone indicator
-                startForeground(NOTIFICATION_ID, createNotification(isRecording = true))
-                
-                // Small delay to ensure foreground service is properly registered
                 delay(100)
-                
-                // Start recording
-                Log.d(TAG, "AudioRecorder.startRecording() called")
-                audioFile = audioRecorder.startRecording(durationSeconds)
-                
+                val audioFile = audioRecorder.startRecording(safeDuration)
                 if (audioFile == null) {
-                    Log.e(TAG, "Failed to start audio recording - audioFile is null")
+                    val message = "Failed to start audio recording"
+                    Log.e(TAG, message)
+                    setLastErrorMessage(message)
                     return@launch
                 }
                 
-                Log.d(TAG, "Audio recording started successfully, waiting for $durationSeconds seconds")
+                Log.d(TAG, "Audio recording started successfully, waiting for $safeDuration seconds")
+                val waitTime = (safeDuration * 1000L).coerceAtLeast(5_000L) + 500
+                delay(waitTime)
                 
-                // Wait for recording to complete (add 500ms buffer for cleanup)
-                // Use actual durationSeconds, not adaptive duration
-                delay((durationSeconds * 1000L) + 500)
-                
-                // Stop recording explicitly
-                Log.d(TAG, "Stopping audio recording")
                 val stoppedFile = audioRecorder.stopRecording()
                 
                 if (stoppedFile != null && stoppedFile.exists() && stoppedFile.length() > 0) {
                     Log.d(TAG, "Audio recorded successfully: ${stoppedFile.absolutePath}, size: ${stoppedFile.length()} bytes")
-                    
-                    // Save last audio update time
                     secureSettings.setLastAudioUpdate(System.currentTimeMillis())
                     
-                    // Upload audio to server
-                    Log.d(TAG, "Uploading audio to server")
                     val uploadSuccess = networkClient.uploadAudio(serverUrl, stoppedFile)
-                    
                     if (uploadSuccess) {
                         Log.d(TAG, "Audio uploaded successfully")
                     } else {
                         Log.w(TAG, "Audio upload failed, file kept for retry")
                     }
                     
-                    // Delete local file after upload (even if upload failed, to save space)
                     stoppedFile.delete()
                     Log.d(TAG, "Temp audio file deleted")
+                    setLastErrorMessage(null)
                 } else {
-                    Log.e(TAG, "Audio recording failed - file is null, doesn't exist, or is empty")
+                    val message = "Audio recording failed - empty file"
+                    Log.e(TAG, message)
+                    setLastErrorMessage(message)
                 }
-                
+            } catch (e: CancellationException) {
+                Log.i(TAG, "Audio recording cancelled: ${e.message}")
             } catch (e: SecurityException) {
-                Log.e(TAG, "Security exception during audio recording (Android 14+ restriction?)", e)
+                val message = "Security exception during audio recording: ${e.message}"
+                Log.e(TAG, message, e)
+                setLastErrorMessage(message)
                 errorHandler.handleAudioError(e) {
                     Log.w(TAG, "Audio error fallback triggered - security exception")
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Error in audio recording", e)
+                val message = "Error in audio recording: ${e.message}"
+                Log.e(TAG, message, e)
+                setLastErrorMessage(message)
                 errorHandler.handleAudioError(e) {
                     Log.w(TAG, "Audio error fallback triggered - generic exception")
                 }
             } finally {
-                // Ensure recording is stopped even if error occurred
                 try {
                     if (audioRecorder.isRecording()) {
                         Log.d(TAG, "Ensuring audio recorder is stopped in finally block")
@@ -548,15 +635,25 @@ class MonitorService : Service() {
                 }
                 
                 isAudioRecording.set(false)
+                setRecordingState(false)
+                audioRecordingJob = null
                 
-                // Update notification back to normal
-                if (isRunning) {
-                    startForeground(NOTIFICATION_ID, createNotification(isRecording = false))
-                }
+                ensureForeground(isRecording = false)
                 
                 Log.d(TAG, "Audio capture cycle completed")
             }
         }
+    }
+    
+    private fun stopAudioCapture(reason: String? = null) {
+        if (!isAudioRecording.get()) {
+            Log.d(TAG, "Stop audio capture requested but no recording in progress")
+            return
+        }
+        
+        val reasonText = reason?.let { " ($it)" } ?: ""
+        Log.i(TAG, "Stopping audio capture$reasonText")
+        audioRecordingJob?.cancel(CancellationException("stopAudioCapture$reasonText"))
     }
     
     private fun takePhoto() {
@@ -613,10 +710,13 @@ class MonitorService : Service() {
     }
     
     private fun loadConfiguration() {
-        locationIntervalSeconds = prefs.getInt("location_interval", 30)
-        defaultAudioDurationSeconds = prefs.getInt("audio_duration", 20)
-        serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app") ?: "https://childwatch-production.up.railway.app"
+        locationIntervalSeconds = (secureSettings.getLocationInterval() / 1000L).toInt().coerceAtLeast(5)
+        defaultAudioDurationSeconds = secureSettings.getAudioDuration().coerceAtLeast(5)
+        serverUrl = secureSettings.getServerUrl().ifBlank { "https://childwatch-production.up.railway.app" }
         
-        Log.d(TAG, "Configuration loaded: interval=${locationIntervalSeconds}s, audio=${defaultAudioDurationSeconds}s, url=$serverUrl")
+        Log.d(
+            TAG,
+            "Configuration loaded: interval=${locationIntervalSeconds}s, audio=${defaultAudioDurationSeconds}s, url=$serverUrl"
+        )
     }
 }
