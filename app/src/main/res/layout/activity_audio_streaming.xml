@@ -357,26 +357,80 @@
                 android:orientation="vertical"
                 android:padding="20dp">
 
-                <TextView
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="12dp"
-                    android:text="Визуализация аудио"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginBottom="12dp">
 
-                <ru.example.childwatch.ui.AudioWaveformView
-                    android:id="@+id/audioWaveform"
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Визуализация аудио"
+                        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textStyle="bold" />
+
+                    <!-- Visualization Mode Selector -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/visualizationModeBtn"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Эквалайзер"
+                        android:textSize="12sp"
+                        app:icon="@android:drawable/ic_menu_view"
+                        app:iconSize="16dp"
+                        style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                </LinearLayout>
+
+                <!-- Advanced Audio Visualizer -->
+                <ru.example.childwatch.ui.AdvancedAudioVisualizer
+                    android:id="@+id/advancedAudioVisualizer"
                     android:layout_width="match_parent"
-                    android:layout_height="120dp"
+                    android:layout_height="140dp"
                     android:background="@android:color/black" />
+
+                <!-- Volume Level Indicator -->
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="12dp">
+
+                    <ImageView
+                        android:layout_width="20dp"
+                        android:layout_height="20dp"
+                        android:layout_marginEnd="8dp"
+                        android:src="@android:drawable/ic_lock_silent_mode_off"
+                        android:tint="?attr/colorPrimary" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Уровень сигнала:"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/signalLevelText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="--"
+                        android:textSize="12sp"
+                        android:textStyle="bold"
+                        android:textColor="?android:attr/textColorSecondary" />
+
+                </LinearLayout>
 
             </LinearLayout>
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Audio Enhancements -->
+        <!-- Audio Quality Modes -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -394,51 +448,121 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
-                    android:text="Фильтрация аудио"
+                    android:text="Режимы качества звука"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
                     android:textColor="?attr/colorOnSurface"
                     android:textStyle="bold" />
 
-                <com.google.android.material.materialswitch.MaterialSwitch
-                    android:id="@+id/noiseSuppressionSwitch"
+                <!-- Quality Mode Selection -->
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/qualityModeChipGroup"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
-                    android:text="Шумоподавление" />
+                    app:singleSelection="true"
+                    app:selectionRequired="true">
 
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="8dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Усиление"
-                        android:textSize="14sp" />
-
-                    <TextView
-                        android:id="@+id/gainBoostValueText"
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/normalModeChip"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="0 дБ"
-                        android:textSize="14sp"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorPrimary" />
+                        android:text="Обычный"
+                        android:checked="false" />
 
-                </LinearLayout>
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/noiseReductionChip"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Шумоподавление"
+                        android:checked="true" />
 
-                <com.google.android.material.slider.Slider
-                    android:id="@+id/gainBoostSlider"
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/voiceEnhancedChip"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Голосовой" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/loudEnvironmentChip"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Громкая среда" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/crystalClearChip"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Кристальная чистота" />
+
+                    <com.google.android.material.chip.Chip
+                        android:id="@+id/sleepModeChip"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Ночной режим" />
+
+                </com.google.android.material.chip.ChipGroup>
+
+                <!-- Mode Description -->
+                <TextView
+                    android:id="@+id/modeDescriptionText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:valueFrom="0"
-                    android:valueTo="12"
-                    android:value="0"
-                    android:stepSize="3" />
+                    android:layout_marginBottom="16dp"
+                    android:text="Убирает фоновый шум и шипение"
+                    android:textSize="12sp"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textStyle="italic" />
+
+                <!-- Advanced Controls (shown when custom mode is selected) -->
+                <LinearLayout
+                    android:id="@+id/advancedControlsLayout"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <com.google.android.material.materialswitch.MaterialSwitch
+                        android:id="@+id/noiseSuppressionSwitch"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="16dp"
+                        android:text="Шумоподавление" />
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginBottom="8dp">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Усиление"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/gainBoostValueText"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="0 дБ"
+                            android:textSize="14sp"
+                            android:textStyle="bold"
+                            android:textColor="?attr/colorPrimary" />
+
+                    </LinearLayout>
+
+                    <com.google.android.material.slider.Slider
+                        android:id="@+id/gainBoostSlider"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:valueFrom="0"
+                        android:valueTo="12"
+                        android:value="0"
+                        android:stepSize="3" />
+
+                </LinearLayout>
 
             </LinearLayout>
 

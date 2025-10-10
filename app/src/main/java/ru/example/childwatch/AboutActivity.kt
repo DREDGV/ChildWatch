@@ -89,7 +89,7 @@ class AboutActivity : AppCompatActivity() {
     private fun loadServerVersion() {
         aboutScope.launch {
             try {
-                val serverUrl = prefs.getString("server_url", "http://10.0.2.2:3000/") ?: "http://10.0.2.2:3000/"
+                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app/") ?: "https://childwatch-production.up.railway.app/"
                 val version = withContext(Dispatchers.IO) {
                     getServerVersion(serverUrl)
                 }
@@ -184,7 +184,7 @@ class AboutActivity : AppCompatActivity() {
                 ChildWatch
                 Версия: $versionName ($versionCode)
                 ID устройства: $deviceId
-                Сервер: ${prefs.getString("server_url", "не настроен")}
+                Сервер: ${prefs.getString("server_url", "https://childwatch-production.up.railway.app")}
             """.trimIndent()
             
             val clip = ClipData.newPlainText("ChildWatch Info", appInfo)

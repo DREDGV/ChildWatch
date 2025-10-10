@@ -45,23 +45,17 @@ class MainActivity : AppCompatActivity() {
     private var hasConsent = false
     private var batteryOptimizationDialogDisplayed = false
     
-    // Required permissions for the app
-    private val requiredPermissions = mutableListOf(
-        Manifest.permission.ACCESS_FINE_LOCATION,
-        Manifest.permission.ACCESS_COARSE_LOCATION,
-        Manifest.permission.RECORD_AUDIO
-    ).apply {
-        // Add background location permission for Android 10+ (API 29+)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            add(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-        }
-    }
-
-    // Permission launcher for requesting multiple permissions
-    private val permissionLauncher = registerForActivityResult(
+    // Permission launchers for different permission groups
+    private val basicPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { permissions ->
-        handlePermissionResults(permissions)
+        handleBasicPermissionResults(permissions)
+    }
+    
+    private val backgroundLocationLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted ->
+        handleBackgroundLocationResult(isGranted)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -118,11 +112,12 @@ class MainActivity : AppCompatActivity() {
 
         binding.audioStreamingCard.setOnClickListener {
             val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-            val serverUrl = prefs.getString("server_url", "http://10.0.2.2:3000") ?: "http://10.0.2.2:3000"
+            val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app") ?: "https://childwatch-production.up.railway.app"
             val childDeviceId = prefs.getString("child_device_id", "")
 
             if (childDeviceId.isNullOrEmpty()) {
-                showToast("Сначала укажите Device ID ребёнка в Настройках")
+                // Показать диалог с вариантами
+                showDeviceIdOptions(serverUrl)
             } else {
                 val intent = Intent(this, AudioStreamingActivity::class.java).apply {
                     putExtra(AudioStreamingActivity.EXTRA_DEVICE_ID, childDeviceId)
@@ -473,33 +468,110 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestPermissions() {
-        val permissionsToRequest = requiredPermissions.filter { permission ->
-            ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED
-        }
-        
-        if (permissionsToRequest.isNotEmpty()) {
-            permissionLauncher.launch(permissionsToRequest.toTypedArray())
+        // First request basic permissions
+        if (!PermissionHelper.hasBasicPermissions(this)) {
+            requestBasicPermissions()
+        } else {
+            // Basic permissions granted, now request background location if needed
+            requestBackgroundLocationPermission()
         }
     }
     
-    private fun handlePermissionResults(permissions: Map<String, Boolean>) {
+    private fun requestBasicPermissions() {
+        val basicPermissions = PermissionHelper.getBasicPermissions()
+        val missingBasicPermissions = basicPermissions.filter { permission ->
+            ContextCompat.checkSelfPermission(this, permission) != PackageManager.PERMISSION_GRANTED
+        }
+        
+        if (missingBasicPermissions.isNotEmpty()) {
+            basicPermissionLauncher.launch(missingBasicPermissions.toTypedArray())
+        }
+    }
+    
+    private fun requestBackgroundLocationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (!PermissionHelper.hasBackgroundLocationPermission(this)) {
+                // Show explanation first
+                showBackgroundLocationExplanation()
+            } else {
+                // All permissions granted
+                onAllPermissionsGranted()
+            }
+        } else {
+            // Android 9 and below don't need background location permission
+            onAllPermissionsGranted()
+        }
+    }
+    
+    private fun showBackgroundLocationExplanation() {
+        val explanation = PermissionHelper.getPermissionExplanation(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        val consequences = PermissionHelper.getPermissionDenialConsequences(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Разрешение на фоновое местоположение")
+            .setMessage("$explanation\n\n$consequences\n\nПродолжить?")
+            .setPositiveButton("Разрешить") { _, _ ->
+                backgroundLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+            }
+            .setNegativeButton("Отказаться") { _, _ ->
+                showToast("Отслеживание будет работать только когда приложение активно")
+                onAllPermissionsGranted()
+            }
+            .setNeutralButton("Настройки") { _, _ ->
+                PermissionHelper.openAppSettings(this)
+            }
+            .show()
+    }
+    
+    private fun handleBasicPermissionResults(permissions: Map<String, Boolean>) {
         val deniedPermissions = permissions.filter { !it.value }.keys
         
         if (deniedPermissions.isEmpty()) {
-            showToast(getString(R.string.all_permissions_granted))
-            // Try to start monitoring if consent is given
-            if (hasConsent) {
-                startMonitoring()
-            }
+            showToast("Основные разрешения предоставлены")
+            // Now request background location permission
+            requestBackgroundLocationPermission()
         } else {
             val deniedList = deniedPermissions.joinToString(", ")
-            showToast(getString(R.string.permissions_denied, deniedList))
+            showToast("Отказано в разрешениях: $deniedList")
             
-            // Check if background location permission was denied
-            if (deniedPermissions.contains(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
-                showToast(getString(R.string.background_location_manual))
-            }
+            // Show explanation for denied permissions
+            showPermissionDeniedExplanation(deniedPermissions)
         }
+    }
+    
+    private fun handleBackgroundLocationResult(isGranted: Boolean) {
+        if (isGranted) {
+            showToast("Все разрешения предоставлены")
+            onAllPermissionsGranted()
+        } else {
+            showToast("Фоновое местоположение отклонено. Отслеживание будет работать только когда приложение активно")
+            onAllPermissionsGranted() // Continue anyway
+        }
+    }
+    
+    private fun onAllPermissionsGranted() {
+        showToast("Все необходимые разрешения предоставлены")
+        // Try to start monitoring if consent is given
+        if (hasConsent) {
+            startMonitoring()
+        }
+    }
+    
+    private fun showPermissionDeniedExplanation(deniedPermissions: Set<String>) {
+        val explanations = deniedPermissions.map { permission ->
+            "${PermissionHelper.getPermissionExplanation(permission)}\n${PermissionHelper.getPermissionDenialConsequences(permission)}"
+        }
+        
+        val message = explanations.joinToString("\n\n")
+        
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Необходимые разрешения")
+            .setMessage(message)
+            .setPositiveButton("Настройки") { _, _ ->
+                PermissionHelper.openAppSettings(this)
+            }
+            .setNegativeButton("Понятно") { _, _ -> }
+            .show()
     }
     
     private fun showToast(message: String) {
@@ -510,6 +582,29 @@ class MainActivity : AppCompatActivity() {
         super.onResume()
         updateUIState()
         CriticalAlertSyncScheduler.triggerImmediate(this)
+    }
+
+    private fun showDeviceIdOptions(serverUrl: String) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Device ID не указан")
+            .setMessage("Выберите способ получения Device ID ребёнка:")
+            .setPositiveButton("Тестовый режим") { _, _ ->
+                // Использовать тестовый ID для демонстрации
+                val testDeviceId = "test-child-device-001"
+                val intent = Intent(this, AudioStreamingActivity::class.java).apply {
+                    putExtra(AudioStreamingActivity.EXTRA_DEVICE_ID, testDeviceId)
+                    putExtra(AudioStreamingActivity.EXTRA_SERVER_URL, serverUrl)
+                }
+                startActivity(intent)
+                showToast("Запущен тестовый режим с ID: $testDeviceId")
+            }
+            .setNeutralButton("Настройки") { _, _ ->
+                // Перейти в настройки для ввода ID
+                val intent = Intent(this, SettingsActivity::class.java)
+                startActivity(intent)
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
     }
 
     companion object {

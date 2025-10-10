@@ -612,7 +612,7 @@ class NetworkClient(private val context: Context) {
         return withContext(Dispatchers.IO) {
             try {
                 val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-                val serverUrl = prefs.getString("server_url", "http://10.0.2.2:3000") ?: "http://10.0.2.2:3000"
+                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app") ?: "https://childwatch-production.up.railway.app"
 
                 val retrofit = createRetrofitClient(serverUrl)
                 val api = retrofit.create(ChildWatchApi::class.java)

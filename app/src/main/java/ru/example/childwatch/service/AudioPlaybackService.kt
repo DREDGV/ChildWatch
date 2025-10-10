@@ -141,6 +141,16 @@ class AudioPlaybackService : LifecycleService() {
     fun setWaveformCallback(callback: ((ByteArray) -> Unit)?) {
         waveformCallback = callback
     }
+    
+    fun updateAudioEnhancerConfig(config: AudioEnhancer.Config) {
+        audioEnhancer.updateConfig(config)
+        Log.d(TAG, "Audio enhancer config updated: noiseSuppression=${config.noiseSuppressionEnabled}, gain=${config.gainBoostDb}dB")
+    }
+    
+    fun setVolume(volume: Float) {
+        audioTrack?.setVolume(volume)
+        Log.d(TAG, "Volume set to: ${(volume * 100).toInt()}%")
+    }
 
     fun updateAudioEnhancer(noiseSuppression: Boolean, gainBoostDb: Int) {
         val normalizedGain = gainBoostDb.coerceIn(0, 12)
@@ -180,21 +190,42 @@ class AudioPlaybackService : LifecycleService() {
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         super.onStartCommand(intent, flags, startId)
+        
+        Log.d(TAG, "onStartCommand called with action: ${intent?.action}")
 
         when (intent?.action) {
             ACTION_START_PLAYBACK -> {
-                val deviceId = intent.getStringExtra(EXTRA_DEVICE_ID) ?: return START_NOT_STICKY
-                val serverUrl = intent.getStringExtra(EXTRA_SERVER_URL) ?: return START_NOT_STICKY
+                val deviceId = intent.getStringExtra(EXTRA_DEVICE_ID)
+                val serverUrl = intent.getStringExtra(EXTRA_SERVER_URL)
                 val recording = intent.getBooleanExtra(EXTRA_RECORDING, false)
+                
+                Log.d(TAG, "Starting playback with deviceId: $deviceId, serverUrl: $serverUrl, recording: $recording")
+                
+                if (deviceId.isNullOrEmpty() || serverUrl.isNullOrEmpty()) {
+                    Log.e(TAG, "Missing required parameters - deviceId: $deviceId, serverUrl: $serverUrl")
+                    // Start foreground anyway to prevent crash
+                    startForeground(NOTIFICATION_ID, createNotification("Ошибка: неверные параметры"))
+                    stopSelf()
+                    return START_NOT_STICKY
+                }
 
                 startPlayback(deviceId, serverUrl, recording)
             }
             ACTION_STOP_PLAYBACK -> {
+                Log.d(TAG, "Stopping playback")
                 stopPlayback()
             }
             ACTION_TOGGLE_RECORDING -> {
                 val recording = intent.getBooleanExtra(EXTRA_RECORDING, false)
+                Log.d(TAG, "Toggling recording: $recording")
                 toggleRecording(recording)
+            }
+            else -> {
+                Log.w(TAG, "Unknown action: ${intent?.action}")
+                // Start foreground anyway to prevent crash
+                startForeground(NOTIFICATION_ID, createNotification("Неизвестная команда"))
+                stopSelf()
+                return START_NOT_STICKY
             }
         }
 
@@ -202,63 +233,73 @@ class AudioPlaybackService : LifecycleService() {
     }
 
     private fun startPlayback(deviceId: String, serverUrl: String, recording: Boolean) {
-        if (isPlaying) {
-            Log.w(TAG, "Already playing")
-            return
-        }
-
-        this.deviceId = deviceId
-        this.serverUrl = serverUrl
-        this.isRecording = recording
-
-        if (recording) {
-            startLocalRecording()
-        } else {
-            stopLocalRecording(save = false)
-        }
-
-
-        Log.d(TAG, "🎧 Starting audio playback in foreground service")
-
-        // Start foreground with notification
-        startForeground(NOTIFICATION_ID, createNotification("Подключение..."))
-
-        // Acquire WakeLock (keeps CPU awake)
-        wakeLock?.acquire(60*60*1000L /* 1 hour */)
-        Log.d(TAG, "🔋 WakeLock acquired")
-
-        // Acquire WiFi Lock (keeps WiFi active to prevent disconnection)
-        wifiLock?.acquire()
-        Log.d(TAG, "📶 WiFi Lock acquired (FULL_HIGH_PERF mode)")
-
-        lifecycleScope.launch {
-            try {
-                // SIMPLIFIED ARCHITECTURE - Direct WebSocket connection
-                // No HTTP request needed - connect directly to WebSocket
-                Log.d(TAG, "🎧 Starting direct WebSocket connection (simplified architecture)")
-
-                isPlaying = true
-                AudioPlaybackService.isPlaying = true
-                streamingStartTime = System.currentTimeMillis()
-                AudioPlaybackService.streamingStartTime = streamingStartTime
-                chunksReceived = 0
-                AudioPlaybackService.chunksReceived = 0
-
-                // Initialize audio playback
-                initializeAudioTrack()
-
-                // Connect to WebSocket directly
-                connectWebSocket()
-
-                updateNotification("Прослушка активна")
-                currentStatus = "Прослушка активна"
-                AudioPlaybackService.currentStatus = currentStatus
-                Log.d(TAG, "✅ Direct WebSocket streaming started at $streamingStartTime")
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Error starting playback", e)
-                stopSelf()
+        try {
+            if (isPlaying) {
+                Log.w(TAG, "Already playing")
+                return
             }
+
+            this.deviceId = deviceId
+            this.serverUrl = serverUrl
+            this.isRecording = recording
+
+            Log.d(TAG, "🎧 Starting audio playback in foreground service")
+
+            // Start foreground with notification IMMEDIATELY (required by Android)
+            startForeground(NOTIFICATION_ID, createNotification("Подключение..."))
+
+            if (recording) {
+                startLocalRecording()
+            } else {
+                stopLocalRecording(save = false)
+            }
+
+            // Acquire WakeLock (keeps CPU awake)
+            wakeLock?.acquire(60*60*1000L /* 1 hour */)
+            Log.d(TAG, "🔋 WakeLock acquired")
+
+            // Acquire WiFi Lock (keeps WiFi active to prevent disconnection)
+            wifiLock?.acquire()
+            Log.d(TAG, "📶 WiFi Lock acquired (FULL_HIGH_PERF mode)")
+
+            lifecycleScope.launch {
+                try {
+                    // SIMPLIFIED ARCHITECTURE - Direct WebSocket connection
+                    // No HTTP request needed - connect directly to WebSocket
+                    Log.d(TAG, "🎧 Starting direct WebSocket connection (simplified architecture)")
+
+                    isPlaying = true
+                    AudioPlaybackService.isPlaying = true
+                    streamingStartTime = System.currentTimeMillis()
+                    AudioPlaybackService.streamingStartTime = streamingStartTime
+                    chunksReceived = 0
+                    AudioPlaybackService.chunksReceived = 0
+
+                    // Initialize audio playback
+                    initializeAudioTrack()
+
+                    // Connect to WebSocket directly
+                    connectWebSocket()
+
+                    updateNotification("Прослушка активна")
+                    currentStatus = "Прослушка активна"
+                    AudioPlaybackService.currentStatus = currentStatus
+                    Log.d(TAG, "✅ Direct WebSocket streaming started at $streamingStartTime")
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error starting playback", e)
+                    stopSelf()
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Critical error in startPlayback", e)
+            // Ensure foreground is started even if there's an error
+            try {
+                startForeground(NOTIFICATION_ID, createNotification("Ошибка запуска"))
+            } catch (ex: Exception) {
+                Log.e(TAG, "Failed to start foreground after error", ex)
+            }
+            stopSelf()
         }
     }
 

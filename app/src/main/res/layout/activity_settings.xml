@@ -53,7 +53,7 @@
                     android:hint="@string/location_interval"
                     app:helperText="@string/location_interval_help"
                     app:helperTextEnabled="true"
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/locationIntervalInput"
@@ -72,7 +72,7 @@
                     android:hint="@string/audio_duration"
                     app:helperText="@string/audio_duration_help"
                     app:helperTextEnabled="true"
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/audioDurationInput"
@@ -91,7 +91,7 @@
                     android:hint="@string/server_url"
                     app:helperText="@string/server_url_help"
                     app:helperTextEnabled="true"
-                    style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/serverUrlInput"
@@ -151,7 +151,7 @@
                         android:layout_weight="1"
                         android:layout_marginEnd="8dp"
                         android:hint="@string/child_device_id_hint"
-                        style="@style/Widget.Material3.TextInputLayout.OutlinedBox">
+                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
 
                         <com.google.android.material.textfield.TextInputEditText
                             android:id="@+id/childDeviceIdInput"

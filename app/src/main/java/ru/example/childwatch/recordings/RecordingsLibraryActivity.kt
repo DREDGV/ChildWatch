@@ -33,8 +33,7 @@ class RecordingsLibraryActivity : AppCompatActivity() {
         binding = ActivityRecordingsLibraryBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        setSupportActionBar(binding.toolbar)
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        // Don't set support action bar - use toolbar directly
         binding.toolbar.navigationIcon = AppCompatResources.getDrawable(this, androidx.appcompat.R.drawable.abc_ic_ab_back_material)
         binding.toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
 

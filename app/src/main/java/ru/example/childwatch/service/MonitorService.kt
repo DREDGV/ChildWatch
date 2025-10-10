@@ -287,7 +287,7 @@ class MonitorService : Service() {
         
         // Register device and get auth token
         CoroutineScope(Dispatchers.IO).launch {
-            val serverUrl = prefs.getString("server_url", "https://your-server.com") ?: "https://your-server.com"
+            val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app") ?: "https://childwatch-production.up.railway.app"
             val token = networkClient.registerDevice(serverUrl)
             if (token != null) {
                 Log.d(TAG, "Device registered successfully")
@@ -615,7 +615,7 @@ class MonitorService : Service() {
     private fun loadConfiguration() {
         locationIntervalSeconds = prefs.getInt("location_interval", 30)
         defaultAudioDurationSeconds = prefs.getInt("audio_duration", 20)
-        serverUrl = prefs.getString("server_url", "https://your-server.com") ?: "https://your-server.com"
+        serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app") ?: "https://childwatch-production.up.railway.app"
         
         Log.d(TAG, "Configuration loaded: interval=${locationIntervalSeconds}s, audio=${defaultAudioDurationSeconds}s, url=$serverUrl")
     }
