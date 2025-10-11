@@ -55,7 +55,7 @@
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:padding="12dp"
-                android:background="@android:color/lightgray">
+                android:background="#E0E0E0">
 
                 <View
                     android:id="@+id/statusIndicator"
@@ -98,7 +98,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="120dp"
                 android:layout_marginBottom="12dp"
-                android:background="@android:color/lightgray"
+                android:background="#E0E0E0"
                 android:orientation="vertical"
                 android:gravity="center"
                 android:padding="16dp">
@@ -126,7 +126,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="120dp"
                 android:layout_marginBottom="12dp"
-                android:background="@android:color/lightgray"
+                android:background="#E0E0E0"
                 android:orientation="vertical"
                 android:gravity="center"
                 android:padding="16dp">
@@ -154,7 +154,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="120dp"
                 android:layout_marginBottom="12dp"
-                android:background="@android:color/lightgray"
+                android:background="#E0E0E0"
                 android:orientation="vertical"
                 android:gravity="center"
                 android:padding="16dp">
@@ -182,7 +182,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="120dp"
                 android:layout_marginBottom="12dp"
-                android:background="@android:color/lightgray"
+                android:background="#E0E0E0"
                 android:orientation="vertical"
                 android:gravity="center"
                 android:padding="16dp">
