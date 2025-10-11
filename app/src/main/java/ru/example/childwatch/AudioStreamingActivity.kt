@@ -339,6 +339,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         binding.advancedAudioVisualizer.start()
         
         val intent = Intent(this, AudioPlaybackService::class.java).apply {
+            action = AudioPlaybackService.ACTION_START_PLAYBACK
             putExtra(AudioPlaybackService.EXTRA_DEVICE_ID, deviceId)
             putExtra(AudioPlaybackService.EXTRA_SERVER_URL, serverUrl)
             putExtra(AudioPlaybackService.EXTRA_RECORDING, binding.recordingSwitch.isChecked)

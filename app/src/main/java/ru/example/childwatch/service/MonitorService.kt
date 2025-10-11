@@ -214,6 +214,20 @@ class MonitorService : Service() {
         serviceScope.cancel()
     }
     
+    private fun createNotificationChannel() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            val channel = NotificationChannel(
+                CHANNEL_ID,
+                getString(R.string.notification_channel_name),
+                NotificationManager.IMPORTANCE_LOW
+            ).apply {
+                description = getString(R.string.notification_channel_description)
+                setSound(null, null)
+            }
+            notificationManager.createNotificationChannel(channel)
+        }
+    }
+    
     private fun createNotification(
         isRecording: Boolean = false,
         statusOverride: String? = null
@@ -291,9 +305,8 @@ class MonitorService : Service() {
             getString(R.string.notification_action_audio)
         }
 
-        val notificationStyle = NotificationCompat.BigTextStyle().bigText(statusText).apply {
-            lastError?.takeIf { !it.isNullOrBlank() }?.let { setSummaryText(it) }
-        }
+        val notificationStyle = NotificationCompat.BigTextStyle().bigText(statusText)
+        lastError?.takeIf { !it.isNullOrBlank() }?.let { notificationStyle.setSummaryText(it) }
 
         val builder = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(title)

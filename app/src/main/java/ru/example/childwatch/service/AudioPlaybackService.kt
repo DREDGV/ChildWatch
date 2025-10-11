@@ -264,6 +264,14 @@ class AudioPlaybackService : LifecycleService() {
 
             lifecycleScope.launch {
                 try {
+                    // Inform server that parent is listening before starting playback
+                    networkClient?.let { client ->
+                        val registered = client.startAudioStreaming(serverUrl, deviceId, recording)
+                        if (!registered) {
+                            Log.w(TAG, "Failed to register parent listener on server for $deviceId")
+                        }
+                    }
+
                     // SIMPLIFIED ARCHITECTURE - Direct WebSocket connection
                     // No HTTP request needed - connect directly to WebSocket
                     Log.d(TAG, "🎧 Starting direct WebSocket connection (simplified architecture)")

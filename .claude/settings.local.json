@@ -4,7 +4,13 @@
       "Read(//c/Users/dr-ed/Desktop/**)",
       "Bash(npm install:*)",
       "Bash(findstr:*)",
-      "Bash(taskkill:*)"
+      "Bash(taskkill:*)",
+      "Bash(cat:*)",
+      "Bash(gradlew:*)",
+      "Bash(quick-test.bat)",
+      "Bash(cmd /c:*)",
+      "Bash(adb:*)",
+      "Bash(git add:*)"
     ],
     "deny": [],
     "ask": []
