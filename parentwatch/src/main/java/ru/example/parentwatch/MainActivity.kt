@@ -106,7 +106,7 @@ class MainActivity : AppCompatActivity() {
         lastUpdateText = findViewById(R.id.lastUpdateText)
 
         // Set app version
-        appVersionText.text = "ChildDevice v5.0.0"
+        appVersionText.text = "ChildDevice v5.1.0"
         
         // Menu card click listeners
         chatCard.setOnClickListener {
@@ -120,11 +120,13 @@ class MainActivity : AppCompatActivity() {
         }
         
         aboutCard.setOnClickListener {
-            showAboutDialog()
+            val intent = Intent(this, AboutActivity::class.java)
+            startActivity(intent)
         }
-        
+
         statsCard.setOnClickListener {
-            showStatsDialog()
+            val intent = Intent(this, StatsActivity::class.java)
+            startActivity(intent)
         }
 
         // Toggle service button
@@ -158,48 +160,6 @@ class MainActivity : AppCompatActivity() {
             val format = SimpleDateFormat("HH:mm:ss, dd.MM.yyyy", Locale.getDefault())
             lastUpdateText.text = "Последнее обновление: ${format.format(Date(lastUpdate))}"
         }
-    }
-    
-    private fun showAboutDialog() {
-        AlertDialog.Builder(this)
-            .setTitle("ℹ️ О приложении")
-            .setMessage("ChildDevice v5.0.0\n\nПриложение для отслеживания местоположения ребенка и общения с родителями.\n\nФункции:\n• 📍 Отслеживание местоположения\n• 💬 Чат с родителями\n• 🎤 Аудио-прослушка\n• ⚙️ Настройки\n\nРазработано для обеспечения безопасности детей.")
-            .setPositiveButton("OK", null)
-            .show()
-    }
-    
-    private fun showStatsDialog() {
-        val lastUpdate = prefs.getLong("last_update", 0)
-        val deviceId = getUniqueDeviceId()
-        val serverUrl = prefs.getString("server_url", "Не настроен") ?: "Не настроен"
-        
-        val statsText = if (lastUpdate > 0) {
-            val format = SimpleDateFormat("HH:mm:ss, dd.MM.yyyy", Locale.getDefault())
-            "📊 Статистика:\n\n" +
-            "🆔 Device ID: $deviceId\n" +
-            "🌐 Сервер: $serverUrl\n" +
-            "⏰ Последнее обновление: ${format.format(Date(lastUpdate))}\n" +
-            "📱 Статус: ${if (isServiceRunning) "Активен" else "Остановлен"}\n" +
-            "🔋 Батарея: ${getBatteryLevel()}%"
-        } else {
-            "📊 Статистика:\n\n" +
-            "🆔 Device ID: $deviceId\n" +
-            "🌐 Сервер: $serverUrl\n" +
-            "⏰ Последнее обновление: Нет данных\n" +
-            "📱 Статус: ${if (isServiceRunning) "Активен" else "Остановлен"}\n" +
-            "🔋 Батарея: ${getBatteryLevel()}%"
-        }
-        
-        AlertDialog.Builder(this)
-            .setTitle("📊 Статистика")
-            .setMessage(statsText)
-            .setPositiveButton("OK", null)
-            .show()
-    }
-    
-    private fun getBatteryLevel(): Int {
-        val batteryManager = getSystemService(Context.BATTERY_SERVICE) as android.os.BatteryManager
-        return batteryManager.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
     }
 
     private fun requestPermissionsAndStart() {

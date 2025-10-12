@@ -20,7 +20,8 @@
       "Bash(xargs ls:*)",
       "Bash(test:*)",
       "Bash(echo \"Exit code: $?\")",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(.gradlew :parentwatch:assembleDebug)"
     ],
     "deny": [],
     "ask": []
