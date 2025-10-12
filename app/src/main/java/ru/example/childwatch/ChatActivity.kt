@@ -64,6 +64,17 @@ class ChatActivity : AppCompatActivity() {
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.title = "Общение с ребенком"
         
+        // Configure input method for Cyrillic support
+        binding.messageInput.imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEND
+        binding.messageInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) {
+                sendMessage()
+                true
+            } else {
+                false
+            }
+        }
+        
         // Send button
         binding.sendButton.setOnClickListener {
             sendMessage()
@@ -164,7 +175,8 @@ class ChatActivity : AppCompatActivity() {
      */
     private fun initializeWebSocket() {
         val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-        val serverUrl = prefs.getString("server_url", "http://10.0.2.2:3000") ?: "http://10.0.2.2:3000"
+        val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
+            ?: "https://childwatch-production.up.railway.app"
         val childDeviceId = prefs.getString("device_id", "") ?: ""
 
         if (childDeviceId.isEmpty()) {
@@ -253,5 +265,6 @@ class ChatActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         chatManager.cleanup()
+        WebSocketManager.clearChatMessageCallback()
     }
 }

@@ -25,6 +25,9 @@
 
     <!-- Boot receiver -->
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    
+    <!-- Get tasks permission for foreground check -->
+    <uses-permission android:name="android.permission.GET_TASKS" />
 
     <application
         android:allowBackup="true"
@@ -94,6 +97,12 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="microphone" />
+
+        <!-- Chat Notification Service -->
+        <service
+            android:name=".service.ChatNotificationService"
+            android:enabled="true"
+            android:exported="false" />
 
         <!-- Boot Receiver -->
         <receiver

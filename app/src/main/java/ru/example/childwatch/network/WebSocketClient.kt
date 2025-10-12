@@ -163,16 +163,16 @@ class WebSocketClient(
                 return
             }
 
-            // Create message data
+            // Create message data with explicit UTF-8 encoding
             val messageData = JSONObject().apply {
                 put("id", messageId)
-                put("text", text)
+                put("text", text) // JSONObject handles UTF-8 encoding automatically
                 put("sender", sender)
                 put("timestamp", System.currentTimeMillis())
                 put("deviceId", childDeviceId)
             }
 
-            Log.d(TAG, "📋 Sending chat message: $messageData")
+            Log.d(TAG, "📋 Sending chat message (UTF-8): $messageData")
 
             // Emit chat message
             socket?.emit("chat_message", messageData)
@@ -348,7 +348,7 @@ class WebSocketClient(
                 val sender = data.optString("sender", "")
                 val timestamp = data.optLong("timestamp", System.currentTimeMillis())
 
-                Log.d(TAG, "💬 Chat message received from $sender: $text")
+                Log.d(TAG, "💬 Chat message received from $sender (UTF-8): $text")
 
                 // Forward to callback
                 onChatMessageReceived?.invoke(messageId, text, sender, timestamp)

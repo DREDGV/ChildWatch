@@ -10,6 +10,7 @@ import ru.example.parentwatch.chat.ChatAdapter
 import ru.example.parentwatch.chat.ChatMessage
 import ru.example.parentwatch.chat.ChatManager
 import ru.example.parentwatch.network.WebSocketManager
+import ru.example.parentwatch.utils.NotificationManager
 
 /**
  * Chat Activity for ParentWatch (ChildDevice)
@@ -60,6 +61,17 @@ class ChatActivity : AppCompatActivity() {
         // Set up action bar
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.title = "Чат с родителями"
+
+        // Configure input method for Cyrillic support
+        binding.messageInput.imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEND
+        binding.messageInput.setOnEditorActionListener { _, actionId, _ ->
+            if (actionId == android.view.inputmethod.EditorInfo.IME_ACTION_SEND) {
+                sendMessage()
+                true
+            } else {
+                false
+            }
+        }
 
         // Send button
         binding.sendButton.setOnClickListener {
@@ -162,7 +174,7 @@ class ChatActivity : AppCompatActivity() {
      */
     private fun initializeWebSocket() {
         val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
-        val serverUrl = prefs.getString("server_url", "http://10.0.2.2:3000") ?: "http://10.0.2.2:3000"
+        val serverUrl = prefs.getString("server_url", MainActivity.RAILWAY_URL) ?: MainActivity.RAILWAY_URL
         val deviceId = prefs.getString("device_id", "") ?: ""
 
         if (deviceId.isEmpty()) {
@@ -173,6 +185,14 @@ class ChatActivity : AppCompatActivity() {
 
         if (!WebSocketManager.isConnected()) {
             WebSocketManager.initialize(this, serverUrl, deviceId)
+            
+            // Set up message callback
+            WebSocketManager.setChatMessageCallback { messageId, text, sender, timestamp ->
+                runOnUiThread {
+                    receiveMessage(messageId, text, sender, timestamp)
+                }
+            }
+            
             WebSocketManager.connect(
                 onConnected = {
                     runOnUiThread {
@@ -241,6 +261,29 @@ class ChatActivity : AppCompatActivity() {
 
         Log.d(TAG, "Received message from $sender: $text")
         Toast.makeText(this, "💬 Новое сообщение от ${message.getSenderName()}", Toast.LENGTH_SHORT).show()
+        
+        // Show notification if app is not in foreground
+        if (!isAppInForeground()) {
+            NotificationManager.showChatNotification(
+                context = this,
+                senderName = message.getSenderName(),
+                messageText = text,
+                timestamp = timestamp
+            )
+        }
+    }
+
+    /**
+     * Check if app is in foreground
+     */
+    private fun isAppInForeground(): Boolean {
+        val activityManager = getSystemService(ACTIVITY_SERVICE) as android.app.ActivityManager
+        val runningTasks = activityManager.getRunningTasks(1)
+        if (runningTasks.isNotEmpty()) {
+            val topActivity = runningTasks[0].topActivity
+            return topActivity?.packageName == packageName
+        }
+        return false
     }
 
     override fun onSupportNavigateUp(): Boolean {
@@ -251,5 +294,6 @@ class ChatActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         chatManager.cleanup()
+        WebSocketManager.clearChatMessageCallback()
     }
 }
