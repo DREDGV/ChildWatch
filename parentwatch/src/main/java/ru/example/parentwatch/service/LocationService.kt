@@ -75,6 +75,13 @@ class LocationService : Service() {
             ACTION_START -> startTracking()
             ACTION_STOP -> stopTracking()
             ACTION_EMERGENCY_STOP -> emergencyStopAll()
+            null -> {
+                // Service restarted by system, resume tracking if it was running
+                Log.d(TAG, "Service restarted by system, resuming tracking")
+                if (!isTracking) {
+                    startTracking()
+                }
+            }
         }
 
         return START_STICKY
@@ -86,6 +93,9 @@ class LocationService : Service() {
             return
         }
 
+        // Start foreground service FIRST to avoid crash
+        startForeground(NOTIFICATION_ID, createNotification())
+
         // Load settings
         deviceId = prefs.getString("device_id", null)
         serverUrl = prefs.getString("server_url", MainActivity.RAILWAY_URL)
@@ -95,9 +105,6 @@ class LocationService : Service() {
             stopSelf()
             return
         }
-
-        // Start foreground service
-        startForeground(NOTIFICATION_ID, createNotification())
 
         // Register device
         serviceScope.launch {

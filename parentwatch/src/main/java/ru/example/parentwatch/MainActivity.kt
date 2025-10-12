@@ -24,7 +24,7 @@ import java.util.*
 
 /**
  * Main Activity for ParentWatch (ChildDevice)
- *
+ * 
  * ParentWatch v5.0.0 - Child Location Tracking
  * New UI with menu cards for navigation.
  */
@@ -77,7 +77,7 @@ class MainActivity : AppCompatActivity() {
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         if (isGranted) {
-            startLocationService()
+        startLocationService()
         } else {
             Toast.makeText(this, "Фоновое отслеживание местоположения отключено. Некоторые функции могут работать некорректно.", Toast.LENGTH_LONG).show()
             startLocationService() // Still start, but with limited location updates
@@ -212,7 +212,7 @@ class MainActivity : AppCompatActivity() {
                     .setTitle("Разрешение на фоновое местоположение")
                     .setMessage("Для непрерывного отслеживания местоположения ChildDevice требуется разрешение на доступ к местоположению в фоновом режиме. Пожалуйста, выберите 'Разрешить всегда' в следующем окне.")
                     .setPositiveButton("Продолжить") { _, _ ->
-                        backgroundLocationPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                backgroundLocationPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                     }
                     .setNegativeButton("Отмена") { _, _ ->
                         startLocationService() // Start service even if denied, but with limited background location
@@ -230,6 +230,7 @@ class MainActivity : AppCompatActivity() {
         try {
             if (!isServiceRunning) {
                 val serviceIntent = Intent(this, LocationService::class.java)
+                serviceIntent.action = LocationService.ACTION_START
                 serviceIntent.putExtra("server_url", prefs.getString("server_url", RAILWAY_URL))
                 serviceIntent.putExtra("device_id", getUniqueDeviceId())
                 ContextCompat.startForegroundService(this, serviceIntent)
@@ -237,10 +238,10 @@ class MainActivity : AppCompatActivity() {
                 // Start chat notification service
                 val chatServiceIntent = Intent(this, ChatNotificationService::class.java)
                 startService(chatServiceIntent)
-                
-                isServiceRunning = true
-                prefs.edit().putBoolean("service_running", true).apply()
-                updateUI()
+
+            isServiceRunning = true
+            prefs.edit().putBoolean("service_running", true).apply()
+            updateUI()
                 Toast.makeText(this, "Мониторинг запущен", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this, "Мониторинг уже запущен", Toast.LENGTH_SHORT).show()
@@ -255,15 +256,16 @@ class MainActivity : AppCompatActivity() {
         try {
             if (isServiceRunning) {
                 val serviceIntent = Intent(this, LocationService::class.java)
+                serviceIntent.action = LocationService.ACTION_STOP
                 stopService(serviceIntent)
                 
                 // Stop chat notification service
                 val chatServiceIntent = Intent(this, ChatNotificationService::class.java)
                 stopService(chatServiceIntent)
-                
-                isServiceRunning = false
-                prefs.edit().putBoolean("service_running", false).apply()
-                updateUI()
+
+        isServiceRunning = false
+        prefs.edit().putBoolean("service_running", false).apply()
+        updateUI()
                 Toast.makeText(this, "Мониторинг остановлен", Toast.LENGTH_SHORT).show()
             } else {
                 Toast.makeText(this, "Мониторинг не запущен", Toast.LENGTH_SHORT).show()
@@ -276,18 +278,18 @@ class MainActivity : AppCompatActivity() {
 
     private fun emergencyStopAllFunctions() {
         try {
-            // Send EMERGENCY_STOP action to service
-            val intent = Intent(this, LocationService::class.java).apply {
-                action = LocationService.ACTION_EMERGENCY_STOP
-            }
-            startService(intent)
+        // Send EMERGENCY_STOP action to service
+        val intent = Intent(this, LocationService::class.java).apply {
+            action = LocationService.ACTION_EMERGENCY_STOP
+        }
+        startService(intent)
 
-            // Update local state
-            isServiceRunning = false
-            prefs.edit().putBoolean("service_running", false).apply()
-            updateUI()
+        // Update local state
+        isServiceRunning = false
+        prefs.edit().putBoolean("service_running", false).apply()
+        updateUI()
 
-            Toast.makeText(this, "🚨 Экстренная остановка выполнена", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "🚨 Экстренная остановка выполнена", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Log.e("MainActivity", "Error in emergency stop", e)
             Toast.makeText(this, "Ошибка экстренной остановки: ${e.message}", Toast.LENGTH_LONG).show()
