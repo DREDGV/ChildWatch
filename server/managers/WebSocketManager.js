@@ -51,6 +51,11 @@ class WebSocketManager {
                 socket.emit('pong', { timestamp: Date.now() });
             });
 
+            // Handle chat message
+            socket.on('chat_message', (data) => {
+                this.handleChatMessage(socket, data);
+            });
+
             // Handle disconnection
             socket.on('disconnect', () => {
                 this.handleDisconnect(socket);
@@ -194,6 +199,81 @@ class WebSocketManager {
 
         // Log every chunk for debugging
         console.log(`🎙️ Forwarded chunk ${sequence} from ${deviceId} to ${parentSockets.size} parent(s) (${binaryData.length} bytes)`);
+    }
+
+    /**
+     * Handle chat message from either child or parent device
+     * Routes messages bidirectionally: child ↔ parent
+     */
+    handleChatMessage(socket, data) {
+        const { id, text, sender, timestamp, deviceId: messageDeviceId } = data;
+
+        if (!text || !sender || !['parent', 'child'].includes(sender)) {
+            console.error('❌ Chat message rejected: invalid format');
+            socket.emit('chat_error', { message: 'Invalid message format' });
+            return;
+        }
+
+        const deviceType = socket.deviceType;
+        let targetDeviceId;
+
+        // Determine target device based on sender type
+        if (deviceType === 'child') {
+            // Message from child device - route to parent(s)
+            targetDeviceId = socket.deviceId;
+            const parentSockets = this.activeStreams.get(targetDeviceId);
+
+            if (!parentSockets || parentSockets.size === 0) {
+                console.log(`⚠️ No parent connected for ${targetDeviceId} - message stored but not delivered`);
+                // Still acknowledge to sender
+                socket.emit('chat_message_sent', { id, timestamp: Date.now() });
+                return;
+            }
+
+            // Forward message to all parent devices
+            parentSockets.forEach(parentSocketId => {
+                this.io.to(parentSocketId).emit('chat_message', {
+                    id,
+                    text,
+                    sender,
+                    timestamp: timestamp || Date.now(),
+                    deviceId: targetDeviceId
+                });
+            });
+
+            console.log(`💬 Forwarded message from child ${targetDeviceId} to ${parentSockets.size} parent(s)`);
+
+        } else if (deviceType === 'parent') {
+            // Message from parent device - route to child
+            targetDeviceId = socket.childDeviceId;
+            const childSocketId = this.childSockets.get(targetDeviceId);
+
+            if (!childSocketId) {
+                console.log(`⚠️ Child device ${targetDeviceId} not connected - message stored but not delivered`);
+                // Still acknowledge to sender
+                socket.emit('chat_message_sent', { id, timestamp: Date.now() });
+                return;
+            }
+
+            // Forward message to child device
+            this.io.to(childSocketId).emit('chat_message', {
+                id,
+                text,
+                sender,
+                timestamp: timestamp || Date.now(),
+                deviceId: targetDeviceId
+            });
+
+            console.log(`💬 Forwarded message from parent to child ${targetDeviceId}`);
+
+        } else {
+            console.error('❌ Chat message rejected: unknown device type');
+            socket.emit('chat_error', { message: 'Device not registered' });
+            return;
+        }
+
+        // Acknowledge message sent
+        socket.emit('chat_message_sent', { id, timestamp: Date.now() });
     }
 
     emitCriticalAlert(deviceId, alertPayload) {

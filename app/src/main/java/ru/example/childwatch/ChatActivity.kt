@@ -10,6 +10,7 @@ import ru.example.childwatch.databinding.ActivityChatBinding
 import ru.example.childwatch.chat.ChatAdapter
 import ru.example.childwatch.chat.ChatMessage
 import ru.example.childwatch.chat.ChatManager
+import ru.example.childwatch.network.WebSocketManager
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -38,14 +39,24 @@ class ChatActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityChatBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        
+
         // Initialize chat manager
         chatManager = ChatManager(this)
-        
+
         // Setup UI
         setupUI()
         setupRecyclerView()
         loadMessages()
+
+        // Setup WebSocket callback for incoming messages
+        WebSocketManager.setChatMessageCallback { messageId, text, sender, timestamp ->
+            runOnUiThread {
+                receiveMessage(messageId, text, sender, timestamp)
+            }
+        }
+
+        // Initialize WebSocket if not connected
+        initializeWebSocket()
     }
     
     private fun setupUI() {
@@ -107,12 +118,11 @@ class ChatActivity : AppCompatActivity() {
         
         // Сохраняем сообщение
         chatManager.saveMessage(message)
-        
-        // Отправляем на сервер (в реальном приложении)
-        sendMessageToServer(message)
-        
+
+        // Отправляем через WebSocket
+        sendMessageViaWebSocket(message)
+
         Log.d(TAG, "Message sent: $messageText")
-        Toast.makeText(this, "Сообщение отправлено", Toast.LENGTH_SHORT).show()
     }
     
     private fun sendTestMessage() {
@@ -149,43 +159,90 @@ class ChatActivity : AppCompatActivity() {
         Log.d(TAG, "Loaded ${messages.size} messages")
     }
     
-    private fun sendMessageToServer(message: ChatMessage) {
-        // В реальном приложении здесь будет отправка на сервер
-        // Пока просто логируем
-        Log.d(TAG, "Sending message to server: ${message.text}")
-        
-        // Симулируем ответ от ребенка через 2-5 секунд
-        simulateChildResponse(message)
-    }
-    
-    private fun simulateChildResponse(originalMessage: ChatMessage) {
-        val responses = listOf(
-            "Хорошо, мама/папа",
-            "Я в безопасности",
-            "Понял, буду осторожен",
-            "Скоро буду дома",
-            "Жду тебя",
-            "Все в порядке",
-            "Да, я помню"
-        )
-        
-        val delay = (2000..5000).random().toLong()
-        binding.messagesRecyclerView.postDelayed({
-            val response = ChatMessage(
-                id = System.currentTimeMillis().toString(),
-                text = responses.random(),
-                sender = "child",
-                timestamp = System.currentTimeMillis(),
-                isRead = true
+    /**
+     * Initialize WebSocket connection
+     */
+    private fun initializeWebSocket() {
+        val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+        val serverUrl = prefs.getString("server_url", "http://10.0.2.2:3000") ?: "http://10.0.2.2:3000"
+        val childDeviceId = prefs.getString("device_id", "") ?: ""
+
+        if (childDeviceId.isEmpty()) {
+            Log.w(TAG, "Child Device ID not set, cannot initialize WebSocket")
+            Toast.makeText(this, "⚠️ Device ID не настроен", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (!WebSocketManager.isConnected()) {
+            WebSocketManager.initialize(this, serverUrl, childDeviceId)
+            WebSocketManager.connect(
+                onConnected = {
+                    runOnUiThread {
+                        Toast.makeText(this, "✅ Подключено к серверу", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onError = { error ->
+                    runOnUiThread {
+                        Log.e(TAG, "WebSocket connection error: $error")
+                        Toast.makeText(this, "❌ Ошибка подключения: $error", Toast.LENGTH_SHORT).show()
+                    }
+                }
             )
-            
-            messages.add(response)
-            chatAdapter.notifyItemInserted(messages.size - 1)
-            binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
-            
-            chatManager.saveMessage(response)
-            
-        }, delay)
+        }
+    }
+
+    /**
+     * Send message via WebSocket
+     */
+    private fun sendMessageViaWebSocket(message: ChatMessage) {
+        WebSocketManager.sendChatMessage(
+            messageId = message.id,
+            text = message.text,
+            sender = message.sender,
+            onSuccess = {
+                runOnUiThread {
+                    Toast.makeText(this, "✅ Сообщение отправлено", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onError = { error ->
+                runOnUiThread {
+                    Log.e(TAG, "Error sending message: $error")
+                    Toast.makeText(this, "❌ Ошибка отправки: $error", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
+    /**
+     * Receive message from WebSocket
+     */
+    private fun receiveMessage(messageId: String, text: String, sender: String, timestamp: Long) {
+        // Check if message already exists
+        if (messages.any { it.id == messageId }) {
+            Log.d(TAG, "Message $messageId already exists, skipping")
+            return
+        }
+
+        val message = ChatMessage(
+            id = messageId,
+            text = text,
+            sender = sender,
+            timestamp = timestamp,
+            isRead = true
+        )
+
+        // Add to list
+        messages.add(message)
+        chatAdapter.notifyItemInserted(messages.size - 1)
+
+        // Scroll to last message
+        binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
+
+        // Save message
+        chatManager.saveMessage(message)
+
+        Log.d(TAG, "Received message from $sender: $text")
+        Toast.makeText(this, "💬 Новое сообщение от ${message.getSenderName()}", Toast.LENGTH_SHORT).show()
     }
     
     override fun onSupportNavigateUp(): Boolean {

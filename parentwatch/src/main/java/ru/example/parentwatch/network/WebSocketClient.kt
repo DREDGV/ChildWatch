@@ -51,6 +51,8 @@ class WebSocketClient(
             socket?.on("parent_connected", onParentConnected)
             socket?.on("parent_disconnected", onParentDisconnected)
             socket?.on("pong", onPong)
+            socket?.on("chat_message", onChatMessage)
+            socket?.on("chat_message_sent", onChatMessageSent)
 
             socket?.connect()
 
@@ -136,6 +138,63 @@ class WebSocketClient(
         } catch (e: Exception) {
             Log.e(TAG, "💥 Error sending ping", e)
         }
+    }
+
+    /**
+     * Send chat message
+     */
+    fun sendChatMessage(
+        messageId: String,
+        text: String,
+        sender: String,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        try {
+            Log.d(TAG, "💬 Sending chat message: $text")
+
+            if (!isConnected) {
+                Log.w(TAG, "❌ Not connected - cannot send chat message")
+                onError("Not connected to server")
+                return
+            }
+
+            if (socket == null) {
+                Log.e(TAG, "❌ Socket is null - cannot send chat message")
+                onError("Socket not initialized")
+                return
+            }
+
+            // Create message data
+            val messageData = JSONObject().apply {
+                put("id", messageId)
+                put("text", text)
+                put("sender", sender)
+                put("timestamp", System.currentTimeMillis())
+                put("deviceId", deviceId)
+            }
+
+            Log.d(TAG, "📋 Sending chat message: $messageData")
+
+            // Emit chat message
+            socket?.emit("chat_message", messageData)
+
+            Log.d(TAG, "✅ Chat message emitted via Socket.IO")
+            onSuccess()
+
+        } catch (e: Exception) {
+            Log.e(TAG, "💥 Error sending chat message", e)
+            onError("Send error: ${e.message}")
+        }
+    }
+
+    /**
+     * Set callback for receiving chat messages
+     */
+    private var onChatMessageReceived: ((String, String, String, Long) -> Unit)? = null
+
+    fun setChatMessageCallback(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
+        onChatMessageReceived = callback
     }
 
     /**
@@ -234,6 +293,39 @@ class WebSocketClient(
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error parsing pong", e)
+        }
+    }
+
+    private val onChatMessage = Emitter.Listener { args ->
+        try {
+            if (args.isNotEmpty()) {
+                val data = args[0] as JSONObject
+                val messageId = data.optString("id", "")
+                val text = data.optString("text", "")
+                val sender = data.optString("sender", "")
+                val timestamp = data.optLong("timestamp", System.currentTimeMillis())
+
+                Log.d(TAG, "💬 Chat message received from $sender: $text")
+
+                // Forward to callback
+                onChatMessageReceived?.invoke(messageId, text, sender, timestamp)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing chat message", e)
+        }
+    }
+
+    private val onChatMessageSent = Emitter.Listener { args ->
+        try {
+            if (args.isNotEmpty()) {
+                val data = args[0] as JSONObject
+                val messageId = data.optString("id", "")
+                val timestamp = data.optLong("timestamp", 0)
+
+                Log.d(TAG, "✅ Chat message sent confirmation: $messageId")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error parsing chat_message_sent", e)
         }
     }
 

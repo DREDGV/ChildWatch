@@ -9,6 +9,7 @@ import ru.example.parentwatch.databinding.ActivityChatBinding
 import ru.example.parentwatch.chat.ChatAdapter
 import ru.example.parentwatch.chat.ChatMessage
 import ru.example.parentwatch.chat.ChatManager
+import ru.example.parentwatch.network.WebSocketManager
 
 /**
  * Chat Activity for ParentWatch (ChildDevice)
@@ -43,6 +44,16 @@ class ChatActivity : AppCompatActivity() {
         setupUI()
         setupRecyclerView()
         loadMessages()
+
+        // Setup WebSocket callback for incoming messages
+        WebSocketManager.setChatMessageCallback { messageId, text, sender, timestamp ->
+            runOnUiThread {
+                receiveMessage(messageId, text, sender, timestamp)
+            }
+        }
+
+        // Initialize WebSocket if not connected
+        initializeWebSocket()
     }
 
     private fun setupUI() {
@@ -102,14 +113,13 @@ class ChatActivity : AppCompatActivity() {
         // Clear input field
         binding.messageInput.text?.clear()
 
-        // Save message
+        // Save message locally
         chatManager.saveMessage(message)
 
-        // Send to server (in real application)
-        sendMessageToServer(message)
+        // Send via WebSocket
+        sendMessageViaWebSocket(message)
 
         Log.d(TAG, "Message sent: $messageText")
-        Toast.makeText(this, "Сообщение отправлено", Toast.LENGTH_SHORT).show()
     }
 
     private fun sendTestMessage() {
@@ -147,43 +157,90 @@ class ChatActivity : AppCompatActivity() {
         Log.d(TAG, "Loaded ${messages.size} messages")
     }
 
-    private fun sendMessageToServer(message: ChatMessage) {
-        // In real application, send to server via WebSocket or HTTP
-        // For now, just log it
-        Log.d(TAG, "Sending message to server: ${message.text}")
+    /**
+     * Initialize WebSocket connection
+     */
+    private fun initializeWebSocket() {
+        val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+        val serverUrl = prefs.getString("server_url", "http://10.0.2.2:3000") ?: "http://10.0.2.2:3000"
+        val deviceId = prefs.getString("device_id", "") ?: ""
 
-        // Simulate parent response after 3-6 seconds
-        simulateParentResponse(message)
+        if (deviceId.isEmpty()) {
+            Log.w(TAG, "Device ID not set, cannot initialize WebSocket")
+            Toast.makeText(this, "⚠️ Device ID не настроен", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        if (!WebSocketManager.isConnected()) {
+            WebSocketManager.initialize(this, serverUrl, deviceId)
+            WebSocketManager.connect(
+                onConnected = {
+                    runOnUiThread {
+                        Toast.makeText(this, "✅ Подключено к серверу", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                onError = { error ->
+                    runOnUiThread {
+                        Log.e(TAG, "WebSocket connection error: $error")
+                        Toast.makeText(this, "❌ Ошибка подключения: $error", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            )
+        }
     }
 
-    private fun simulateParentResponse(originalMessage: ChatMessage) {
-        val responses = listOf(
-            "Хорошо, дорогой",
-            "Скоро приедем за тобой",
-            "Молодец, береги себя",
-            "Мы тебя любим",
-            "Будь осторожен",
-            "Обязательно поможем",
-            "Ждем тебя дома"
+    /**
+     * Send message via WebSocket
+     */
+    private fun sendMessageViaWebSocket(message: ChatMessage) {
+        WebSocketManager.sendChatMessage(
+            messageId = message.id,
+            text = message.text,
+            sender = message.sender,
+            onSuccess = {
+                runOnUiThread {
+                    Toast.makeText(this, "✅ Сообщение отправлено", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onError = { error ->
+                runOnUiThread {
+                    Log.e(TAG, "Error sending message: $error")
+                    Toast.makeText(this, "❌ Ошибка отправки: $error", Toast.LENGTH_SHORT).show()
+                }
+            }
+        )
+    }
+
+    /**
+     * Receive message from WebSocket
+     */
+    private fun receiveMessage(messageId: String, text: String, sender: String, timestamp: Long) {
+        // Check if message already exists
+        if (messages.any { it.id == messageId }) {
+            Log.d(TAG, "Message $messageId already exists, skipping")
+            return
+        }
+
+        val message = ChatMessage(
+            id = messageId,
+            text = text,
+            sender = sender,
+            timestamp = timestamp,
+            isRead = true
         )
 
-        val delay = (3000..6000).random().toLong()
-        binding.messagesRecyclerView.postDelayed({
-            val response = ChatMessage(
-                id = System.currentTimeMillis().toString(),
-                text = responses.random(),
-                sender = "parent",
-                timestamp = System.currentTimeMillis(),
-                isRead = true
-            )
+        // Add to list
+        messages.add(message)
+        chatAdapter.notifyItemInserted(messages.size - 1)
 
-            messages.add(response)
-            chatAdapter.notifyItemInserted(messages.size - 1)
-            binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
+        // Scroll to last message
+        binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
 
-            chatManager.saveMessage(response)
+        // Save message
+        chatManager.saveMessage(message)
 
-        }, delay)
+        Log.d(TAG, "Received message from $sender: $text")
+        Toast.makeText(this, "💬 Новое сообщение от ${message.getSenderName()}", Toast.LENGTH_SHORT).show()
     }
 
     override fun onSupportNavigateUp(): Boolean {
