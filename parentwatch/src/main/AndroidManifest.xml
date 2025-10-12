@@ -60,6 +60,13 @@
             android:parentActivityName=".MainActivity"
             android:screenOrientation="portrait" />
 
+        <!-- QR Code Activity -->
+        <activity
+            android:name=".QrCodeActivity"
+            android:exported="false"
+            android:parentActivityName=".SettingsActivity"
+            android:screenOrientation="portrait" />
+
         <!-- Location Service -->
         <service
             android:name=".service.LocationService"

@@ -1,5 +1,6 @@
 package ru.example.parentwatch
 
+import android.content.Intent
 import android.os.Bundle
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -105,8 +106,16 @@ class SettingsActivity : AppCompatActivity() {
     }
     
     private fun showQRCode() {
-        // TODO: Implement QR code display
-        Toast.makeText(this, "QR-код (в разработке)", Toast.LENGTH_SHORT).show()
+        val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+        val deviceId = prefs.getString("device_id", null)
+
+        if (deviceId.isNullOrEmpty()) {
+            Toast.makeText(this, "Device ID не настроен", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val intent = Intent(this, QrCodeActivity::class.java)
+        startActivity(intent)
     }
     
     override fun onSupportNavigateUp(): Boolean {
