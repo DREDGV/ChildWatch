@@ -316,13 +316,18 @@
         <com.google.android.material.button.MaterialButton
             android:id="@+id/toggleServiceButton"
             android:layout_width="match_parent"
-            android:layout_height="60dp"
+            android:layout_height="64dp"
             android:layout_marginBottom="12dp"
             android:text="@string/start_service"
             android:textSize="16sp"
+            android:textStyle="bold"
+            android:backgroundTint="@android:color/holo_green_dark"
+            android:textColor="@android:color/white"
             style="@style/Widget.Material3.Button"
             app:icon="@android:drawable/ic_media_play"
-            app:cornerRadius="12dp" />
+            app:iconTint="@android:color/white"
+            app:cornerRadius="16dp"
+            app:iconPadding="8dp" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/emergencyStopButton"

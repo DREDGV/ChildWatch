@@ -88,7 +88,7 @@ class LocationService : Service() {
 
         // Load settings
         deviceId = prefs.getString("device_id", null)
-        serverUrl = prefs.getString("server_url", "http://10.0.2.2:3000")
+        serverUrl = prefs.getString("server_url", MainActivity.RAILWAY_URL)
 
         if (deviceId == null) {
             Log.e(TAG, "Device ID not set")

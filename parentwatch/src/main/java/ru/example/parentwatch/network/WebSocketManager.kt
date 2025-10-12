@@ -12,6 +12,7 @@ object WebSocketManager {
 
     private var webSocketClient: WebSocketClient? = null
     private var isInitialized = false
+    private var chatMessageCallback: ((String, String, String, Long) -> Unit)? = null
 
     /**
      * Initialize WebSocket client
@@ -24,6 +25,9 @@ object WebSocketManager {
 
         Log.d(TAG, "Initializing WebSocket: $serverUrl with deviceId: $deviceId")
         webSocketClient = WebSocketClient(serverUrl, deviceId)
+        chatMessageCallback?.let { callback ->
+            webSocketClient?.setChatMessageCallback(callback)
+        }
         isInitialized = true
     }
 
@@ -64,7 +68,16 @@ object WebSocketManager {
      * Set chat message callback
      */
     fun setChatMessageCallback(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
+        chatMessageCallback = callback
         webSocketClient?.setChatMessageCallback(callback)
+    }
+
+    /**
+     * Clear chat message callback
+     */
+    fun clearChatMessageCallback() {
+        chatMessageCallback = null
+        webSocketClient?.setChatMessageCallback { _, _, _, _ -> }
     }
 
     /**

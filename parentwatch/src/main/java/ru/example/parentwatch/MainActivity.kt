@@ -7,6 +7,7 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.util.Log
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
@@ -15,7 +16,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
+import ru.example.parentwatch.utils.NotificationManager
 import ru.example.parentwatch.service.LocationService
+import ru.example.parentwatch.service.ChatNotificationService
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -87,9 +90,21 @@ class MainActivity : AppCompatActivity() {
 
         prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
 
+        // Создаем каналы уведомлений
+        NotificationManager.createNotificationChannels(this)
+
+        // Синхронизируем device_id с child_device_id для совместимости
+        syncDeviceIds()
+
         setupUI()
         loadSettings()
         updateUI()
+        
+        // Проверяем, нужно ли открыть чат
+        if (intent.getBooleanExtra("open_chat", false)) {
+            val chatIntent = Intent(this, ChatActivity::class.java)
+            startActivity(chatIntent)
+        }
     }
 
     private fun setupUI() {
@@ -212,57 +227,91 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun startLocationService() {
-        if (!isServiceRunning) {
-            val serviceIntent = Intent(this, LocationService::class.java)
-            serviceIntent.putExtra("server_url", prefs.getString("server_url", RAILWAY_URL))
-            serviceIntent.putExtra("device_id", getUniqueDeviceId())
-            ContextCompat.startForegroundService(this, serviceIntent)
-            isServiceRunning = true
-            prefs.edit().putBoolean("service_running", true).apply()
-            updateUI()
-            Toast.makeText(this, "Мониторинг запущен", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(this, "Мониторинг уже запущен", Toast.LENGTH_SHORT).show()
+        try {
+            if (!isServiceRunning) {
+                val serviceIntent = Intent(this, LocationService::class.java)
+                serviceIntent.putExtra("server_url", prefs.getString("server_url", RAILWAY_URL))
+                serviceIntent.putExtra("device_id", getUniqueDeviceId())
+                ContextCompat.startForegroundService(this, serviceIntent)
+                
+                // Start chat notification service
+                val chatServiceIntent = Intent(this, ChatNotificationService::class.java)
+                startService(chatServiceIntent)
+                
+                isServiceRunning = true
+                prefs.edit().putBoolean("service_running", true).apply()
+                updateUI()
+                Toast.makeText(this, "Мониторинг запущен", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Мониторинг уже запущен", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error starting location service", e)
+            Toast.makeText(this, "Ошибка запуска мониторинга: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun stopLocationService() {
-        if (isServiceRunning) {
-            val serviceIntent = Intent(this, LocationService::class.java)
-            stopService(serviceIntent)
-            isServiceRunning = false
-            prefs.edit().putBoolean("service_running", false).apply()
-            updateUI()
-            Toast.makeText(this, "Мониторинг остановлен", Toast.LENGTH_SHORT).show()
-        } else {
-            Toast.makeText(this, "Мониторинг не запущен", Toast.LENGTH_SHORT).show()
+        try {
+            if (isServiceRunning) {
+                val serviceIntent = Intent(this, LocationService::class.java)
+                stopService(serviceIntent)
+                
+                // Stop chat notification service
+                val chatServiceIntent = Intent(this, ChatNotificationService::class.java)
+                stopService(chatServiceIntent)
+                
+                isServiceRunning = false
+                prefs.edit().putBoolean("service_running", false).apply()
+                updateUI()
+                Toast.makeText(this, "Мониторинг остановлен", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this, "Мониторинг не запущен", Toast.LENGTH_SHORT).show()
+            }
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error stopping location service", e)
+            Toast.makeText(this, "Ошибка остановки мониторинга: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
     private fun emergencyStopAllFunctions() {
-        // Send EMERGENCY_STOP action to service
-        val intent = Intent(this, LocationService::class.java).apply {
-            action = LocationService.ACTION_EMERGENCY_STOP
+        try {
+            // Send EMERGENCY_STOP action to service
+            val intent = Intent(this, LocationService::class.java).apply {
+                action = LocationService.ACTION_EMERGENCY_STOP
+            }
+            startService(intent)
+
+            // Update local state
+            isServiceRunning = false
+            prefs.edit().putBoolean("service_running", false).apply()
+            updateUI()
+
+            Toast.makeText(this, "🚨 Экстренная остановка выполнена", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error in emergency stop", e)
+            Toast.makeText(this, "Ошибка экстренной остановки: ${e.message}", Toast.LENGTH_LONG).show()
         }
-        startService(intent)
-
-        // Update local state
-        isServiceRunning = false
-        prefs.edit().putBoolean("service_running", false).apply()
-        updateUI()
-
-        Toast.makeText(this, "🚨 Экстренная остановка выполнена", Toast.LENGTH_LONG).show()
     }
 
     private fun updateUI() {
         if (isServiceRunning) {
+            // Состояние "Работает" - красная кнопка
             statusText.text = getString(R.string.status_running)
             statusIndicator.setBackgroundColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
+            
             toggleServiceButton.text = getString(R.string.stop_service)
+            toggleServiceButton.setBackgroundColor(ContextCompat.getColor(this, android.R.color.holo_red_dark))
+            toggleServiceButton.setTextColor(ContextCompat.getColor(this, android.R.color.white))
+            
         } else {
+            // Состояние "Остановлен" - зеленая кнопка
             statusText.text = getString(R.string.status_stopped)
             statusIndicator.setBackgroundColor(ContextCompat.getColor(this, android.R.color.darker_gray))
+            
             toggleServiceButton.text = getString(R.string.start_service)
+            toggleServiceButton.setBackgroundColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
+            toggleServiceButton.setTextColor(ContextCompat.getColor(this, android.R.color.white))
         }
         
         // Update last update text
@@ -275,6 +324,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun syncDeviceIds() {
+        val deviceId = prefs.getString("device_id", null)
+        val childDeviceId = prefs.getString("child_device_id", null)
+        
+        if (deviceId != null && childDeviceId == null) {
+            // Если есть device_id, но нет child_device_id - синхронизируем
+            prefs.edit().putString("child_device_id", deviceId).apply()
+            Log.d("MainActivity", "Синхронизирован device_id с child_device_id: $deviceId")
+        } else if (deviceId == null && childDeviceId != null) {
+            // Если есть child_device_id, но нет device_id - синхронизируем
+            prefs.edit().putString("device_id", childDeviceId).apply()
+            Log.d("MainActivity", "Синхронизирован child_device_id с device_id: $childDeviceId")
+        }
+    }
+
     private fun getUniqueDeviceId(): String {
         var deviceId = prefs.getString("device_id", null)
         val isPermanent = prefs.getBoolean("device_id_permanent", false)
@@ -283,12 +347,14 @@ class MainActivity : AppCompatActivity() {
             deviceId = "child-" + UUID.randomUUID().toString().substring(0, 8)
             prefs.edit()
                 .putString("device_id", deviceId)
+                .putString("child_device_id", deviceId) // Для совместимости с ChildWatch
                 .putBoolean("device_id_permanent", true)
                 .apply()
         } else if (deviceId == null) {
             deviceId = "child-" + UUID.randomUUID().toString().substring(0, 8)
             prefs.edit()
                 .putString("device_id", deviceId)
+                .putString("child_device_id", deviceId) // Для совместимости с ChildWatch
                 .putBoolean("device_id_permanent", true)
                 .apply()
         }

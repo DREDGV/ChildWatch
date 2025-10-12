@@ -26,6 +26,9 @@ class ChatManager(private val context: Context) {
         try {
             val messages = getAllMessages().toMutableList()
 
+            // Remove existing message with same id (if any) to avoid duplicates
+            messages.removeAll { it.id == message.id }
+
             // Add new message
             messages.add(message)
 
