@@ -128,7 +128,7 @@ class LocationService : Service() {
         // AUTO-START AUDIO STREAMING - Simplified architecture
         // Start audio streaming automatically when service starts
         serviceScope.launch {
-            delay(3000) // Wait 3 seconds for WebSocket to connect
+            delay(5000) // Wait 5 seconds for WebSocket to connect and stabilize
             startAudioStreaming(recording = false)
             Log.d(TAG, "🎙️ Auto-started audio streaming (simplified architecture)")
         }

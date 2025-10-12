@@ -48,13 +48,6 @@ class ChatActivity : AppCompatActivity() {
         setupRecyclerView()
         loadMessages()
 
-        // Setup WebSocket callback for incoming messages
-        WebSocketManager.setChatMessageCallback { messageId, text, sender, timestamp ->
-            runOnUiThread {
-                receiveMessage(messageId, text, sender, timestamp)
-            }
-        }
-
         // Initialize WebSocket if not connected
         initializeWebSocket()
     }
@@ -177,7 +170,7 @@ class ChatActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
             ?: "https://childwatch-production.up.railway.app"
-        val childDeviceId = prefs.getString("device_id", "") ?: ""
+        val childDeviceId = prefs.getString("child_device_id", "") ?: ""
 
         if (childDeviceId.isEmpty()) {
             Log.w(TAG, "Child Device ID not set, cannot initialize WebSocket")
@@ -187,6 +180,14 @@ class ChatActivity : AppCompatActivity() {
 
         if (!WebSocketManager.isConnected()) {
             WebSocketManager.initialize(this, serverUrl, childDeviceId)
+            
+            // Set up message callback AFTER initialization
+            WebSocketManager.setChatMessageCallback { messageId, text, sender, timestamp ->
+                runOnUiThread {
+                    receiveMessage(messageId, text, sender, timestamp)
+                }
+            }
+            
             WebSocketManager.connect(
                 onConnected = {
                     runOnUiThread {

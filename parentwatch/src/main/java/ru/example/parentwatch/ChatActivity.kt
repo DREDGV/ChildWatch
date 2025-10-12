@@ -46,13 +46,6 @@ class ChatActivity : AppCompatActivity() {
         setupRecyclerView()
         loadMessages()
 
-        // Setup WebSocket callback for incoming messages
-        WebSocketManager.setChatMessageCallback { messageId, text, sender, timestamp ->
-            runOnUiThread {
-                receiveMessage(messageId, text, sender, timestamp)
-            }
-        }
-
         // Initialize WebSocket if not connected
         initializeWebSocket()
     }
@@ -186,7 +179,7 @@ class ChatActivity : AppCompatActivity() {
         if (!WebSocketManager.isConnected()) {
             WebSocketManager.initialize(this, serverUrl, deviceId)
             
-            // Set up message callback
+            // Set up message callback AFTER initialization
             WebSocketManager.setChatMessageCallback { messageId, text, sender, timestamp ->
                 runOnUiThread {
                     receiveMessage(messageId, text, sender, timestamp)

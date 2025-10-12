@@ -22,8 +22,10 @@ class WebSocketClient(
 
     companion object {
         private const val TAG = "WebSocketClient"
-        private const val CONNECTION_TIMEOUT = 20000L // 20 seconds
-        private const val RECONNECTION_DELAY = 1000L // 1 second
+        private const val CONNECTION_TIMEOUT = 30000L // 30 seconds - increased for Railway
+        private const val RECONNECTION_DELAY = 2000L // 2 seconds - increased for stability
+        private const val RECONNECTION_DELAY_MAX = 10000L // 10 seconds max delay
+        private const val RECONNECTION_ATTEMPTS = Int.MAX_VALUE // Infinite reconnection attempts
     }
 
     /**
@@ -36,9 +38,11 @@ class WebSocketClient(
             val opts = IO.Options().apply {
                 transports = arrayOf("websocket", "polling") // WebSocket preferred
                 reconnection = true
-                reconnectionAttempts = Int.MAX_VALUE
+                reconnectionAttempts = RECONNECTION_ATTEMPTS
                 reconnectionDelay = RECONNECTION_DELAY
+                reconnectionDelayMax = RECONNECTION_DELAY_MAX
                 timeout = CONNECTION_TIMEOUT
+                forceNew = false // Reuse existing connection if possible
             }
 
             socket = IO.socket(serverUrl, opts)
@@ -205,7 +209,8 @@ class WebSocketClient(
         scope.launch {
             while (isConnected) {
                 try {
-                    sendPing()
+                    socket?.emit("ping")
+                    Log.d(TAG, "💓 Heartbeat sent")
                     delay(30000) // Send ping every 30 seconds
                 } catch (e: Exception) {
                     Log.e(TAG, "💥 Heartbeat error", e)
@@ -233,14 +238,21 @@ class WebSocketClient(
         socket?.emit("register_child", registerData)
 
         Log.d(TAG, "📤 Sent registration request")
+        
+        // Start heartbeat to maintain connection
+        startHeartbeat()
     }
 
-    private val onDisconnect = Emitter.Listener {
+    private val onDisconnect = Emitter.Listener { args ->
         isConnected = false
-        Log.w(TAG, "⚠️ WebSocket disconnected - will auto-reconnect")
+        val reason = if (args.isNotEmpty()) args[0].toString() else "Unknown"
+        Log.w(TAG, "⚠️ WebSocket disconnected: $reason - will auto-reconnect")
 
         // Socket.IO will automatically try to reconnect
-        // We just need to mark as disconnected
+        // We just need to mark as disconnected and log the reason
+        if (reason.contains("transport close") || reason.contains("ping timeout")) {
+            Log.w(TAG, "🔄 Network issue detected - reconnection in progress...")
+        }
     }
 
     private val onConnectError = Emitter.Listener { args ->

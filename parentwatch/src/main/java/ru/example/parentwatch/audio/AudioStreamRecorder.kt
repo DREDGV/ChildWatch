@@ -79,6 +79,20 @@ class AudioStreamRecorder(
             },
             onError = { error ->
                 Log.e(TAG, "❌ WebSocket connection failed: $error")
+                // Retry connection after delay
+                CoroutineScope(Dispatchers.IO).launch {
+                    delay(5000)
+                    Log.d(TAG, "🔄 Retrying WebSocket connection...")
+                    webSocketClient?.connect(
+                        onConnected = {
+                            Log.d(TAG, "✅ WebSocket reconnected - resuming audio recording")
+                            webSocketClient?.startHeartbeat()
+                        },
+                        onError = { retryError ->
+                            Log.e(TAG, "❌ WebSocket retry failed: $retryError")
+                        }
+                    )
+                }
             }
         )
 
