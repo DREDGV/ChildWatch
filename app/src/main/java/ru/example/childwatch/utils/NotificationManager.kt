@@ -1,4 +1,4 @@
-package ru.example.parentwatch.utils
+package ru.example.childwatch.utils
 
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -8,32 +8,32 @@ import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
-import ru.example.parentwatch.MainActivity
-import ru.example.parentwatch.R
+import ru.example.childwatch.MainActivity
+import ru.example.childwatch.R
 
 /**
- * Notification Manager for ParentWatch
+ * Notification Manager for ChildWatch (Parent App)
  * Handles chat notifications and other app notifications
  */
 object NotificationManager {
 
     private const val CHAT_CHANNEL_ID = "chat_notifications"
     private const val CHAT_CHANNEL_NAME = "Сообщения чата"
-    private const val CHAT_CHANNEL_DESCRIPTION = "Уведомления о новых сообщениях от родителей"
+    private const val CHAT_CHANNEL_DESCRIPTION = "Уведомления о новых сообщениях от ребенка"
 
-    private const val CHAT_NOTIFICATION_ID = 1001
-    private const val CHAT_GROUP_KEY = "ru.example.parentwatch.CHAT_GROUP"
+    private const val CHAT_NOTIFICATION_ID = 4001
+    private const val CHAT_GROUP_KEY = "ru.example.childwatch.CHAT_GROUP"
 
     // Counter for unread messages
     private var unreadMessageCount = 0
-    
+
     /**
      * Create notification channels for Android O and above
      */
     fun createNotificationChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            
+
             // Chat notifications channel
             val chatChannel = NotificationChannel(
                 CHAT_CHANNEL_ID,
@@ -45,17 +45,17 @@ object NotificationManager {
                 enableVibration(true)
                 setShowBadge(true)
             }
-            
+
             notificationManager.createNotificationChannel(chatChannel)
         }
     }
-    
+
     /**
      * Show chat notification for new message
      */
     fun showChatNotification(
         context: Context,
-        senderName: String = "Родители",
+        senderName: String = "Ребенок",
         messageText: String,
         timestamp: Long = System.currentTimeMillis()
     ) {
@@ -77,7 +77,7 @@ object NotificationManager {
 
         // Build notification with grouping
         val notification = NotificationCompat.Builder(context, CHAT_CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("💬 Новое сообщение от $senderName")
             .setContentText(messageText)
             .setStyle(NotificationCompat.BigTextStyle()
@@ -102,7 +102,7 @@ object NotificationManager {
             android.util.Log.e("NotificationManager", "Failed to show notification: ${e.message}")
         }
     }
-    
+
     /**
      * Cancel chat notification and reset counter
      */
@@ -126,7 +126,7 @@ object NotificationManager {
     fun getUnreadCount(): Int {
         return unreadMessageCount
     }
-    
+
     /**
      * Check if notifications are enabled
      */
