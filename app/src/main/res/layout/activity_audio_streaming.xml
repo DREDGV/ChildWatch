@@ -487,10 +487,10 @@
                         android:text="Голосовой" />
 
                     <com.google.android.material.chip.Chip
-                        android:id="@+id/loudEnvironmentChip"
+                        android:id="@+id/balancedChip"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Громкая среда" />
+                        android:text="Сбалансированный" />
 
                     <com.google.android.material.chip.Chip
                         android:id="@+id/crystalClearChip"

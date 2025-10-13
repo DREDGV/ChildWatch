@@ -163,7 +163,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     /**
-     * Initialize WebSocket connection
+     * Initialize WebSocket connection via ChatBackgroundService
      */
     private fun initializeWebSocket() {
         val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
@@ -176,29 +176,22 @@ class ChatActivity : AppCompatActivity() {
             return
         }
 
-        if (!WebSocketManager.isConnected()) {
-            WebSocketManager.initialize(this, serverUrl, deviceId)
-            
-            // Set up message callback AFTER initialization
-            WebSocketManager.setChatMessageCallback { messageId, text, sender, timestamp ->
-                runOnUiThread {
-                    receiveMessage(messageId, text, sender, timestamp)
-                }
+        // Start ChatBackgroundService if not running
+        if (!ru.example.parentwatch.service.ChatBackgroundService.isRunning) {
+            ru.example.parentwatch.service.ChatBackgroundService.start(this, serverUrl, deviceId)
+            Log.d(TAG, "ChatBackgroundService started")
+        }
+
+        // Set up message callback for this activity
+        WebSocketManager.setChatMessageCallback { messageId, text, sender, timestamp ->
+            runOnUiThread {
+                receiveMessage(messageId, text, sender, timestamp)
             }
-            
-            WebSocketManager.connect(
-                onConnected = {
-                    runOnUiThread {
-                        Toast.makeText(this, "✅ Подключено к серверу", Toast.LENGTH_SHORT).show()
-                    }
-                },
-                onError = { error ->
-                    runOnUiThread {
-                        Log.e(TAG, "WebSocket connection error: $error")
-                        Toast.makeText(this, "❌ Ошибка подключения: $error", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            )
+        }
+
+        // Check if already connected
+        if (WebSocketManager.isConnected()) {
+            Toast.makeText(this, "✅ Подключено к серверу", Toast.LENGTH_SHORT).show()
         }
     }
 

@@ -18,6 +18,7 @@
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_MICROPHONE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
 
     <!-- Wake lock -->
@@ -98,11 +99,18 @@
             android:exported="false"
             android:foregroundServiceType="microphone" />
 
-        <!-- Chat Notification Service -->
+        <!-- Chat Notification Service (deprecated - use ChatBackgroundService) -->
         <service
             android:name=".service.ChatNotificationService"
-            android:enabled="true"
+            android:enabled="false"
             android:exported="false" />
+
+        <!-- Chat Background Service -->
+        <service
+            android:name=".service.ChatBackgroundService"
+            android:enabled="true"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
         <!-- Boot Receiver -->
         <receiver

@@ -230,7 +230,7 @@ class AudioStreamingActivity : AppCompatActivity() {
             binding.normalModeChip to AudioQualityMode.NORMAL,
             binding.noiseReductionChip to AudioQualityMode.NOISE_REDUCTION,
             binding.voiceEnhancedChip to AudioQualityMode.VOICE_ENHANCED,
-            binding.loudEnvironmentChip to AudioQualityMode.LOUD_ENVIRONMENT,
+            binding.balancedChip to AudioQualityMode.BALANCED,
             binding.crystalClearChip to AudioQualityMode.CRYSTAL_CLEAR,
             binding.sleepModeChip to AudioQualityMode.SLEEP_MODE
         )
@@ -301,10 +301,17 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun updateSignalLevel(audioData: ByteArray) {
+        if (audioData.isEmpty()) {
+            runOnUiThread {
+                binding.signalLevelText.text = "Нет данных"
+            }
+            return
+        }
+
         // Calculate signal level (simplified)
         var sum = 0f
         var count = 0
-        
+
         for (i in audioData.indices step 2) {
             if (i + 1 < audioData.size) {
                 val sample = ((audioData[i + 1].toInt() shl 8) or (audioData[i].toInt() and 0xFF)).toShort()
@@ -312,18 +319,20 @@ class AudioStreamingActivity : AppCompatActivity() {
                 count++
             }
         }
-        
+
         val level = if (count > 0) sum / count else 0f
         val percentage = (level * 100).toInt()
-        
+
         val levelText = when {
             percentage > 50 -> "Сильный"
             percentage > 20 -> "Средний"
             percentage > 5 -> "Слабый"
             else -> "Тишина"
         }
-        
-        binding.signalLevelText.text = levelText
+
+        runOnUiThread {
+            binding.signalLevelText.text = levelText
+        }
     }
 
     private fun syncAudioEnhancerWithService() {
@@ -396,39 +405,67 @@ class AudioStreamingActivity : AppCompatActivity() {
 
     private fun updateUI() {
         val isPlaying = AudioPlaybackService.isPlaying
-        
+
         // Update button text and state
         binding.toggleStreamingBtn.text = if (isPlaying) "Остановить прослушку" else "Начать прослушку"
         binding.toggleStreamingBtn.isEnabled = true
-        
+
         // Update status
         binding.statusText.text = if (isPlaying) "Активна" else "Остановлена"
         binding.statusText.setTextColor(
-            if (isPlaying) getColor(android.R.color.holo_green_dark) 
+            if (isPlaying) getColor(android.R.color.holo_green_dark)
             else getColor(android.R.color.darker_gray)
         )
-        
+
         // Update recording switch
         binding.recordingSwitch.isEnabled = isPlaying
-        
-        // Update time displays
-        if (isPlaying && streamingStartTime > 0) {
-            val currentTime = System.currentTimeMillis()
-            val duration = currentTime - streamingStartTime
-            
-            val startTimeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-            binding.startTimeText.text = startTimeFormat.format(Date(streamingStartTime))
-            
-            val durationFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-            durationFormat.timeZone = TimeZone.getTimeZone("UTC")
-            binding.durationText.text = durationFormat.format(Date(duration))
-            
-            // Update chunks count
-            binding.chunksReceivedText.text = AudioPlaybackService.chunksReceived.toString()
+
+        // Update connection quality from service
+        if (isPlaying) {
+            binding.connectionQualityText.text = AudioPlaybackService.connectionQuality
         } else {
+            binding.connectionQualityText.text = "--"
+        }
+
+        // Update time displays with defensive checks
+        if (isPlaying) {
+            // Sync streamingStartTime with service if not set locally
+            if (streamingStartTime == 0L && AudioPlaybackService.streamingStartTime > 0) {
+                streamingStartTime = AudioPlaybackService.streamingStartTime
+            }
+
+            if (streamingStartTime > 0) {
+                val currentTime = System.currentTimeMillis()
+                val duration = currentTime - streamingStartTime
+
+                // Defensive check: duration should be positive
+                if (duration >= 0) {
+                    val startTimeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+                    binding.startTimeText.text = startTimeFormat.format(Date(streamingStartTime))
+
+                    val durationFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
+                    durationFormat.timeZone = TimeZone.getTimeZone("UTC")
+                    binding.durationText.text = durationFormat.format(Date(duration))
+
+                    // Update chunks count
+                    binding.chunksReceivedText.text = AudioPlaybackService.chunksReceived.toString()
+                } else {
+                    // Reset if duration is negative (clock sync issue)
+                    streamingStartTime = currentTime
+                }
+            } else {
+                // No valid start time - show default
+                binding.startTimeText.text = "--:--:--"
+                binding.durationText.text = "00:00:00"
+                binding.chunksReceivedText.text = AudioPlaybackService.chunksReceived.toString()
+            }
+        } else {
+            // Not playing - reset displays
             binding.startTimeText.text = "--:--:--"
             binding.durationText.text = "00:00:00"
             binding.chunksReceivedText.text = "0"
+            binding.connectionQualityText.text = "--"
+            streamingStartTime = 0L // Reset local timer
         }
     }
 

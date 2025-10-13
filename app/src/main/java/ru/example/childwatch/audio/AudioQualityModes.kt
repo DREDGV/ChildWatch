@@ -14,52 +14,58 @@ enum class AudioQualityMode(
         description = "Без обработки, оригинальное качество",
         config = AudioEnhancer.Config(
             noiseSuppressionEnabled = false,
-            gainBoostDb = 0
+            gainBoostDb = 0,
+            compressionEnabled = false
         )
     ),
-    
+
     NOISE_REDUCTION(
         displayName = "Шумоподавление",
         description = "Убирает фоновый шум и шипение",
         config = AudioEnhancer.Config(
             noiseSuppressionEnabled = true,
-            gainBoostDb = 0
+            gainBoostDb = 0,
+            compressionEnabled = false
         )
     ),
-    
+
     VOICE_ENHANCED(
         displayName = "Голосовой режим",
-        description = "Оптимизирован для речи, убирает шум",
+        description = "Оптимизирован для речи с компрессией",
         config = AudioEnhancer.Config(
             noiseSuppressionEnabled = true,
-            gainBoostDb = 3 // Легкое усиление для речи
+            gainBoostDb = 3, // Легкое усиление
+            compressionEnabled = true // Компрессия для ровного звука
         )
     ),
-    
-    LOUD_ENVIRONMENT(
-        displayName = "Громкая среда",
-        description = "Максимальное усиление для тихих звуков",
+
+    BALANCED(
+        displayName = "Сбалансированный",
+        description = "Оптимальный баланс качества и громкости",
         config = AudioEnhancer.Config(
             noiseSuppressionEnabled = true,
-            gainBoostDb = 9 // Сильное усиление
+            gainBoostDb = 2, // Минимальное усиление
+            compressionEnabled = true // Компрессия предотвращает искажения
         )
     ),
-    
+
     CRYSTAL_CLEAR(
         displayName = "Кристальная чистота",
-        description = "Максимальное качество с фильтрацией",
+        description = "Максимальное качество с защитой от искажений",
         config = AudioEnhancer.Config(
             noiseSuppressionEnabled = true,
-            gainBoostDb = 6 // Умеренное усиление
+            gainBoostDb = 4, // Умеренное усиление (снижено с 6)
+            compressionEnabled = true // Обязательная компрессия
         )
     ),
-    
+
     SLEEP_MODE(
         displayName = "Ночной режим",
-        description = "Только громкие звуки, минимум шума",
+        description = "Усиление тихих звуков для сна ребенка",
         config = AudioEnhancer.Config(
             noiseSuppressionEnabled = true,
-            gainBoostDb = 12 // Максимальное усиление для тихих звуков
+            gainBoostDb = 6, // Максимум 6 dB (было 12 - слишком много!)
+            compressionEnabled = true // Обязательная компрессия против клиппинга
         )
     )
 }
