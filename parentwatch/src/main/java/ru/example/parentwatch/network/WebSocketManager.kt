@@ -12,7 +12,7 @@ object WebSocketManager {
 
     private var webSocketClient: WebSocketClient? = null
     private var isInitialized = false
-    private var chatMessageCallback: ((String, String, String, Long) -> Unit)? = null
+    private val chatMessageCallbacks = mutableSetOf<(String, String, String, Long) -> Unit>()
 
     /**
      * Initialize WebSocket client
@@ -25,9 +25,7 @@ object WebSocketManager {
 
         Log.d(TAG, "Initializing WebSocket: $serverUrl with deviceId: $deviceId")
         webSocketClient = WebSocketClient(serverUrl, deviceId)
-        chatMessageCallback?.let { callback ->
-            webSocketClient?.setChatMessageCallback(callback)
-        }
+        webSocketClient?.setChatMessageCallback(::dispatchChatMessage)
         isInitialized = true
     }
 
@@ -41,6 +39,7 @@ object WebSocketManager {
             return
         }
 
+        webSocketClient?.setChatMessageCallback(::dispatchChatMessage)
         webSocketClient?.connect(onConnected, onError)
     }
 
@@ -54,6 +53,26 @@ object WebSocketManager {
     /**
      * Send chat message
      */
+
+    private fun dispatchChatMessage(messageId: String, text: String, sender: String, timestamp: Long) {
+        chatMessageCallbacks.forEach { listener ->
+            listener(messageId, text, sender, timestamp)
+        }
+    }
+
+    fun addChatMessageListener(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
+        chatMessageCallbacks.add(callback)
+        webSocketClient?.setChatMessageCallback(::dispatchChatMessage)
+    }
+
+    fun removeChatMessageListener(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
+        chatMessageCallbacks.remove(callback)
+    }
+
+    fun clearChatMessageCallback() {
+        chatMessageCallbacks.clear()
+    }
+
     fun sendChatMessage(
         messageId: String,
         text: String,
@@ -68,18 +87,10 @@ object WebSocketManager {
      * Set chat message callback
      */
     fun setChatMessageCallback(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
-        chatMessageCallback = callback
-        webSocketClient?.setChatMessageCallback(callback)
+        chatMessageCallbacks.clear()
+        chatMessageCallbacks.add(callback)
+        webSocketClient?.setChatMessageCallback(::dispatchChatMessage)
     }
-
-    /**
-     * Clear chat message callback
-     */
-    fun clearChatMessageCallback() {
-        chatMessageCallback = null
-        webSocketClient?.setChatMessageCallback { _, _, _, _ -> }
-    }
-
     /**
      * Check if connected
      */
@@ -93,6 +104,7 @@ object WebSocketManager {
     fun cleanup() {
         webSocketClient?.cleanup()
         webSocketClient = null
+        chatMessageCallbacks.clear()
         isInitialized = false
     }
 }

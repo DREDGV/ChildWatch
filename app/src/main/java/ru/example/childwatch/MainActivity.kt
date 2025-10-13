@@ -321,7 +321,16 @@ class MainActivity : AppCompatActivity() {
         binding.deviceInfoCard.isVisible = true
         binding.deviceInfoProgress.isVisible = false
 
-        val childDeviceId = secureSettings.getChildDeviceId()
+        val childDeviceId = secureSettings.getChildDeviceId()?.takeIf { it.isNotBlank() }
+            ?: run {
+                val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+                val storedId = prefs.getString("child_device_id", null)
+                if (!storedId.isNullOrBlank()) {
+                    secureSettings.setChildDeviceId(storedId)
+                }
+                storedId
+            }
+
         if (childDeviceId.isNullOrEmpty()) {
             binding.deviceInfoDeviceId.text = getString(R.string.device_info_device_id, getString(R.string.device_info_unknown))
             latestDeviceStatus = null
@@ -352,7 +361,7 @@ class MainActivity : AppCompatActivity() {
         binding.deviceInfoStatusMessage.isVisible = false
         binding.deviceInfoContent.isVisible = true
 
-        binding.deviceInfoBatteryValue.text = status.batteryLevel?.let { "$it%" } ?: getString(R.string.device_info_unknown)
+        binding.deviceInfoBatteryValue.text = status.batteryLevel?.takeIf { it in 0..100 }?.let { "$it%" } ?: getString(R.string.device_info_unknown)
 
         binding.deviceInfoChargingValue.text = when {
             status.isCharging == true && !status.chargingType.isNullOrBlank() ->

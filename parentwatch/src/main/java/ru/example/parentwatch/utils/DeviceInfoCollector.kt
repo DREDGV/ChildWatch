@@ -106,13 +106,13 @@ object DeviceInfoCollector {
             status == BatteryManager.BATTERY_STATUS_FULL
 
         return when {
-            isCharging && level >= 0 -> "Charging %"
+            isCharging && level >= 0 -> "Charging $level%"
             isCharging -> "Charging"
             level < 0 -> "Battery unknown"
-            level > 80 -> "Battery high (%)"
-            level > 50 -> "Battery medium (%)"
-            level > 20 -> "Battery low (%)"
-            else -> "Battery critical (%)"
+            level > 80 -> "Battery high ($level%)"
+            level > 50 -> "Battery medium ($level%)"
+            level > 20 -> "Battery low ($level%)"
+            else -> "Battery critical ($level%)"
         }
     }
 }

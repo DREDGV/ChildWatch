@@ -18,22 +18,22 @@ class ChatNotificationService : Service() {
         private const val NOTIFICATION_ID = 2001
     }
 
+    private val notificationListener: (String, String, String, Long) -> Unit = { messageId, text, sender, timestamp ->
+        Log.d(TAG, "Received message in background: $text from $sender")
+        NotificationManager.showChatNotification(
+            context = this,
+            senderName = sender,
+            messageText = text,
+            timestamp = timestamp
+        )
+    }
+
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "ChatNotificationService created")
         
         // Set up message callback for notifications
-        WebSocketManager.setChatMessageCallback { messageId, text, sender, timestamp ->
-            Log.d(TAG, "Received message in background: $text from $sender")
-            
-            // Show notification
-            NotificationManager.showChatNotification(
-                context = this,
-                senderName = sender,
-                messageText = text,
-                timestamp = timestamp
-            )
-        }
+        WebSocketManager.addChatMessageListener(notificationListener)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -50,6 +50,6 @@ class ChatNotificationService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "ChatNotificationService destroyed")
-        WebSocketManager.clearChatMessageCallback()
+        WebSocketManager.removeChatMessageListener(notificationListener)
     }
 }

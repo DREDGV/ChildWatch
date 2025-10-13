@@ -19,7 +19,7 @@ import com.google.android.material.card.MaterialCardView
 import ru.example.parentwatch.BuildConfig
 import ru.example.parentwatch.utils.NotificationManager
 import ru.example.parentwatch.service.LocationService
-import ru.example.parentwatch.service.ChatNotificationService
+import ru.example.parentwatch.service.ChatBackgroundService
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -96,6 +96,7 @@ class MainActivity : AppCompatActivity() {
 
         // Синхронизируем device_id с child_device_id для совместимости
         syncDeviceIds()
+        ensureChatBackgroundService()
 
         setupUI()
         loadSettings()
@@ -178,6 +179,21 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+
+    private fun ensureChatBackgroundService() {
+        val serverUrl = prefs.getString("server_url", RAILWAY_URL) ?: RAILWAY_URL
+        val deviceId = prefs.getString("device_id", null)
+        if (!deviceId.isNullOrEmpty()) {
+            ChatBackgroundService.start(this, serverUrl, deviceId)
+        }
+    }
+
+
+    override fun onResume() {
+        super.onResume()
+        ensureChatBackgroundService()
+    }
+
     private fun requestPermissionsAndStart() {
         // First request foreground location and audio permissions
         val permissions = mutableListOf(
@@ -236,9 +252,7 @@ class MainActivity : AppCompatActivity() {
                 serviceIntent.putExtra("device_id", getUniqueDeviceId())
                 ContextCompat.startForegroundService(this, serviceIntent)
                 
-                // Start chat notification service
-                val chatServiceIntent = Intent(this, ChatNotificationService::class.java)
-                startService(chatServiceIntent)
+                ensureChatBackgroundService()
 
             isServiceRunning = true
             prefs.edit().putBoolean("service_running", true).apply()
@@ -260,9 +274,7 @@ class MainActivity : AppCompatActivity() {
                 serviceIntent.action = LocationService.ACTION_STOP
                 stopService(serviceIntent)
                 
-                // Stop chat notification service
-                val chatServiceIntent = Intent(this, ChatNotificationService::class.java)
-                stopService(chatServiceIntent)
+                ChatBackgroundService.stop(this)
 
         isServiceRunning = false
         prefs.edit().putBoolean("service_running", false).apply()

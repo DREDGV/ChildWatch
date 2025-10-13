@@ -58,6 +58,10 @@ class ChatBackgroundService : LifecycleService() {
     }
 
     private lateinit var chatManager: ChatManager
+    private val backgroundListener: (String, String, String, Long) -> Unit = { messageId, text, sender, timestamp ->
+        handleIncomingMessage(messageId, text, sender, timestamp)
+    }
+
 
     override fun onCreate() {
         super.onCreate()
@@ -114,10 +118,7 @@ class ChatBackgroundService : LifecycleService() {
             WebSocketManager.initialize(this, serverUrl, deviceId)
         }
 
-        // Set up message callback
-        WebSocketManager.setChatMessageCallback { messageId, text, sender, timestamp ->
-            handleIncomingMessage(messageId, text, sender, timestamp)
-        }
+        WebSocketManager.addChatMessageListener(backgroundListener)
 
         // Connect WebSocket
         WebSocketManager.connect(
@@ -139,7 +140,7 @@ class ChatBackgroundService : LifecycleService() {
         Log.d(TAG, "Stopping chat background service")
 
         // Clear callback
-        WebSocketManager.clearChatMessageCallback()
+        WebSocketManager.removeChatMessageListener(backgroundListener)
 
         // Stop foreground
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -229,7 +230,7 @@ class ChatBackgroundService : LifecycleService() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "ChatBackgroundService destroyed")
-        WebSocketManager.clearChatMessageCallback()
+        WebSocketManager.removeChatMessageListener(backgroundListener)
         isRunning = false
     }
 }

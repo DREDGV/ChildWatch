@@ -32,6 +32,12 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var chatAdapter: ChatAdapter
     private lateinit var chatManager: ChatManager
     private val messages = mutableListOf<ChatMessage>()
+    private val chatListener: (String, String, String, Long) -> Unit = { messageId, text, sender, timestamp ->
+        runOnUiThread {
+            receiveMessage(messageId, text, sender, timestamp)
+        }
+    }
+
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -183,11 +189,7 @@ class ChatActivity : AppCompatActivity() {
         }
 
         // Set up message callback for this activity
-        WebSocketManager.setChatMessageCallback { messageId, text, sender, timestamp ->
-            runOnUiThread {
-                receiveMessage(messageId, text, sender, timestamp)
-            }
-        }
+        WebSocketManager.addChatMessageListener(chatListener)
 
         // Check if already connected
         if (WebSocketManager.isConnected()) {
@@ -280,6 +282,6 @@ class ChatActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         chatManager.cleanup()
-        WebSocketManager.clearChatMessageCallback()
+        WebSocketManager.removeChatMessageListener(chatListener)
     }
 }
