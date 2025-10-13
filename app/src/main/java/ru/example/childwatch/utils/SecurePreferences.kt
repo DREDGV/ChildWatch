@@ -40,6 +40,8 @@ class SecurePreferences(
             "last_location_update",
             "last_audio_update",
             "last_photo_update",
+            "last_device_status_json",
+            "last_device_status_timestamp",
             "monitoring_settings",
             "privacy_settings"
         )

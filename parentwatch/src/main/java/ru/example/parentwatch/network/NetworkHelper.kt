@@ -1,6 +1,7 @@
 package ru.example.parentwatch.network
 
 import android.content.Context
+import ru.example.parentwatch.BuildConfig
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -44,7 +45,7 @@ class NetworkHelper(private val context: Context) {
                 put("deviceId", deviceId)
                 put("deviceName", android.os.Build.MODEL)
                 put("deviceType", "android")
-                put("appVersion", "1.0.0")
+                put("appVersion", BuildConfig.VERSION_NAME)
             }
 
             val requestBody = jsonData.toString()
@@ -83,6 +84,72 @@ class NetworkHelper(private val context: Context) {
             Log.e(TAG, "Registration error", e)
             return@withContext false
         }
+    }
+
+    /**
+     * Upload location with device info to server
+     */
+    suspend fun uploadLocationWithDeviceInfo(
+        serverUrl: String,
+        latitude: Double,
+        longitude: Double,
+        accuracy: Float,
+        deviceInfo: JSONObject
+    ): Boolean = withContext(Dispatchers.IO) {
+        val maxRetries = 3
+
+        repeat(maxRetries) { attempt ->
+            try {
+                val url = "${serverUrl.trimEnd('/')}/api/loc"
+
+                val jsonData = JSONObject().apply {
+                    put("latitude", latitude)
+                    put("longitude", longitude)
+                    put("accuracy", accuracy)
+                    put("timestamp", System.currentTimeMillis())
+                    put("deviceInfo", deviceInfo) // Include device info
+                }
+
+                val requestBody = jsonData.toString()
+                    .toRequestBody("application/json; charset=utf-8".toMediaType())
+
+                val request = Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .build()
+
+                if (attempt > 0) {
+                    Log.d(TAG, "Retry attempt $attempt: Uploading location with device info")
+                } else {
+                    Log.d(TAG, "Uploading location with device info: lat=$latitude, lng=$longitude")
+                }
+
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        Log.d(TAG, "Location with device info uploaded successfully")
+
+                        // Save last update time
+                        prefs.edit()
+                            .putLong("last_update", System.currentTimeMillis())
+                            .apply()
+
+                        return@withContext true
+                    } else {
+                        Log.e(TAG, "Upload failed: ${response.code}")
+                        if (attempt < maxRetries - 1) {
+                            kotlinx.coroutines.delay(1000L * (attempt + 1))
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Upload error (attempt ${attempt + 1})", e)
+                if (attempt < maxRetries - 1) {
+                    kotlinx.coroutines.delay(1000L * (attempt + 1))
+                }
+            }
+        }
+
+        return@withContext false
     }
 
     /**
@@ -255,11 +322,11 @@ class NetworkHelper(private val context: Context) {
             val request = if (token != null) {
                 original.newBuilder()
                     .header("Authorization", "Bearer $token")
-                    .header("User-Agent", "ParentWatch/3.1.0")
+                    .header("User-Agent", "ParentWatch/" + BuildConfig.VERSION_NAME)
                     .build()
             } else {
                 original.newBuilder()
-                    .header("User-Agent", "ParentWatch/3.1.0")
+                    .header("User-Agent", "ParentWatch/" + BuildConfig.VERSION_NAME)
                     .build()
             }
 

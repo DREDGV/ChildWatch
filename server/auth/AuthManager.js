@@ -116,7 +116,8 @@ class AuthManager {
             lastActivity: Date.now(),
             totalRequests: 0,
             lastLocation: null,
-            suspiciousActivity: []
+            suspiciousActivity: [],
+            latestStatus: null
         });
         
         console.log(`Device registered: ${deviceId} (${deviceName})`);
@@ -274,7 +275,8 @@ class AuthManager {
             lastActivity: deviceData.lastActivity,
             totalRequests: sessionData.totalRequests,
             lastLocation: sessionData.lastLocation,
-            suspiciousActivity: sessionData.suspiciousActivity
+            suspiciousActivity: sessionData.suspiciousActivity,
+            latestStatus: sessionData.latestStatus || null
         };
     }
     
@@ -304,6 +306,31 @@ class AuthManager {
                 }
             }
         }
+    }
+    
+    /**
+     * Update latest device status snapshot
+     */
+    updateDeviceStatus(deviceId, status) {
+        const sessionData = this.deviceSessions.get(deviceId);
+        if (sessionData) {
+            sessionData.latestStatus = {
+                ...status,
+                updatedAt: Date.now()
+            };
+            sessionData.lastActivity = Date.now();
+        }
+    }
+
+    /**
+     * Get latest device status snapshot
+     */
+    getDeviceStatus(deviceId) {
+        const sessionData = this.deviceSessions.get(deviceId);
+        if (!sessionData || !sessionData.latestStatus) {
+            return null;
+        }
+        return sessionData.latestStatus;
     }
     
     /**

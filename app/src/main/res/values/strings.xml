@@ -34,6 +34,23 @@
     <string name="monitoring_started">Мониторинг запущен</string>
     <string name="monitoring_stopped">Мониторинг остановлен</string>
     
+    <string name="device_info_header">Child Device Status</string>
+    <string name="device_info_device_id">Device ID: %1$s</string>
+    <string name="device_info_battery">Battery</string>
+    <string name="device_info_charging">Charging</string>
+    <string name="device_info_temperature">Temperature</string>
+    <string name="device_info_voltage">Voltage</string>
+    <string name="device_info_health">Health</string>
+    <string name="device_info_model">Device</string>
+    <string name="device_info_android">Android</string>
+    <string name="device_info_last_sync">Updated</string>
+    <string name="device_info_unknown">Unknown</string>
+    <string name="device_info_not_available">Status not available</string>
+    <string name="device_info_needs_pairing">Add a child device ID in settings to see live status.</string>
+    <string name="device_info_charging_yes">Charging</string>
+    <string name="device_info_charging_no">Not charging</string>
+    <string name="device_info_loading">Updating...</string>
+    
     <!-- Main Menu Strings -->
     <string name="main_menu">Главное меню</string>
     <string name="monitoring_status">Статус мониторинга</string>

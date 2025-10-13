@@ -20,6 +20,7 @@ import ru.example.parentwatch.MainActivity
 import ru.example.parentwatch.R
 import ru.example.parentwatch.network.NetworkHelper
 import ru.example.parentwatch.audio.AudioStreamRecorder
+import ru.example.parentwatch.utils.DeviceInfoCollector
 
 /**
  * Foreground service for continuous location tracking and audio streaming
@@ -197,17 +198,22 @@ class LocationService : Service() {
     private fun handleLocationUpdate(location: Location) {
         Log.d(TAG, "Location update: ${location.latitude}, ${location.longitude}")
 
-        // Upload to server
+        // Upload to server with device info
         serviceScope.launch {
-            val success = networkHelper.uploadLocation(
+            // Collect device info
+            val deviceInfo = DeviceInfoCollector.getDeviceInfo(this@LocationService)
+
+            val success = networkHelper.uploadLocationWithDeviceInfo(
                 serverUrl!!,
                 location.latitude,
                 location.longitude,
-                location.accuracy
+                location.accuracy,
+                deviceInfo
             )
 
             if (success) {
-                updateNotification("Последнее обновление: ${System.currentTimeMillis()}")
+                val batteryStatus = DeviceInfoCollector.getBatteryStatus(this@LocationService)
+                updateNotification("Активно • $batteryStatus")
             }
         }
     }

@@ -289,7 +289,7 @@ app.post('/api/loc',
     }),
     async (req, res) => {
         try {
-            const { latitude, longitude, accuracy, timestamp } = req.body;
+            const { latitude, longitude, accuracy, timestamp, deviceInfo } = req.body;
             const deviceId = req.deviceId;
 
             // Validate location data
@@ -327,6 +327,34 @@ app.post('/api/loc',
                 }
             }
 
+            // Prepare optional device status payload
+            let latestStatus = null;
+            if (deviceInfo && typeof deviceInfo === 'object') {
+                try {
+                    const batteryInfo = deviceInfo.battery || {};
+                    const deviceDetails = deviceInfo.device || {};
+                    latestStatus = {
+                        batteryLevel: typeof batteryInfo.level === 'number' ? batteryInfo.level : null,
+                        isCharging: typeof batteryInfo.isCharging === 'boolean' ? batteryInfo.isCharging : null,
+                        chargingType: batteryInfo.chargingType || null,
+                        temperature: typeof batteryInfo.temperature === 'number' ? batteryInfo.temperature : null,
+                        voltage: typeof batteryInfo.voltage === 'number' ? batteryInfo.voltage : null,
+                        health: batteryInfo.health || null,
+                        manufacturer: deviceDetails.manufacturer || null,
+                        model: deviceDetails.model || null,
+                        androidVersion: deviceDetails.androidVersion || null,
+                        sdkVersion: typeof deviceDetails.sdkVersion === 'number' ? deviceDetails.sdkVersion : null,
+                        timestamp: typeof deviceInfo.timestamp === 'number' ? deviceInfo.timestamp : Date.now(),
+                        raw: deviceInfo
+                    };
+
+                    await dbManager.saveDeviceStatus(deviceId, latestStatus);
+                    authManager.updateDeviceStatus(deviceId, latestStatus);
+                } catch (statusError) {
+                    console.warn('Failed to persist device status:', statusError);
+                }
+            }
+
             // Save location to database
             await dbManager.saveLocation(deviceId, {
                 latitude,
@@ -341,7 +369,9 @@ app.post('/api/loc',
                 activity_data: {
                     latitude,
                     longitude,
-                    accuracy
+                    accuracy,
+                    batteryLevel: latestStatus?.batteryLevel ?? null,
+                    isCharging: latestStatus?.isCharging ?? null
                 },
                 timestamp
             });
@@ -530,6 +560,46 @@ app.get('/api/device/info',
             res.status(500).json({
                 error: 'Internal server error',
                 code: 'DEVICE_INFO_ERROR'
+            });
+        }
+    }
+);
+
+// Get latest device status (protected)
+app.get('/api/device/status/:deviceId?',
+    authMiddleware.authenticate(),
+    authMiddleware.rateLimit(60000, 60),
+    async (req, res) => {
+        try {
+            const targetDeviceId = req.params.deviceId || req.deviceId;
+
+            if (!validator.validateDeviceIdFormat(targetDeviceId)) {
+                return res.status(400).json({
+                    error: 'Invalid device ID format',
+                    code: 'INVALID_DEVICE_ID'
+                });
+            }
+
+            let status = await dbManager.getLatestDeviceStatus(targetDeviceId);
+            if (!status) {
+                status = authManager.getDeviceStatus(targetDeviceId);
+            }
+
+            if (status && status.raw === undefined) {
+                // Ensure raw property is always present (even if null)
+                status.raw = null;
+            }
+
+            res.json({
+                success: true,
+                deviceId: targetDeviceId,
+                status: status || null
+            });
+        } catch (error) {
+            console.error('Get device status error:', error);
+            res.status(500).json({
+                error: 'Internal server error',
+                code: 'DEVICE_STATUS_ERROR'
             });
         }
     }

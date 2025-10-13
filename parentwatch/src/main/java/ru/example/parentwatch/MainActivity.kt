@@ -16,6 +16,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
+import ru.example.parentwatch.BuildConfig
 import ru.example.parentwatch.utils.NotificationManager
 import ru.example.parentwatch.service.LocationService
 import ru.example.parentwatch.service.ChatNotificationService
@@ -25,7 +26,7 @@ import java.util.*
 /**
  * Main Activity for ParentWatch (ChildDevice)
  * 
- * ParentWatch v5.0.0 - Child Location Tracking
+ * ParentWatch v5.2.0 - Child Location Tracking
  * New UI with menu cards for navigation.
  */
 class MainActivity : AppCompatActivity() {
@@ -121,7 +122,7 @@ class MainActivity : AppCompatActivity() {
         lastUpdateText = findViewById(R.id.lastUpdateText)
 
         // Set app version
-        appVersionText.text = "ChildDevice v5.1.0"
+        appVersionText.text = "ChildDevice v${BuildConfig.VERSION_NAME}"
         
         // Menu card click listeners
         chatCard.setOnClickListener {

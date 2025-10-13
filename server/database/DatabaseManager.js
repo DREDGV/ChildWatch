@@ -116,6 +116,26 @@ class DatabaseManager {
                 FOREIGN KEY (device_id) REFERENCES devices (device_id)
             )`,
 
+            // Device status snapshots (battery, device info, etc.)
+            `CREATE TABLE IF NOT EXISTS device_status (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                device_id TEXT NOT NULL,
+                battery_level INTEGER,
+                is_charging INTEGER,
+                charging_type TEXT,
+                temperature REAL,
+                voltage REAL,
+                health TEXT,
+                manufacturer TEXT,
+                model TEXT,
+                android_version TEXT,
+                sdk_version INTEGER,
+                status_json TEXT,
+                timestamp INTEGER NOT NULL,
+                created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                FOREIGN KEY (device_id) REFERENCES devices (device_id)
+            )`,
+
             // Activity logs
             `CREATE TABLE IF NOT EXISTS activity_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -402,6 +422,105 @@ class DatabaseManager {
         `;
 
         return this.all(sql, [deviceId, limit]);
+    }
+
+    /**
+     * Save device status snapshot
+     */
+    async saveDeviceStatus(deviceId, status) {
+        const {
+            batteryLevel = null,
+            isCharging = null,
+            chargingType = null,
+            temperature = null,
+            voltage = null,
+            health = null,
+            manufacturer = null,
+            model = null,
+            androidVersion = null,
+            sdkVersion = null,
+            timestamp = Date.now(),
+            raw = null
+        } = status || {};
+
+        const sql = `
+            INSERT INTO device_status (
+                device_id,
+                battery_level,
+                is_charging,
+                charging_type,
+                temperature,
+                voltage,
+                health,
+                manufacturer,
+                model,
+                android_version,
+                sdk_version,
+                status_json,
+                timestamp
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+
+        const statusJson = raw ? JSON.stringify(raw) : null;
+
+        return this.run(sql, [
+            deviceId,
+            batteryLevel,
+            isCharging === null ? null : (isCharging ? 1 : 0),
+            chargingType,
+            temperature,
+            voltage,
+            health,
+            manufacturer,
+            model,
+            androidVersion,
+            sdkVersion,
+            statusJson,
+            timestamp
+        ]);
+    }
+
+    /**
+     * Get latest device status
+     */
+    async getLatestDeviceStatus(deviceId) {
+        const sql = `
+            SELECT *
+            FROM device_status
+            WHERE device_id = ?
+            ORDER BY timestamp DESC
+            LIMIT 1
+        `;
+
+        const row = await this.get(sql, [deviceId]);
+        if (!row) {
+            return null;
+        }
+
+        let raw = null;
+        if (row.status_json) {
+            try {
+                raw = JSON.parse(row.status_json);
+            } catch (error) {
+                console.warn('Failed to parse device status JSON:', error.message);
+            }
+        }
+
+        return {
+            batteryLevel: row.battery_level,
+            isCharging: row.is_charging === 1,
+            chargingType: row.charging_type,
+            temperature: row.temperature,
+            voltage: row.voltage,
+            health: row.health,
+            manufacturer: row.manufacturer,
+            model: row.model,
+            androidVersion: row.android_version,
+            sdkVersion: row.sdk_version,
+            timestamp: row.timestamp,
+            raw
+        };
     }
 
     /**

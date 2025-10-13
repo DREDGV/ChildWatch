@@ -1,4 +1,4 @@
-п»їpackage ru.example.childwatch
+package ru.example.childwatch
 
 import android.Manifest
 import android.content.Intent
@@ -13,9 +13,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.gson.Gson
 import ru.example.childwatch.alerts.CriticalAlertSyncScheduler
 import ru.example.childwatch.databinding.ActivityMainMenuBinding
+import ru.example.childwatch.network.DeviceStatus
+import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.service.MonitorService
 import ru.example.childwatch.utils.BatteryOptimizationHelper
 import ru.example.childwatch.utils.PermissionHelper
@@ -28,7 +32,7 @@ import java.util.*
 /**
  * Main Activity with modern menu interface
  * 
- * ChildWatch v5.0.0 - Parental Monitoring Application
+ * ChildWatch v4.4.0 - Parental Monitoring Application
  * 
  * Features:
  * - Modern card-based menu interface
@@ -44,6 +48,11 @@ class MainActivity : AppCompatActivity() {
     private lateinit var batteryOptimizationHelper: BatteryOptimizationHelper
     private var hasConsent = false
     private var batteryOptimizationDialogDisplayed = false
+    private val networkClient by lazy { NetworkClient(this) }
+    private val gson by lazy { Gson() }
+    private var latestDeviceStatus: DeviceStatus? = null
+    private var deviceStatusJob: Job? = null
+    private var lastStatusFetchTime = 0L
     
     // Permission launchers for different permission groups
     private val basicPermissionLauncher = registerForActivityResult(
@@ -66,7 +75,7 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         secureSettings = SecureSettingsManager(this)
         batteryOptimizationHelper = BatteryOptimizationHelper(this)
-        hasConsent = ConsentActivity.hasConsent(this) // РСЃРїРѕР»СЊР·СѓРµРј РїСЂР°РІРёР»СЊРЅС‹Р№ РјРµС‚РѕРґ
+        hasConsent = ConsentActivity.hasConsent(this) // Используем правильный метод
 
         // Set app version
         binding.appVersionText.text = "v${BuildConfig.VERSION_NAME}"
@@ -101,7 +110,7 @@ class MainActivity : AppCompatActivity() {
 
         // Menu card click listeners
         binding.homeCard.setOnClickListener {
-            showToast("Р“Р»Р°РІРЅР°СЏ - СѓР¶Рµ Р·РґРµСЃСЊ!")
+            showToast("Главная - уже здесь!")
         }
         
         binding.locationCard.setOnClickListener {
@@ -116,7 +125,7 @@ class MainActivity : AppCompatActivity() {
             val childDeviceId = prefs.getString("child_device_id", "")
 
             if (childDeviceId.isNullOrEmpty()) {
-                // РџРѕРєР°Р·Р°С‚СЊ РґРёР°Р»РѕРі СЃ РІР°СЂРёР°РЅС‚Р°РјРё
+                // Показать диалог с вариантами
                 showDeviceIdOptions(serverUrl)
             } else {
                 val intent = Intent(this, AudioStreamingActivity::class.java).apply {
@@ -210,6 +219,8 @@ class MainActivity : AppCompatActivity() {
             // Show consent screen
             showConsentScreen()
         }
+
+        updateDeviceInfoCard()
         checkBatteryOptimizationStatus()
     }
     
@@ -227,10 +238,10 @@ class MainActivity : AppCompatActivity() {
                 val runningTime = System.currentTimeMillis() - serviceStartTime
                 val hours = runningTime / (1000 * 60 * 60)
                 val minutes = (runningTime % (1000 * 60 * 60)) / (1000 * 60)
-                val timeString = "${hours}С‡ ${minutes}Рј"
+                val timeString = "${hours}ч ${minutes}м"
                 binding.serviceRunningTimeText.text = getString(R.string.service_running_time, timeString)
             } else {
-                binding.serviceRunningTimeText.text = getString(R.string.service_running_time, "РЅРµРёР·РІРµСЃС‚РЅРѕ")
+                binding.serviceRunningTimeText.text = getString(R.string.service_running_time, "неизвестно")
             }
             
             // Update feature status
@@ -243,7 +254,7 @@ class MainActivity : AppCompatActivity() {
             binding.statusIcon.setImageResource(android.R.drawable.ic_dialog_alert)
             binding.statusIcon.setColorFilter(ContextCompat.getColor(this, android.R.color.darker_gray))
             
-            binding.serviceRunningTimeText.text = getString(R.string.service_running_time, "РЅРµ СЂР°Р±РѕС‚Р°РµС‚")
+            binding.serviceRunningTimeText.text = getString(R.string.service_running_time, "не работает")
             
             // Update feature status
             binding.locationStatusText.text = getString(R.string.status_location_inactive)
@@ -268,7 +279,7 @@ class MainActivity : AppCompatActivity() {
             val timeString = dateFormat.format(Date(lastLocationUpdate))
             binding.lastUpdateText.text = getString(R.string.last_location_update, timeString)
         } else {
-            binding.lastUpdateText.text = getString(R.string.last_location_update, "РЅРёРєРѕРіРґР°")
+            binding.lastUpdateText.text = getString(R.string.last_location_update, "никогда")
         }
         
         // Audio update
@@ -277,7 +288,7 @@ class MainActivity : AppCompatActivity() {
             val timeString = dateFormat.format(Date(lastAudioUpdate))
             binding.lastAudioUpdateText.text = getString(R.string.last_audio_update, timeString)
         } else {
-            binding.lastAudioUpdateText.text = getString(R.string.last_audio_update, "РЅРёРєРѕРіРґР°")
+            binding.lastAudioUpdateText.text = getString(R.string.last_audio_update, "никогда")
         }
         
         // Photo update
@@ -286,7 +297,7 @@ class MainActivity : AppCompatActivity() {
             val timeString = dateFormat.format(Date(lastPhotoUpdate))
             binding.lastPhotoUpdateText.text = getString(R.string.last_photo_update, timeString)
         } else {
-            binding.lastPhotoUpdateText.text = getString(R.string.last_photo_update, "РЅРёРєРѕРіРґР°")
+            binding.lastPhotoUpdateText.text = getString(R.string.last_photo_update, "никогда")
         }
     }
     
@@ -306,6 +317,138 @@ class MainActivity : AppCompatActivity() {
         binding.batteryWarningText.visibility = View.GONE
     }
     
+    private fun updateDeviceInfoCard() {
+        binding.deviceInfoCard.isVisible = true
+        binding.deviceInfoProgress.isVisible = false
+
+        val childDeviceId = secureSettings.getChildDeviceId()
+        if (childDeviceId.isNullOrEmpty()) {
+            binding.deviceInfoDeviceId.text = getString(R.string.device_info_device_id, getString(R.string.device_info_unknown))
+            latestDeviceStatus = null
+            showDeviceInfoMessage(getString(R.string.device_info_needs_pairing))
+            return
+        }
+
+        binding.deviceInfoDeviceId.text = getString(R.string.device_info_device_id, childDeviceId)
+        val cachedStatus = latestDeviceStatus ?: loadCachedDeviceStatus()
+        if (cachedStatus != null) {
+            applyDeviceStatus(cachedStatus)
+        } else {
+            binding.deviceInfoStatusMessage.text = getString(R.string.device_info_loading)
+            binding.deviceInfoStatusMessage.isVisible = true
+            binding.deviceInfoContent.isVisible = false
+        }
+
+        refreshChildDeviceStatus(force = false)
+    }
+
+    private fun loadCachedDeviceStatus(): DeviceStatus? {
+        val cachedJson = secureSettings.getLastDeviceStatus() ?: return null
+        return runCatching { gson.fromJson(cachedJson, DeviceStatus::class.java) }.getOrNull()
+    }
+
+    private fun applyDeviceStatus(status: DeviceStatus) {
+        binding.deviceInfoProgress.isVisible = false
+        binding.deviceInfoStatusMessage.isVisible = false
+        binding.deviceInfoContent.isVisible = true
+
+        binding.deviceInfoBatteryValue.text = status.batteryLevel?.let { "$it%" } ?: getString(R.string.device_info_unknown)
+
+        binding.deviceInfoChargingValue.text = when {
+            status.isCharging == true && !status.chargingType.isNullOrBlank() ->
+                "${getString(R.string.device_info_charging_yes)} (${status.chargingType})"
+            status.isCharging == true -> getString(R.string.device_info_charging_yes)
+            status.isCharging == false -> getString(R.string.device_info_charging_no)
+            else -> getString(R.string.device_info_unknown)
+        }
+
+        binding.deviceInfoTemperatureValue.text = status.temperature?.takeIf { it > 0 }?.let {
+            String.format(Locale.getDefault(), "%.1f C", it)
+        } ?: getString(R.string.device_info_unknown)
+
+        binding.deviceInfoVoltageValue.text = status.voltage?.takeIf { it > 0 }?.let {
+            String.format(Locale.getDefault(), "%.2f V", it)
+        } ?: getString(R.string.device_info_unknown)
+
+        binding.deviceInfoHealthValue.text = status.health?.takeIf { it.isNotBlank() } ?: getString(R.string.device_info_unknown)
+
+        val modelText = listOfNotNull(status.manufacturer, status.model)
+            .joinToString(" ")
+            .trim()
+        binding.deviceInfoModelValue.text = if (modelText.isNotEmpty()) modelText else getString(R.string.device_info_unknown)
+
+        val androidParts = mutableListOf<String>()
+        status.androidVersion?.takeIf { it.isNotBlank() }?.let { androidParts.add("v$it") }
+        status.sdkVersion?.let { androidParts.add("SDK $it") }
+        binding.deviceInfoAndroidValue.text = if (androidParts.isNotEmpty()) {
+            androidParts.joinToString(" • ")
+        } else {
+            getString(R.string.device_info_unknown)
+        }
+
+        val statusTimestamp = (status.timestamp ?: secureSettings.getLastDeviceStatusTimestamp()).takeIf { it > 0 }
+        binding.deviceInfoUpdatedValue.text = if (statusTimestamp != null) {
+            val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+            timeFormat.format(Date(statusTimestamp))
+        } else {
+            getString(R.string.device_info_unknown)
+        }
+
+        latestDeviceStatus = status
+    }
+
+    private fun showDeviceInfoMessage(message: String) {
+        binding.deviceInfoContent.isVisible = false
+        binding.deviceInfoProgress.isVisible = false
+        binding.deviceInfoStatusMessage.isVisible = true
+        binding.deviceInfoStatusMessage.text = message
+    }
+
+    private fun refreshChildDeviceStatus(force: Boolean = false) {
+        val childDeviceId = secureSettings.getChildDeviceId()
+        if (childDeviceId.isNullOrEmpty()) {
+            deviceStatusJob?.cancel()
+            lastStatusFetchTime = 0L
+            showDeviceInfoMessage(getString(R.string.device_info_needs_pairing))
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        if (!force && now - lastStatusFetchTime < 60_000) {
+            return
+        }
+        lastStatusFetchTime = now
+
+        deviceStatusJob?.cancel()
+        binding.deviceInfoProgress.isVisible = true
+        binding.deviceInfoStatusMessage.isVisible = false
+
+        deviceStatusJob = lifecycleScope.launch {
+            try {
+                val response = networkClient.getChildDeviceStatus(childDeviceId)
+                if (response.isSuccessful) {
+                    val status = response.body()?.status
+                    if (status != null) {
+                        val normalizedTimestamp = status.timestamp ?: System.currentTimeMillis()
+                        val normalizedStatus = status.copy(timestamp = normalizedTimestamp)
+                        secureSettings.setLastDeviceStatus(gson.toJson(normalizedStatus))
+                        secureSettings.setLastDeviceStatusTimestamp(normalizedTimestamp)
+                        applyDeviceStatus(normalizedStatus)
+                    } else {
+                        showDeviceInfoMessage(getString(R.string.device_info_not_available))
+                    }
+                } else {
+                    showDeviceInfoMessage(getString(R.string.device_info_not_available))
+                }
+            } catch (error: Exception) {
+                Log.e(TAG, "Failed to load device status", error)
+                showDeviceInfoMessage(getString(R.string.device_info_not_available))
+            } finally {
+                binding.deviceInfoProgress.isVisible = false
+            }
+        }
+    }
+    
     private fun performSecurityChecks() {
         try {
             val securityReport = SecurityChecker.getSecurityReport(this)
@@ -315,7 +458,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isDebugBuild) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.DEBUG_BUILD_DETECTED,
-                //     "РџСЂРёР»РѕР¶РµРЅРёРµ СЃРѕР±СЂР°РЅРѕ РІ debug СЂРµР¶РёРјРµ",
+                //     "Приложение собрано в debug режиме",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -324,7 +467,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isDeveloperOptionsEnabled) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.DEVELOPER_OPTIONS_ENABLED,
-                //     "Р’РєР»СЋС‡РµРЅС‹ РѕРїС†РёРё СЂР°Р·СЂР°Р±РѕС‚С‡РёРєР°",
+                //     "Включены опции разработчика",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -333,7 +476,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isUsbDebuggingEnabled) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.USB_DEBUGGING_ENABLED,
-                //     "Р’РєР»СЋС‡РµРЅР° РѕС‚Р»Р°РґРєР° РїРѕ USB",
+                //     "Включена отладка по USB",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -342,7 +485,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isDeviceRooted) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.ROOT_DETECTED,
-                //     "РЈСЃС‚СЂРѕР№СЃС‚РІРѕ РёРјРµРµС‚ root РїСЂР°РІР°",
+                //     "Устройство имеет root права",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -351,7 +494,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isEmulator) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.EMULATOR_DETECTED,
-                //     "РџСЂРёР»РѕР¶РµРЅРёРµ Р·Р°РїСѓС‰РµРЅРѕ РІ СЌРјСѓР»СЏС‚РѕСЂРµ",
+                //     "Приложение запущено в эмуляторе",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -360,7 +503,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isDebuggerAttached) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.DEBUGGER_ATTACHED,
-                //     "РџРѕРґРєР»СЋС‡РµРЅ РѕС‚Р»Р°РґС‡РёРє",
+                //     "Подключен отладчик",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -369,7 +512,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isAppDebuggable) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.APP_DEBUGGABLE,
-                //     "РџСЂРёР»РѕР¶РµРЅРёРµ РґРѕСЃС‚СѓРїРЅРѕ РґР»СЏ РѕС‚Р»Р°РґРєРё",
+                //     "Приложение доступно для отладки",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -378,7 +521,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isMockLocationEnabled) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.MOCK_LOCATION_ENABLED,
-                //     "Р’РєР»СЋС‡РµРЅС‹ mock-Р»РѕРєР°С†РёРё",
+                //     "Включены mock-локации",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -387,7 +530,7 @@ class MainActivity : AppCompatActivity() {
             // Show security warnings if any
             if (securityWarnings.isNotEmpty()) {
                 val warningText = securityWarnings.joinToString("\n")
-                Toast.makeText(this, "РџСЂРµРґСѓРїСЂРµР¶РґРµРЅРёСЏ Р±РµР·РѕРїР°СЃРЅРѕСЃС‚Рё:\n$warningText", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Предупреждения безопасности:\n$warningText", Toast.LENGTH_LONG).show()
             }
             
             // Log security score
@@ -441,30 +584,30 @@ class MainActivity : AppCompatActivity() {
 
     private fun showEmergencyStopDialog() {
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("рџљЁ Р­РєСЃС‚СЂРµРЅРЅР°СЏ РѕСЃС‚Р°РЅРѕРІРєР°")
-            .setMessage("Р­С‚Рѕ РЅРµРјРµРґР»РµРЅРЅРѕ РѕСЃС‚Р°РЅРѕРІРёС‚ Р’РЎР• С„СѓРЅРєС†РёРё СЃР»РµР¶РєРё:\nвЂў РџСЂРѕСЃР»СѓС€РєСѓ (РµСЃР»Рё Р°РєС‚РёРІРЅР°)\nвЂў РњРѕРЅРёС‚РѕСЂРёРЅРі\nвЂў Р’СЃРµ С„РѕРЅРѕРІС‹Рµ РїСЂРѕС†РµСЃСЃС‹\n\nР’С‹ СѓРІРµСЂРµРЅС‹?")
-            .setPositiveButton("Р”Р°, РѕСЃС‚Р°РЅРѕРІРёС‚СЊ РІСЃС‘") { _, _ ->
+            .setTitle("?? Экстренная остановка")
+            .setMessage("Это немедленно остановит ВСЕ функции слежки:\n• Прослушку (если активна)\n• Мониторинг\n• Все фоновые процессы\n\nВы уверены?")
+            .setPositiveButton("Да, остановить всё") { _, _ ->
                 emergencyStopAll()
             }
-            .setNegativeButton("РћС‚РјРµРЅР°", null)
+            .setNegativeButton("Отмена", null)
             .show()
     }
 
     private fun emergencyStopAll() {
-        Log.w("ChildWatch", "рџљЁ EMERGENCY STOP triggered")
+        Log.w("ChildWatch", "?? EMERGENCY STOP triggered")
 
         // Stop audio playback if running
         if (ru.example.childwatch.service.AudioPlaybackService.isPlaying) {
             ru.example.childwatch.service.AudioPlaybackService.stopPlayback(this)
-            Log.d("ChildWatch", "вњ… Audio playback stopped")
+            Log.d("ChildWatch", "? Audio playback stopped")
         }
 
         // Stop monitoring
         stopMonitoring()
-        Log.d("ChildWatch", "вњ… Monitoring stopped")
+        Log.d("ChildWatch", "? Monitoring stopped")
 
-        showToast("рџљЁ Р­РєСЃС‚СЂРµРЅРЅР°СЏ РѕСЃС‚Р°РЅРѕРІРєР° РІС‹РїРѕР»РЅРµРЅР°")
-        Log.w("ChildWatch", "рџљЁ EMERGENCY STOP completed")
+        showToast("?? Экстренная остановка выполнена")
+        Log.w("ChildWatch", "?? EMERGENCY STOP completed")
     }
 
     private fun requestPermissions() {
@@ -508,16 +651,16 @@ class MainActivity : AppCompatActivity() {
         val consequences = PermissionHelper.getPermissionDenialConsequences(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Р Р°Р·СЂРµС€РµРЅРёРµ РЅР° С„РѕРЅРѕРІРѕРµ РјРµСЃС‚РѕРїРѕР»РѕР¶РµРЅРёРµ")
-            .setMessage("$explanation\n\n$consequences\n\nРџСЂРѕРґРѕР»Р¶РёС‚СЊ?")
-            .setPositiveButton("Р Р°Р·СЂРµС€РёС‚СЊ") { _, _ ->
+            .setTitle("Разрешение на фоновое местоположение")
+            .setMessage("$explanation\n\n$consequences\n\nПродолжить?")
+            .setPositiveButton("Разрешить") { _, _ ->
                 backgroundLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             }
-            .setNegativeButton("РћС‚РєР°Р·Р°С‚СЊСЃСЏ") { _, _ ->
-                showToast("РћС‚СЃР»РµР¶РёРІР°РЅРёРµ Р±СѓРґРµС‚ СЂР°Р±РѕС‚Р°С‚СЊ С‚РѕР»СЊРєРѕ РєРѕРіРґР° РїСЂРёР»РѕР¶РµРЅРёРµ Р°РєС‚РёРІРЅРѕ")
+            .setNegativeButton("Отказаться") { _, _ ->
+                showToast("Отслеживание будет работать только когда приложение активно")
                 onAllPermissionsGranted()
             }
-            .setNeutralButton("РќР°СЃС‚СЂРѕР№РєРё") { _, _ ->
+            .setNeutralButton("Настройки") { _, _ ->
                 PermissionHelper.openAppSettings(this)
             }
             .show()
@@ -527,12 +670,12 @@ class MainActivity : AppCompatActivity() {
         val deniedPermissions = permissions.filter { !it.value }.keys
         
         if (deniedPermissions.isEmpty()) {
-            showToast("РћСЃРЅРѕРІРЅС‹Рµ СЂР°Р·СЂРµС€РµРЅРёСЏ РїСЂРµРґРѕСЃС‚Р°РІР»РµРЅС‹")
+            showToast("Основные разрешения предоставлены")
             // Now request background location permission
             requestBackgroundLocationPermission()
         } else {
             val deniedList = deniedPermissions.joinToString(", ")
-            showToast("РћС‚РєР°Р·Р°РЅРѕ РІ СЂР°Р·СЂРµС€РµРЅРёСЏС…: $deniedList")
+            showToast("Отказано в разрешениях: $deniedList")
             
             // Show explanation for denied permissions
             showPermissionDeniedExplanation(deniedPermissions)
@@ -541,16 +684,16 @@ class MainActivity : AppCompatActivity() {
     
     private fun handleBackgroundLocationResult(isGranted: Boolean) {
         if (isGranted) {
-            showToast("Р’СЃРµ СЂР°Р·СЂРµС€РµРЅРёСЏ РїСЂРµРґРѕСЃС‚Р°РІР»РµРЅС‹")
+            showToast("Все разрешения предоставлены")
             onAllPermissionsGranted()
         } else {
-            showToast("Р¤РѕРЅРѕРІРѕРµ РјРµСЃС‚РѕРїРѕР»РѕР¶РµРЅРёРµ РѕС‚РєР»РѕРЅРµРЅРѕ. РћС‚СЃР»РµР¶РёРІР°РЅРёРµ Р±СѓРґРµС‚ СЂР°Р±РѕС‚Р°С‚СЊ С‚РѕР»СЊРєРѕ РєРѕРіРґР° РїСЂРёР»РѕР¶РµРЅРёРµ Р°РєС‚РёРІРЅРѕ")
+            showToast("Фоновое местоположение отклонено. Отслеживание будет работать только когда приложение активно")
             onAllPermissionsGranted() // Continue anyway
         }
     }
     
     private fun onAllPermissionsGranted() {
-        showToast("Р’СЃРµ РЅРµРѕР±С…РѕРґРёРјС‹Рµ СЂР°Р·СЂРµС€РµРЅРёСЏ РїСЂРµРґРѕСЃС‚Р°РІР»РµРЅС‹")
+        showToast("Все необходимые разрешения предоставлены")
         // Try to start monitoring if consent is given
         if (hasConsent) {
             startMonitoring()
@@ -565,12 +708,12 @@ class MainActivity : AppCompatActivity() {
         val message = explanations.joinToString("\n\n")
         
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("РќРµРѕР±С…РѕРґРёРјС‹Рµ СЂР°Р·СЂРµС€РµРЅРёСЏ")
+            .setTitle("Необходимые разрешения")
             .setMessage(message)
-            .setPositiveButton("РќР°СЃС‚СЂРѕР№РєРё") { _, _ ->
+            .setPositiveButton("Настройки") { _, _ ->
                 PermissionHelper.openAppSettings(this)
             }
-            .setNegativeButton("РџРѕРЅСЏС‚РЅРѕ") { _, _ -> }
+            .setNegativeButton("Понятно") { _, _ -> }
             .show()
     }
     
@@ -578,36 +721,43 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
     
+    override fun onDestroy() {
+        deviceStatusJob?.cancel()
+        super.onDestroy()
+    }
+    
     override fun onResume() {
         super.onResume()
         updateUIState()
+        refreshChildDeviceStatus(force = true)
         CriticalAlertSyncScheduler.triggerImmediate(this)
     }
 
     private fun showDeviceIdOptions(serverUrl: String) {
         MaterialAlertDialogBuilder(this)
-            .setTitle("Device ID РЅРµ СѓРєР°Р·Р°РЅ")
-            .setMessage("Р’С‹Р±РµСЂРёС‚Рµ СЃРїРѕСЃРѕР± РїРѕР»СѓС‡РµРЅРёСЏ Device ID СЂРµР±С‘РЅРєР°:")
-            .setPositiveButton("РўРµСЃС‚РѕРІС‹Р№ СЂРµР¶РёРј") { _, _ ->
-                // РСЃРїРѕР»СЊР·РѕРІР°С‚СЊ С‚РµСЃС‚РѕРІС‹Р№ ID РґР»СЏ РґРµРјРѕРЅСЃС‚СЂР°С†РёРё
+            .setTitle("Device ID не указан")
+            .setMessage("Выберите способ получения Device ID ребёнка:")
+            .setPositiveButton("Тестовый режим") { _, _ ->
+                // Использовать тестовый ID для демонстрации
                 val testDeviceId = "test-child-device-001"
                 val intent = Intent(this, AudioStreamingActivity::class.java).apply {
                     putExtra(AudioStreamingActivity.EXTRA_DEVICE_ID, testDeviceId)
                     putExtra(AudioStreamingActivity.EXTRA_SERVER_URL, serverUrl)
                 }
                 startActivity(intent)
-                showToast("Р—Р°РїСѓС‰РµРЅ С‚РµСЃС‚РѕРІС‹Р№ СЂРµР¶РёРј СЃ ID: $testDeviceId")
+                showToast("Запущен тестовый режим с ID: $testDeviceId")
             }
-            .setNeutralButton("РќР°СЃС‚СЂРѕР№РєРё") { _, _ ->
-                // РџРµСЂРµР№С‚Рё РІ РЅР°СЃС‚СЂРѕР№РєРё РґР»СЏ РІРІРѕРґР° ID
+            .setNeutralButton("Настройки") { _, _ ->
+                // Перейти в настройки для ввода ID
                 val intent = Intent(this, SettingsActivity::class.java)
                 startActivity(intent)
             }
-            .setNegativeButton("РћС‚РјРµРЅР°", null)
+            .setNegativeButton("Отмена", null)
             .show()
     }
 
     companion object {
+        private const val TAG = "MainActivity"
         private const val KEY_BATTERY_PROMPT_SUPPRESSED = "battery_prompt_suppressed"
     }
 }

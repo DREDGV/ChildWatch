@@ -36,6 +36,8 @@ class SecureSettingsManager(private val context: Context) {
         private const val KEY_LAST_LOCATION_UPDATE = "last_location_update"
         private const val KEY_LAST_AUDIO_UPDATE = "last_audio_update"
         private const val KEY_LAST_PHOTO_UPDATE = "last_photo_update"
+        private const val KEY_LAST_DEVICE_STATUS = "last_device_status_json"
+        private const val KEY_LAST_DEVICE_STATUS_TIMESTAMP = "last_device_status_timestamp"
         private const val KEY_PRIVACY_LEVEL = "privacy_level"
         private const val KEY_DATA_RETENTION_DAYS = "data_retention_days"
         private const val KEY_ENCRYPTION_ENABLED = "encryption_enabled"
@@ -201,6 +203,21 @@ class SecureSettingsManager(private val context: Context) {
     }
     
     fun getLastPhotoUpdate(): Long = securePrefs.getLong(KEY_LAST_PHOTO_UPDATE, 0L)
+
+    // Device status cache
+    fun setLastDeviceStatus(statusJson: String?) {
+        securePrefs.putString(KEY_LAST_DEVICE_STATUS, statusJson)
+        Log.d(TAG, "Last device status updated")
+    }
+
+    fun getLastDeviceStatus(): String? = securePrefs.getString(KEY_LAST_DEVICE_STATUS)
+
+    fun setLastDeviceStatusTimestamp(timestamp: Long) {
+        securePrefs.putLong(KEY_LAST_DEVICE_STATUS_TIMESTAMP, timestamp)
+        Log.d(TAG, "Last device status timestamp set to: $timestamp")
+    }
+
+    fun getLastDeviceStatusTimestamp(): Long = securePrefs.getLong(KEY_LAST_DEVICE_STATUS_TIMESTAMP, 0L)
     
     // Privacy settings
     fun setPrivacyLevel(level: Int) {
@@ -269,6 +286,8 @@ class SecureSettingsManager(private val context: Context) {
         setLocationEnabled(true)
         setAudioEnabled(true)
         setPhotoEnabled(true)
+        setLastDeviceStatus(null)
+        setLastDeviceStatusTimestamp(0)
         Log.i(TAG, "Settings reset to defaults")
     }
     

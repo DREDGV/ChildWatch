@@ -29,6 +29,12 @@ interface ChildWatchApi {
      */
     @GET("api/device/info")
     suspend fun getDeviceInfo(): Response<DeviceInfoResponse>
+
+    /**
+     * Get latest device status snapshot
+     */
+    @GET("api/device/status/{deviceId}")
+    suspend fun getDeviceStatus(@Path("deviceId") deviceId: String): Response<DeviceStatusResponse>
 }
 
 /**
@@ -67,4 +73,25 @@ data class DeviceInfo(
     val deviceName: String,
     val deviceType: String,
     val appVersion: String
+)
+
+data class DeviceStatusResponse(
+    val success: Boolean,
+    val deviceId: String,
+    val status: DeviceStatus?
+)
+
+data class DeviceStatus(
+    val batteryLevel: Int?,
+    val isCharging: Boolean?,
+    val chargingType: String?,
+    val temperature: Double?,
+    val voltage: Double?,
+    val health: String?,
+    val manufacturer: String?,
+    val model: String?,
+    val androidVersion: String?,
+    val sdkVersion: Int?,
+    val timestamp: Long?,
+    val raw: Map<String, Any?>?
 )

@@ -1,3 +1,14 @@
+## [5.2.0 / 4.4.0] - 2025-10-13
+
+### Added
+- ParentWatch now collects battery, charging, temperature, voltage and device details from the child device and sends them with every location update.
+- Server persists the latest child status in a new device_status table and exposes it via GET /api/device/status/{deviceId}.
+- ChildWatch shows a dedicated "Child Device Status" card with live battery/charging stats and caches the last snapshot locally.
+
+### Changed
+- ParentWatch location uploads use uploadLocationWithDeviceInfo and the foreground notification shows the current battery state.
+- Both Android apps send their BuildConfig version in the User-Agent header and bumped to ParentWatch v5.2.0 / ChildWatch v4.4.0.
+- Added a Gson dependency in ChildWatch for parsing the status payload.
 # Changelog
 
 Все значимые изменения в проекте ChildWatch будут документированы в этом файле.

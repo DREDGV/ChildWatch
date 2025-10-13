@@ -1,7 +1,8 @@
-﻿package ru.example.childwatch.network
+package ru.example.childwatch.network
 
 import android.content.Context
 import android.util.Log
+import ru.example.childwatch.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.*
@@ -287,7 +288,7 @@ class NetworkClient(private val context: Context) {
                 .url(url)
                 .post(requestBody)
                 .addHeader("Content-Type", "application/json")
-                .addHeader("User-Agent", "ChildWatch/1.0")
+                .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
                 .build()
             
             Log.d(TAG, "Uploading location to: $url")
@@ -304,7 +305,7 @@ class NetworkClient(private val context: Context) {
                     // Add to offline queue for retry later
                     addToOfflineQueue(url, requestBody, mapOf(
                         "Content-Type" to "application/json",
-                        "User-Agent" to "ChildWatch/1.0"
+                        "User-Agent" to "ChildWatch/" + BuildConfig.VERSION_NAME
                     ))
                     
                     return@withContext false
@@ -351,7 +352,7 @@ class NetworkClient(private val context: Context) {
             val request = Request.Builder()
                 .url(url)
                 .post(requestBody)
-                .addHeader("User-Agent", "ChildWatch/1.0")
+                .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
                 .build()
             
             Log.d(TAG, "Uploading audio to: $url")
@@ -387,7 +388,7 @@ class NetworkClient(private val context: Context) {
             val request = Request.Builder()
                 .url(url)
                 .get()
-                .addHeader("User-Agent", "ChildWatch/1.0")
+                .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
                 .build()
             
             Log.d(TAG, "Testing connection to: $url")
@@ -437,7 +438,7 @@ class NetworkClient(private val context: Context) {
             val request = Request.Builder()
                 .url(url)
                 .post(requestBody)
-                .addHeader("User-Agent", "ChildWatch/1.0")
+                .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
                 .build()
             
             Log.d(TAG, "Uploading photo to: $url")
@@ -630,6 +631,30 @@ class NetworkClient(private val context: Context) {
     }
 
     /**
+     * Get child device status from server using Retrofit
+     */
+    suspend fun getChildDeviceStatus(childDeviceId: String): retrofit2.Response<DeviceStatusResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
+                    ?: "https://childwatch-production.up.railway.app"
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+
+                Log.d(TAG, "Getting child device status from server: $serverUrl")
+                Log.d(TAG, "Child device ID: $childDeviceId")
+
+                api.getDeviceStatus(childDeviceId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting child device status", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    /**
      * Create Retrofit client with authentication
      */
     private fun createRetrofitClient(baseUrl: String): retrofit2.Retrofit {
@@ -644,11 +669,11 @@ class NetworkClient(private val context: Context) {
             val request = if (token != null) {
                 original.newBuilder()
                     .header("Authorization", "Bearer $token")
-                    .header("User-Agent", "ChildWatch/1.0")
+                    .header("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
                     .build()
             } else {
                 original.newBuilder()
-                    .header("User-Agent", "ChildWatch/1.0")
+                    .header("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
                     .build()
             }
 
@@ -1045,5 +1070,4 @@ class NetworkClient(private val context: Context) {
         }
     }
 }
-
 
