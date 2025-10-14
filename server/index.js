@@ -289,7 +289,7 @@ app.post('/api/loc',
     }),
     async (req, res) => {
         try {
-            const { latitude, longitude, accuracy, timestamp, deviceInfo } = req.body;
+            const { latitude, longitude, accuracy, timestamp, deviceInfo: reportedDeviceInfo } = req.body;
             const deviceId = req.deviceId;
 
             // Validate location data
@@ -310,11 +310,11 @@ app.post('/api/loc',
             }
 
             // Check for suspicious location (too fast movement)
-            const deviceInfo = authManager.getDeviceInfo(deviceId);
-            if (deviceInfo && deviceInfo.lastLocation) {
+            const currentDeviceInfo = authManager.getDeviceInfo(deviceId);
+            if (currentDeviceInfo && currentDeviceInfo.lastLocation) {
                 const suspiciousCheck = validator.checkSuspiciousLocation(
                     { latitude, longitude, timestamp },
-                    deviceInfo.lastLocation
+                    currentDeviceInfo.lastLocation
                 );
 
                 if (suspiciousCheck.suspicious) {
@@ -329,10 +329,10 @@ app.post('/api/loc',
 
             // Prepare optional device status payload
             let latestStatus = null;
-            if (deviceInfo && typeof deviceInfo === 'object') {
+            if (currentDeviceInfo && typeof currentDeviceInfo === 'object') {
                 try {
-                    const batteryInfo = deviceInfo.battery || {};
-                    const deviceDetails = deviceInfo.device || {};
+                    const batteryInfo = currentDeviceInfo.battery || {};
+                    const deviceDetails = currentDeviceInfo.device || {};
                     latestStatus = {
                         batteryLevel: typeof batteryInfo.level === 'number' ? batteryInfo.level : null,
                         isCharging: typeof batteryInfo.isCharging === 'boolean' ? batteryInfo.isCharging : null,
@@ -344,8 +344,8 @@ app.post('/api/loc',
                         model: deviceDetails.model || null,
                         androidVersion: deviceDetails.androidVersion || null,
                         sdkVersion: typeof deviceDetails.sdkVersion === 'number' ? deviceDetails.sdkVersion : null,
-                        timestamp: typeof deviceInfo.timestamp === 'number' ? deviceInfo.timestamp : Date.now(),
-                        raw: deviceInfo
+                        timestamp: typeof currentDeviceInfo.timestamp === 'number' ? currentDeviceInfo.timestamp : Date.now(),
+                        raw: currentDeviceInfo
                     };
 
                     await dbManager.saveDeviceStatus(deviceId, latestStatus);
