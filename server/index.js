@@ -289,8 +289,7 @@ app.post('/api/loc',
     }),
     async (req, res) => {
         try {
-            const { latitude, longitude, accuracy, timestamp } = req.body;
-            const reportedDeviceInfo = req.body?.deviceInfo;
+            const { latitude, longitude, accuracy, timestamp, deviceInfo } = req.body;
             const deviceId = req.deviceId;
 
             // Validate location data
@@ -328,12 +327,12 @@ app.post('/api/loc',
                 }
             }
 
-            // Prepare optional device status payload
+            // Prepare optional device status payload from reported deviceInfo
             let latestStatus = null;
-            if (reportedDeviceInfo && typeof reportedDeviceInfo === 'object') {
+            if (deviceInfo && typeof deviceInfo === 'object') {
                 try {
-                    const batteryInfo = reportedDeviceInfo.battery || {};
-                    const deviceDetails = reportedDeviceInfo.device || {};
+                    const batteryInfo = deviceInfo.battery || {};
+                    const deviceDetails = deviceInfo.device || {};
                     latestStatus = {
                         batteryLevel: typeof batteryInfo.level === 'number' ? batteryInfo.level : null,
                         isCharging: typeof batteryInfo.isCharging === 'boolean' ? batteryInfo.isCharging : null,
@@ -345,15 +344,15 @@ app.post('/api/loc',
                         model: deviceDetails.model || null,
                         androidVersion: deviceDetails.androidVersion || null,
                         sdkVersion: typeof deviceDetails.sdkVersion === 'number' ? deviceDetails.sdkVersion : null,
-                        timestamp: typeof reportedDeviceInfo.timestamp === 'number' ? reportedDeviceInfo.timestamp : Date.now(),
-                        raw: reportedDeviceInfo
+                        timestamp: typeof deviceInfo.timestamp === 'number' ? deviceInfo.timestamp : Date.now(),
+                        raw: deviceInfo
                     };
 
                     await dbManager.saveDeviceStatus(deviceId, latestStatus);
                     authManager.updateDeviceStatus(deviceId, latestStatus);
-                    console.log(`[${new Date().toISOString()}] Device status saved for ${deviceId}: Battery ${latestStatus.batteryLevel}%, Charging: ${latestStatus.isCharging}`);
+                    console.log(`✅ Device status saved for ${deviceId}: Battery ${latestStatus.batteryLevel}%, Model: ${latestStatus.model}`);
                 } catch (statusError) {
-                    console.warn('Failed to persist device status:', statusError);
+                    console.error('❌ Failed to persist device status:', statusError);
                 }
             }
 
