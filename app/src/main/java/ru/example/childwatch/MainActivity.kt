@@ -48,6 +48,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var batteryOptimizationHelper: BatteryOptimizationHelper
     private var hasConsent = false
     private var batteryOptimizationDialogDisplayed = false
+    private val deviceInfoScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val networkClient by lazy { NetworkClient(this) }
     private val gson by lazy { Gson() }
     private var latestDeviceStatus: DeviceStatus? = null
@@ -75,7 +76,7 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         secureSettings = SecureSettingsManager(this)
         batteryOptimizationHelper = BatteryOptimizationHelper(this)
-        hasConsent = ConsentActivity.hasConsent(this) // Используем правильный метод
+        hasConsent = ConsentActivity.hasConsent(this) // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ
 
         // Set app version
         binding.appVersionText.text = "v${BuildConfig.VERSION_NAME}"
@@ -110,7 +111,7 @@ class MainActivity : AppCompatActivity() {
 
         // Menu card click listeners
         binding.homeCard.setOnClickListener {
-            showToast("Главная - уже здесь!")
+            showToast("пїЅпїЅпїЅпїЅпїЅпїЅпїЅ - пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ!")
         }
         
         binding.locationCard.setOnClickListener {
@@ -125,7 +126,7 @@ class MainActivity : AppCompatActivity() {
             val childDeviceId = prefs.getString("child_device_id", "")
 
             if (childDeviceId.isNullOrEmpty()) {
-                // Показать диалог с вариантами
+                // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
                 showDeviceIdOptions(serverUrl)
             } else {
                 val intent = Intent(this, AudioStreamingActivity::class.java).apply {
@@ -238,10 +239,10 @@ class MainActivity : AppCompatActivity() {
                 val runningTime = System.currentTimeMillis() - serviceStartTime
                 val hours = runningTime / (1000 * 60 * 60)
                 val minutes = (runningTime % (1000 * 60 * 60)) / (1000 * 60)
-                val timeString = "${hours}ч ${minutes}м"
+                val timeString = "${hours}пїЅ ${minutes}пїЅ"
                 binding.serviceRunningTimeText.text = getString(R.string.service_running_time, timeString)
             } else {
-                binding.serviceRunningTimeText.text = getString(R.string.service_running_time, "неизвестно")
+                binding.serviceRunningTimeText.text = getString(R.string.service_running_time, "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ")
             }
             
             // Update feature status
@@ -254,7 +255,7 @@ class MainActivity : AppCompatActivity() {
             binding.statusIcon.setImageResource(android.R.drawable.ic_dialog_alert)
             binding.statusIcon.setColorFilter(ContextCompat.getColor(this, android.R.color.darker_gray))
             
-            binding.serviceRunningTimeText.text = getString(R.string.service_running_time, "не работает")
+            binding.serviceRunningTimeText.text = getString(R.string.service_running_time, "пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ")
             
             // Update feature status
             binding.locationStatusText.text = getString(R.string.status_location_inactive)
@@ -279,7 +280,7 @@ class MainActivity : AppCompatActivity() {
             val timeString = dateFormat.format(Date(lastLocationUpdate))
             binding.lastUpdateText.text = getString(R.string.last_location_update, timeString)
         } else {
-            binding.lastUpdateText.text = getString(R.string.last_location_update, "никогда")
+            binding.lastUpdateText.text = getString(R.string.last_location_update, "пїЅпїЅпїЅпїЅпїЅпїЅпїЅ")
         }
         
         // Audio update
@@ -288,7 +289,7 @@ class MainActivity : AppCompatActivity() {
             val timeString = dateFormat.format(Date(lastAudioUpdate))
             binding.lastAudioUpdateText.text = getString(R.string.last_audio_update, timeString)
         } else {
-            binding.lastAudioUpdateText.text = getString(R.string.last_audio_update, "никогда")
+            binding.lastAudioUpdateText.text = getString(R.string.last_audio_update, "пїЅпїЅпїЅпїЅпїЅпїЅпїЅ")
         }
         
         // Photo update
@@ -297,7 +298,7 @@ class MainActivity : AppCompatActivity() {
             val timeString = dateFormat.format(Date(lastPhotoUpdate))
             binding.lastPhotoUpdateText.text = getString(R.string.last_photo_update, timeString)
         } else {
-            binding.lastPhotoUpdateText.text = getString(R.string.last_photo_update, "никогда")
+            binding.lastPhotoUpdateText.text = getString(R.string.last_photo_update, "пїЅпїЅпїЅпїЅпїЅпїЅпїЅ")
         }
     }
     
@@ -390,7 +391,7 @@ class MainActivity : AppCompatActivity() {
         status.androidVersion?.takeIf { it.isNotBlank() }?.let { androidParts.add("v$it") }
         status.sdkVersion?.let { androidParts.add("SDK $it") }
         binding.deviceInfoAndroidValue.text = if (androidParts.isNotEmpty()) {
-            androidParts.joinToString(" • ")
+            androidParts.joinToString(" пїЅ ")
         } else {
             getString(R.string.device_info_unknown)
         }
@@ -467,7 +468,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isDebugBuild) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.DEBUG_BUILD_DETECTED,
-                //     "Приложение собрано в debug режиме",
+                //     "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ debug пїЅпїЅпїЅпїЅпїЅпїЅ",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -476,7 +477,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isDeveloperOptionsEnabled) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.DEVELOPER_OPTIONS_ENABLED,
-                //     "Включены опции разработчика",
+                //     "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -485,7 +486,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isUsbDebuggingEnabled) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.USB_DEBUGGING_ENABLED,
-                //     "Включена отладка по USB",
+                //     "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ USB",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -494,7 +495,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isDeviceRooted) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.ROOT_DETECTED,
-                //     "Устройство имеет root права",
+                //     "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ root пїЅпїЅпїЅпїЅпїЅ",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -503,7 +504,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isEmulator) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.EMULATOR_DETECTED,
-                //     "Приложение запущено в эмуляторе",
+                //     "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -512,7 +513,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isDebuggerAttached) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.DEBUGGER_ATTACHED,
-                //     "Подключен отладчик",
+                //     "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -521,7 +522,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isAppDebuggable) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.APP_DEBUGGABLE,
-                //     "Приложение доступно для отладки",
+                //     "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -530,7 +531,7 @@ class MainActivity : AppCompatActivity() {
             if (securityReport.isMockLocationEnabled) {
                 // SecurityLogger.logSecurityEvent(this, SecurityEvent(
                 //     SecurityEventType.MOCK_LOCATION_ENABLED,
-                //     "Включены mock-локации",
+                //     "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ mock-пїЅпїЅпїЅпїЅпїЅпїЅпїЅ",
                 //     true,
                 //     System.currentTimeMillis()
                 // ))
@@ -539,7 +540,7 @@ class MainActivity : AppCompatActivity() {
             // Show security warnings if any
             if (securityWarnings.isNotEmpty()) {
                 val warningText = securityWarnings.joinToString("\n")
-                Toast.makeText(this, "Предупреждения безопасности:\n$warningText", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ:\n$warningText", Toast.LENGTH_LONG).show()
             }
             
             // Log security score
@@ -593,12 +594,12 @@ class MainActivity : AppCompatActivity() {
 
     private fun showEmergencyStopDialog() {
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("?? Экстренная остановка")
-            .setMessage("Это немедленно остановит ВСЕ функции слежки:\n• Прослушку (если активна)\n• Мониторинг\n• Все фоновые процессы\n\nВы уверены?")
-            .setPositiveButton("Да, остановить всё") { _, _ ->
+            .setTitle("?? пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ")
+            .setMessage("пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ:\nпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ (пїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ)\nпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ\nпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ\n\nпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ?")
+            .setPositiveButton("пїЅпїЅ, пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ") { _, _ ->
                 emergencyStopAll()
             }
-            .setNegativeButton("Отмена", null)
+            .setNegativeButton("пїЅпїЅпїЅпїЅпїЅпїЅ", null)
             .show()
     }
 
@@ -615,7 +616,7 @@ class MainActivity : AppCompatActivity() {
         stopMonitoring()
         Log.d("ChildWatch", "? Monitoring stopped")
 
-        showToast("?? Экстренная остановка выполнена")
+        showToast("?? пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ")
         Log.w("ChildWatch", "?? EMERGENCY STOP completed")
     }
 
@@ -660,16 +661,16 @@ class MainActivity : AppCompatActivity() {
         val consequences = PermissionHelper.getPermissionDenialConsequences(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Разрешение на фоновое местоположение")
-            .setMessage("$explanation\n\n$consequences\n\nПродолжить?")
-            .setPositiveButton("Разрешить") { _, _ ->
+            .setTitle("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ")
+            .setMessage("$explanation\n\n$consequences\n\nпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ?")
+            .setPositiveButton("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ") { _, _ ->
                 backgroundLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             }
-            .setNegativeButton("Отказаться") { _, _ ->
-                showToast("Отслеживание будет работать только когда приложение активно")
+            .setNegativeButton("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ") { _, _ ->
+                showToast("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ")
                 onAllPermissionsGranted()
             }
-            .setNeutralButton("Настройки") { _, _ ->
+            .setNeutralButton("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ") { _, _ ->
                 PermissionHelper.openAppSettings(this)
             }
             .show()
@@ -679,12 +680,12 @@ class MainActivity : AppCompatActivity() {
         val deniedPermissions = permissions.filter { !it.value }.keys
         
         if (deniedPermissions.isEmpty()) {
-            showToast("Основные разрешения предоставлены")
+            showToast("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ")
             // Now request background location permission
             requestBackgroundLocationPermission()
         } else {
             val deniedList = deniedPermissions.joinToString(", ")
-            showToast("Отказано в разрешениях: $deniedList")
+            showToast("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ: $deniedList")
             
             // Show explanation for denied permissions
             showPermissionDeniedExplanation(deniedPermissions)
@@ -693,16 +694,16 @@ class MainActivity : AppCompatActivity() {
     
     private fun handleBackgroundLocationResult(isGranted: Boolean) {
         if (isGranted) {
-            showToast("Все разрешения предоставлены")
+            showToast("пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ")
             onAllPermissionsGranted()
         } else {
-            showToast("Фоновое местоположение отклонено. Отслеживание будет работать только когда приложение активно")
+            showToast("пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ. пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ")
             onAllPermissionsGranted() // Continue anyway
         }
     }
     
     private fun onAllPermissionsGranted() {
-        showToast("Все необходимые разрешения предоставлены")
+        showToast("пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ")
         // Try to start monitoring if consent is given
         if (hasConsent) {
             startMonitoring()
@@ -717,12 +718,12 @@ class MainActivity : AppCompatActivity() {
         val message = explanations.joinToString("\n\n")
         
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Необходимые разрешения")
+            .setTitle("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ")
             .setMessage(message)
-            .setPositiveButton("Настройки") { _, _ ->
+            .setPositiveButton("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ") { _, _ ->
                 PermissionHelper.openAppSettings(this)
             }
-            .setNegativeButton("Понятно") { _, _ -> }
+            .setNegativeButton("пїЅпїЅпїЅпїЅпїЅпїЅпїЅ") { _, _ -> }
             .show()
     }
     
@@ -744,24 +745,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun showDeviceIdOptions(serverUrl: String) {
         MaterialAlertDialogBuilder(this)
-            .setTitle("Device ID не указан")
-            .setMessage("Выберите способ получения Device ID ребёнка:")
-            .setPositiveButton("Тестовый режим") { _, _ ->
-                // Использовать тестовый ID для демонстрации
+            .setTitle("Device ID пїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ")
+            .setMessage("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ Device ID пїЅпїЅпїЅпїЅпїЅпїЅ:")
+            .setPositiveButton("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ") { _, _ ->
+                // пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ ID пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ
                 val testDeviceId = "test-child-device-001"
                 val intent = Intent(this, AudioStreamingActivity::class.java).apply {
                     putExtra(AudioStreamingActivity.EXTRA_DEVICE_ID, testDeviceId)
                     putExtra(AudioStreamingActivity.EXTRA_SERVER_URL, serverUrl)
                 }
                 startActivity(intent)
-                showToast("Запущен тестовый режим с ID: $testDeviceId")
+                showToast("пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ пїЅ ID: $testDeviceId")
             }
-            .setNeutralButton("Настройки") { _, _ ->
-                // Перейти в настройки для ввода ID
+            .setNeutralButton("пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ") { _, _ ->
+                // пїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅ ID
                 val intent = Intent(this, SettingsActivity::class.java)
                 startActivity(intent)
             }
-            .setNegativeButton("Отмена", null)
+            .setNegativeButton("пїЅпїЅпїЅпїЅпїЅпїЅ", null)
             .show()
     }
 
