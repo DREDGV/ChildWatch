@@ -90,262 +90,171 @@ class WebSocketManager {
         console.log(`📱 Child device registered: ${deviceId} (socket: ${socket.id})`);
 
         socket.emit('registered', {
-            deviceId,
-            role: 'child',
+            success: true,
+            deviceId: deviceId,
             timestamp: Date.now()
         });
-
-        // SIMPLIFIED ARCHITECTURE - Auto-link with parent if exists
-        // Check if there's already a parent listening for this device
-        const parentSockets = this.activeStreams.get(deviceId);
-        if (parentSockets && parentSockets.size > 0) {
-            parentSockets.forEach(parentSocketId => {
-                this.io.to(parentSocketId).emit('child_connected', {
-                    deviceId,
-                    timestamp: Date.now()
-                });
-            });
-            console.log(`🔗 Auto-linked child ${socket.id} with ${parentSockets.size} existing parent(s) for ${deviceId}`);
-        } else {
-            console.log(`⚠️ No parent listening for ${deviceId} yet - will auto-link when parent connects`);
-        }
     }
 
     /**
      * Register parent device (ChildWatch)
      */
     handleParentRegistration(socket, data) {
-        const { childDeviceId } = data;
+        const { deviceId } = data;
 
-        if (!childDeviceId) {
-            console.error('❌ Parent registration failed: missing childDeviceId');
-            socket.emit('error', { message: 'Missing childDeviceId' });
+        if (!deviceId) {
+            console.error('❌ Parent registration failed: missing deviceId');
+            socket.emit('error', { message: 'Missing deviceId' });
             return;
         }
 
         // Store parent socket mapping
-        this.parentSockets.set(socket.id, childDeviceId);
-        socket.childDeviceId = childDeviceId;
+        this.parentSockets.set(socket.id, deviceId);
+        socket.deviceId = deviceId;
         socket.deviceType = 'parent';
 
-        // Track listening parent sockets
-        if (!this.activeStreams.has(childDeviceId)) {
-            this.activeStreams.set(childDeviceId, new Set());
-        }
-        this.activeStreams.get(childDeviceId).add(socket.id);
-
-        console.log(`👨‍👩‍👧 Parent device registered: monitoring ${childDeviceId} (socket: ${socket.id})`);
+        console.log(`👨‍👩‍👧 Parent device registered for child: ${deviceId} (socket: ${socket.id})`);
 
         socket.emit('registered', {
-            childDeviceId,
-            role: 'parent',
+            success: true,
+            deviceId: deviceId,
             timestamp: Date.now()
         });
 
-        // SIMPLIFIED ARCHITECTURE - Auto-link devices
-        // Notify child device that parent is listening
-        const childSocketId = this.childSockets.get(childDeviceId);
+        // Notify child that parent is connected
+        const childSocketId = this.childSockets.get(deviceId);
         if (childSocketId) {
-            this.io.to(childSocketId).emit('parent_connected', {
-                timestamp: Date.now()
-            });
-            console.log(`🔗 Auto-linked parent ${socket.id} with child ${childSocketId} for ${childDeviceId}`);
-        } else {
-            console.log(`⚠️ Child device ${childDeviceId} not connected yet - will auto-link when it connects`);
+            const childSocket = this.io.sockets.sockets.get(childSocketId);
+            if (childSocket) {
+                childSocket.emit('parent_connected');
+                console.log(`🔔 Parent connected notification sent to child: ${deviceId}`);
+            }
         }
     }
 
     /**
      * Handle audio chunk from child device
-     * Receives metadata (JSON) and binary data (Buffer) as separate arguments
      */
     handleAudioChunk(socket, metadata, binaryData) {
-        const deviceId = socket.deviceId;
+        try {
+            const { deviceId, sequence, timestamp, recording } = metadata;
 
-        if (!deviceId) {
-            console.error('❌ Audio chunk rejected: socket not registered as child');
-            return;
+            if (!deviceId) {
+                console.error('❌ Audio chunk missing deviceId');
+                return;
+            }
+
+            if (!binaryData || binaryData.length === 0) {
+                console.error('❌ Audio chunk is empty');
+                return;
+            }
+
+            console.log(`🎵 Audio chunk received from ${deviceId} (#${sequence}, ${binaryData.length} bytes)`);
+
+            // Forward chunk to parent device if connected
+            const parentSocketId = Array.from(this.parentSockets.entries())
+                .find(([id, childDeviceId]) => childDeviceId === deviceId)?.[0];
+
+            if (parentSocketId) {
+                const parentSocket = this.io.sockets.sockets.get(parentSocketId);
+                if (parentSocket) {
+                    // Send both metadata and binary data
+                    parentSocket.emit('audio_chunk', metadata, binaryData);
+                    console.log(`📤 Audio chunk #${sequence} forwarded to parent`);
+                } else {
+                    console.log(`⚠️ Parent socket not found for device: ${deviceId}`);
+                    this.parentSockets.delete(parentSocketId);
+                }
+            } else {
+                console.log(`📭 No parent connected for device: ${deviceId}`);
+            }
+        } catch (error) {
+            console.error('❌ Error handling audio chunk:', error);
         }
-
-        // Extract metadata
-        const { sequence, timestamp, recording } = metadata || {};
-
-        // Validate binary data
-        if (!binaryData || !Buffer.isBuffer(binaryData)) {
-            console.error('❌ Audio chunk rejected: missing or invalid binary data');
-            return;
-        }
-
-        // Get parent sockets for this child device
-        const parentSockets = this.activeStreams.get(deviceId);
-
-        if (!parentSockets || parentSockets.size === 0) {
-            // No parent listening - just acknowledge receipt
-            console.log(`⚠️ No parent listening for ${deviceId} - chunk ${sequence} ignored`);
-            return;
-        }
-
-        // Forward chunk to ALL parent devices in real-time
-        // Send metadata and binary data separately
-        parentSockets.forEach(parentSocketId => {
-            this.io.to(parentSocketId).emit('audio_chunk', {
-                deviceId,
-                sequence,
-                timestamp: timestamp || Date.now(),
-                recording,
-                receivedAt: Date.now()
-            }, binaryData); // Binary data as second argument
-        });
-
-        // Log every chunk for debugging
-        console.log(`🎙️ Forwarded chunk ${sequence} from ${deviceId} to ${parentSockets.size} parent(s) (${binaryData.length} bytes)`);
     }
 
     /**
-     * Handle chat message from either child or parent device
-     * Routes messages bidirectionally: child ↔ parent
+     * Handle chat message
      */
     handleChatMessage(socket, data) {
-        const { id, text, sender, timestamp, deviceId: messageDeviceId } = data;
+        try {
+            const { deviceId, text, sender, timestamp } = data;
 
-        if (!text || !sender || !['parent', 'child'].includes(sender)) {
-            console.error('❌ Chat message rejected: invalid format');
-            socket.emit('chat_error', { message: 'Invalid message format' });
-            return;
-        }
-
-        const deviceType = socket.deviceType;
-        let targetDeviceId;
-
-        // Determine target device based on sender type
-        if (deviceType === 'child') {
-            // Message from child device - route to parent(s)
-            targetDeviceId = socket.deviceId;
-            const parentSockets = this.activeStreams.get(targetDeviceId);
-
-            if (!parentSockets || parentSockets.size === 0) {
-                console.log(`⚠️ No parent connected for ${targetDeviceId} - message stored but not delivered`);
-                // Still acknowledge to sender
-                socket.emit('chat_message_sent', { id, timestamp: Date.now() });
+            if (!deviceId || !text) {
+                console.error('❌ Chat message missing required fields');
                 return;
             }
 
-            // Forward message to all parent devices
-            parentSockets.forEach(parentSocketId => {
-                this.io.to(parentSocketId).emit('chat_message', {
-                    id,
-                    text,
-                    sender,
-                    timestamp: timestamp || Date.now(),
-                    deviceId: targetDeviceId
-                });
-            });
+            // Forward message to parent device
+            const parentSocketId = Array.from(this.parentSockets.entries())
+                .find(([id, childDeviceId]) => childDeviceId === deviceId)?.[0];
 
-            console.log(`💬 Forwarded message from child ${targetDeviceId} to ${parentSockets.size} parent(s)`);
-
-        } else if (deviceType === 'parent') {
-            // Message from parent device - route to child
-            targetDeviceId = socket.childDeviceId;
-            const childSocketId = this.childSockets.get(targetDeviceId);
-
-            if (!childSocketId) {
-                console.log(`⚠️ Child device ${targetDeviceId} not connected - message stored but not delivered`);
-                // Still acknowledge to sender
-                socket.emit('chat_message_sent', { id, timestamp: Date.now() });
-                return;
+            if (parentSocketId) {
+                const parentSocket = this.io.sockets.sockets.get(parentSocketId);
+                if (parentSocket) {
+                    parentSocket.emit('chat_message', data);
+                    console.log(`💬 Chat message forwarded to parent for device: ${deviceId}`);
+                }
             }
 
-            // Forward message to child device
-            this.io.to(childSocketId).emit('chat_message', {
-                id,
-                text,
-                sender,
-                timestamp: timestamp || Date.now(),
-                deviceId: targetDeviceId
-            });
-
-            console.log(`💬 Forwarded message from parent to child ${targetDeviceId}`);
-
-        } else {
-            console.error('❌ Chat message rejected: unknown device type');
-            socket.emit('chat_error', { message: 'Device not registered' });
-            return;
+            // Confirm message sent back to sender
+            socket.emit('chat_message_sent', { id: data.id, timestamp: Date.now() });
+        } catch (error) {
+            console.error('❌ Error handling chat message:', error);
         }
-
-        // Acknowledge message sent
-        socket.emit('chat_message_sent', { id, timestamp: Date.now() });
     }
-
-    emitCriticalAlert(deviceId, alertPayload) {
-        const parentSockets = this.activeStreams.get(deviceId);
-        if (parentSockets && parentSockets.size > 0) {
-            parentSockets.forEach(socketId => {
-                this.io.to(socketId).emit('critical_alert', alertPayload);
-            });
-            return true;
-        }
-        return false;
-    }
-
 
     /**
      * Handle client disconnection
      */
     handleDisconnect(socket) {
-        const socketId = socket.id;
-        const deviceType = socket.deviceType;
+        console.log(`🔌 Client disconnected: ${socket.id} (${socket.deviceType || 'unknown'})`);
 
-        console.log(`🔌 Client disconnected: ${socketId} (type: ${deviceType || 'unknown'})`);
-
-        if (deviceType === 'child') {
+        if (socket.deviceType === 'child') {
+            // Child device disconnected
             const deviceId = socket.deviceId;
+            if (deviceId) {
+                this.childSockets.delete(deviceId);
+                console.log(`📱 Child device removed: ${deviceId}`);
 
-            // Remove child socket mapping
-            this.childSockets.delete(deviceId);
+                // Notify parent that child disconnected
+                const parentSocketId = Array.from(this.parentSockets.entries())
+                    .find(([id, childDeviceId]) => childDeviceId === deviceId)?.[0];
 
-            // Notify ALL parents that child disconnected
-            const parentSockets = this.activeStreams.get(deviceId);
-            if (parentSockets && parentSockets.size > 0) {
-                parentSockets.forEach(parentSocketId => {
-                    this.io.to(parentSocketId).emit('child_disconnected', {
-                        deviceId,
-                        timestamp: Date.now()
-                    });
-                });
-            }
-
-            // Remove streaming session
-            this.activeStreams.delete(deviceId);
-
-            console.log(`📱 Child device disconnected: ${deviceId}`);
-        }
-        else if (deviceType === 'parent') {
-            const childDeviceId = socket.childDeviceId;
-
-            // Remove parent socket mapping
-            this.parentSockets.delete(socketId);
-
-            // Remove this parent from streaming session (but keep others)
-            const parentSockets = this.activeStreams.get(childDeviceId);
-            if (parentSockets) {
-                parentSockets.delete(socketId);
-                
-                // If no more parents listening, remove the session
-                if (parentSockets.size === 0) {
-                    this.activeStreams.delete(childDeviceId);
+                if (parentSocketId) {
+                    const parentSocket = this.io.sockets.sockets.get(parentSocketId);
+                    if (parentSocket) {
+                        parentSocket.emit('child_disconnected');
+                    }
+                    this.parentSockets.delete(parentSocketId);
                 }
             }
-
-            // Notify child that parent stopped listening
-            const childSocketId = this.childSockets.get(childDeviceId);
-            if (childSocketId) {
-                this.io.to(childSocketId).emit('parent_disconnected', {
-                    timestamp: Date.now()
-                });
+        } else if (socket.deviceType === 'parent') {
+            // Parent device disconnected
+            const deviceId = this.parentSockets.get(socket.id);
+            if (deviceId) {
+                this.parentSockets.delete(socket.id);
+                console.log(`👨‍👩‍👧 Parent device removed for child: ${deviceId}`);
             }
-
-            console.log(`👨‍👩‍👧 Parent device disconnected: was monitoring ${childDeviceId}`);
         }
+    }
+
+    /**
+     * Check if child device is connected
+     */
+    isChildConnected(deviceId) {
+        const socketId = this.childSockets.get(deviceId);
+        if (!socketId) return false;
+
+        const socket = this.io.sockets.sockets.get(socketId);
+        return socket && socket.connected;
+    }
+
+    /**
+     * Check if there's an active listener for a child device
+     */
+    hasActiveListener(deviceId) {
+        return Array.from(this.parentSockets.values()).includes(deviceId);
     }
 
     /**
@@ -353,37 +262,11 @@ class WebSocketManager {
      */
     getStats() {
         return {
-            childDevices: this.childSockets.size,
-            parentDevices: this.parentSockets.size,
-            activeStreams: this.activeStreams.size,
-            totalConnections: this.io.engine.clientsCount
+            totalConnections: this.io.engine.clientsCount,
+            activeChildDevices: this.childSockets.size,
+            activeParentDevices: this.parentSockets.size,
+            activeStreams: this.activeStreams.size
         };
-    }
-
-    /**
-     * Check if child device is connected
-     */
-    isChildConnected(deviceId) {
-        return this.childSockets.has(deviceId);
-    }
-
-    /**
-     * Check if parent is listening to child device
-     */
-    hasActiveListener(deviceId) {
-        return this.activeStreams.has(deviceId);
-    }
-
-    /**
-     * Force disconnect a device
-     */
-    disconnectDevice(socketId) {
-        const socket = this.io.sockets.sockets.get(socketId);
-        if (socket) {
-            socket.disconnect(true);
-            return true;
-        }
-        return false;
     }
 }
 

@@ -912,8 +912,8 @@ class NetworkClient(private val context: Context) {
                 val request = Request.Builder()
                     .url(url)
                     .get()
-        .build()
-    
+                    .build()
+
                 val response = client.newCall(request).execute()
 
                 if (response.isSuccessful) {

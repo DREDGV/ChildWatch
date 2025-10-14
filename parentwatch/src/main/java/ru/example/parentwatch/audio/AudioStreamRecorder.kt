@@ -47,7 +47,7 @@ class AudioStreamRecorder(
 
     private var deviceId: String? = null
     private var serverUrl: String? = null
-    private var recordingMode: Boolean = false
+    private var recordingMode: Boolean = false // true if saving recording
     private var webSocketClient: WebSocketClient? = null
     private var webSocketConnected = false
     private val streamScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -82,28 +82,34 @@ class AudioStreamRecorder(
         this.sequence = 0
         webSocketConnected = false
 
-        Log.d(TAG, "Starting audio streaming via WebSocket (recording mode: $recordingMode)")
+        Log.d(TAG, "🎙️ Starting audio streaming via WebSocket - recording mode: $recordingMode")
 
+        // Initialize WebSocket connection
+        webSocketClient = WebSocketClient(serverUrl, deviceId)
+        webSocketClient?.connect(
+            onConnected = {
+                Log.d(TAG, "✅ WebSocket connected - starting audio recording")
+                webSocketClient?.startHeartbeat()
+                webSocketConnected = true
+            },
+            onError = { error ->
+                Log.e(TAG, "❌ WebSocket connection failed: $error")
+                webSocketConnected = false
+            }
+        )
+
+        // Initialize AudioRecord ONCE for continuous recording
         initializeAudioRecord()
-        connectWebSocket()
 
         isRecording = true
         recordingJob = streamScope.launch {
             try {
-                val connected = waitForConnection()
-                if (!connected) {
-                    Log.w(TAG, "WebSocket not ready after initial wait; will retry while recording")
-                }
+                // Wait a bit for WebSocket to connect
+                delay(1000)
 
                 while (isRecording) {
-                    if (!webSocketConnected) {
-                        Log.w(TAG, "WebSocket disconnected, attempting reconnection before sending chunk")
-                        ensureConnected()
-                        delay(500)
-                        continue
-                    }
-
                     recordAndSendChunk()
+                    // No delay needed - send immediately after recording
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Streaming error", e)
@@ -116,17 +122,16 @@ class AudioStreamRecorder(
      * Stop audio streaming
      */
     fun stopStreaming() {
-        Log.d(TAG, "Stopping audio streaming")
+        Log.d(TAG, "🛑 Stopping audio streaming")
 
         isRecording = false
         recordingJob?.cancel()
         recordingJob = null
 
+        // Cleanup WebSocket
         webSocketClient?.cleanup()
         webSocketClient = null
         webSocketConnected = false
-        connectionDeferred?.cancel()
-        connectionDeferred = null
 
         releaseRecorder()
         cleanupChunks()
@@ -155,7 +160,6 @@ class AudioStreamRecorder(
 
             if (!webSocketConnected) {
                 Log.w(TAG, "WebSocket unavailable, skipping chunk #$sequence")
-                ensureConnected()
                 return
             }
 
@@ -178,147 +182,98 @@ class AudioStreamRecorder(
         }
     }
 
-    private fun connectWebSocket() {
-        val deviceId = this.deviceId ?: return
-        val serverUrl = this.serverUrl ?: return
-
-        if (connectionDeferred?.isActive == true) {
-            return
-        }
-
-        val client = webSocketClient ?: WebSocketClient(serverUrl, deviceId).also { webSocketClient = it }
-        connectionDeferred = CompletableDeferred()
-        client.connect(
-            onConnected = {
-                Log.d(TAG, "WebSocket connected - ready to stream audio")
-                webSocketConnected = true
-                connectionDeferred?.takeIf { !it.isCompleted && !it.isCancelled }?.complete(true)
-                client.startHeartbeat()
-            },
-            onError = { error ->
-                Log.e(TAG, "WebSocket connection error: $error")
-                webSocketConnected = false
-                connectionDeferred?.takeIf { !it.isCompleted && !it.isCancelled }?.complete(false)
-                if (isRecording) {
-                    streamScope.launch {
-                        delay(RECONNECTION_DELAY_MS)
-                        connectWebSocket()
-                    }
-                }
-            }
-        )
-    }
-
-    private suspend fun waitForConnection(timeoutMs: Long = INITIAL_CONNECTION_TIMEOUT_MS): Boolean {
-        if (webSocketConnected) return true
-        val deferred = connectionDeferred ?: return false
-        return withTimeoutOrNull(timeoutMs) { deferred.await() } == true
-    }
-
-    private fun ensureConnected() {
-        if (!webSocketConnected) {
-            connectWebSocket()
-        }
-    }
-
     /**
-     * Initialize AudioRecord for continuous recording
+     * Initialize AudioRecord
      */
     private fun initializeAudioRecord() {
         try {
-            if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
-                != PackageManager.PERMISSION_GRANTED) {
-                Log.e(TAG, "RECORD_AUDIO permission not granted")
-                return
-            }
+            releaseRecorder()
 
             audioRecord = AudioRecord(
                 MediaRecorder.AudioSource.MIC,
                 SAMPLE_RATE,
                 CHANNEL_CONFIG,
                 AUDIO_FORMAT,
-                bufferSize * 4
+                bufferSize * 4 // Increased buffer size
             )
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                Log.e(TAG, "AudioRecord not initialized")
-                audioRecord?.release()
-                audioRecord = null
+                Log.e(TAG, "AudioRecord failed to initialize")
+                releaseRecorder()
                 return
             }
 
             audioRecord?.startRecording()
-            Log.d(TAG, "AudioRecord initialized and started - continuous recording")
+            Log.d(TAG, "AudioRecord initialized and started")
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing AudioRecord", e)
+            releaseRecorder()
         }
     }
 
     /**
-     * Record single audio chunk from continuous AudioRecord stream
+     * Record a single chunk of audio
      */
-    private suspend fun recordChunk(): ByteArray? = withContext(Dispatchers.IO) {
-        try {
-            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED ||
-                audioRecord?.recordingState != AudioRecord.RECORDSTATE_RECORDING) {
-                Log.e(TAG, "AudioRecord not recording - state: ${audioRecord?.state}, recording: ${audioRecord?.recordingState}")
-                return@withContext null
-            }
+    private fun recordChunk(): ByteArray? {
+        val samplesToRecord = (SAMPLE_RATE * CHUNK_DURATION_MS / 1000).toInt()
+        val bytesPerSample = 2 // 16-bit PCM
+        val chunkSizeInBytes = samplesToRecord * bytesPerSample
 
-            val chunkSize = (SAMPLE_RATE * (CHUNK_DURATION_MS / 1000.0) * 2).toInt()
-            val audioBuffer = ByteArray(chunkSize)
-            var totalRead = 0
+        val buffer = ByteArray(chunkSizeInBytes)
+        var totalRead = 0
 
-            while (totalRead < chunkSize && isRecording) {
-                val bytesRead = audioRecord?.read(audioBuffer, totalRead, chunkSize - totalRead) ?: 0
-                if (bytesRead > 0) {
-                    totalRead += bytesRead
-                } else if (bytesRead == AudioRecord.ERROR_INVALID_OPERATION || bytesRead == AudioRecord.ERROR_BAD_VALUE) {
-                    Log.e(TAG, "Error reading audio data: $bytesRead")
+        while (totalRead < chunkSizeInBytes && isRecording) {
+            try {
+                val toRead = minOf(1024, chunkSizeInBytes - totalRead)
+                val read = audioRecord?.read(buffer, totalRead, toRead) ?: -1
+
+                if (read <= 0) {
+                    Log.w(TAG, "AudioRecord.read returned: $read")
                     break
-                } else {
-                    Log.w(TAG, "No audio data read, bytesRead: $bytesRead")
                 }
-            }
 
-            if (totalRead > 0) {
-                audioBuffer.copyOf(totalRead)
-            } else {
-                null
+                totalRead += read
+            } catch (e: Exception) {
+                Log.e(TAG, "Error reading from AudioRecord", e)
+                break
             }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error recording chunk #$sequence", e)
-            null
         }
+
+        return if (totalRead > 0) buffer else null
     }
 
     /**
-     * Release audio recorder
+     * Release AudioRecord resources
      */
     private fun releaseRecorder() {
         try {
-            audioRecord?.stop()
-            audioRecord?.release()
+            audioRecord?.let { recorder ->
+                if (recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                    recorder.stop()
+                }
+                recorder.release()
+            }
             audioRecord = null
-            Log.d(TAG, "AudioRecord stopped and released")
+            Log.d(TAG, "AudioRecord released")
         } catch (e: Exception) {
-            Log.e(TAG, "Error releasing recorder", e)
+            Log.e(TAG, "Error releasing AudioRecord", e)
         }
     }
 
     /**
-     * Clean up old chunks
+     * Clean up temporary chunk files
      */
     private fun cleanupChunks() {
         try {
-            cacheDir.listFiles()?.forEach { it.delete() }
+            if (cacheDir.exists()) {
+                cacheDir.listFiles()?.forEach { file ->
+                    if (file.name.startsWith("chunk_")) {
+                        file.delete()
+                    }
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error cleaning up chunks", e)
         }
     }
-
-    /**
-     * Check if currently streaming
-     */
-    fun isStreaming(): Boolean = isRecording
 }

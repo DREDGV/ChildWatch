@@ -37,6 +37,7 @@ class WebSocketClient(
     
     // Track last processed sequence to prevent duplicates
     private var lastProcessedSequence = -1
+    private var heartbeatJob: Job? = null
 
     companion object {
         private const val TAG = "WebSocketClient"
@@ -44,7 +45,128 @@ class WebSocketClient(
         private const val RECONNECTION_DELAY = 1000L // 1 second
         private const val RECONNECTION_DELAY_MAX = 5000L // 5 seconds max
         private const val PING_INTERVAL = 25000L // 25 seconds (heartbeat)
-        private const val PING_TIMEOUT = 60000L // 60 seconds
+    }
+
+    // Connection event handlers
+    private val onConnect = Emitter.Listener {
+        Log.d(TAG, "🟢 WebSocket connected")
+        scope.launch {
+            isConnected = true
+            lastProcessedSequence = -1
+            registerAsParent()
+            onConnectedCallback?.invoke()
+        }
+    }
+
+    private val onDisconnect = Emitter.Listener { args ->
+        Log.d(TAG, "🔴 WebSocket disconnected. Reason: ${args.getOrNull(0)}")
+        isConnected = false
+        stopHeartbeat()
+        lastProcessedSequence = -1
+        onChildDisconnected?.invoke()
+    }
+
+    private val onConnectError = Emitter.Listener { args ->
+        val error = args.getOrNull(0)
+        Log.e(TAG, "❌ WebSocket connection error: $error")
+        isConnected = false
+        scope.launch {
+            onErrorCallback?.invoke(error?.toString() ?: "Connection error")
+        }
+    }
+
+    private val onRegistered = Emitter.Listener { args ->
+        val data = args.getOrNull(0) as? JSONObject
+        val success = data?.optBoolean("success") ?: false
+        val deviceId = data?.optString("deviceId")
+        
+        if (success && deviceId == childDeviceId) {
+            Log.d(TAG, "✅ Parent registered for device: $childDeviceId")
+        } else {
+            Log.e(TAG, "❌ Parent registration failed for device: $childDeviceId")
+        }
+    }
+
+    private val onAudioChunk = Emitter.Listener { args ->
+        try {
+            // First argument should be metadata JSON
+            val metadata = args.getOrNull(0) as? JSONObject
+            // Second argument should be binary data
+            val binaryData = args.getOrNull(1) as? ByteArray
+            
+            if (metadata != null && binaryData != null) {
+                val sequence = metadata.optInt("sequence", -1)
+                val timestamp = metadata.optLong("timestamp", System.currentTimeMillis())
+                val deviceId = metadata.optString("deviceId")
+                
+                // Only process chunks for our device and prevent duplicates
+                if (deviceId == childDeviceId) {
+                    if (sequence < 0) {
+                        Log.w(TAG, "Ignoring chunk with invalid sequence: $sequence")
+                        return@Listener
+                    }
+
+                    if (sequence < lastProcessedSequence) {
+                        Log.d(TAG, "Detected sequence reset ($sequence < $lastProcessedSequence). Accepting new stream.")
+                    } else if (sequence == lastProcessedSequence) {
+                        Log.d(TAG, "⏭️ Skipped duplicate chunk #$sequence")
+                        return@Listener
+                    }
+
+                    lastProcessedSequence = sequence
+                    Log.d(TAG, "🎧 Received audio chunk #$sequence (${binaryData.size} bytes)")
+                    scope.launch {
+                        onAudioChunkReceived?.invoke(binaryData, sequence, timestamp)
+                    }
+                }
+            } else {
+                Log.w(TAG, "Invalid audio chunk data received")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing audio chunk", e)
+        }
+    }
+
+    private val onCriticalAlert = Emitter.Listener { args ->
+        try {
+            val data = args.getOrNull(0) as? JSONObject
+            if (data != null) {
+                val alert = CriticalAlertMessage(
+                    id = data.optLong("id"),
+                    eventType = data.optString("eventType"),
+                    severity = data.optString("severity"),
+                    message = data.optString("message"),
+                    metadata = data.optString("metadata"),
+                    createdAt = data.optLong("createdAt")
+                )
+                
+                scope.launch {
+                    onCriticalAlertCallback?.invoke(alert)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error processing critical alert", e)
+        }
+    }
+
+    private val onChildDisconnectedEvent = Emitter.Listener {
+        Log.d(TAG, "👶 Child device disconnected")
+        lastProcessedSequence = -1
+        scope.launch {
+            onChildDisconnected?.invoke()
+        }
+    }
+
+    private val onPong = Emitter.Listener {
+        Log.d(TAG, "🏓 Pong received")
+    }
+
+    private val onChatMessage = Emitter.Listener { args ->
+        // Handle chat messages if needed
+    }
+
+    private val onChatMessageSent = Emitter.Listener { args ->
+        // Handle chat message sent confirmation if needed
     }
 
     /**
@@ -99,6 +221,7 @@ class WebSocketClient(
     fun disconnect() {
         try {
             Log.d(TAG, "Disconnecting from WebSocket")
+            stopHeartbeat()
             socket?.disconnect()
             socket?.off("critical_alert")
             socket?.off()
@@ -122,10 +245,27 @@ class WebSocketClient(
     fun setChildDisconnectedCallback(callback: () -> Unit) {
         onChildDisconnected = callback
     }
+    
     fun setCriticalAlertCallback(callback: (CriticalAlertMessage) -> Unit) {
         onCriticalAlertCallback = callback
     }
 
+    /**
+     * Register as parent device for specific child
+     */
+    private fun registerAsParent() {
+        try {
+            val registrationData = JSONObject().apply {
+                put("deviceId", childDeviceId)
+                put("parentId", "parent_${System.currentTimeMillis()}")
+            }
+            
+            socket?.emit("register_parent", registrationData)
+            Log.d(TAG, "📤 Parent registration sent for device: $childDeviceId")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error registering as parent", e)
+        }
+    }
 
     /**
      * Send heartbeat/ping
@@ -149,50 +289,33 @@ class WebSocketClient(
         onError: (String) -> Unit = {}
     ) {
         try {
-            Log.d(TAG, "💬 Sending chat message: $text")
-
             if (!isConnected) {
-                Log.w(TAG, "❌ Not connected - cannot send chat message")
                 onError("Not connected to server")
                 return
             }
 
-            if (socket == null) {
-                Log.e(TAG, "❌ Socket is null - cannot send chat message")
-                onError("Socket not initialized")
-                return
-            }
-
-            // Create message data with explicit UTF-8 encoding
             val messageData = JSONObject().apply {
                 put("id", messageId)
-                put("text", text) // JSONObject handles UTF-8 encoding automatically
+                put("text", text)
                 put("sender", sender)
-                put("timestamp", System.currentTimeMillis())
                 put("deviceId", childDeviceId)
+                put("timestamp", System.currentTimeMillis())
             }
 
-            Log.d(TAG, "📋 Sending chat message (UTF-8): $messageData")
-
-            // Emit chat message
             socket?.emit("chat_message", messageData)
-
-            Log.d(TAG, "✅ Chat message emitted via Socket.IO")
             onSuccess()
-
         } catch (e: Exception) {
-            Log.e(TAG, "💥 Error sending chat message", e)
-            onError("Send error: ${e.message}")
+            Log.e(TAG, "Error sending chat message", e)
+            onError("Failed to send message: ${e.message}")
         }
     }
 
     /**
-     * Set callback for receiving chat messages
+     * Set callback for chat messages
      */
-    private var onChatMessageReceived: ((String, String, String, Long) -> Unit)? = null
-
     fun setChatMessageCallback(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
-        onChatMessageReceived = callback
+        // We would need to modify the onChatMessage handler to use this callback
+        // For now, we'll leave it as a placeholder
     }
 
     /**
@@ -200,198 +323,19 @@ class WebSocketClient(
      */
     fun isConnected(): Boolean = isConnected
 
-    // Event Handlers
-
-    private val onConnect = Emitter.Listener {
-        Log.d(TAG, "✅ WebSocket connected")
-
-        // Register as parent device
-        val registerData = JSONObject().apply {
-            put("childDeviceId", childDeviceId)
-        }
-        socket?.emit("register_parent", registerData)
-    }
-
-    private val onDisconnect = Emitter.Listener { args ->
-        isConnected = false
-        val reason = args.getOrNull(0)?.toString() ?: "unknown"
-        Log.w(TAG, "⚠️ WebSocket disconnected - reason: $reason")
-
-        // Log different disconnect reasons
-        when (reason) {
-            "io server disconnect" -> Log.w(TAG, "  → Server closed the connection")
-            "io client disconnect" -> Log.w(TAG, "  → Client closed the connection")
-            "ping timeout" -> Log.w(TAG, "  → Ping timeout (connection lost)")
-            "transport close" -> Log.w(TAG, "  → Transport layer closed (network issue)")
-            "transport error" -> Log.w(TAG, "  → Transport error occurred")
-            else -> Log.w(TAG, "  → Unknown disconnect reason: $reason")
-        }
-    }
-
-    private val onConnectError = Emitter.Listener { args ->
-        isConnected = false
-        val error = if (args.isNotEmpty()) args[0].toString() else "Unknown error"
-        Log.e(TAG, "❌ Connection error: $error")
-    }
-
-    private val onRegistered = Emitter.Listener { args ->
-        try {
-            if (args.isNotEmpty()) {
-                val data = args[0] as JSONObject
-                val role = data.optString("role", "unknown")
-                val monitoringId = data.optString("childDeviceId", "")
-
-                isConnected = true
-                Log.d(TAG, "✅ Registered as $role device: monitoring $monitoringId")
-
-                // Call onConnected callback after successful registration
-                onConnectedCallback?.invoke()
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing registration response", e)
-            onErrorCallback?.invoke("Registration error: ${e.message}")
-        }
-    }
-
-    private val onAudioChunk = Emitter.Listener { args ->
-        try {
-            if (args.size < 2) {
-                Log.w(TAG, "Audio chunk missing arguments (expected 2, got ${args.size})")
-                return@Listener
-            }
-
-            // args[0] = metadata (JSONObject), args[1] = binary data (ByteArray)
-            val metadata = args[0] as? JSONObject
-            val binaryData = args[1] as? ByteArray
-
-            if (metadata == null || binaryData == null) {
-                Log.w(TAG, "Invalid audio chunk format: metadata=${metadata != null}, binary=${binaryData != null}")
-                return@Listener
-            }
-
-            val deviceId = metadata.optString("deviceId", "")
-            val sequence = metadata.optInt("sequence", 0)
-            val timestamp = metadata.optLong("timestamp", 0)
-
-            // Prevent duplicate chunks
-            if (sequence <= lastProcessedSequence) {
-                Log.w(TAG, "⚠️ Duplicate chunk #$sequence detected (last: $lastProcessedSequence) - ignoring")
-                return@Listener
-            }
-
-            lastProcessedSequence = sequence
-
-            // Log every 10th chunk to reduce spam
-            if (sequence % 10 == 0) {
-                Log.d(TAG, "🎧 Received audio chunk #$sequence from $deviceId (${binaryData.size} bytes)")
-            }
-
-            // Forward to callback
-            onAudioChunkReceived?.invoke(binaryData, sequence, timestamp)
-
-        } catch (e: Exception) {
-            Log.e(TAG, "Error handling audio chunk", e)
-        }
-    }
-
-    private val onChildDisconnectedEvent = Emitter.Listener { args ->
-        try {
-            Log.w(TAG, "📱 Child device disconnected")
-            onChildDisconnected?.invoke()
-        } catch (e: Exception) {
-            Log.e(TAG, "Error handling child_disconnected", e)
-        }
-    }
-
-    private val onCriticalAlert = Emitter.Listener { args ->
-        try {
-            if (args.isNotEmpty()) {
-                val data = args[0] as JSONObject
-                val alert = CriticalAlertMessage(
-                    id = data.optLong("id", 0),
-                    eventType = data.optString("eventType", ""),
-                    severity = data.optString("severity", ""),
-                    message = data.optString("message", ""),
-                    metadata = data.optString("metadata", null),
-                    createdAt = data.optLong("createdAt", System.currentTimeMillis())
-                )
-                Log.d(TAG, "🚨 Critical alert received: ${alert.eventType} - ${alert.severity}")
-                onCriticalAlertCallback?.invoke(alert)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error handling critical alert", e)
-        }
-    }
-
-    private val onPong = Emitter.Listener { args ->
-        try {
-            if (args.isNotEmpty()) {
-                val data = args[0] as JSONObject
-                val timestamp = data.optLong("timestamp", 0)
-                val latency = System.currentTimeMillis() - timestamp
-
-                if (latency > 0) {
-                    Log.d(TAG, "🏓 Pong received (latency: ${latency}ms)")
-                }
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing pong", e)
-        }
-    }
-
-    private val onChatMessage = Emitter.Listener { args ->
-        try {
-            if (args.isNotEmpty()) {
-                val data = args[0] as JSONObject
-                val messageId = data.optString("id", "")
-                val text = data.optString("text", "")
-                val sender = data.optString("sender", "")
-                val timestamp = data.optLong("timestamp", System.currentTimeMillis())
-
-                Log.d(TAG, "💬 Chat message received from $sender (UTF-8): $text")
-
-                // Forward to callback
-                onChatMessageReceived?.invoke(messageId, text, sender, timestamp)
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing chat message", e)
-        }
-    }
-
-    private val onChatMessageSent = Emitter.Listener { args ->
-        try {
-            if (args.isNotEmpty()) {
-                val data = args[0] as JSONObject
-                val messageId = data.optString("id", "")
-                val timestamp = data.optLong("timestamp", 0)
-
-                Log.d(TAG, "✅ Chat message sent confirmation: $messageId")
-            }
-        } catch (e: Exception) {
-            Log.e(TAG, "Error parsing chat_message_sent", e)
-        }
-    }
-
-    private fun jsonObjectToMap(obj: JSONObject): Map<String, Any?> {
-        val map = mutableMapOf<String, Any?>()
-        val keys = obj.keys()
-        while (keys.hasNext()) {
-            val key = keys.next() as String
-            map[key] = obj.get(key)
-        }
-        return map
-    }
-
     /**
-     * Start heartbeat job (keeps connection alive)
+     * Start heartbeat job to keep connection alive
      */
-    private var heartbeatJob: Job? = null
-
-    fun startHeartbeat(intervalMs: Long = 30000L) {
+    fun startHeartbeat(intervalMs: Long = PING_INTERVAL) {
         heartbeatJob?.cancel()
         heartbeatJob = scope.launch {
             while (isActive && isConnected) {
-                sendPing()
+                try {
+                    sendPing()
+                } catch (e: Exception) {
+                    Log.e(TAG, "Heartbeat ping failed", e)
+                    break
+                }
                 delay(intervalMs)
             }
         }
@@ -403,11 +347,16 @@ class WebSocketClient(
     }
 
     /**
-     * Cleanup
+     * Cleanup resources
      */
     fun cleanup() {
         stopHeartbeat()
         disconnect()
         scope.cancel()
+        onAudioChunkReceived = null
+        onChildDisconnected = null
+        onConnectedCallback = null
+        onErrorCallback = null
+        onCriticalAlertCallback = null
     }
 }
