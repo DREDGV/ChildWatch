@@ -289,7 +289,8 @@ app.post('/api/loc',
     }),
     async (req, res) => {
         try {
-            const { latitude, longitude, accuracy, timestamp, deviceInfo: reportedDeviceInfo } = req.body;
+            const { latitude, longitude, accuracy, timestamp } = req.body;
+            const reportedDeviceInfo = req.body?.deviceInfo;
             const deviceId = req.deviceId;
 
             // Validate location data
@@ -310,11 +311,11 @@ app.post('/api/loc',
             }
 
             // Check for suspicious location (too fast movement)
-            const currentDeviceInfo = authManager.getDeviceInfo(deviceId);
-            if (currentDeviceInfo && currentDeviceInfo.lastLocation) {
+            const deviceInfoFromAuth = authManager.getDeviceInfo(deviceId);
+            if (deviceInfoFromAuth && deviceInfoFromAuth.lastLocation) {
                 const suspiciousCheck = validator.checkSuspiciousLocation(
                     { latitude, longitude, timestamp },
-                    currentDeviceInfo.lastLocation
+                    deviceInfoFromAuth.lastLocation
                 );
 
                 if (suspiciousCheck.suspicious) {
@@ -329,10 +330,10 @@ app.post('/api/loc',
 
             // Prepare optional device status payload
             let latestStatus = null;
-            if (currentDeviceInfo && typeof currentDeviceInfo === 'object') {
+            if (deviceInfoFromAuth && typeof deviceInfoFromAuth === 'object') {
                 try {
-                    const batteryInfo = currentDeviceInfo.battery || {};
-                    const deviceDetails = currentDeviceInfo.device || {};
+                    const batteryInfo = deviceInfoFromAuth.battery || {};
+                    const deviceDetails = deviceInfoFromAuth.device || {};
                     latestStatus = {
                         batteryLevel: typeof batteryInfo.level === 'number' ? batteryInfo.level : null,
                         isCharging: typeof batteryInfo.isCharging === 'boolean' ? batteryInfo.isCharging : null,
@@ -344,8 +345,8 @@ app.post('/api/loc',
                         model: deviceDetails.model || null,
                         androidVersion: deviceDetails.androidVersion || null,
                         sdkVersion: typeof deviceDetails.sdkVersion === 'number' ? deviceDetails.sdkVersion : null,
-                        timestamp: typeof currentDeviceInfo.timestamp === 'number' ? currentDeviceInfo.timestamp : Date.now(),
-                        raw: currentDeviceInfo
+                        timestamp: typeof deviceInfoFromAuth.timestamp === 'number' ? deviceInfoFromAuth.timestamp : Date.now(),
+                        raw: deviceInfoFromAuth
                     };
 
                     await dbManager.saveDeviceStatus(deviceId, latestStatus);
