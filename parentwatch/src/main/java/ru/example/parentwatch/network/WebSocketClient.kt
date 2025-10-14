@@ -94,6 +94,35 @@ class WebSocketClient(
         // Handle confirmation of sent chat messages
     }
 
+    private val onCommand = Emitter.Listener { args ->
+        try {
+            val commandData = args.getOrNull(0) as? JSONObject
+            val commandType = commandData?.optString("type")
+
+            Log.d(TAG, "📥 Command received: $commandType")
+
+            when (commandType) {
+                "start_audio_stream" -> {
+                    Log.d(TAG, "🎙️ START AUDIO STREAM command received!")
+                    scope.launch {
+                        onCommandCallback?.invoke("start_audio_stream", commandData)
+                    }
+                }
+                "stop_audio_stream" -> {
+                    Log.d(TAG, "🛑 STOP AUDIO STREAM command received!")
+                    scope.launch {
+                        onCommandCallback?.invoke("stop_audio_stream", commandData)
+                    }
+                }
+                else -> {
+                    Log.w(TAG, "⚠️ Unknown command type: $commandType")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error handling command", e)
+        }
+    }
+
     // Callbacks
     private var onConnectedCallback: (() -> Unit)? = null
     private var onDisconnectedCallback: (() -> Unit)? = null
@@ -101,6 +130,7 @@ class WebSocketClient(
     private var onParentConnectedCallback: (() -> Unit)? = null
     private var onParentDisconnectedCallback: (() -> Unit)? = null
     private var onChatMessageCallback: ((messageId: String, text: String, sender: String, timestamp: Long) -> Unit)? = null
+    private var onCommandCallback: ((String, JSONObject?) -> Unit)? = null
 
     /**
      * Connect to WebSocket server
@@ -135,6 +165,7 @@ class WebSocketClient(
             socket?.on("pong", onPong)
             socket?.on("chat_message", onChatMessage)
             socket?.on("chat_message_sent", onChatMessageSent)
+            socket?.on("command", onCommand) // ← CRITICAL: Listen for server commands!
 
             socket?.connect()
 
@@ -299,6 +330,14 @@ class WebSocketClient(
      */
     fun setChatMessageCallback(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
         onChatMessageCallback = callback
+    }
+
+    /**
+     * Set command callback
+     */
+    fun setCommandCallback(callback: (commandType: String, data: JSONObject?) -> Unit) {
+        onCommandCallback = callback
+        Log.d(TAG, "✅ Command callback registered")
     }
 
     /**

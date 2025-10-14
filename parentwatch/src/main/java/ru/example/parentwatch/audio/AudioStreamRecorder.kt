@@ -87,9 +87,23 @@ class AudioStreamRecorder(
 
         // Initialize WebSocket connection
         webSocketClient = WebSocketClient(serverUrl, deviceId)
+        webSocketClient?.setCommandCallback { commandType, data ->
+            Log.d(TAG, "📥 Command callback invoked: $commandType")
+            when (commandType) {
+                "start_audio_stream" -> {
+                    Log.d(TAG, "🎙️ Received START command - beginning audio recording!")
+                    startActualRecording()
+                }
+                "stop_audio_stream" -> {
+                    Log.d(TAG, "🛑 Received STOP command - halting recording")
+                    stopStreaming()
+                }
+            }
+        }
+
         webSocketClient?.connect(
             onConnected = {
-                Log.d(TAG, "✅ WebSocket connected - starting audio recording")
+                Log.d(TAG, "✅ WebSocket connected - waiting for start command from server...")
                 webSocketClient?.startHeartbeat()
                 webSocketConnected = true
             },
@@ -99,15 +113,26 @@ class AudioStreamRecorder(
             }
         )
 
-        // Initialize AudioRecord ONCE for continuous recording
+        Log.d(TAG, "⏳ WebSocket initialized - waiting for server command to start recording...")
+    }
+
+    /**
+     * Actually start recording (called when command received from server)
+     */
+    private fun startActualRecording() {
+        if (isRecording) {
+            Log.w(TAG, "Already recording!")
+            return
+        }
+
+        Log.d(TAG, "🎤 Starting actual audio recording...")
+
+        // Initialize AudioRecord
         initializeAudioRecord()
 
         isRecording = true
         recordingJob = streamScope.launch {
             try {
-                // Wait a bit for WebSocket to connect
-                delay(1000)
-
                 while (isRecording) {
                     recordAndSendChunk()
                     // No delay needed - send immediately after recording
