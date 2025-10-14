@@ -21,7 +21,8 @@
       "Bash(test:*)",
       "Bash(echo \"Exit code: $?\")",
       "Bash(git commit:*)",
-      "Bash(.gradlew :parentwatch:assembleDebug)"
+      "Bash(.gradlew :parentwatch:assembleDebug)",
+      "Bash(git push:*)"
     ],
     "deny": [],
     "ask": []

@@ -207,4 +207,15 @@
     <string name="battery_optimization_dialog_never">Не напоминать</string>
     <string name="power_save_warning">Экономия энергии включена — работа сервисов может быть ограничена</string>
     <string name="power_save_button">Настройки питания</string>
+
+    <!-- Emergency Stop Strings -->
+    <string name="emergency_stop_title">Экстренная остановка</string>
+    <string name="emergency_stop_message">Это немедленно остановит ВСЕ функции слежки:\n• Прослушку (если активна)\n• Мониторинг\n• Все фоновые процессы\n\nВы уверены?</string>
+    <string name="emergency_stop_yes">Да, остановить всё</string>
+    <string name="emergency_stop_cancel">Отмена</string>
+    <string name="emergency_stop_done">Экстренная остановка выполнена</string>
+    <string name="home_already_here">Главная - уже здесь!</string>
+    <string name="unknown">неизвестно</string>
+    <string name="not_working">не работает</string>
+    <string name="never">никогда</string>
 </resources>

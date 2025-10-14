@@ -76,7 +76,7 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         secureSettings = SecureSettingsManager(this)
         batteryOptimizationHelper = BatteryOptimizationHelper(this)
-        hasConsent = ConsentActivity.hasConsent(this) // ���������� ���������� �����
+        hasConsent = ConsentActivity.hasConsent(this)
 
         // Set app version
         binding.appVersionText.text = "v${BuildConfig.VERSION_NAME}"
@@ -111,7 +111,7 @@ class MainActivity : AppCompatActivity() {
 
         // Menu card click listeners
         binding.homeCard.setOnClickListener {
-            showToast("������� - ��� �����!")
+            showToast(getString(R.string.home_already_here))
         }
         
         binding.locationCard.setOnClickListener {
@@ -126,7 +126,6 @@ class MainActivity : AppCompatActivity() {
             val childDeviceId = prefs.getString("child_device_id", "")
 
             if (childDeviceId.isNullOrEmpty()) {
-                // �������� ������ � ����������
                 showDeviceIdOptions(serverUrl)
             } else {
                 val intent = Intent(this, AudioStreamingActivity::class.java).apply {
@@ -239,10 +238,10 @@ class MainActivity : AppCompatActivity() {
                 val runningTime = System.currentTimeMillis() - serviceStartTime
                 val hours = runningTime / (1000 * 60 * 60)
                 val minutes = (runningTime % (1000 * 60 * 60)) / (1000 * 60)
-                val timeString = "${hours}� ${minutes}�"
+                val timeString = "${hours}ч ${minutes}м"
                 binding.serviceRunningTimeText.text = getString(R.string.service_running_time, timeString)
             } else {
-                binding.serviceRunningTimeText.text = getString(R.string.service_running_time, "����������")
+                binding.serviceRunningTimeText.text = getString(R.string.service_running_time, getString(R.string.unknown))
             }
             
             // Update feature status
@@ -255,8 +254,8 @@ class MainActivity : AppCompatActivity() {
             binding.statusIcon.setImageResource(android.R.drawable.ic_dialog_alert)
             binding.statusIcon.setColorFilter(ContextCompat.getColor(this, android.R.color.darker_gray))
             
-            binding.serviceRunningTimeText.text = getString(R.string.service_running_time, "�� ��������")
-            
+            binding.serviceRunningTimeText.text = getString(R.string.service_running_time, getString(R.string.not_working))
+
             // Update feature status
             binding.locationStatusText.text = getString(R.string.status_location_inactive)
             binding.audioStatusText.text = getString(R.string.status_audio_inactive)
@@ -280,25 +279,25 @@ class MainActivity : AppCompatActivity() {
             val timeString = dateFormat.format(Date(lastLocationUpdate))
             binding.lastUpdateText.text = getString(R.string.last_location_update, timeString)
         } else {
-            binding.lastUpdateText.text = getString(R.string.last_location_update, "�������")
+            binding.lastUpdateText.text = getString(R.string.last_location_update, getString(R.string.never))
         }
-        
+
         // Audio update
         val lastAudioUpdate = secureSettings.getLastAudioUpdate()
         if (lastAudioUpdate > 0) {
             val timeString = dateFormat.format(Date(lastAudioUpdate))
             binding.lastAudioUpdateText.text = getString(R.string.last_audio_update, timeString)
         } else {
-            binding.lastAudioUpdateText.text = getString(R.string.last_audio_update, "�������")
+            binding.lastAudioUpdateText.text = getString(R.string.last_audio_update, getString(R.string.never))
         }
-        
+
         // Photo update
         val lastPhotoUpdate = secureSettings.getLastPhotoUpdate()
         if (lastPhotoUpdate > 0) {
             val timeString = dateFormat.format(Date(lastPhotoUpdate))
             binding.lastPhotoUpdateText.text = getString(R.string.last_photo_update, timeString)
         } else {
-            binding.lastPhotoUpdateText.text = getString(R.string.last_photo_update, "�������")
+            binding.lastPhotoUpdateText.text = getString(R.string.last_photo_update, getString(R.string.never))
         }
     }
     
@@ -391,7 +390,7 @@ class MainActivity : AppCompatActivity() {
         status.androidVersion?.takeIf { it.isNotBlank() }?.let { androidParts.add("v$it") }
         status.sdkVersion?.let { androidParts.add("SDK $it") }
         binding.deviceInfoAndroidValue.text = if (androidParts.isNotEmpty()) {
-            androidParts.joinToString(" � ")
+            androidParts.joinToString(" • ")
         } else {
             getString(R.string.device_info_unknown)
         }
@@ -594,30 +593,30 @@ class MainActivity : AppCompatActivity() {
 
     private fun showEmergencyStopDialog() {
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("?? ���������� ���������")
-            .setMessage("��� ���������� ��������� ��� ������� ������:\n� ��������� (���� �������)\n� ����������\n� ��� ������� ��������\n\n�� �������?")
-            .setPositiveButton("��, ���������� ��") { _, _ ->
+            .setTitle(getString(R.string.emergency_stop_title))
+            .setMessage(getString(R.string.emergency_stop_message))
+            .setPositiveButton(getString(R.string.emergency_stop_yes)) { _, _ ->
                 emergencyStopAll()
             }
-            .setNegativeButton("������", null)
+            .setNegativeButton(getString(R.string.emergency_stop_cancel), null)
             .show()
     }
 
     private fun emergencyStopAll() {
-        Log.w("ChildWatch", "?? EMERGENCY STOP triggered")
+        Log.w("ChildWatch", "EMERGENCY STOP triggered")
 
         // Stop audio playback if running
         if (ru.example.childwatch.service.AudioPlaybackService.isPlaying) {
             ru.example.childwatch.service.AudioPlaybackService.stopPlayback(this)
-            Log.d("ChildWatch", "? Audio playback stopped")
+            Log.d("ChildWatch", "Audio playback stopped")
         }
 
         // Stop monitoring
         stopMonitoring()
-        Log.d("ChildWatch", "? Monitoring stopped")
+        Log.d("ChildWatch", "Monitoring stopped")
 
-        showToast("?? ���������� ��������� ���������")
-        Log.w("ChildWatch", "?? EMERGENCY STOP completed")
+        showToast(getString(R.string.emergency_stop_done))
+        Log.w("ChildWatch", "EMERGENCY STOP completed")
     }
 
     private fun requestPermissions() {
