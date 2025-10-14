@@ -8,8 +8,9 @@
  */
 
 class WebSocketManager {
-    constructor(io) {
+    constructor(io, commandManager = null) {
         this.io = io;
+        this.commandManager = commandManager;
 
         // Map: deviceId (child) → socket.id
         this.childSockets = new Map();
@@ -99,6 +100,23 @@ class WebSocketManager {
 
         // Notify child that server is ready to receive audio
         console.log(`✅ Child ${deviceId} is now ready to send audio chunks`);
+        if (this.commandManager && this.commandManager.isStreaming(deviceId)) {
+            try {
+                const sessionInfo = this.commandManager.getSessionInfo(deviceId);
+                const parentId = sessionInfo?.parentId || 'parent';
+                const commandType = (this.commandManager.COMMANDS && this.commandManager.COMMANDS.START_STREAM) || 'start_audio_stream';
+                const commandPayload = {
+                    type: commandType,
+                    data: { parentId, replay: true },
+                    timestamp: Date.now()
+                };
+
+                const replaySent = this.sendCommandToChild(deviceId, commandPayload);
+                console.log(`Active stream detected for ${deviceId} - replay command sent: ${replaySent}`);
+            } catch (error) {
+                console.error(`Error replaying start command for ${deviceId}:`, error);
+            }
+        }
     }
 
     /**

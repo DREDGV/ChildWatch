@@ -43,7 +43,7 @@ const authMiddleware = new AuthMiddleware(authManager);
 const validator = new DataValidator();
 const dbManager = new DatabaseManager();
 const commandManager = new CommandManager();
-const wsManager = new WebSocketManager(io);
+const wsManager = new WebSocketManager(io, commandManager);
 
 // Initialize database
 let isDbInitialized = false;
