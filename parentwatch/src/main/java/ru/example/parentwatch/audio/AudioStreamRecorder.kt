@@ -83,37 +83,47 @@ class AudioStreamRecorder(
         this.sequence = 0
         webSocketConnected = false
 
-        Log.d(TAG, "🎙️ Starting audio streaming via WebSocket - recording mode: $recordingMode")
+        Log.d(TAG, "рџЋ™пёЏ Starting audio streaming via WebSocket - recording mode: $recordingMode")
 
         // Initialize WebSocket connection
         webSocketClient = WebSocketClient(serverUrl, deviceId)
         webSocketClient?.setCommandCallback { commandType, data ->
-            Log.d(TAG, "📥 Command callback invoked: $commandType")
+            Log.d(TAG, "рџ“Ґ Command callback invoked: $commandType")
             when (commandType) {
                 "start_audio_stream" -> {
-                    Log.d(TAG, "🎙️ Received START command - beginning audio recording!")
+                    Log.d(TAG, "рџЋ™пёЏ Received START command - beginning audio recording!")
                     startActualRecording()
                 }
                 "stop_audio_stream" -> {
-                    Log.d(TAG, "🛑 Received STOP command - halting recording")
+                    Log.d(TAG, "рџ›‘ Received STOP command - halting recording")
                     stopStreaming()
                 }
             }
         }
 
+        webSocketClient?.setParentConnectedCallback {
+            Log.d(TAG, "👨‍👩‍👧 Parent connected notification received - starting audio")
+            startActualRecording()
+        }
+
+        webSocketClient?.setParentDisconnectedCallback {
+            Log.d(TAG, "🛑 Parent disconnected from stream - stopping audio")
+            stopStreaming()
+        }
+
         webSocketClient?.connect(
             onConnected = {
-                Log.d(TAG, "✅ WebSocket connected - waiting for start command from server...")
+                Log.d(TAG, "вњ… WebSocket connected - waiting for start command from server...")
                 webSocketClient?.startHeartbeat()
                 webSocketConnected = true
             },
             onError = { error ->
-                Log.e(TAG, "❌ WebSocket connection failed: $error")
+                Log.e(TAG, "вќЊ WebSocket connection failed: $error")
                 webSocketConnected = false
             }
         )
 
-        Log.d(TAG, "⏳ WebSocket initialized - waiting for server command to start recording...")
+        Log.d(TAG, "вЏі WebSocket initialized - waiting for server command to start recording...")
     }
 
     /**
@@ -125,7 +135,7 @@ class AudioStreamRecorder(
             return
         }
 
-        Log.d(TAG, "🎤 Starting actual audio recording...")
+        Log.d(TAG, "рџЋ¤ Starting actual audio recording...")
 
         // Initialize AudioRecord
         initializeAudioRecord()
@@ -148,7 +158,7 @@ class AudioStreamRecorder(
      * Stop audio streaming
      */
     fun stopStreaming() {
-        Log.d(TAG, "🛑 Stopping audio streaming")
+        Log.d(TAG, "рџ›‘ Stopping audio streaming")
 
         isRecording = false
         recordingJob?.cancel()

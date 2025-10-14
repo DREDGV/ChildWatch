@@ -32,7 +32,7 @@ class WebSocketClient(
 
     // Connection event handlers
     private val onConnect = Emitter.Listener {
-        Log.d(TAG, "🟢 WebSocket connected")
+        Log.d(TAG, "рџџў WebSocket connected")
         scope.launch {
             isConnected = true
             registerAsChild()
@@ -42,7 +42,7 @@ class WebSocketClient(
 
     private val onDisconnect = Emitter.Listener { args ->
         val reason = args.getOrNull(0)
-        Log.d(TAG, "🔴 WebSocket disconnected. Reason: $reason")
+        Log.d(TAG, "рџ”ґ WebSocket disconnected. Reason: $reason")
         isConnected = false
         stopHeartbeat()
         onDisconnectedCallback?.invoke()
@@ -50,7 +50,7 @@ class WebSocketClient(
 
     private val onConnectError = Emitter.Listener { args ->
         val error = args.getOrNull(0)
-        Log.e(TAG, "❌ WebSocket connection error: $error")
+        Log.e(TAG, "вќЊ WebSocket connection error: $error")
         isConnected = false
         scope.launch {
             onErrorCallback?.invoke(error?.toString() ?: "Connection error")
@@ -62,28 +62,28 @@ class WebSocketClient(
         val success = data?.optBoolean("success") ?: false
         
         if (success) {
-            Log.d(TAG, "✅ Child registered: $deviceId")
+            Log.d(TAG, "вњ… Child registered: $deviceId")
         } else {
-            Log.e(TAG, "❌ Child registration failed: $deviceId")
+            Log.e(TAG, "вќЊ Child registration failed: $deviceId")
         }
     }
 
     private val onParentConnected = Emitter.Listener {
-        Log.d(TAG, "👨‍👩‍👧 Parent connected to stream")
+        Log.d(TAG, "рџ‘ЁвЂЌрџ‘©вЂЌрџ‘§ Parent connected to stream")
         scope.launch {
             onParentConnectedCallback?.invoke()
         }
     }
 
     private val onParentDisconnected = Emitter.Listener {
-        Log.d(TAG, "👨‍👩‍👧 Parent disconnected from stream")
+        Log.d(TAG, "рџ‘ЁвЂЌрџ‘©вЂЌрџ‘§ Parent disconnected from stream")
         scope.launch {
             onParentDisconnectedCallback?.invoke()
         }
     }
 
     private val onPong = Emitter.Listener {
-        Log.d(TAG, "🏓 Pong received")
+        Log.d(TAG, "рџЏ“ Pong received")
     }
 
     private val onChatMessage = Emitter.Listener { args ->
@@ -99,27 +99,27 @@ class WebSocketClient(
             val commandData = args.getOrNull(0) as? JSONObject
             val commandType = commandData?.optString("type")
 
-            Log.d(TAG, "📥 Command received: $commandType")
+            Log.d(TAG, "рџ“Ґ Command received: $commandType")
 
             when (commandType) {
                 "start_audio_stream" -> {
-                    Log.d(TAG, "🎙️ START AUDIO STREAM command received!")
+                    Log.d(TAG, "рџЋ™пёЏ START AUDIO STREAM command received!")
                     scope.launch {
                         onCommandCallback?.invoke("start_audio_stream", commandData)
                     }
                 }
                 "stop_audio_stream" -> {
-                    Log.d(TAG, "🛑 STOP AUDIO STREAM command received!")
+                    Log.d(TAG, "рџ›‘ STOP AUDIO STREAM command received!")
                     scope.launch {
                         onCommandCallback?.invoke("stop_audio_stream", commandData)
                     }
                 }
                 else -> {
-                    Log.w(TAG, "⚠️ Unknown command type: $commandType")
+                    Log.w(TAG, "вљ пёЏ Unknown command type: $commandType")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error handling command", e)
+            Log.e(TAG, "вќЊ Error handling command", e)
         }
     }
 
@@ -165,7 +165,7 @@ class WebSocketClient(
             socket?.on("pong", onPong)
             socket?.on("chat_message", onChatMessage)
             socket?.on("chat_message_sent", onChatMessageSent)
-            socket?.on("command", onCommand) // ← CRITICAL: Listen for server commands!
+            socket?.on("command", onCommand) // в†ђ CRITICAL: Listen for server commands!
 
             socket?.connect()
 
@@ -204,7 +204,7 @@ class WebSocketClient(
             }
             
             socket?.emit("register_child", registrationData)
-            Log.d(TAG, "📤 Child registration sent: $deviceId")
+            Log.d(TAG, "рџ“¤ Child registration sent: $deviceId")
         } catch (e: Exception) {
             Log.e(TAG, "Error registering as child", e)
         }
@@ -221,16 +221,16 @@ class WebSocketClient(
         onError: (String) -> Unit = {}
     ) {
         try {
-            Log.d(TAG, "📤 Attempting to send chunk #$sequence (${audioData.size} bytes)...")
+            Log.d(TAG, "рџ“¤ Attempting to send chunk #$sequence (${audioData.size} bytes)...")
             
             if (!isConnected) {
-                Log.w(TAG, "❌ Not connected - cannot send audio chunk #$sequence")
+                Log.w(TAG, "вќЊ Not connected - cannot send audio chunk #$sequence")
                 onError("Not connected to server")
                 return
             }
 
             if (socket == null) {
-                Log.e(TAG, "❌ Socket is null - cannot send chunk #$sequence")
+                Log.e(TAG, "вќЊ Socket is null - cannot send chunk #$sequence")
                 onError("Socket not initialized")
                 return
             }
@@ -246,7 +246,7 @@ class WebSocketClient(
             // Send both metadata (JSON) and binary data
             socket?.emit("audio_chunk", metadata, audioData)
             
-            Log.d(TAG, "✅ Audio chunk #$sequence sent successfully")
+            Log.d(TAG, "вњ… Audio chunk #$sequence sent successfully")
             onSuccess()
             
         } catch (e: Exception) {
@@ -333,11 +333,22 @@ class WebSocketClient(
     }
 
     /**
+     * Set parent connection callbacks
+     */
+    fun setParentConnectedCallback(callback: () -> Unit) {
+        onParentConnectedCallback = callback
+    }
+
+    fun setParentDisconnectedCallback(callback: () -> Unit) {
+        onParentDisconnectedCallback = callback
+    }
+
+    /**
      * Set command callback
      */
     fun setCommandCallback(callback: (commandType: String, data: JSONObject?) -> Unit) {
         onCommandCallback = callback
-        Log.d(TAG, "✅ Command callback registered")
+        Log.d(TAG, "вњ… Command callback registered")
     }
 
     /**
