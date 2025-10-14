@@ -7,6 +7,7 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.util.Log
+import android.os.Build
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
@@ -32,7 +33,7 @@ class AudioStreamRecorder(
 ) {
     companion object {
         private const val TAG = "AudioStreamRecorder"
-        private const val CHUNK_DURATION_MS = 2_000L
+        private const val CHUNK_DURATION_MS = 500L
         private const val SAMPLE_RATE = 44_100
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
@@ -225,7 +226,11 @@ class AudioStreamRecorder(
         while (totalRead < chunkSizeInBytes && isRecording) {
             try {
                 val toRead = minOf(1024, chunkSizeInBytes - totalRead)
-                val read = audioRecord?.read(buffer, totalRead, toRead) ?: -1
+                val read = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                    audioRecord?.read(buffer, totalRead, toRead, AudioRecord.READ_BLOCKING) ?: -1
+                } else {
+                    audioRecord?.read(buffer, totalRead, toRead) ?: -1
+                }
 
                 if (read <= 0) {
                     Log.w(TAG, "AudioRecord.read returned: $read")
