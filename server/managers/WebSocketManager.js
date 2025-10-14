@@ -43,6 +43,7 @@ class WebSocketManager {
             // Handle audio chunk from child device
             // Receives: metadata (JSON), binaryData (Buffer)
             socket.on('audio_chunk', (metadata, binaryData) => {
+                console.log(`🎤 audio_chunk event received from ${socket.id}, metadata:`, metadata, `dataSize: ${binaryData ? binaryData.length : 0}`);
                 this.handleAudioChunk(socket, metadata, binaryData);
             });
 
@@ -88,12 +89,16 @@ class WebSocketManager {
         socket.deviceType = 'child';
 
         console.log(`📱 Child device registered: ${deviceId} (socket: ${socket.id})`);
+        console.log(`📊 Total child devices connected: ${this.childSockets.size}`);
 
         socket.emit('registered', {
             success: true,
             deviceId: deviceId,
             timestamp: Date.now()
         });
+
+        // Notify child that server is ready to receive audio
+        console.log(`✅ Child ${deviceId} is now ready to send audio chunks`);
     }
 
     /**
