@@ -330,10 +330,10 @@ app.post('/api/loc',
 
             // Prepare optional device status payload
             let latestStatus = null;
-            if (deviceInfoFromAuth && typeof deviceInfoFromAuth === 'object') {
+            if (reportedDeviceInfo && typeof reportedDeviceInfo === 'object') {
                 try {
-                    const batteryInfo = deviceInfoFromAuth.battery || {};
-                    const deviceDetails = deviceInfoFromAuth.device || {};
+                    const batteryInfo = reportedDeviceInfo.battery || {};
+                    const deviceDetails = reportedDeviceInfo.device || {};
                     latestStatus = {
                         batteryLevel: typeof batteryInfo.level === 'number' ? batteryInfo.level : null,
                         isCharging: typeof batteryInfo.isCharging === 'boolean' ? batteryInfo.isCharging : null,
@@ -345,12 +345,13 @@ app.post('/api/loc',
                         model: deviceDetails.model || null,
                         androidVersion: deviceDetails.androidVersion || null,
                         sdkVersion: typeof deviceDetails.sdkVersion === 'number' ? deviceDetails.sdkVersion : null,
-                        timestamp: typeof deviceInfoFromAuth.timestamp === 'number' ? deviceInfoFromAuth.timestamp : Date.now(),
-                        raw: deviceInfoFromAuth
+                        timestamp: typeof reportedDeviceInfo.timestamp === 'number' ? reportedDeviceInfo.timestamp : Date.now(),
+                        raw: reportedDeviceInfo
                     };
 
                     await dbManager.saveDeviceStatus(deviceId, latestStatus);
                     authManager.updateDeviceStatus(deviceId, latestStatus);
+                    console.log(`[${new Date().toISOString()}] Device status saved for ${deviceId}: Battery ${latestStatus.batteryLevel}%, Charging: ${latestStatus.isCharging}`);
                 } catch (statusError) {
                     console.warn('Failed to persist device status:', statusError);
                 }
