@@ -88,6 +88,18 @@ router.post('/start', async (req, res) => {
             // Check if child device is connected via WebSocket
             const childConnected = wsManager.isChildConnected(deviceId);
 
+            // **FIX: Send command to child device via WebSocket**
+            if (childConnected) {
+                const commandSent = wsManager.sendCommandToChild(deviceId, {
+                    type: 'start_audio_stream',
+                    data: { parentId: parentId || 'parent' },
+                    timestamp: Date.now()
+                });
+                console.log(`📤 start_audio_stream command sent to ${deviceId} via WebSocket: ${commandSent}`);
+            } else {
+                console.warn(`⚠️ Child ${deviceId} not connected - command queued but won't execute`);
+            }
+
             res.json({
                 success: true,
                 message: 'Audio streaming started',
@@ -132,13 +144,24 @@ router.post('/stop', async (req, res) => {
         const result = commandManager.stopStreaming(deviceId);
 
         if (result) {
+            // **FIX: Send stop command to child device via WebSocket**
+            const childConnected = wsManager.isChildConnected(deviceId);
+            if (childConnected) {
+                wsManager.sendCommandToChild(deviceId, {
+                    type: 'stop_audio_stream',
+                    data: {},
+                    timestamp: Date.now()
+                });
+                console.log(`🛑 stop_audio_stream command sent to ${deviceId} via WebSocket`);
+            }
+
             res.json({
                 success: true,
                 message: 'Audio streaming stopped',
                 deviceId: deviceId,
                 timestamp: Date.now()
             });
-        } else {
+        } else{
             res.status(404).json({
                 error: 'No active streaming session',
                 code: 'NO_ACTIVE_SESSION'

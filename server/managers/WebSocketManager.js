@@ -245,6 +245,29 @@ class WebSocketManager {
     }
 
     /**
+     * Send command to child device via WebSocket
+     */
+    sendCommandToChild(deviceId, command) {
+        const childSocketId = this.childSockets.get(deviceId);
+        if (!childSocketId) {
+            console.warn(`⚠️ Cannot send command: child ${deviceId} not connected`);
+            return false;
+        }
+
+        const childSocket = this.io.sockets.sockets.get(childSocketId);
+        if (!childSocket) {
+            console.warn(`⚠️ Cannot send command: socket ${childSocketId} not found`);
+            this.childSockets.delete(deviceId);
+            return false;
+        }
+
+        // Send command via WebSocket
+        childSocket.emit('command', command);
+        console.log(`✅ Command sent to child ${deviceId}:`, command.type);
+        return true;
+    }
+
+    /**
      * Check if child device is connected
      */
     isChildConnected(deviceId) {
