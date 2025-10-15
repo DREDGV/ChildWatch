@@ -197,7 +197,7 @@ class WebSocketManager {
     }
 
     /**
-     * Handle chat message
+     * Handle chat message (bidirectional)
      */
     handleChatMessage(socket, data) {
         try {
@@ -208,16 +208,42 @@ class WebSocketManager {
                 return;
             }
 
-            // Forward message to parent device
-            const parentSocketId = Array.from(this.parentSockets.entries())
-                .find(([id, childDeviceId]) => childDeviceId === deviceId)?.[0];
+            // Determine direction based on sender
+            if (sender === 'child') {
+                // Message FROM child → Forward TO parent
+                const parentSocketId = Array.from(this.parentSockets.entries())
+                    .find(([id, childDeviceId]) => childDeviceId === deviceId)?.[0];
 
-            if (parentSocketId) {
-                const parentSocket = this.io.sockets.sockets.get(parentSocketId);
-                if (parentSocket) {
-                    parentSocket.emit('chat_message', data);
-                    console.log(`💬 Chat message forwarded to parent for device: ${deviceId}`);
+                if (parentSocketId) {
+                    const parentSocket = this.io.sockets.sockets.get(parentSocketId);
+                    if (parentSocket) {
+                        parentSocket.emit('chat_message', data);
+                        console.log(`💬 Chat message forwarded to parent for device: ${deviceId}`);
+                    } else {
+                        console.log(`⚠️ Parent socket not found for device: ${deviceId}`);
+                    }
+                } else {
+                    console.log(`📭 No parent connected for device: ${deviceId}`);
                 }
+            } else if (sender === 'parent') {
+                // Message FROM parent → Forward TO child
+                const childSocketId = this.childSockets.get(deviceId);
+
+                if (childSocketId) {
+                    const childSocket = this.io.sockets.sockets.get(childSocketId);
+                    if (childSocket) {
+                        childSocket.emit('chat_message', data);
+                        console.log(`💬 Chat message forwarded to child device: ${deviceId}`);
+                    } else {
+                        console.log(`⚠️ Child socket not found for device: ${deviceId}`);
+                        this.childSockets.delete(deviceId);
+                    }
+                } else {
+                    console.log(`📭 No child connected with device ID: ${deviceId}`);
+                }
+            } else {
+                console.error(`❌ Invalid sender: ${sender}. Must be 'parent' or 'child'`);
+                return;
             }
 
             // Confirm message sent back to sender
