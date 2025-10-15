@@ -52,7 +52,7 @@ class TokenManager(private val context: Context) {
                 put("deviceId", deviceId)
                 put("deviceName", android.os.Build.MODEL)
                 put("deviceType", "android")
-                put("appVersion", "1.0.0")
+                put("appVersion", ru.example.childwatch.BuildConfig.VERSION_NAME)
                 put("timestamp", System.currentTimeMillis())
             }
             
@@ -63,9 +63,9 @@ class TokenManager(private val context: Context) {
                 .url(url)
                 .post(requestBody)
                 .addHeader("Content-Type", "application/json")
-                .addHeader("User-Agent", "ChildWatch/1.0")
+                .addHeader("User-Agent", "ChildWatch/" + ru.example.childwatch.BuildConfig.VERSION_NAME)
                 .build()
-            
+
             Log.d(TAG, "Registering device: $deviceId")
             
             httpClient.newCall(request).execute().use { response ->
@@ -127,9 +127,9 @@ class TokenManager(private val context: Context) {
                 .url(url)
                 .post(requestBody)
                 .addHeader("Content-Type", "application/json")
-                .addHeader("User-Agent", "ChildWatch/1.0")
+                .addHeader("User-Agent", "ChildWatch/" + ru.example.childwatch.BuildConfig.VERSION_NAME)
                 .build()
-            
+
             Log.d(TAG, "Refreshing token")
             
             httpClient.newCall(request).execute().use { response ->
@@ -183,7 +183,7 @@ class TokenManager(private val context: Context) {
                 .url(url)
                 .get()
                 .addHeader("Authorization", "Bearer $authToken")
-                .addHeader("User-Agent", "ChildWatch/1.0")
+                .addHeader("User-Agent", "ChildWatch/" + ru.example.childwatch.BuildConfig.VERSION_NAME)
                 .build()
             
             Log.d(TAG, "Validating token")
