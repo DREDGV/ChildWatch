@@ -124,6 +124,15 @@ class AudioStreamRecorder(
         )
 
         Log.d(TAG, "вЏі WebSocket initialized - waiting for server command to start recording...")
+
+        // Fallback: ensure recording starts even if the START command is delayed.
+        streamScope.launch {
+            delay(300)
+            if (!isRecording) {
+                Log.d(TAG, "Auto-start fallback triggered after WebSocket init")
+                startActualRecording()
+            }
+        }
     }
 
     /**
