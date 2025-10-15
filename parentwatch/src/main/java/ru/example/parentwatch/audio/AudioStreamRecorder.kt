@@ -20,6 +20,7 @@ import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeoutOrNull
 import ru.example.parentwatch.network.NetworkHelper
 import ru.example.parentwatch.network.WebSocketClient
+import ru.example.parentwatch.utils.RemoteLogger
 import java.io.File
 
 /**
@@ -53,6 +54,7 @@ class AudioStreamRecorder(
     private var webSocketConnected = false
     private val streamScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var connectionDeferred: CompletableDeferred<Boolean>? = null
+    private var hasReportedMissingWebSocket = false
 
     private val bufferSize: Int by lazy {
         AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
@@ -82,54 +84,110 @@ class AudioStreamRecorder(
         this.recordingMode = recordingMode
         this.sequence = 0
         webSocketConnected = false
+        hasReportedMissingWebSocket = false
 
-        Log.d(TAG, "рџЋ™пёЏ Starting audio streaming via WebSocket - recording mode: $recordingMode")
+        Log.d(TAG, "Starting audio streaming via WebSocket - recording mode: $recordingMode")
+        RemoteLogger.info(
+            serverUrl = this.serverUrl,
+            deviceId = this.deviceId,
+            source = TAG,
+            message = "Starting audio streaming via WebSocket",
+            meta = mapOf("recordingMode" to recordingMode)
+        )
 
         // Initialize WebSocket connection
         webSocketClient = WebSocketClient(serverUrl, deviceId)
         webSocketClient?.setCommandCallback { commandType, data ->
-            Log.d(TAG, "рџ“Ґ Command callback invoked: $commandType")
+            Log.d(TAG, "Command callback invoked: $commandType")
             when (commandType) {
                 "start_audio_stream" -> {
-                    Log.d(TAG, "рџЋ™пёЏ Received START command - beginning audio recording!")
+                    Log.d(TAG, "START AUDIO STREAM command received - beginning audio recording!")
+                    RemoteLogger.info(
+                        serverUrl = this.serverUrl,
+                        deviceId = this.deviceId,
+                        source = TAG,
+                        message = "START command received via WebSocket"
+                    )
                     startActualRecording()
                 }
                 "stop_audio_stream" -> {
-                    Log.d(TAG, "рџ›‘ Received STOP command - halting recording")
+                    Log.d(TAG, "STOP AUDIO STREAM command received!")
+                    RemoteLogger.info(
+                        serverUrl = this.serverUrl,
+                        deviceId = this.deviceId,
+                        source = TAG,
+                        message = "STOP command received via WebSocket"
+                    )
                     stopStreaming()
                 }
             }
         }
 
         webSocketClient?.setParentConnectedCallback {
-            Log.d(TAG, "👨‍👩‍👧 Parent connected notification received - starting audio")
+            Log.d(TAG, "Parent connected notification received - starting audio")
+            RemoteLogger.info(
+                serverUrl = this.serverUrl,
+                deviceId = this.deviceId,
+                source = TAG,
+                message = "Parent connected notification received"
+            )
             startActualRecording()
         }
 
         webSocketClient?.setParentDisconnectedCallback {
-            Log.d(TAG, "🛑 Parent disconnected from stream - stopping audio")
+            Log.d(TAG, "Parent disconnected from stream - stopping audio")
+            RemoteLogger.warn(
+                serverUrl = this.serverUrl,
+                deviceId = this.deviceId,
+                source = TAG,
+                message = "Parent disconnected notification received"
+            )
             stopStreaming()
         }
 
         webSocketClient?.connect(
             onConnected = {
-                Log.d(TAG, "вњ… WebSocket connected - waiting for start command from server...")
+                Log.d(TAG, "WebSocket connected - waiting for start command from server...")
+                RemoteLogger.info(
+                    serverUrl = this.serverUrl,
+                    deviceId = this.deviceId,
+                    source = TAG,
+                    message = "WebSocket connected, awaiting START command"
+                )
                 webSocketClient?.startHeartbeat()
                 webSocketConnected = true
             },
             onError = { error ->
-                Log.e(TAG, "вќЊ WebSocket connection failed: $error")
+                Log.e(TAG, "WebSocket connection failed: $error")
+                RemoteLogger.error(
+                    serverUrl = this.serverUrl,
+                    deviceId = this.deviceId,
+                    source = TAG,
+                    message = "WebSocket connection failed: $error"
+                )
                 webSocketConnected = false
             }
         )
 
-        Log.d(TAG, "вЏі WebSocket initialized - waiting for server command to start recording...")
+        Log.d(TAG, "WebSocket initialized - waiting for server command to start recording...")
+        RemoteLogger.info(
+            serverUrl = this.serverUrl,
+            deviceId = this.deviceId,
+            source = TAG,
+            message = "WebSocket initialized; waiting for START command"
+        )
 
         // Fallback: ensure recording starts even if the START command is delayed.
         streamScope.launch {
             delay(300)
             if (!isRecording) {
                 Log.d(TAG, "Auto-start fallback triggered after WebSocket init")
+                RemoteLogger.warn(
+                    serverUrl = serverUrl,
+                    deviceId = deviceId,
+                    source = TAG,
+                    message = "Auto-start fallback triggered"
+                )
                 startActualRecording()
             }
         }
@@ -141,10 +199,22 @@ class AudioStreamRecorder(
     private fun startActualRecording() {
         if (isRecording) {
             Log.w(TAG, "Already recording!")
+            RemoteLogger.warn(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "startActualRecording called while already recording"
+            )
             return
         }
 
-        Log.d(TAG, "рџЋ¤ Starting actual audio recording...")
+        Log.d(TAG, "Starting actual audio recording...")
+        RemoteLogger.info(
+            serverUrl = serverUrl,
+            deviceId = deviceId,
+            source = TAG,
+            message = "Starting actual audio recording"
+        )
 
         // Initialize AudioRecord
         initializeAudioRecord()
@@ -158,6 +228,13 @@ class AudioStreamRecorder(
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Streaming error", e)
+                RemoteLogger.error(
+                    serverUrl = serverUrl,
+                    deviceId = deviceId,
+                    source = TAG,
+                    message = "Streaming error in recording coroutine",
+                    throwable = e
+                )
                 stopStreaming()
             }
         }
@@ -167,7 +244,13 @@ class AudioStreamRecorder(
      * Stop audio streaming
      */
     fun stopStreaming() {
-        Log.d(TAG, "рџ›‘ Stopping audio streaming")
+        Log.d(TAG, "Stopping audio streaming")
+        RemoteLogger.info(
+            serverUrl = serverUrl,
+            deviceId = deviceId,
+            source = TAG,
+            message = "Stopping audio streaming"
+        )
 
         isRecording = false
         recordingJob?.cancel()
@@ -177,6 +260,7 @@ class AudioStreamRecorder(
         webSocketClient?.cleanup()
         webSocketClient = null
         webSocketConnected = false
+        hasReportedMissingWebSocket = false
 
         releaseRecorder()
         cleanupChunks()
@@ -200,11 +284,28 @@ class AudioStreamRecorder(
             val audioData = recordChunk()
             if (audioData == null || audioData.isEmpty()) {
                 Log.w(TAG, "No audio data recorded for chunk #$sequence")
+                RemoteLogger.warn(
+                    serverUrl = serverUrl,
+                    deviceId = deviceId,
+                    source = TAG,
+                    message = "No audio data recorded for chunk",
+                    meta = mapOf("sequence" to sequence)
+                )
                 return
             }
 
             if (!webSocketConnected) {
                 Log.w(TAG, "WebSocket unavailable, skipping chunk #$sequence")
+                if (!hasReportedMissingWebSocket) {
+                    RemoteLogger.warn(
+                        serverUrl = serverUrl,
+                        deviceId = deviceId,
+                        source = TAG,
+                        message = "WebSocket unavailable when sending chunk",
+                        meta = mapOf("sequence" to sequence)
+                    )
+                    hasReportedMissingWebSocket = true
+                }
                 return
             }
 
@@ -214,9 +315,26 @@ class AudioStreamRecorder(
                 recording = recordingMode,
                 onSuccess = {
                     Log.d(TAG, "Chunk #$sequence sent successfully (${audioData.size} bytes)")
+                    hasReportedMissingWebSocket = false
+                    if (sequence == 0) {
+                        RemoteLogger.info(
+                            serverUrl = serverUrl,
+                            deviceId = deviceId,
+                            source = TAG,
+                            message = "First audio chunk sent successfully",
+                            meta = mapOf("bytes" to audioData.size)
+                        )
+                    }
                 },
                 onError = { error ->
                     Log.e(TAG, "Failed to send chunk #$sequence: $error")
+                    RemoteLogger.error(
+                        serverUrl = serverUrl,
+                        deviceId = deviceId,
+                        source = TAG,
+                        message = "Failed to send audio chunk: $error",
+                        meta = mapOf("sequence" to sequence)
+                    )
                     webSocketConnected = false
                 }
             )
@@ -224,6 +342,14 @@ class AudioStreamRecorder(
             sequence++
         } catch (e: Exception) {
             Log.e(TAG, "Error recording/sending chunk #$sequence", e)
+            RemoteLogger.error(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "Error recording or sending chunk",
+                throwable = e,
+                meta = mapOf("sequence" to sequence)
+            )
         }
     }
 
@@ -244,14 +370,34 @@ class AudioStreamRecorder(
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
                 Log.e(TAG, "AudioRecord failed to initialize")
+                RemoteLogger.error(
+                    serverUrl = serverUrl,
+                    deviceId = deviceId,
+                    source = TAG,
+                    message = "AudioRecord failed to initialize"
+                )
                 releaseRecorder()
                 return
             }
 
             audioRecord?.startRecording()
             Log.d(TAG, "AudioRecord initialized and started")
+            RemoteLogger.info(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "AudioRecord initialized and started",
+                meta = mapOf("bufferSize" to bufferSize)
+            )
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing AudioRecord", e)
+            RemoteLogger.error(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "Error initializing AudioRecord",
+                throwable = e
+            )
             releaseRecorder()
         }
     }
@@ -284,6 +430,13 @@ class AudioStreamRecorder(
                 totalRead += read
             } catch (e: Exception) {
                 Log.e(TAG, "Error reading from AudioRecord", e)
+                RemoteLogger.error(
+                    serverUrl = serverUrl,
+                    deviceId = deviceId,
+                    source = TAG,
+                    message = "Error reading from AudioRecord",
+                    throwable = e
+                )
                 break
             }
         }

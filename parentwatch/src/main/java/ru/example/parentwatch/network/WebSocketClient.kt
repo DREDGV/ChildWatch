@@ -7,6 +7,7 @@ import io.socket.emitter.Emitter
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.net.URISyntaxException
+import ru.example.parentwatch.utils.RemoteLogger
 
 /**
  * WebSocketClient for ParentWatch (Child Device)
@@ -32,9 +33,15 @@ class WebSocketClient(
 
     // Connection event handlers
     private val onConnect = Emitter.Listener {
-        Log.d(TAG, "рџџў WebSocket connected")
+        Log.d(TAG, "WebSocket connected")
         scope.launch {
             isConnected = true
+            RemoteLogger.info(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "WebSocket connected"
+            )
             registerAsChild()
             onConnectedCallback?.invoke()
         }
@@ -42,7 +49,14 @@ class WebSocketClient(
 
     private val onDisconnect = Emitter.Listener { args ->
         val reason = args.getOrNull(0)
-        Log.d(TAG, "рџ”ґ WebSocket disconnected. Reason: $reason")
+        Log.d(TAG, "WebSocket disconnected. Reason: $reason")
+        RemoteLogger.warn(
+            serverUrl = serverUrl,
+            deviceId = deviceId,
+            source = TAG,
+            message = "WebSocket disconnected",
+            meta = mapOf("reason" to (reason?.toString() ?: "unknown"))
+        )
         isConnected = false
         stopHeartbeat()
         onDisconnectedCallback?.invoke()
@@ -50,7 +64,13 @@ class WebSocketClient(
 
     private val onConnectError = Emitter.Listener { args ->
         val error = args.getOrNull(0)
-        Log.e(TAG, "вќЊ WebSocket connection error: $error")
+        Log.e(TAG, "WebSocket connection error: $error")
+        RemoteLogger.error(
+            serverUrl = serverUrl,
+            deviceId = deviceId,
+            source = TAG,
+            message = "WebSocket connection error: $error"
+        )
         isConnected = false
         scope.launch {
             onErrorCallback?.invoke(error?.toString() ?: "Connection error")
@@ -60,23 +80,47 @@ class WebSocketClient(
     private val onRegistered = Emitter.Listener { args ->
         val data = args.getOrNull(0) as? JSONObject
         val success = data?.optBoolean("success") ?: false
-        
+
         if (success) {
-            Log.d(TAG, "вњ… Child registered: $deviceId")
+            Log.d(TAG, "Child registered: $deviceId")
+            RemoteLogger.info(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "Child registered via WebSocket"
+            )
         } else {
-            Log.e(TAG, "вќЊ Child registration failed: $deviceId")
+            Log.e(TAG, "Child registration failed: $deviceId")
+            RemoteLogger.error(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "Child registration failed via WebSocket"
+            )
         }
     }
 
     private val onParentConnected = Emitter.Listener {
-        Log.d(TAG, "рџ‘ЁвЂЌрџ‘©вЂЌрџ‘§ Parent connected to stream")
+        Log.d(TAG, "Parent connected to stream")
+        RemoteLogger.info(
+            serverUrl = serverUrl,
+            deviceId = deviceId,
+            source = TAG,
+            message = "Parent connected to stream"
+        )
         scope.launch {
             onParentConnectedCallback?.invoke()
         }
     }
 
     private val onParentDisconnected = Emitter.Listener {
-        Log.d(TAG, "рџ‘ЁвЂЌрџ‘©вЂЌрџ‘§ Parent disconnected from stream")
+        Log.d(TAG, "Parent disconnected from stream")
+        RemoteLogger.warn(
+            serverUrl = serverUrl,
+            deviceId = deviceId,
+            source = TAG,
+            message = "Parent disconnected from stream"
+        )
         scope.launch {
             onParentDisconnectedCallback?.invoke()
         }

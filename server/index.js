@@ -20,6 +20,7 @@ const locationRoutes = require('./routes/location');
 const mediaRoutes = require('./routes/media');
 const streamingRoutes = require('./routes/streaming');
 const alertsRoutes = require('./routes/alerts');
+const debugRoutes = require('./routes/debug');
 
 const app = express();
 const server = http.createServer(app);
@@ -150,6 +151,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/location', locationRoutes);
 app.use('/api/media', mediaRoutes);
 app.use('/api/streaming', streamingRoutes);
+app.use('/api/debug', debugRoutes);
 app.use('/api/alerts', authenticateToken, alertsRoutes);
 
 // Routes
