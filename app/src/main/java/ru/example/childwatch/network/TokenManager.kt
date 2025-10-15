@@ -52,7 +52,7 @@ class TokenManager(private val context: Context) {
                 put("deviceId", deviceId)
                 put("deviceName", android.os.Build.MODEL)
                 put("deviceType", "android")
-                put("appVersion", ru.example.childwatch.BuildConfig.VERSION_NAME)
+                put("appVersion", sanitizeVersionName(ru.example.childwatch.BuildConfig.VERSION_NAME))
                 put("timestamp", System.currentTimeMillis())
             }
             
@@ -63,7 +63,7 @@ class TokenManager(private val context: Context) {
                 .url(url)
                 .post(requestBody)
                 .addHeader("Content-Type", "application/json")
-                .addHeader("User-Agent", "ChildWatch/" + ru.example.childwatch.BuildConfig.VERSION_NAME)
+                .addHeader("User-Agent", "ChildWatch/" + sanitizeVersionName(ru.example.childwatch.BuildConfig.VERSION_NAME))
                 .build()
 
             Log.d(TAG, "Registering device: $deviceId")
@@ -292,5 +292,10 @@ class TokenManager(private val context: Context) {
             "expiresAt" to java.util.Date(expiryTime),
             "timeUntilExpiry" to (expiryTime - currentTime)
         )
+    }
+
+    private fun sanitizeVersionName(versionName: String): String {
+        val match = Regex("""\d+\.\d+\.\d+""").find(versionName)
+        return match?.value ?: versionName
     }
 }

@@ -6,6 +6,7 @@ import android.content.Intent
 import android.os.Build
 import android.util.Log
 import ru.example.parentwatch.service.LocationService
+import ru.example.parentwatch.service.ChatBackgroundService
 
 /**
  * Boot receiver to auto-start location service
@@ -34,6 +35,16 @@ class BootReceiver : BroadcastReceiver() {
                     context.startForegroundService(serviceIntent)
                 } else {
                     context.startService(serviceIntent)
+                }
+
+                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
+                    ?: "https://childwatch-production.up.railway.app"
+                val deviceId = prefs.getString("device_id", null)
+                if (!deviceId.isNullOrEmpty()) {
+                    ChatBackgroundService.start(context, serverUrl, deviceId)
+                    Log.d(TAG, "ChatBackgroundService restarted after boot")
+                } else {
+                    Log.w(TAG, "Cannot restart chat service after boot - device_id missing")
                 }
             }
         }

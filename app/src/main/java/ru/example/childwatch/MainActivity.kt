@@ -21,6 +21,7 @@ import ru.example.childwatch.databinding.ActivityMainMenuBinding
 import ru.example.childwatch.network.DeviceStatus
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.service.MonitorService
+import ru.example.childwatch.service.ChatBackgroundService
 import ru.example.childwatch.utils.BatteryOptimizationHelper
 import ru.example.childwatch.utils.PermissionHelper
 import ru.example.childwatch.utils.SecurityChecker
@@ -88,6 +89,7 @@ class MainActivity : AppCompatActivity() {
         performSecurityChecks()
         checkBatteryOptimizationStatus()
         CriticalAlertSyncScheduler.schedule(this)
+        ensureChatBackgroundService()
     }
     
 
@@ -576,17 +578,19 @@ class MainActivity : AppCompatActivity() {
         } else {
             startService(intent)
         }
-        
+
+        ensureChatBackgroundService()
         showToast(getString(R.string.monitoring_started))
         updateUIState()
     }
-    
+
     private fun stopMonitoring() {
         val intent = Intent(this, MonitorService::class.java).apply {
             action = MonitorService.ACTION_STOP_MONITORING
         }
         startService(intent)
 
+        stopChatBackgroundService()
         showToast(getString(R.string.monitoring_stopped))
         updateUIState()
     }
@@ -709,6 +713,22 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
+    private fun ensureChatBackgroundService() {
+        val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
+            ?: "https://childwatch-production.up.railway.app"
+        val childDeviceId = prefs.getString("child_device_id", null)
+
+        if (!childDeviceId.isNullOrEmpty()) {
+            ChatBackgroundService.start(this, serverUrl, childDeviceId)
+        } else {
+            Log.w(TAG, "Cannot start chat background service: child_device_id is missing")
+        }
+    }
+
+    private fun stopChatBackgroundService() {
+        ChatBackgroundService.stop(this)
+    }
+
     private fun showPermissionDeniedExplanation(deniedPermissions: Set<String>) {
         val explanations = deniedPermissions.map { permission ->
             "${PermissionHelper.getPermissionExplanation(permission)}\n${PermissionHelper.getPermissionDenialConsequences(permission)}"
@@ -740,6 +760,7 @@ class MainActivity : AppCompatActivity() {
         updateUIState()
         refreshChildDeviceStatus(force = true)
         CriticalAlertSyncScheduler.triggerImmediate(this)
+        ensureChatBackgroundService()
     }
 
     private fun showDeviceIdOptions(serverUrl: String) {

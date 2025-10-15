@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import ru.example.childwatch.service.MonitorService
+import ru.example.childwatch.service.ChatBackgroundService
 
 /**
  * BootReceiver to restart monitoring after device reboot
@@ -44,6 +45,16 @@ class BootReceiver : BroadcastReceiver() {
             try {
                 context.startForegroundService(serviceIntent)
                 Log.d(TAG, "Restarted monitoring service after boot")
+
+                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
+                    ?: "https://childwatch-production.up.railway.app"
+                val childDeviceId = prefs.getString("child_device_id", null)
+                if (!childDeviceId.isNullOrEmpty()) {
+                    ChatBackgroundService.start(context, serverUrl, childDeviceId)
+                    Log.d(TAG, "ChatBackgroundService restarted after boot")
+                } else {
+                    Log.w(TAG, "Cannot restart chat service after boot - child_device_id missing")
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to restart monitoring service after boot", e)
             }
