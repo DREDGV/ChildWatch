@@ -34,6 +34,7 @@ class WebSocketClient(
     private var onCriticalAlertCallback: ((CriticalAlertMessage) -> Unit)? = null
     private var onConnectedCallback: (() -> Unit)? = null
     private var onErrorCallback: ((String) -> Unit)? = null
+    private var onChatMessageCallback: ((String, String, String, Long) -> Unit)? = null
     
     // Track last processed sequence to prevent duplicates
     private var lastProcessedSequence = -1
@@ -162,11 +163,35 @@ class WebSocketClient(
     }
 
     private val onChatMessage = Emitter.Listener { args ->
-        // Handle chat messages if needed
+        try {
+            val messageData = args.getOrNull(0) as? JSONObject
+            if (messageData != null) {
+                val messageId = messageData.optString("id", "")
+                val text = messageData.optString("text", "")
+                val sender = messageData.optString("sender", "")
+                val timestamp = messageData.optLong("timestamp", System.currentTimeMillis())
+
+                Log.d(TAG, "💬 Chat message received: from=$sender, text=$text")
+
+                scope.launch {
+                    onChatMessageCallback?.invoke(messageId, text, sender, timestamp)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error handling chat message", e)
+        }
     }
 
     private val onChatMessageSent = Emitter.Listener { args ->
-        // Handle chat message sent confirmation if needed
+        try {
+            val data = args.getOrNull(0) as? JSONObject
+            val messageId = data?.optString("id") ?: ""
+            val timestamp = data?.optLong("timestamp") ?: System.currentTimeMillis()
+
+            Log.d(TAG, "✅ Chat message sent confirmation: id=$messageId")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error handling chat message sent confirmation", e)
+        }
     }
 
     /**
@@ -314,8 +339,8 @@ class WebSocketClient(
      * Set callback for chat messages
      */
     fun setChatMessageCallback(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
-        // We would need to modify the onChatMessage handler to use this callback
-        // For now, we'll leave it as a placeholder
+        onChatMessageCallback = callback
+        Log.d(TAG, "✅ Chat message callback registered")
     }
 
     /**

@@ -131,11 +131,42 @@ class WebSocketClient(
     }
 
     private val onChatMessage = Emitter.Listener { args ->
-        // Handle incoming chat messages
+        try {
+            val messageData = args.getOrNull(0) as? JSONObject
+            if (messageData != null) {
+                val messageId = messageData.optString("id", "")
+                val text = messageData.optString("text", "")
+                val sender = messageData.optString("sender", "")
+                val timestamp = messageData.optLong("timestamp", System.currentTimeMillis())
+
+                Log.d(TAG, "💬 Chat message received: from=$sender, text=$text")
+                RemoteLogger.info(
+                    serverUrl = serverUrl,
+                    deviceId = deviceId,
+                    source = TAG,
+                    message = "Chat message received",
+                    meta = mapOf("sender" to sender, "messageId" to messageId)
+                )
+
+                scope.launch {
+                    onChatMessageCallback?.invoke(messageId, text, sender, timestamp)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error handling chat message", e)
+        }
     }
 
     private val onChatMessageSent = Emitter.Listener { args ->
-        // Handle confirmation of sent chat messages
+        try {
+            val data = args.getOrNull(0) as? JSONObject
+            val messageId = data?.optString("id") ?: ""
+            val timestamp = data?.optLong("timestamp") ?: System.currentTimeMillis()
+
+            Log.d(TAG, "✅ Chat message sent confirmation: id=$messageId")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error handling chat message sent confirmation", e)
+        }
     }
 
     private val onCommand = Emitter.Listener { args ->
