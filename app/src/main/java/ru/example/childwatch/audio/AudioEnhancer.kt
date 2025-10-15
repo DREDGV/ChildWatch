@@ -72,66 +72,52 @@ class AudioEnhancer {
     private fun applyNoiseGate(data: ShortArray, length: Int) {
         if (length == 0) return
 
-        // Calculate RMS instead of average amplitude for better noise detection
-        var sumOfSquares = 0.0
-        for (i in 0 until length) {
-            val normalized = data[i].toFloat() / Short.MAX_VALUE
-            sumOfSquares += normalized * normalized
-        }
-        val rms = kotlin.math.sqrt(sumOfSquares / length).toFloat()
+        // Very gentle noise gate - only removes extremely quiet background noise
+        // Threshold: 50 = very quiet (was 200, too aggressive)
+        val threshold = 50f
 
-        // Much lower threshold - only remove very quiet noise
-        // 200f instead of 600f = less aggressive gating
-        val baseThreshold = 200f
-        val adaptiveThreshold = (rms * Short.MAX_VALUE * 0.15f).coerceAtLeast(baseThreshold)
-
-        // Soft knee for smoother gating (gradual reduction instead of hard cut)
-        val kneeWidth = adaptiveThreshold * 0.5f
+        // Very wide soft knee for natural sound
+        val kneeWidth = 150f
 
         for (i in 0 until length) {
             val absValue = abs(data[i].toFloat())
 
             when {
-                // Below threshold - gate completely
-                absValue < adaptiveThreshold - kneeWidth -> {
-                    data[i] = 0
+                // Only gate EXTREMELY quiet noise
+                absValue < threshold -> {
+                    data[i] = (data[i] * 0.1f).toInt().toShort() // Reduce by 90%, don't mute completely
                 }
-                // In knee range - gradual reduction
-                absValue < adaptiveThreshold + kneeWidth -> {
-                    val position = (absValue - (adaptiveThreshold - kneeWidth)) / (2 * kneeWidth)
-                    val reduction = position.coerceIn(0f, 1f)
+                // Very wide smooth transition zone
+                absValue < threshold + kneeWidth -> {
+                    val position = (absValue - threshold) / kneeWidth
+                    val reduction = 0.1f + (position * 0.9f) // Fade from 10% to 100%
                     data[i] = (data[i] * reduction).toInt().toShort()
                 }
                 // Above threshold - pass through unchanged
-                else -> {
-                    // No change
-                }
+                // This is where speech and normal sounds live!
             }
         }
     }
 
     private fun applyGain(data: ShortArray, length: Int, multiplier: Float) {
-        // Apply gain with soft-clipping to prevent harsh distortion
+        // Simple gain with gentle limiting
         for (i in 0 until length) {
-            val normalized = data[i].toFloat() / Short.MAX_VALUE
-            val boosted = normalized * multiplier
+            val boosted = data[i] * multiplier
 
-            // Soft-clip instead of hard-clip to prevent harsh distortion
-            val clipped = when {
-                boosted > 1.0f -> {
-                    // Soft knee at high levels
-                    val excess = boosted - 0.9f
-                    0.9f + (excess / (1 + abs(excess)))
+            // Simple tanh-like soft limiting for natural sound
+            val limited = when {
+                boosted > Short.MAX_VALUE * 0.8f -> {
+                    val excess = boosted - Short.MAX_VALUE * 0.8f
+                    Short.MAX_VALUE * 0.8f + (excess * 0.5f) // Compress the peaks gently
                 }
-                boosted < -1.0f -> {
-                    // Soft knee at low levels
-                    val excess = boosted + 0.9f
-                    -0.9f + (excess / (1 + abs(excess)))
+                boosted < Short.MIN_VALUE * 0.8f -> {
+                    val excess = boosted - Short.MIN_VALUE * 0.8f
+                    Short.MIN_VALUE * 0.8f + (excess * 0.5f)
                 }
                 else -> boosted
             }
 
-            data[i] = (clipped * Short.MAX_VALUE).toInt()
+            data[i] = limited.toInt()
                 .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
                 .toShort()
         }
