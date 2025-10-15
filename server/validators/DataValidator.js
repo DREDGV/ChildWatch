@@ -222,6 +222,15 @@ class DataValidator {
         // Device ID should be alphanumeric with underscores and hyphens
         return /^[a-zA-Z0-9_-]{10,100}$/.test(deviceId);
     }
+
+    validateAppVersion(version) {
+        if (!version || typeof version !== 'string') {
+            return false;
+        }
+
+        // Accept semantic versions with optional pre-release/build suffixes (e.g., 5.2.0 or 5.2.0-debug)
+        return /^\d+\.\d+\.\d+([-/][A-Za-z0-9._]+)?$/.test(version);
+    }
     
     /**
      * Check if location is suspicious (too fast movement)

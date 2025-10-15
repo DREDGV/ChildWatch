@@ -172,7 +172,7 @@ app.post('/api/auth/register',
             deviceId: { required: true, type: 'string', minLength: 10, maxLength: 100 },
             deviceName: { required: true, type: 'string', maxLength: 100 },
             deviceType: { required: true, type: 'string', pattern: /^(android|ios)$/ },
-            appVersion: { required: true, type: 'string', pattern: /^\d+\.\d+\.\d+$/ }
+            appVersion: { required: true, type: 'string', pattern: /^\d+\.\d+\.\d+([-/][A-Za-z0-9._]+)?$/ }
         }
     }),
     authMiddleware.rateLimit(60000, 10), // 10 requests per minute for registration
@@ -180,7 +180,6 @@ app.post('/api/auth/register',
         try {
             const { deviceId, deviceName, deviceType, appVersion } = req.body;
 
-            // Validate device ID format
             if (!validator.validateDeviceIdFormat(deviceId)) {
                 return res.status(400).json({ 
                     error: 'Invalid device ID format',
@@ -188,7 +187,13 @@ app.post('/api/auth/register',
                 });
             }
 
-            // Register device
+            if (!validator.validateAppVersion(appVersion)) {
+                return res.status(400).json({
+                    error: 'Invalid app version format',
+                    code: 'INVALID_APP_VERSION'
+                });
+            }
+
             const result = authManager.registerDevice({
                 deviceId,
                 deviceName: validator.sanitizeString(deviceName),

