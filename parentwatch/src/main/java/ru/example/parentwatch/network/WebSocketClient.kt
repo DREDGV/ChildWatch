@@ -149,7 +149,19 @@ class WebSocketClient(
                 )
 
                 scope.launch {
-                    onChatMessageCallback?.invoke(messageId, text, sender, timestamp)
+                    if (onChatMessageCallback != null) {
+                        Log.d(TAG, "✅ Invoking chat message callback")
+                        onChatMessageCallback?.invoke(messageId, text, sender, timestamp)
+                        Log.d(TAG, "✅ Chat message callback invoked successfully")
+                    } else {
+                        Log.e(TAG, "❌ Chat message callback is NULL - message will not be delivered!")
+                        RemoteLogger.error(
+                            serverUrl = serverUrl,
+                            deviceId = deviceId,
+                            source = TAG,
+                            message = "Chat callback is NULL - cannot deliver message"
+                        )
+                    }
                 }
             }
         } catch (e: Exception) {

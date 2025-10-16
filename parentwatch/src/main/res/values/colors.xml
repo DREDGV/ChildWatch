@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Priority Message Colors -->
+    <color name="priority_message_background">#FFEBEE</color> <!-- Light Red -->
+    <color name="priority_message_stroke">#D32F2F</color> <!-- Dark Red -->
+    <color name="priority_message_sender">#B71C1C</color> <!-- Very Dark Red -->
+    <color name="priority_message_text">#212121</color> <!-- Almost Black -->
+    <color name="priority_message_countdown">#757575</color> <!-- Gray -->
+    <color name="priority_message_button">#D32F2F</color> <!-- Dark Red -->
+</resources>
