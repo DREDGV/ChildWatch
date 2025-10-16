@@ -103,37 +103,37 @@ class ChatBackgroundService : LifecycleService() {
     }
 
     private fun startForegroundService(serverUrl: String, deviceId: String) {
-        if (isRunning) {
-            Log.w(TAG, "Service already running")
-            return
-        }
-
-        Log.d(TAG, "Starting chat background service")
+        Log.d(TAG, "Starting chat background service (isRunning=$isRunning)")
 
         // Start foreground with notification
-        startForeground(NOTIFICATION_ID, createNotification("Подключение..."))
-
-        // Initialize WebSocket if not connected
-        if (!WebSocketManager.isConnected()) {
-            WebSocketManager.initialize(this, serverUrl, deviceId)
+        if (!isRunning) {
+            startForeground(NOTIFICATION_ID, createNotification("Подключение..."))
         }
 
+        // Always cleanup and reinitialize WebSocket to ensure fresh connection
+        if (WebSocketManager.isConnected()) {
+            Log.d(TAG, "Disconnecting existing WebSocket before reconnecting")
+            WebSocketManager.disconnect()
+        }
+
+        // Cleanup and reinitialize WebSocket
+        WebSocketManager.cleanup()
+        WebSocketManager.initialize(this, serverUrl, deviceId)
         WebSocketManager.addChatMessageListener(backgroundListener)
 
         // Connect WebSocket
         WebSocketManager.connect(
             onConnected = {
-                Log.d(TAG, "WebSocket connected")
+                Log.d(TAG, "WebSocket connected successfully")
                 updateNotification("Чат активен")
             },
             onError = { error ->
-                Log.e(TAG, "WebSocket error: $error")
+                Log.e(TAG, "WebSocket connection error: $error")
                 updateNotification("Ошибка подключения")
             }
         )
 
         isRunning = true
-        updateNotification("Чат активен")
     }
 
     private fun stopForegroundService() {
