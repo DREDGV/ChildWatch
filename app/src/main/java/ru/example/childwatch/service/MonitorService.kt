@@ -392,7 +392,10 @@ class MonitorService : Service() {
         prefs.edit().putBoolean("was_monitoring", true).apply()
         
         ensureForeground(isRecording = false)
-        
+
+        // Start ChatBackgroundService for real-time chat
+        startChatBackgroundService()
+
         serviceScope.launch(Dispatchers.IO) {
             try {
                 val token = networkClient.registerDevice(serverUrl)
@@ -406,7 +409,7 @@ class MonitorService : Service() {
                 setLastErrorMessage("Device registration failed: ${e.message}")
             }
         }
-        
+
         recoveryManager.startHealthMonitoring()
         
         try {
@@ -422,37 +425,59 @@ class MonitorService : Service() {
         }
     }
     
+    private fun startChatBackgroundService() {
+        try {
+            val childDeviceId = prefs.getString("child_device_id", "") ?: ""
+            if (childDeviceId.isNotEmpty()) {
+                ChatBackgroundService.start(this, serverUrl, childDeviceId)
+                Log.d(TAG, "ChatBackgroundService started for child device: $childDeviceId")
+            } else {
+                Log.w(TAG, "Cannot start ChatBackgroundService: child_device_id not set")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start ChatBackgroundService", e)
+        }
+    }
+
     private fun stopMonitoring() {
         if (!isRunning && !isAudioRecording.get()) {
             Log.d(TAG, "Monitoring already stopped")
             return
         }
-        
+
         Log.i(TAG, "Stopping monitoring")
         isRunning = false
         secureSettings.setMonitoringEnabled(false)
         prefs.edit().putBoolean("was_monitoring", false).apply()
         setLastStartedTimestamp(0L)
-        
+
+        // Stop ChatBackgroundService
+        try {
+            ChatBackgroundService.stop(this)
+            Log.d(TAG, "ChatBackgroundService stopped")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to stop ChatBackgroundService", e)
+        }
+
         locationUpdateJob?.cancel()
         locationUpdateJob = null
-        
+
         recoveryManager.stopHealthMonitoring()
-        
+
         try {
             batteryOptimizer.stopBatteryMonitoring()
         } catch (e: Exception) {
             Log.w(TAG, "BatteryOptimizer stop failed", e)
         }
-        
+
         locationManager.stopLocationUpdates()
-        
+
         if (isAudioRecording.get()) {
             stopAudioCapture("monitoring stop")
         }
         audioRecordingJob = null
         setRecordingState(false)
-        
+
         stopForegroundService(true)
         stopSelf()
     }
