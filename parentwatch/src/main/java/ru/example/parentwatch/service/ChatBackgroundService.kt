@@ -12,6 +12,9 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import ru.example.parentwatch.MainActivity
 import ru.example.parentwatch.R
 import ru.example.parentwatch.chat.ChatManager
@@ -118,20 +121,61 @@ class ChatBackgroundService : LifecycleService() {
 
         // Cleanup and reinitialize WebSocket
         WebSocketManager.cleanup()
-        WebSocketManager.initialize(this, serverUrl, deviceId)
-        WebSocketManager.addChatMessageListener(backgroundListener)
 
-        // Connect WebSocket
-        WebSocketManager.connect(
-            onConnected = {
-                Log.d(TAG, "WebSocket connected successfully")
-                updateNotification("Чат активен")
-            },
-            onError = { error ->
-                Log.e(TAG, "WebSocket connection error: $error")
-                updateNotification("Ошибка подключения")
+        // Use coroutine for delayed connection with retry logic
+        lifecycleScope.launch {
+            var attempt = 0
+            val maxAttempts = 3
+            var connected = false
+
+            while (attempt < maxAttempts && !connected) {
+                attempt++
+                Log.d(TAG, "WebSocket connection attempt $attempt/$maxAttempts")
+
+                // Add delay before connection (longer for first attempt)
+                val delayMs = if (attempt == 1) 2000L else 1000L
+                delay(delayMs)
+
+                try {
+                    WebSocketManager.initialize(this@ChatBackgroundService, serverUrl, deviceId)
+                    WebSocketManager.addChatMessageListener(backgroundListener)
+
+                    // Connect WebSocket
+                    WebSocketManager.connect(
+                        onConnected = {
+                            Log.d(TAG, "✅ WebSocket connected successfully on attempt $attempt")
+                            updateNotification("Чат активен")
+                            connected = true
+                        },
+                        onError = { error ->
+                            Log.e(TAG, "❌ WebSocket connection error on attempt $attempt: $error")
+                            if (attempt >= maxAttempts) {
+                                updateNotification("Ошибка подключения")
+                            }
+                        }
+                    )
+
+                    // Wait a bit to see if connection succeeds
+                    delay(1500)
+
+                    if (WebSocketManager.isConnected()) {
+                        connected = true
+                        Log.d(TAG, "✅ WebSocket connection verified on attempt $attempt")
+                    }
+
+                } catch (e: Exception) {
+                    Log.e(TAG, "Exception during connection attempt $attempt", e)
+                    if (attempt >= maxAttempts) {
+                        updateNotification("Ошибка подключения")
+                    }
+                }
             }
-        )
+
+            if (!connected) {
+                Log.e(TAG, "❌ Failed to connect WebSocket after $maxAttempts attempts")
+                updateNotification("Не удалось подключиться")
+            }
+        }
 
         isRunning = true
     }
