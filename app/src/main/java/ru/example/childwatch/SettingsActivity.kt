@@ -76,6 +76,11 @@ class SettingsActivity : AppCompatActivity() {
     }
     
     private fun setupUI() {
+        // Notification duration slider listener
+        binding.notificationDurationSlider.addOnChangeListener { _, value, _ ->
+            binding.durationValueText.text = "${value.toInt()} секунд"
+        }
+
         // Save settings button
         binding.saveSettingsBtn.setOnClickListener {
             saveSettings()
@@ -102,12 +107,12 @@ class SettingsActivity : AppCompatActivity() {
         binding.resetSettingsBtn.setOnClickListener {
             showResetConfirmation()
         }
-        
+
         // Revoke consent button
         binding.revokeConsentBtn.setOnClickListener {
             showRevokeConsentConfirmation()
         }
-        
+
         // About button
         binding.aboutBtn.setOnClickListener {
             openAboutScreen()
@@ -120,17 +125,23 @@ class SettingsActivity : AppCompatActivity() {
         val audioDuration = prefs.getInt(KEY_AUDIO_DURATION, DEFAULT_AUDIO_DURATION)
         val serverUrl = prefs.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
         val childDeviceId = prefs.getString(KEY_CHILD_DEVICE_ID, "")
-        
+
         binding.locationIntervalInput.setText(locationInterval.toString())
         binding.audioDurationInput.setText(audioDuration.toString())
         binding.serverUrlInput.setText(serverUrl)
         binding.childDeviceIdInput.setText(childDeviceId)
-        
+
         // Load feature toggles
         binding.locationMonitoringSwitch.isChecked = prefs.getBoolean(KEY_LOCATION_ENABLED, true)
         binding.audioMonitoringSwitch.isChecked = prefs.getBoolean(KEY_AUDIO_ENABLED, true)
         binding.photoMonitoringSwitch.isChecked = prefs.getBoolean(KEY_PHOTO_ENABLED, false)
-        
+
+        // Load notification settings
+        val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
+        val notificationDuration = notificationPrefs.getInt("notification_duration", 10000) / 1000 // Convert ms to seconds
+        binding.notificationDurationSlider.value = notificationDuration.toFloat()
+        binding.durationValueText.text = "$notificationDuration секунд"
+
         Log.d(TAG, "Settings loaded")
     }
     
@@ -170,8 +181,15 @@ class SettingsActivity : AppCompatActivity() {
                 .putBoolean(KEY_AUDIO_ENABLED, binding.audioMonitoringSwitch.isChecked)
                 .putBoolean(KEY_PHOTO_ENABLED, binding.photoMonitoringSwitch.isChecked)
                 .apply()
-            
-            Log.d(TAG, "Settings saved: interval=$locationInterval, audio=$audioDuration, url=$serverUrl")
+
+            // Save notification settings
+            val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
+            val notificationDurationSec = binding.notificationDurationSlider.value.toInt()
+            notificationPrefs.edit()
+                .putInt("notification_duration", notificationDurationSec * 1000) // Convert to ms
+                .apply()
+
+            Log.d(TAG, "Settings saved: interval=$locationInterval, audio=$audioDuration, url=$serverUrl, notif=$notificationDurationSec")
             Toast.makeText(this, "Настройки сохранены", Toast.LENGTH_SHORT).show()
             
             // Finish activity

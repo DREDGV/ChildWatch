@@ -34,34 +34,45 @@ class SettingsActivity : AppCompatActivity() {
     
     private fun setupUI() {
         val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
-        
+        val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
+
         // Load current settings
         val serverUrl = prefs.getString("server_url", getString(R.string.server_url_hint)) ?: getString(R.string.server_url_hint)
         val deviceId = prefs.getString("device_id", "Не настроен") ?: "Не настроен"
-        
+
         binding.serverUrlInput.setText(serverUrl)
         binding.deviceIdText.setText(deviceId)
-        
+
+        // Load notification settings
+        val notificationDuration = notificationPrefs.getInt("notification_duration", 10000) / 1000 // Convert ms to seconds
+        binding.notificationDurationSlider.value = notificationDuration.toFloat()
+        binding.durationValueText.text = "$notificationDuration секунд"
+
+        // Notification duration slider listener
+        binding.notificationDurationSlider.addOnChangeListener { _, value, _ ->
+            binding.durationValueText.text = "${value.toInt()} секунд"
+        }
+
         // Save button
         binding.saveButton.setOnClickListener {
             saveSettings()
         }
-        
+
         // Localhost button
         binding.useLocalhostBtn.setOnClickListener {
             binding.serverUrlInput.setText("http://10.0.2.2:3000")
         }
-        
+
         // Railway button
         binding.useRailwayBtn.setOnClickListener {
             binding.serverUrlInput.setText("https://childwatch-production.up.railway.app")
         }
-        
+
         // Copy Device ID button
         binding.copyIdButton.setOnClickListener {
             copyDeviceId()
         }
-        
+
         // Show QR Code button
         binding.showQrButton.setOnClickListener {
             showQRCode()
@@ -74,17 +85,25 @@ class SettingsActivity : AppCompatActivity() {
     
     private fun saveSettings() {
         val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+        val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
         val serverUrl = binding.serverUrlInput.text.toString().trim()
-        
+
         if (serverUrl.isEmpty()) {
             Toast.makeText(this, "Введите URL сервера", Toast.LENGTH_SHORT).show()
             return
         }
-        
+
+        // Save server URL
         prefs.edit()
             .putString("server_url", serverUrl)
             .apply()
-        
+
+        // Save notification settings
+        val notificationDurationSec = binding.notificationDurationSlider.value.toInt()
+        notificationPrefs.edit()
+            .putInt("notification_duration", notificationDurationSec * 1000) // Convert to ms
+            .apply()
+
         Toast.makeText(this, "✅ Настройки сохранены", Toast.LENGTH_SHORT).show()
         finish()
     }

@@ -62,6 +62,10 @@ object NotificationManager {
         // Increment unread counter
         unreadMessageCount++
 
+        // Get notification duration from preferences (default: 10 seconds / 10000ms)
+        val prefs = context.getSharedPreferences("notification_prefs", Context.MODE_PRIVATE)
+        val durationMs = prefs.getInt("notification_duration", 10000)
+
         // Create intent to open chat when notification is tapped
         val intent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
@@ -75,22 +79,25 @@ object NotificationManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Build notification with grouping
+        // Build notification with BIG style for better visibility
         val notification = NotificationCompat.Builder(context, CHAT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("💬 Новое сообщение от $senderName")
             .setContentText(messageText)
             .setStyle(NotificationCompat.BigTextStyle()
-                .bigText(messageText))
-            .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .bigText(messageText)
+                .setBigContentTitle("💬 Новое сообщение от $senderName"))
+            .setPriority(NotificationCompat.PRIORITY_MAX) // Changed to MAX for heads-up display
             .setDefaults(NotificationCompat.DEFAULT_ALL)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setWhen(timestamp)
             .setShowWhen(true)
             .setGroup(CHAT_GROUP_KEY)
-            .setNumber(unreadMessageCount) // Show badge with count
-            .setOnlyAlertOnce(false) // Alert for each message
+            .setNumber(unreadMessageCount)
+            .setOnlyAlertOnce(false)
+            .setTimeoutAfter(durationMs.toLong()) // Auto-dismiss after configured duration
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE) // Mark as message for better handling
             .build()
 
         // Show notification
