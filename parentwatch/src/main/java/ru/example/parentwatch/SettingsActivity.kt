@@ -45,8 +45,13 @@ class SettingsActivity : AppCompatActivity() {
 
         // Load notification settings
         val notificationDuration = notificationPrefs.getInt("notification_duration", 10000) / 1000 // Convert ms to seconds
+        val notificationSound = notificationPrefs.getBoolean("notification_sound", true)
+        val notificationVibration = notificationPrefs.getBoolean("notification_vibration", true)
+
         binding.notificationDurationSlider.value = notificationDuration.toFloat()
         binding.durationValueText.text = "$notificationDuration секунд"
+        binding.notificationSoundSwitch.isChecked = notificationSound
+        binding.notificationVibrationSwitch.isChecked = notificationVibration
 
         // Notification duration slider listener
         binding.notificationDurationSlider.addOnChangeListener { _, value, _ ->
@@ -100,8 +105,13 @@ class SettingsActivity : AppCompatActivity() {
 
         // Save notification settings
         val notificationDurationSec = binding.notificationDurationSlider.value.toInt()
+        val notificationSound = binding.notificationSoundSwitch.isChecked
+        val notificationVibration = binding.notificationVibrationSwitch.isChecked
+
         notificationPrefs.edit()
             .putInt("notification_duration", notificationDurationSec * 1000) // Convert to ms
+            .putBoolean("notification_sound", notificationSound)
+            .putBoolean("notification_vibration", notificationVibration)
             .apply()
 
         Toast.makeText(this, "✅ Настройки сохранены", Toast.LENGTH_SHORT).show()

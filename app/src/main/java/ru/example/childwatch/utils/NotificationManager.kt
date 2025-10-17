@@ -65,6 +65,8 @@ object NotificationManager {
         // Get notification duration from preferences (default: 10 seconds / 10000ms)
         val prefs = context.getSharedPreferences("notification_prefs", Context.MODE_PRIVATE)
         val durationMs = prefs.getInt("notification_duration", 10000)
+        val enableSound = prefs.getBoolean("notification_sound", true)
+        val enableVibration = prefs.getBoolean("notification_vibration", true)
 
         // Create intent to open chat when notification is tapped
         val intent = Intent(context, MainActivity::class.java).apply {
@@ -80,15 +82,14 @@ object NotificationManager {
         )
 
         // Build notification with BIG style for better visibility
-        val notification = NotificationCompat.Builder(context, CHAT_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, CHAT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("💬 Новое сообщение от $senderName")
             .setContentText(messageText)
             .setStyle(NotificationCompat.BigTextStyle()
                 .bigText(messageText)
                 .setBigContentTitle("💬 Новое сообщение от $senderName"))
-            .setPriority(NotificationCompat.PRIORITY_MAX) // Changed to MAX for heads-up display
-            .setDefaults(NotificationCompat.DEFAULT_ALL)
+            .setPriority(NotificationCompat.PRIORITY_MAX)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setWhen(timestamp)
@@ -96,15 +97,27 @@ object NotificationManager {
             .setGroup(CHAT_GROUP_KEY)
             .setNumber(unreadMessageCount)
             .setOnlyAlertOnce(false)
-            .setTimeoutAfter(durationMs.toLong()) // Auto-dismiss after configured duration
-            .setCategory(NotificationCompat.CATEGORY_MESSAGE) // Mark as message for better handling
-            .build()
+            .setTimeoutAfter(durationMs.toLong())
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Show on lockscreen
+
+        // Configure sound based on preferences
+        if (enableSound) {
+            builder.setDefaults(NotificationCompat.DEFAULT_SOUND)
+        }
+
+        // Configure vibration based on preferences
+        if (enableVibration) {
+            builder.setVibrate(longArrayOf(0, 500, 200, 500)) // Pattern: wait, vibrate, wait, vibrate
+        }
 
         // Show notification
         try {
             with(NotificationManagerCompat.from(context)) {
-                notify(CHAT_NOTIFICATION_ID, notification)
+                notify(CHAT_NOTIFICATION_ID, builder.build())
             }
+
+            android.util.Log.d("NotificationManager", "Chat notification shown: duration=${durationMs}ms, sound=$enableSound, vibration=$enableVibration")
         } catch (e: SecurityException) {
             android.util.Log.e("NotificationManager", "Failed to show notification: ${e.message}")
         }
