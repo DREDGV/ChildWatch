@@ -44,7 +44,7 @@ class SecureSettingsManager(private val context: Context) {
         private const val KEY_SECURITY_LEVEL = "security_level"
         
         // Default values
-        private const val DEFAULT_SERVER_URL = "https://your-server.com"
+        private const val DEFAULT_SERVER_URL = "http://31.28.27.96:3000"
         private const val DEFAULT_LOCATION_INTERVAL = 30000L // 30 seconds
         private const val DEFAULT_AUDIO_DURATION = 30 // 30 seconds
         private const val DEFAULT_PRIVACY_LEVEL = 1 // Medium privacy

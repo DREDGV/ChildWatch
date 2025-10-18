@@ -173,7 +173,7 @@ class ChatActivity : AppCompatActivity() {
      */
     private fun initializeWebSocket() {
         val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
-        val serverUrl = prefs.getString("server_url", MainActivity.RAILWAY_URL) ?: MainActivity.RAILWAY_URL
+        val serverUrl = prefs.getString("server_url", MainActivity.DEFAULT_SERVER_URL) ?: MainActivity.DEFAULT_SERVER_URL
         val deviceId = prefs.getString("device_id", "") ?: ""
 
         if (deviceId.isEmpty()) {

@@ -34,6 +34,8 @@ class MainActivity : AppCompatActivity() {
     companion object {
         const val LOCALHOST_URL = "http://10.0.2.2:3000"
         const val RAILWAY_URL = "https://childwatch-production.up.railway.app"
+        const val VPS_URL = "http://31.28.27.96:3000"
+        const val DEFAULT_SERVER_URL = VPS_URL
     }
 
     private lateinit var prefs: SharedPreferences
@@ -181,7 +183,7 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun ensureChatBackgroundService() {
-        val serverUrl = prefs.getString("server_url", RAILWAY_URL) ?: RAILWAY_URL
+        val serverUrl = prefs.getString("server_url", DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
         val deviceId = prefs.getString("device_id", null)
         if (!deviceId.isNullOrEmpty()) {
             ChatBackgroundService.start(this, serverUrl, deviceId)
@@ -248,7 +250,7 @@ class MainActivity : AppCompatActivity() {
             if (!isServiceRunning) {
                 val serviceIntent = Intent(this, LocationService::class.java)
                 serviceIntent.action = LocationService.ACTION_START
-                serviceIntent.putExtra("server_url", prefs.getString("server_url", RAILWAY_URL))
+                serviceIntent.putExtra("server_url", prefs.getString("server_url", DEFAULT_SERVER_URL))
                 serviceIntent.putExtra("device_id", getUniqueDeviceId())
                 ContextCompat.startForegroundService(this, serviceIntent)
                 
