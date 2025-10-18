@@ -39,6 +39,7 @@ class WebSocketClient(
     // Track last processed sequence to prevent duplicates
     private var lastProcessedSequence = -1
     private var heartbeatJob: Job? = null
+    private var reregistrationJob: Job? = null
 
     companion object {
         private const val TAG = "WebSocketClient"
@@ -284,11 +285,20 @@ class WebSocketClient(
                 put("deviceId", childDeviceId)
                 put("parentId", "parent_${System.currentTimeMillis()}")
             }
-            
+
             socket?.emit("register_parent", registrationData)
-            Log.d(TAG, "📤 Parent registration sent for device: $childDeviceId")
+            Log.d(TAG, "📤 Parent registration sent for device: $childDeviceId, socketId: ${socket?.id()}")
+
+            // Retry registration after 2 seconds to ensure it's received
+            scope.launch {
+                delay(2000)
+                if (isConnected && socket != null) {
+                    socket?.emit("register_parent", registrationData)
+                    Log.d(TAG, "📤 Parent registration RETRY sent for device: $childDeviceId")
+                }
+            }
         } catch (e: Exception) {
-            Log.e(TAG, "Error registering as parent", e)
+            Log.e(TAG, "❌ Error registering as parent", e)
         }
     }
 
@@ -364,9 +374,33 @@ class WebSocketClient(
                 delay(intervalMs)
             }
         }
+
+        // Start periodic re-registration to ensure server knows we're a parent
+        startPeriodicReregistration()
+    }
+
+    /**
+     * Periodically re-register as parent every 30 seconds
+     */
+    private fun startPeriodicReregistration() {
+        reregistrationJob?.cancel()
+        reregistrationJob = scope.launch {
+            delay(5000) // Wait 5 seconds before first re-registration
+            while (isActive && isConnected) {
+                try {
+                    registerAsParent()
+                    Log.d(TAG, "🔄 Periodic parent re-registration triggered")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Periodic re-registration failed", e)
+                }
+                delay(30000) // Re-register every 30 seconds
+            }
+        }
     }
 
     fun stopHeartbeat() {
+        reregistrationJob?.cancel()
+        reregistrationJob = null
         heartbeatJob?.cancel()
         heartbeatJob = null
     }

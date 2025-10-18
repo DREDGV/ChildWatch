@@ -111,22 +111,32 @@
                     android:gravity="center">
 
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/useLocalhostBtn"
+                        android:id="@+id/useVpsBtn"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginEnd="8dp"
-                        android:text="Localhost"
-                        android:textSize="12sp"
-                        style="@style/Widget.Material3.Button.TonalButton" />
+                        android:layout_marginEnd="4dp"
+                        android:text="VPS"
+                        android:textSize="11sp"
+                        style="@style/Widget.Material3.Button" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/useRailwayBtn"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
+                        android:layout_marginEnd="4dp"
                         android:text="Railway"
-                        android:textSize="12sp"
+                        android:textSize="11sp"
+                        style="@style/Widget.Material3.Button.TonalButton" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/useLocalhostBtn"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Local"
+                        android:textSize="11sp"
                         style="@style/Widget.Material3.Button.TonalButton" />
 
                 </LinearLayout>

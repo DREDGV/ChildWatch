@@ -94,14 +94,19 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         // Server URL preset buttons
-        binding.useLocalhostBtn.setOnClickListener {
-            binding.serverUrlInput.setText(LOCALHOST_URL)
-            Toast.makeText(this, "Localhost URL установлен", Toast.LENGTH_SHORT).show()
+        binding.useVpsBtn.setOnClickListener {
+            binding.serverUrlInput.setText(VPS_URL)
+            Toast.makeText(this, "VPS URL установлен", Toast.LENGTH_SHORT).show()
         }
 
         binding.useRailwayBtn.setOnClickListener {
             binding.serverUrlInput.setText(RAILWAY_URL)
             Toast.makeText(this, "Railway URL установлен", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.useLocalhostBtn.setOnClickListener {
+            binding.serverUrlInput.setText(LOCALHOST_URL)
+            Toast.makeText(this, "Localhost URL установлен", Toast.LENGTH_SHORT).show()
         }
 
         // Reset settings button
