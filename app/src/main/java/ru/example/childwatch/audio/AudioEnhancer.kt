@@ -20,6 +20,7 @@ class AudioEnhancer {
      * Audio filter modes optimized for different scenarios
      */
     enum class FilterMode {
+        ORIGINAL,       // Оригинал - без фильтров и обработки (по умолчанию)
         VOICE,          // Голос - усиление речи, подавление фона
         QUIET_SOUNDS,   // Тихие звуки - максимальное усиление, минимум шумоподавления
         MUSIC,          // Музыка - естественное звучание, без агрессивной обработки
@@ -27,7 +28,7 @@ class AudioEnhancer {
     }
 
     data class Config(
-        val mode: FilterMode = FilterMode.VOICE,
+        val mode: FilterMode = FilterMode.ORIGINAL,
         val noiseSuppressionEnabled: Boolean = true,
         val gainBoostDb: Int = 0,
         val compressionEnabled: Boolean = false
@@ -53,6 +54,10 @@ class AudioEnhancer {
 
         // Apply mode-specific processing
         when (localConfig.mode) {
+            FilterMode.ORIGINAL -> {
+                // No processing - pass through original audio
+                // Audio remains unchanged in shortArray
+            }
             FilterMode.VOICE -> processVoiceMode(shortArray, sampleCount)
             FilterMode.QUIET_SOUNDS -> processQuietSoundsMode(shortArray, sampleCount)
             FilterMode.MUSIC -> processMusicMode(shortArray, sampleCount)
@@ -66,50 +71,50 @@ class AudioEnhancer {
 
     /**
      * VOICE mode: Optimize for speech clarity
-     * - Moderate noise gate to remove background noise
-     * - Boost gain for clear speech
-     * - Compression to even out volume
+     * - Light noise gate to remove background noise
+     * - Moderate boost for clear speech
+     * - Gentle compression to even out volume
      */
     private fun processVoiceMode(data: ShortArray, length: Int) {
-        applyNoiseGate(data, length, threshold = 100f, kneeWidth = 150f)
-        applyGain(data, length, multiplier = 2.0f) // +6dB
-        applyCompressor(data, length, threshold = 0.7f, ratio = 3.0f)
+        applyNoiseGate(data, length, threshold = 80f, kneeWidth = 200f)
+        applyGain(data, length, multiplier = 1.5f) // +3.5dB (reduced from +6dB)
+        applyCompressor(data, length, threshold = 0.75f, ratio = 2.5f)
     }
 
     /**
      * QUIET_SOUNDS mode: Maximum sensitivity
-     * - Minimal noise gate
-     * - High gain boost
+     * - Very light noise gate
+     * - Moderate gain boost
      * - Light compression
      */
     private fun processQuietSoundsMode(data: ShortArray, length: Int) {
-        applyNoiseGate(data, length, threshold = 30f, kneeWidth = 50f)
-        applyGain(data, length, multiplier = 4.0f) // +12dB
-        applyCompressor(data, length, threshold = 0.6f, ratio = 2.5f)
+        applyNoiseGate(data, length, threshold = 40f, kneeWidth = 80f)
+        applyGain(data, length, multiplier = 2.5f) // +8dB (reduced from +12dB)
+        applyCompressor(data, length, threshold = 0.7f, ratio = 2.0f)
     }
 
     /**
      * MUSIC mode: Natural sound
-     * - Very light noise gate
-     * - Minimal gain
-     * - Light compression for dynamics
+     * - Minimal noise gate
+     * - Very light gain
+     * - Minimal compression for dynamics
      */
     private fun processMusicMode(data: ShortArray, length: Int) {
-        applyNoiseGate(data, length, threshold = 20f, kneeWidth = 100f)
-        applyGain(data, length, multiplier = 1.2f) // +1.6dB
-        applyCompressor(data, length, threshold = 0.8f, ratio = 1.5f)
+        applyNoiseGate(data, length, threshold = 15f, kneeWidth = 120f)
+        applyGain(data, length, multiplier = 1.1f) // +0.8dB (reduced from +1.6dB)
+        applyCompressor(data, length, threshold = 0.85f, ratio = 1.3f)
     }
 
     /**
      * OUTDOOR mode: Reduce wind/traffic noise
-     * - Aggressive noise gate for wind/traffic
-     * - Moderate gain for speech
-     * - Strong compression
+     * - Moderate noise gate for wind/traffic
+     * - Balanced gain for speech
+     * - Moderate compression
      */
     private fun processOutdoorMode(data: ShortArray, length: Int) {
-        applyNoiseGate(data, length, threshold = 200f, kneeWidth = 200f)
-        applyGain(data, length, multiplier = 2.5f) // +8dB
-        applyCompressor(data, length, threshold = 0.65f, ratio = 4.0f)
+        applyNoiseGate(data, length, threshold = 150f, kneeWidth = 250f)
+        applyGain(data, length, multiplier = 1.8f) // +5.1dB (reduced from +8dB)
+        applyCompressor(data, length, threshold = 0.7f, ratio = 3.0f)
     }
 
     private fun ensureShortBuffer(size: Int): ShortArray {
@@ -145,19 +150,20 @@ class AudioEnhancer {
     }
 
     private fun applyGain(data: ShortArray, length: Int, multiplier: Float) {
-        // Simple gain with gentle limiting
+        // Gentle gain with smooth soft clipping to prevent distortion
         for (i in 0 until length) {
             val boosted = data[i] * multiplier
 
-            // Simple tanh-like soft limiting for natural sound
+            // Soft limiting with smoother transition to prevent harsh clipping
             val limited = when {
-                boosted > Short.MAX_VALUE * 0.8f -> {
-                    val excess = boosted - Short.MAX_VALUE * 0.8f
-                    Short.MAX_VALUE * 0.8f + (excess * 0.5f) // Compress the peaks gently
+                boosted > Short.MAX_VALUE * 0.85f -> {
+                    // Soft limit the peaks progressively
+                    val excess = boosted - Short.MAX_VALUE * 0.85f
+                    Short.MAX_VALUE * 0.85f + (excess * 0.3f) // Gentle compression
                 }
-                boosted < Short.MIN_VALUE * 0.8f -> {
-                    val excess = boosted - Short.MIN_VALUE * 0.8f
-                    Short.MIN_VALUE * 0.8f + (excess * 0.5f)
+                boosted < Short.MIN_VALUE * 0.85f -> {
+                    val excess = boosted - Short.MIN_VALUE * 0.85f
+                    Short.MIN_VALUE * 0.85f + (excess * 0.3f)
                 }
                 else -> boosted
             }

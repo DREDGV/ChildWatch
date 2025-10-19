@@ -117,12 +117,12 @@ class ChatActivity : AppCompatActivity() {
             Toast.makeText(this, "Введите сообщение", Toast.LENGTH_SHORT).show()
             return
         }
-        
-        // Создаем сообщение от родителя
+
+        // Создаем сообщение от ребенка (ChildWatch - это приложение ребенка)
         val message = ChatMessage(
             id = System.currentTimeMillis().toString(),
             text = messageText,
-            sender = "parent",
+            sender = "child",
             timestamp = System.currentTimeMillis(),
             isRead = false
         )

@@ -631,6 +631,35 @@ class NetworkClient(private val context: Context) {
     }
 
     /**
+     * Get child location history from server using Retrofit
+     */
+    suspend fun getLocationHistory(
+        childDeviceId: String,
+        startTime: Long? = null,
+        endTime: Long? = null,
+        limit: Int = 100
+    ): retrofit2.Response<LocationHistoryResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app") ?: "https://childwatch-production.up.railway.app"
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+
+                Log.d(TAG, "Getting location history from server: $serverUrl")
+                Log.d(TAG, "Child device ID: $childDeviceId, limit: $limit")
+                // Note: API uses limit and offset, not startTime/endTime
+
+                api.getLocationHistory(childDeviceId, limit, 0)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting location history", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    /**
      * Get child device status from server using Retrofit
      */
     suspend fun getChildDeviceStatus(childDeviceId: String): retrofit2.Response<DeviceStatusResponse> {

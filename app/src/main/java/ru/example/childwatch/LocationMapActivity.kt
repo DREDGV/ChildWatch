@@ -2,6 +2,7 @@ package ru.example.childwatch
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.location.Geocoder
 import android.location.Location
 import android.os.Bundle
 import android.util.Log
@@ -9,6 +10,8 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import java.io.IOException
+import java.util.Locale
 import com.google.android.gms.maps.CameraUpdateFactory
 import com.google.android.gms.maps.GoogleMap
 import com.google.android.gms.maps.OnMapReadyCallback
@@ -16,6 +19,8 @@ import com.google.android.gms.maps.SupportMapFragment
 import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.MarkerOptions
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
+import com.google.android.gms.maps.model.PolylineOptions
+import com.google.android.gms.maps.model.Polyline
 import ru.example.childwatch.databinding.ActivityLocationMapNewBinding
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.LocationData
@@ -23,6 +28,7 @@ import ru.example.childwatch.utils.PermissionHelper
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
+import android.graphics.Color
 
 /**
  * Location Map Activity with Google Maps integration
@@ -47,6 +53,9 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
     private lateinit var networkClient: NetworkClient
     private var googleMap: GoogleMap? = null
     private var currentMarker: com.google.android.gms.maps.model.Marker? = null
+    private val historyMarkers = mutableListOf<com.google.android.gms.maps.model.Marker>()
+    private var historyPolyline: Polyline? = null
+    private var isHistoryVisible = false
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var autoRefreshJob: Job? = null
@@ -92,8 +101,7 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
 
         // View history button
         binding.viewHistoryButton.setOnClickListener {
-            Toast.makeText(this, "История перемещений (в разработке)", Toast.LENGTH_SHORT).show()
-            // TODO: Implement history view
+            toggleHistoryView()
         }
 
         // Show initial message
@@ -197,20 +205,67 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
             // Remove old marker
             currentMarker?.remove()
 
-            // Add new marker
-            currentMarker = addMarker(
-                MarkerOptions()
-                    .position(position)
-                    .title("Местоположение ребенка")
-                    .snippet("Точность: ${accuracy.toInt()} м\nВремя: ${formatTime(timestamp)}")
-                    .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE))
-            )
+            // Get address asynchronously
+            serviceScope.launch {
+                val address = getAddressFromLocation(latitude, longitude)
+                val snippet = buildString {
+                    if (address != null) {
+                        appendLine(address)
+                    }
+                    appendLine("Точность: ${accuracy.toInt()} м")
+                    append("Время: ${formatTime(timestamp)}")
+                }
 
-            // Show info window
-            currentMarker?.showInfoWindow()
+                // Add new marker
+                currentMarker = addMarker(
+                    MarkerOptions()
+                        .position(position)
+                        .title("Местоположение ребенка")
+                        .snippet(snippet)
+                        .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE))
+                )
+
+                // Show info window
+                currentMarker?.showInfoWindow()
+            }
 
             // Move camera
             animateCamera(CameraUpdateFactory.newLatLngZoom(position, DEFAULT_ZOOM))
+        }
+    }
+
+    /**
+     * Get address from coordinates using Geocoder (reverse geocoding)
+     */
+    private suspend fun getAddressFromLocation(latitude: Double, longitude: Double): String? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val geocoder = Geocoder(this@LocationMapActivity, Locale.getDefault())
+                val addresses = geocoder.getFromLocation(latitude, longitude, 1)
+
+                if (!addresses.isNullOrEmpty()) {
+                    val address = addresses[0]
+                    // Format address nicely
+                    buildString {
+                        address.thoroughfare?.let { append(it) } // Street name
+                        if (address.subThoroughfare != null) {
+                            append(", ${address.subThoroughfare}") // House number
+                        }
+                        if (address.locality != null) {
+                            if (isNotEmpty()) append(", ")
+                            append(address.locality) // City
+                        }
+                    }.takeIf { it.isNotEmpty() }
+                } else {
+                    null
+                }
+            } catch (e: IOException) {
+                Log.e(TAG, "Geocoder error", e)
+                null
+            } catch (e: Exception) {
+                Log.e(TAG, "Unexpected geocoder error", e)
+                null
+            }
         }
     }
 
@@ -321,5 +376,179 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
     override fun onSupportNavigateUp(): Boolean {
         onBackPressed()
         return true
+    }
+
+    /**
+     * Toggle history view on/off
+     */
+    private fun toggleHistoryView() {
+        if (isHistoryVisible) {
+            hideHistory()
+        } else {
+            showHistory()
+        }
+    }
+
+    /**
+     * Load and display location history on map
+     */
+    private fun showHistory() {
+        if (childDeviceId == null) {
+            Toast.makeText(this, "ID устройства не настроен", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        // Show dialog to select time period
+        showTimePeriodDialog()
+    }
+
+    /**
+     * Show dialog to select time period for history
+     */
+    private fun showTimePeriodDialog() {
+        val periods = arrayOf(
+            "Последний час",
+            "Последние 3 часа",
+            "Последние 12 часов",
+            "Последний день",
+            "Последние 3 дня",
+            "Последняя неделя"
+        )
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle("Выберите период")
+            .setItems(periods) { _, which ->
+                val hours = when (which) {
+                    0 -> 1
+                    1 -> 3
+                    2 -> 12
+                    3 -> 24
+                    4 -> 72
+                    5 -> 168
+                    else -> 24
+                }
+                loadHistory(hours)
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    /**
+     * Load history for specified number of hours
+     */
+    private fun loadHistory(hours: Int) {
+        binding.loadingProgress.show()
+
+        serviceScope.launch {
+            try {
+                val endTime = System.currentTimeMillis()
+                val startTime = endTime - (hours * 60 * 60 * 1000L)
+
+                val response = withContext(Dispatchers.IO) {
+                    networkClient.getLocationHistory(
+                        childDeviceId = childDeviceId!!,
+                        startTime = startTime,
+                        endTime = endTime,
+                        limit = 200
+                    )
+                }
+
+                binding.loadingProgress.hide()
+
+                if (response.isSuccessful && response.body() != null) {
+                    val historyData = response.body()!!
+
+                    if (historyData.success && historyData.locations.isNotEmpty()) {
+                        displayHistoryOnMap(historyData.locations)
+                        isHistoryVisible = true
+                        binding.viewHistoryButton.text = "Скрыть историю"
+                        Toast.makeText(this@LocationMapActivity, "Показано ${historyData.locations.size} точек", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Toast.makeText(this@LocationMapActivity, "История перемещений пуста", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    Toast.makeText(this@LocationMapActivity, "Не удалось загрузить историю", Toast.LENGTH_SHORT).show()
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading history", e)
+                binding.loadingProgress.hide()
+                Toast.makeText(this@LocationMapActivity, "Ошибка: ${e.message}", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    /**
+     * Display location history on map with polyline and markers
+     */
+    private fun displayHistoryOnMap(locations: List<LocationData>) {
+        if (locations.isEmpty()) return
+
+        googleMap?.let { map ->
+            // Create list of LatLng points
+            val points = locations.map { LatLng(it.latitude, it.longitude) }
+
+            // Draw polyline (route)
+            historyPolyline = map.addPolyline(
+                PolylineOptions()
+                    .addAll(points)
+                    .color(Color.BLUE)
+                    .width(10f)
+                    .geodesic(true)
+            )
+
+            // Add markers for significant points (first, last, and every 10th point)
+            locations.forEachIndexed { index, location ->
+                if (index == 0 || index == locations.size - 1 || index % 10 == 0) {
+                    val marker = map.addMarker(
+                        MarkerOptions()
+                            .position(LatLng(location.latitude, location.longitude))
+                            .title(when {
+                                index == 0 -> "Начало"
+                                index == locations.size - 1 -> "Конец"
+                                else -> "Точка ${index + 1}"
+                            })
+                            .snippet(formatTime(location.timestamp))
+                            .icon(BitmapDescriptorFactory.defaultMarker(
+                                when {
+                                    index == 0 -> BitmapDescriptorFactory.HUE_GREEN
+                                    index == locations.size - 1 -> BitmapDescriptorFactory.HUE_RED
+                                    else -> BitmapDescriptorFactory.HUE_ORANGE
+                                }
+                            ))
+                    )
+                    marker?.let { historyMarkers.add(it) }
+                }
+            }
+
+            // Adjust camera to show all points
+            if (points.isNotEmpty()) {
+                val boundsBuilder = com.google.android.gms.maps.model.LatLngBounds.Builder()
+                points.forEach { boundsBuilder.include(it) }
+                val bounds = boundsBuilder.build()
+                val padding = 100 // pixels
+                map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, padding))
+            }
+        }
+    }
+
+    /**
+     * Hide history from map
+     */
+    private fun hideHistory() {
+        // Remove polyline
+        historyPolyline?.remove()
+        historyPolyline = null
+
+        // Remove all history markers
+        historyMarkers.forEach { it.remove() }
+        historyMarkers.clear()
+
+        isHistoryVisible = false
+        binding.viewHistoryButton.text = "Показать историю"
+        Toast.makeText(this, "История скрыта", Toast.LENGTH_SHORT).show()
+
+        // Return to current location view
+        centerMapOnChild()
     }
 }

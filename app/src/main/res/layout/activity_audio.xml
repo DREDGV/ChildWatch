@@ -122,11 +122,28 @@
                 android:orientation="vertical">
 
                 <com.google.android.material.radiobutton.MaterialRadioButton
+                    android:id="@+id/radioOriginal"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="📡 Оригинал"
+                    android:checked="true"
+                    android:padding="8dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Без фильтров и обработки (по умолчанию)"
+                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                    android:textColor="?attr/colorOnSurfaceVariant"
+                    android:paddingStart="40dp"
+                    android:paddingEnd="8dp"
+                    android:paddingBottom="8dp" />
+
+                <com.google.android.material.radiobutton.MaterialRadioButton
                     android:id="@+id/radioVoice"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="🎤 Голос"
-                    android:checked="true"
                     android:padding="8dp" />
 
                 <TextView

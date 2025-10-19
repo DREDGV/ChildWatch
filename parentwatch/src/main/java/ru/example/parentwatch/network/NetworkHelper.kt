@@ -8,8 +8,10 @@ import kotlinx.coroutines.withContext
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
+import java.io.File
 import java.util.concurrent.TimeUnit
 
 /**
@@ -331,6 +333,45 @@ class NetworkHelper(private val context: Context) {
             }
 
             return chain.proceed(request)
+        }
+    }
+
+    /**
+     * Upload photo to server
+     */
+    suspend fun uploadPhoto(serverUrl: String, deviceId: String, photoFile: java.io.File): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val url = "${serverUrl.trimEnd('/')}/api/photos/upload"
+
+            val requestBody = MultipartBody.Builder()
+                .setType(MultipartBody.FORM)
+                .addFormDataPart("deviceId", deviceId)
+                .addFormDataPart(
+                    "photo",
+                    photoFile.name,
+                    photoFile.asRequestBody("image/jpeg".toMediaType())
+                )
+                .build()
+
+            val request = Request.Builder()
+                .url(url)
+                .post(requestBody)
+                .build()
+
+            Log.d(TAG, "Uploading photo: ${photoFile.name}")
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    Log.d(TAG, "Photo uploaded successfully")
+                    return@withContext true
+                } else {
+                    Log.e(TAG, "Photo upload failed: ${response.code}")
+                    return@withContext false
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error uploading photo", e)
+            return@withContext false
         }
     }
 }

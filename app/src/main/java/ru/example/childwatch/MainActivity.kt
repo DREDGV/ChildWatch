@@ -456,89 +456,19 @@ class MainActivity : AppCompatActivity() {
         try {
             val securityReport = SecurityChecker.getSecurityReport(this)
             val securityWarnings = SecurityChecker.getSecurityWarnings(this)
-            
-            // Log security events
-            if (securityReport.isDebugBuild) {
-                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
-                //     SecurityEventType.DEBUG_BUILD_DETECTED,
-                //     "���������� ������� � debug ������",
-                //     true,
-                //     System.currentTimeMillis()
-                // ))
-            }
-            
-            if (securityReport.isDeveloperOptionsEnabled) {
-                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
-                //     SecurityEventType.DEVELOPER_OPTIONS_ENABLED,
-                //     "�������� ����� ������������",
-                //     true,
-                //     System.currentTimeMillis()
-                // ))
-            }
-            
-            if (securityReport.isUsbDebuggingEnabled) {
-                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
-                //     SecurityEventType.USB_DEBUGGING_ENABLED,
-                //     "�������� ������� �� USB",
-                //     true,
-                //     System.currentTimeMillis()
-                // ))
-            }
-            
-            if (securityReport.isDeviceRooted) {
-                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
-                //     SecurityEventType.ROOT_DETECTED,
-                //     "���������� ����� root �����",
-                //     true,
-                //     System.currentTimeMillis()
-                // ))
-            }
-            
-            if (securityReport.isEmulator) {
-                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
-                //     SecurityEventType.EMULATOR_DETECTED,
-                //     "���������� �������� � ���������",
-                //     true,
-                //     System.currentTimeMillis()
-                // ))
-            }
-            
-            if (securityReport.isDebuggerAttached) {
-                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
-                //     SecurityEventType.DEBUGGER_ATTACHED,
-                //     "��������� ��������",
-                //     true,
-                //     System.currentTimeMillis()
-                // ))
-            }
-            
-            if (securityReport.isAppDebuggable) {
-                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
-                //     SecurityEventType.APP_DEBUGGABLE,
-                //     "���������� �������� ��� �������",
-                //     true,
-                //     System.currentTimeMillis()
-                // ))
-            }
-            
-            if (securityReport.isMockLocationEnabled) {
-                // SecurityLogger.logSecurityEvent(this, SecurityEvent(
-                //     SecurityEventType.MOCK_LOCATION_ENABLED,
-                //     "�������� mock-�������",
-                //     true,
-                //     System.currentTimeMillis()
-                // ))
-            }
-            
-            // Show security warnings if any
-            if (securityWarnings.isNotEmpty()) {
+
+            // Security events logging is disabled in current version
+            // The logging was causing encoding issues with Russian text
+
+            // Show security warnings if any (only in debug builds)
+            if (BuildConfig.DEBUG && securityWarnings.isNotEmpty()) {
                 val warningText = securityWarnings.joinToString("\n")
-                Toast.makeText(this, "�������������� ������������:\n$warningText", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, "Предупреждения безопасности:\n$warningText", Toast.LENGTH_LONG).show()
             }
-            
+
             // Log security score
             android.util.Log.i("Security", "Security score: ${securityReport.securityScore}/100 (${securityReport.securityLevel})")
-            
+
         } catch (e: Exception) {
             android.util.Log.e("Security", "Error performing security checks", e)
         }
@@ -654,18 +584,18 @@ class MainActivity : AppCompatActivity() {
     private fun showBackgroundLocationExplanation() {
         val explanation = PermissionHelper.getPermissionExplanation(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
         val consequences = PermissionHelper.getPermissionDenialConsequences(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
-        
+
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("���������� �� ������� ��������������")
-            .setMessage("$explanation\n\n$consequences\n\n����������?")
-            .setPositiveButton("���������") { _, _ ->
+            .setTitle("Разрешение на фоновое местоположение")
+            .setMessage("$explanation\n\n$consequences\n\nПредоставить?")
+            .setPositiveButton("Разрешить") { _, _ ->
                 backgroundLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             }
-            .setNegativeButton("����������") { _, _ ->
-                showToast("������������ ����� �������� ������ ����� ���������� �������")
+            .setNegativeButton("Пропустить") { _, _ ->
+                showToast("Мониторинг будет работать только когда приложение открыто")
                 onAllPermissionsGranted()
             }
-            .setNeutralButton("���������") { _, _ ->
+            .setNeutralButton("Настройки") { _, _ ->
                 PermissionHelper.openAppSettings(this)
             }
             .show()
@@ -673,32 +603,32 @@ class MainActivity : AppCompatActivity() {
     
     private fun handleBasicPermissionResults(permissions: Map<String, Boolean>) {
         val deniedPermissions = permissions.filter { !it.value }.keys
-        
+
         if (deniedPermissions.isEmpty()) {
-            showToast("�������� ���������� �������������")
+            showToast("Основные разрешения предоставлены")
             // Now request background location permission
             requestBackgroundLocationPermission()
         } else {
             val deniedList = deniedPermissions.joinToString(", ")
-            showToast("�������� � �����������: $deniedList")
-            
+            showToast("Отказано в разрешениях: $deniedList")
+
             // Show explanation for denied permissions
             showPermissionDeniedExplanation(deniedPermissions)
         }
     }
-    
+
     private fun handleBackgroundLocationResult(isGranted: Boolean) {
         if (isGranted) {
-            showToast("��� ���������� �������������")
+            showToast("Все разрешения предоставлены")
             onAllPermissionsGranted()
         } else {
-            showToast("������� �������������� ���������. ������������ ����� �������� ������ ����� ���������� �������")
+            showToast("Фоновое местоположение отклонено. Мониторинг будет работать только когда приложение открыто")
             onAllPermissionsGranted() // Continue anyway
         }
     }
-    
+
     private fun onAllPermissionsGranted() {
-        showToast("��� ����������� ���������� �������������")
+        showToast("Все необходимые разрешения предоставлены")
         // Try to start monitoring if consent is given
         if (hasConsent) {
             startMonitoring()
@@ -725,16 +655,16 @@ class MainActivity : AppCompatActivity() {
         val explanations = deniedPermissions.map { permission ->
             "${PermissionHelper.getPermissionExplanation(permission)}\n${PermissionHelper.getPermissionDenialConsequences(permission)}"
         }
-        
+
         val message = explanations.joinToString("\n\n")
-        
+
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("����������� ����������")
+            .setTitle("Необходимы разрешения")
             .setMessage(message)
-            .setPositiveButton("���������") { _, _ ->
+            .setPositiveButton("Настройки") { _, _ ->
                 PermissionHelper.openAppSettings(this)
             }
-            .setNegativeButton("�������") { _, _ -> }
+            .setNegativeButton("Закрыть") { _, _ -> }
             .show()
     }
     
@@ -774,24 +704,24 @@ class MainActivity : AppCompatActivity() {
 
     private fun showDeviceIdOptions(serverUrl: String) {
         MaterialAlertDialogBuilder(this)
-            .setTitle("Device ID �� ������")
-            .setMessage("�������� ������ ��������� Device ID ������:")
-            .setPositiveButton("�������� �����") { _, _ ->
-                // ������������ �������� ID ��� ������������
+            .setTitle("Device ID не задан")
+            .setMessage("Выберите способ получения Device ID ребенка:")
+            .setPositiveButton("Тестовый режим") { _, _ ->
+                // Использовать тестовый ID для демонстрации
                 val testDeviceId = "test-child-device-001"
                 val intent = Intent(this, AudioStreamingActivity::class.java).apply {
                     putExtra(AudioStreamingActivity.EXTRA_DEVICE_ID, testDeviceId)
                     putExtra(AudioStreamingActivity.EXTRA_SERVER_URL, serverUrl)
                 }
                 startActivity(intent)
-                showToast("������� �������� ����� � ID: $testDeviceId")
+                showToast("Открыто в тестовом режиме с ID: $testDeviceId")
             }
-            .setNeutralButton("���������") { _, _ ->
-                // ������� � ��������� ��� ����� ID
+            .setNeutralButton("Настройки") { _, _ ->
+                // Перейти в настройки для ввода ID
                 val intent = Intent(this, SettingsActivity::class.java)
                 startActivity(intent)
             }
-            .setNegativeButton("������", null)
+            .setNegativeButton("Отмена", null)
             .show()
     }
 
