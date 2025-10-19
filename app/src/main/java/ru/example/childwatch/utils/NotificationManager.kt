@@ -6,6 +6,7 @@ import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import ru.example.childwatch.MainActivity
@@ -17,6 +18,7 @@ import ru.example.childwatch.R
  */
 object NotificationManager {
 
+    private const val TAG = "NotificationManager"
     private const val CHAT_CHANNEL_ID = "chat_notifications"
     private const val CHAT_CHANNEL_NAME = "Сообщения чата"
     private const val CHAT_CHANNEL_DESCRIPTION = "Уведомления о новых сообщениях от ребенка"
@@ -69,6 +71,8 @@ object NotificationManager {
         val notificationPriority = prefs.getInt("notification_priority", 2)
         val enableSound = prefs.getBoolean("notification_sound", true)
         val enableVibration = prefs.getBoolean("notification_vibration", true)
+
+        Log.d(TAG, "Notification settings: duration=${durationMs}ms, size=$notificationSize, priority=$notificationPriority, sound=$enableSound, vibration=$enableVibration")
 
         // Create intent to open chat when notification is tapped
         val intent = Intent(context, MainActivity::class.java).apply {

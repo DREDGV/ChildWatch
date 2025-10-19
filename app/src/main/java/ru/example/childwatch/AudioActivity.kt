@@ -99,46 +99,68 @@ class AudioActivity : AppCompatActivity() {
             requestAudioPermission()
             return
         }
-        
-        if (!audioRecorder.isAudioRecordingAvailable()) {
-            Toast.makeText(this, "Аудио мониторинг недоступен на этом устройстве", Toast.LENGTH_SHORT).show()
-            return
-        }
-        
+
         try {
-            Log.d(TAG, "Starting audio monitoring")
+            Log.d(TAG, "Starting audio monitoring from child device")
+
+            // Получаем настройки
+            val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+            val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
+                ?: "https://childwatch-production.up.railway.app"
+            val childDeviceId = prefs.getString("child_device_id", "")
+
+            if (childDeviceId.isNullOrEmpty()) {
+                Toast.makeText(this, "⚠️ Сначала настройте ID телефона ребёнка", Toast.LENGTH_LONG).show()
+                return
+            }
+
             isMonitoring = true
-            
+
+            // Запускаем AudioPlaybackService для получения аудио стрима
+            ru.example.childwatch.service.AudioPlaybackService.startPlayback(
+                context = this,
+                deviceId = childDeviceId,
+                serverUrl = serverUrl,
+                recording = false
+            )
+
             // Активируем эквалайзер
             audioVisualizer.setActive(true)
             audioVisualizer.setRecordingMode(false)
-            
+
             // Запускаем таймер
+            monitoringStartTime = System.currentTimeMillis()
             startTimer()
-            
+
             updateUI()
-            Toast.makeText(this, "🎧 Прослушка телефона активирована", Toast.LENGTH_SHORT).show()
-            
+            Toast.makeText(this, "🎧 Запрос прослушки отправлен на телефон ребёнка", Toast.LENGTH_SHORT).show()
+
+            Log.d(TAG, "Audio streaming started for device: $childDeviceId")
+
         } catch (e: Exception) {
             Log.e(TAG, "Error starting audio monitoring", e)
             Toast.makeText(this, "Ошибка мониторинга: ${e.message}", Toast.LENGTH_SHORT).show()
+            isMonitoring = false
         }
     }
-    
+
     private fun stopMonitoring() {
         try {
             Log.d(TAG, "Stopping audio monitoring")
             isMonitoring = false
-            
+
+            // Останавливаем AudioPlaybackService
+            ru.example.childwatch.service.AudioPlaybackService.stopPlayback(this)
+
             // Останавливаем эквалайзер
             audioVisualizer.setActive(false)
-            
+
             // Останавливаем таймер
             stopTimer()
-            
+
             updateUI()
             Toast.makeText(this, "🎧 Прослушка телефона остановлена", Toast.LENGTH_SHORT).show()
-            
+
         } catch (e: Exception) {
             Log.e(TAG, "Error stopping audio monitoring", e)
             Toast.makeText(this, "Ошибка остановки мониторинга: ${e.message}", Toast.LENGTH_SHORT).show()

@@ -341,6 +341,21 @@ app.post('/api/loc',
                     const batteryInfo = deviceInfo.battery || {};
                     const deviceDetails = deviceInfo.device || {};
                     const currentAppInfo = deviceInfo.currentApp || {};
+
+                    // Extract app name and package from currentApp (if available)
+                    let appName = null;
+                    let appPackage = null;
+
+                    console.log(`📱 Current App Info received:`, JSON.stringify(currentAppInfo));
+
+                    if (currentAppInfo && !currentAppInfo.error) {
+                        appName = currentAppInfo.appName || null;
+                        appPackage = currentAppInfo.packageName || null;
+                        console.log(`✅ App extracted: ${appName} (${appPackage})`);
+                    } else {
+                        console.log(`⚠️ No app data: ${currentAppInfo?.error || 'currentApp is empty'}`);
+                    }
+
                     latestStatus = {
                         batteryLevel: typeof batteryInfo.level === 'number' ? batteryInfo.level : null,
                         isCharging: typeof batteryInfo.isCharging === 'boolean' ? batteryInfo.isCharging : null,
@@ -352,8 +367,8 @@ app.post('/api/loc',
                         model: deviceDetails.model || null,
                         androidVersion: deviceDetails.androidVersion || null,
                         sdkVersion: typeof deviceDetails.sdkVersion === 'number' ? deviceDetails.sdkVersion : null,
-                        currentAppName: currentAppInfo.appName || null,
-                        currentAppPackage: currentAppInfo.packageName || null,
+                        currentAppName: appName,
+                        currentAppPackage: appPackage,
                         timestamp: typeof deviceInfo.timestamp === 'number' ? deviceInfo.timestamp : Date.now(),
                         raw: deviceInfo
                     };

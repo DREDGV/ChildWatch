@@ -30,7 +30,8 @@
       "Bash(echo $PATH)",
       "Bash(gradlew.bat :app:assembleDebug)",
       "Bash(./gradlew.bat :app:assembleDebug)",
-      "Bash(./gradlew.bat :parentwatch:assembleDebug)"
+      "Bash(./gradlew.bat :parentwatch:assembleDebug)",
+      "Bash(./gradlew.bat :app:assembleDebug :parentwatch:assembleDebug)"
     ],
     "deny": [],
     "ask": []
