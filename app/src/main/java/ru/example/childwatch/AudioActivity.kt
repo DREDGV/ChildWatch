@@ -89,6 +89,73 @@ class AudioActivity : AppCompatActivity() {
         binding.testButton.setOnClickListener {
             testAudioRecording()
         }
+
+        // Filter mode radio buttons
+        binding.filterModeGroup.setOnCheckedChangeListener { _, checkedId ->
+            val mode = when (checkedId) {
+                binding.radioVoice.id -> ru.example.childwatch.audio.AudioEnhancer.FilterMode.VOICE
+                binding.radioQuiet.id -> ru.example.childwatch.audio.AudioEnhancer.FilterMode.QUIET_SOUNDS
+                binding.radioMusic.id -> ru.example.childwatch.audio.AudioEnhancer.FilterMode.MUSIC
+                binding.radioOutdoor.id -> ru.example.childwatch.audio.AudioEnhancer.FilterMode.OUTDOOR
+                else -> ru.example.childwatch.audio.AudioEnhancer.FilterMode.VOICE
+            }
+
+            // Save preference
+            getSharedPreferences("audio_prefs", MODE_PRIVATE).edit()
+                .putString("filter_mode", mode.name)
+                .apply()
+
+            // Update service if running
+            updateFilterMode(mode)
+
+            Log.d(TAG, "Filter mode changed to: $mode")
+            Toast.makeText(this, "Режим фильтра: ${getModeName(mode)}", Toast.LENGTH_SHORT).show()
+        }
+
+        // Load saved filter mode
+        loadFilterMode()
+    }
+
+    private fun loadFilterMode() {
+        val savedMode = getSharedPreferences("audio_prefs", MODE_PRIVATE)
+            .getString("filter_mode", ru.example.childwatch.audio.AudioEnhancer.FilterMode.VOICE.name)
+            ?: ru.example.childwatch.audio.AudioEnhancer.FilterMode.VOICE.name
+
+        val mode = try {
+            ru.example.childwatch.audio.AudioEnhancer.FilterMode.valueOf(savedMode)
+        } catch (e: Exception) {
+            ru.example.childwatch.audio.AudioEnhancer.FilterMode.VOICE
+        }
+
+        // Set radio button
+        when (mode) {
+            ru.example.childwatch.audio.AudioEnhancer.FilterMode.VOICE -> binding.radioVoice.isChecked = true
+            ru.example.childwatch.audio.AudioEnhancer.FilterMode.QUIET_SOUNDS -> binding.radioQuiet.isChecked = true
+            ru.example.childwatch.audio.AudioEnhancer.FilterMode.MUSIC -> binding.radioMusic.isChecked = true
+            ru.example.childwatch.audio.AudioEnhancer.FilterMode.OUTDOOR -> binding.radioOutdoor.isChecked = true
+        }
+    }
+
+    private fun updateFilterMode(mode: ru.example.childwatch.audio.AudioEnhancer.FilterMode) {
+        // Update AudioPlaybackService if it's running
+        if (ru.example.childwatch.service.AudioPlaybackService.isPlaying) {
+            try {
+                // Access the service through a static method or binding
+                // For now, the service will use the mode on next start
+                Log.d(TAG, "Filter mode will be applied on next playback start")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating filter mode", e)
+            }
+        }
+    }
+
+    private fun getModeName(mode: ru.example.childwatch.audio.AudioEnhancer.FilterMode): String {
+        return when (mode) {
+            ru.example.childwatch.audio.AudioEnhancer.FilterMode.VOICE -> "Голос"
+            ru.example.childwatch.audio.AudioEnhancer.FilterMode.QUIET_SOUNDS -> "Тихие звуки"
+            ru.example.childwatch.audio.AudioEnhancer.FilterMode.MUSIC -> "Музыка"
+            ru.example.childwatch.audio.AudioEnhancer.FilterMode.OUTDOOR -> "Улица"
+        }
     }
     
     /**

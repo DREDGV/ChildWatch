@@ -157,6 +157,12 @@ class AudioPlaybackService : LifecycleService() {
         audioEnhancer.updateConfig(AudioEnhancer.Config(noiseSuppressionEnabled = noiseSuppression, gainBoostDb = normalizedGain))
     }
 
+    fun setFilterMode(mode: AudioEnhancer.FilterMode) {
+        val currentConfig = audioEnhancer.getConfig()
+        audioEnhancer.updateConfig(currentConfig.copy(mode = mode))
+        Log.d(TAG, "Filter mode changed to: $mode")
+    }
+
     fun getAudioEnhancerConfig(): AudioEnhancer.Config = audioEnhancer.getConfig()
 
     override fun onBind(intent: Intent): IBinder {
