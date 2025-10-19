@@ -340,6 +340,7 @@ app.post('/api/loc',
                 try {
                     const batteryInfo = deviceInfo.battery || {};
                     const deviceDetails = deviceInfo.device || {};
+                    const currentAppInfo = deviceInfo.currentApp || {};
                     latestStatus = {
                         batteryLevel: typeof batteryInfo.level === 'number' ? batteryInfo.level : null,
                         isCharging: typeof batteryInfo.isCharging === 'boolean' ? batteryInfo.isCharging : null,
@@ -351,6 +352,8 @@ app.post('/api/loc',
                         model: deviceDetails.model || null,
                         androidVersion: deviceDetails.androidVersion || null,
                         sdkVersion: typeof deviceDetails.sdkVersion === 'number' ? deviceDetails.sdkVersion : null,
+                        currentAppName: currentAppInfo.appName || null,
+                        currentAppPackage: currentAppInfo.packageName || null,
                         timestamp: typeof deviceInfo.timestamp === 'number' ? deviceInfo.timestamp : Date.now(),
                         raw: deviceInfo
                     };
@@ -711,6 +714,92 @@ app.get('/api/location/history/:deviceId?',
             res.status(500).json({
                 error: 'Internal server error',
                 code: 'LOCATION_HISTORY_ERROR'
+            });
+        }
+    }
+);
+
+// Get chat message history (protected)
+app.get('/api/chat/history/:deviceId?',
+    authMiddleware.authenticate(),
+    authMiddleware.rateLimit(60000, 60), // 60 requests per minute
+    async (req, res) => {
+        try {
+            const targetDeviceId = req.params.deviceId || req.deviceId;
+            const limit = parseInt(req.query.limit) || 100;
+
+            // Validate parameters
+            if (!validator.validateDeviceIdFormat(targetDeviceId)) {
+                return res.status(400).json({
+                    error: 'Invalid device ID format',
+                    code: 'INVALID_DEVICE_ID'
+                });
+            }
+
+            if (limit < 1 || limit > 500) {
+                return res.status(400).json({
+                    error: 'Limit must be between 1 and 500',
+                    code: 'INVALID_LIMIT'
+                });
+            }
+
+            // Get chat messages from database
+            const messages = await dbManager.getChatMessages(targetDeviceId, limit);
+
+            res.json({
+                success: true,
+                deviceId: targetDeviceId,
+                count: messages.length,
+                messages: messages.map(msg => ({
+                    id: msg.id,
+                    sender: msg.sender,
+                    message: msg.message,
+                    timestamp: msg.timestamp,
+                    isRead: msg.is_read === 1,
+                    createdAt: new Date(msg.created_at * 1000).toISOString()
+                }))
+            });
+
+        } catch (error) {
+            console.error('Get chat history error:', error);
+            res.status(500).json({
+                error: 'Internal server error',
+                code: 'CHAT_HISTORY_ERROR'
+            });
+        }
+    }
+);
+
+// Mark chat messages as read (protected)
+app.post('/api/chat/mark-read/:deviceId?',
+    authMiddleware.authenticate(),
+    authMiddleware.rateLimit(60000, 30), // 30 requests per minute
+    async (req, res) => {
+        try {
+            const targetDeviceId = req.params.deviceId || req.deviceId;
+
+            // Validate device ID
+            if (!validator.validateDeviceIdFormat(targetDeviceId)) {
+                return res.status(400).json({
+                    error: 'Invalid device ID format',
+                    code: 'INVALID_DEVICE_ID'
+                });
+            }
+
+            // Mark messages as read in database
+            await dbManager.markMessagesAsRead(targetDeviceId);
+
+            res.json({
+                success: true,
+                deviceId: targetDeviceId,
+                message: 'Messages marked as read'
+            });
+
+        } catch (error) {
+            console.error('Mark messages as read error:', error);
+            res.status(500).json({
+                error: 'Internal server error',
+                code: 'MARK_READ_ERROR'
             });
         }
     }

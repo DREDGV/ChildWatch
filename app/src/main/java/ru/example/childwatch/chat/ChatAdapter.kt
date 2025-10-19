@@ -4,7 +4,6 @@ import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
-import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.RecyclerView
 import ru.example.childwatch.R
 
@@ -45,21 +44,15 @@ class ChatAdapter(private val messages: List<ChatMessage>) :
         private val messageText: TextView = itemView.findViewById(R.id.messageText)
         private val timestampText: TextView = itemView.findViewById(R.id.timestampText)
         private val senderText: TextView? = itemView.findViewById(R.id.senderText)
-        
+        private val statusText: TextView? = itemView.findViewById(R.id.statusText)
+
         fun bind(message: ChatMessage) {
             messageText.text = message.text
             timestampText.text = message.getFormattedTime()
             senderText?.text = message.getSenderName()
-            
-            // Set different colors for child and parent messages
-            val context = itemView.context
-            if (message.isFromChild()) {
-                messageText.setTextColor(ContextCompat.getColor(context, android.R.color.white))
-                messageText.setBackgroundColor(ContextCompat.getColor(context, android.R.color.holo_blue_dark))
-            } else {
-                messageText.setTextColor(ContextCompat.getColor(context, android.R.color.black))
-                messageText.setBackgroundColor(ContextCompat.getColor(context, android.R.color.white))
-            }
+
+            // Show status indicator for sent messages
+            statusText?.visibility = if (message.isRead) View.VISIBLE else View.GONE
         }
     }
 }

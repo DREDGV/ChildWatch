@@ -46,6 +46,7 @@ class LocationService : Service() {
     private lateinit var networkHelper: NetworkHelper
     private lateinit var audioRecorder: AudioStreamRecorder
     private lateinit var prefs: SharedPreferences
+    private lateinit var appUsageTracker: AppUsageTracker
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var isTracking = false
@@ -63,6 +64,7 @@ class LocationService : Service() {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         networkHelper = NetworkHelper(this)
         audioRecorder = AudioStreamRecorder(this, networkHelper)
+        appUsageTracker = AppUsageTracker(this)
 
         createNotificationChannel()
         setupLocationCallback()

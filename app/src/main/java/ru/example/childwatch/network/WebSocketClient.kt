@@ -188,10 +188,22 @@ class WebSocketClient(
             val data = args.getOrNull(0) as? JSONObject
             val messageId = data?.optString("id") ?: ""
             val timestamp = data?.optLong("timestamp") ?: System.currentTimeMillis()
+            val delivered = data?.optBoolean("delivered") ?: false
 
-            Log.d(TAG, "✅ Chat message sent confirmation: id=$messageId")
+            Log.d(TAG, "✅ Chat message sent confirmation: id=$messageId, delivered=$delivered")
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error handling chat message sent confirmation", e)
+        }
+    }
+
+    private val onChatMessageError = Emitter.Listener { args ->
+        try {
+            val data = args.getOrNull(0) as? JSONObject
+            val error = data?.optString("error") ?: "Unknown error"
+
+            Log.e(TAG, "❌ Chat message error: $error")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error handling chat message error", e)
         }
     }
 
@@ -232,6 +244,7 @@ class WebSocketClient(
             socket?.on("pong", onPong)
             socket?.on("chat_message", onChatMessage)
             socket?.on("chat_message_sent", onChatMessageSent)
+            socket?.on("chat_message_error", onChatMessageError)
 
             socket?.connect()
 

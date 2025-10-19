@@ -62,9 +62,11 @@ object NotificationManager {
         // Increment unread counter
         unreadMessageCount++
 
-        // Get notification duration from preferences (default: 10 seconds / 10000ms)
+        // Get notification preferences
         val prefs = context.getSharedPreferences("notification_prefs", Context.MODE_PRIVATE)
         val durationMs = prefs.getInt("notification_duration", 10000)
+        val notificationSize = prefs.getString("notification_size", "expanded") ?: "expanded"
+        val notificationPriority = prefs.getInt("notification_priority", 2)
         val enableSound = prefs.getBoolean("notification_sound", true)
         val enableVibration = prefs.getBoolean("notification_vibration", true)
 
@@ -81,15 +83,20 @@ object NotificationManager {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        // Build notification with BIG style for better visibility
+        // Map priority value to NotificationCompat constant
+        val priority = when (notificationPriority) {
+            0 -> NotificationCompat.PRIORITY_LOW
+            1 -> NotificationCompat.PRIORITY_DEFAULT
+            2 -> NotificationCompat.PRIORITY_MAX
+            else -> NotificationCompat.PRIORITY_MAX
+        }
+
+        // Build notification
         val builder = NotificationCompat.Builder(context, CHAT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentTitle("💬 Новое сообщение от $senderName")
             .setContentText(messageText)
-            .setStyle(NotificationCompat.BigTextStyle()
-                .bigText(messageText)
-                .setBigContentTitle("💬 Новое сообщение от $senderName"))
-            .setPriority(NotificationCompat.PRIORITY_MAX)
+            .setPriority(priority)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setWhen(timestamp)
@@ -100,6 +107,13 @@ object NotificationManager {
             .setTimeoutAfter(durationMs.toLong())
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Show on lockscreen
+
+        // Apply notification size style
+        if (notificationSize == "expanded") {
+            builder.setStyle(NotificationCompat.BigTextStyle()
+                .bigText(messageText)
+                .setBigContentTitle("💬 Новое сообщение от $senderName"))
+        } // Compact mode doesn't need a style (just shows single line)
 
         // Configure sound based on preferences
         if (enableSound) {
@@ -117,7 +131,7 @@ object NotificationManager {
                 notify(CHAT_NOTIFICATION_ID, builder.build())
             }
 
-            android.util.Log.d("NotificationManager", "Chat notification shown: duration=${durationMs}ms, sound=$enableSound, vibration=$enableVibration")
+            android.util.Log.d("NotificationManager", "Chat notification shown: duration=${durationMs}ms, size=$notificationSize, priority=$notificationPriority, sound=$enableSound, vibration=$enableVibration")
         } catch (e: SecurityException) {
             android.util.Log.e("NotificationManager", "Failed to show notification: ${e.message}")
         }

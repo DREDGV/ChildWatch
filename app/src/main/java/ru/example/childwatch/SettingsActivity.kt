@@ -82,6 +82,17 @@ class SettingsActivity : AppCompatActivity() {
             binding.durationValueText.text = "${value.toInt()} секунд"
         }
 
+        // Notification priority slider listener
+        binding.notificationPrioritySlider.addOnChangeListener { _, value, _ ->
+            val priorityText = when (value.toInt()) {
+                0 -> "Низкий"
+                1 -> "Средний"
+                2 -> "Высокий"
+                else -> "Средний"
+            }
+            binding.priorityValueText.text = priorityText
+        }
+
         // Save settings button
         binding.saveSettingsBtn.setOnClickListener {
             saveSettings()
@@ -145,8 +156,28 @@ class SettingsActivity : AppCompatActivity() {
         // Load notification settings
         val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
         val notificationDuration = notificationPrefs.getInt("notification_duration", 10000) / 1000 // Convert ms to seconds
+        val notificationSize = notificationPrefs.getString("notification_size", "expanded") ?: "expanded"
+        val notificationPriority = notificationPrefs.getInt("notification_priority", 2)
+
         binding.notificationDurationSlider.value = notificationDuration.toFloat()
         binding.durationValueText.text = "$notificationDuration секунд"
+
+        // Load notification size
+        if (notificationSize == "compact") {
+            binding.notificationSizeCompact.isChecked = true
+        } else {
+            binding.notificationSizeExpanded.isChecked = true
+        }
+
+        // Load notification priority
+        binding.notificationPrioritySlider.value = notificationPriority.toFloat()
+        val priorityText = when (notificationPriority) {
+            0 -> "Низкий"
+            1 -> "Средний"
+            2 -> "Высокий"
+            else -> "Средний"
+        }
+        binding.priorityValueText.text = priorityText
 
         Log.d(TAG, "Settings loaded")
     }
@@ -191,11 +222,16 @@ class SettingsActivity : AppCompatActivity() {
             // Save notification settings
             val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
             val notificationDurationSec = binding.notificationDurationSlider.value.toInt()
+            val notificationSize = if (binding.notificationSizeCompact.isChecked) "compact" else "expanded"
+            val notificationPriority = binding.notificationPrioritySlider.value.toInt()
+
             notificationPrefs.edit()
                 .putInt("notification_duration", notificationDurationSec * 1000) // Convert to ms
+                .putString("notification_size", notificationSize)
+                .putInt("notification_priority", notificationPriority)
                 .apply()
 
-            Log.d(TAG, "Settings saved: interval=$locationInterval, audio=$audioDuration, url=$serverUrl, notif=$notificationDurationSec")
+            Log.d(TAG, "Settings saved: interval=$locationInterval, audio=$audioDuration, url=$serverUrl, notif=$notificationDurationSec, size=$notificationSize, priority=$notificationPriority")
             Toast.makeText(this, "Настройки сохранены", Toast.LENGTH_SHORT).show()
             
             // Finish activity

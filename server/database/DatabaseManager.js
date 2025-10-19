@@ -193,7 +193,26 @@ class DatabaseManager {
             await this.run(sql);
         }
 
+        // Run migrations
+        await this.runMigrations();
+
         console.log('✅ Database tables created successfully');
+    }
+
+    /**
+     * Run database migrations
+     */
+    async runMigrations() {
+        // Check if current_app_name column exists
+        const tableInfo = await this.all(`PRAGMA table_info(device_status)`);
+        const hasCurrentAppName = tableInfo.some(col => col.name === 'current_app_name');
+
+        if (!hasCurrentAppName) {
+            console.log('Running migration: Adding current_app columns to device_status table...');
+            await this.run(`ALTER TABLE device_status ADD COLUMN current_app_name TEXT`);
+            await this.run(`ALTER TABLE device_status ADD COLUMN current_app_package TEXT`);
+            console.log('✅ Migration completed: current_app columns added');
+        }
     }
 
 
@@ -439,6 +458,8 @@ class DatabaseManager {
             model = null,
             androidVersion = null,
             sdkVersion = null,
+            currentAppName = null,
+            currentAppPackage = null,
             timestamp = Date.now(),
             raw = null
         } = status || {};
@@ -456,10 +477,12 @@ class DatabaseManager {
                 model,
                 android_version,
                 sdk_version,
+                current_app_name,
+                current_app_package,
                 status_json,
                 timestamp
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
         const statusJson = raw ? JSON.stringify(raw) : null;
@@ -476,6 +499,8 @@ class DatabaseManager {
             model,
             androidVersion,
             sdkVersion,
+            currentAppName,
+            currentAppPackage,
             statusJson,
             timestamp
         ]);
@@ -518,6 +543,8 @@ class DatabaseManager {
             model: row.model,
             androidVersion: row.android_version,
             sdkVersion: row.sdk_version,
+            currentAppName: row.current_app_name,
+            currentAppPackage: row.current_app_package,
             timestamp: row.timestamp,
             raw
         };

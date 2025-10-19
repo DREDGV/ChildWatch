@@ -4,19 +4,23 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.launch
 import ru.example.childwatch.databinding.ActivityChatBinding
 import ru.example.childwatch.chat.ChatAdapter
 import ru.example.childwatch.chat.ChatMessage
 import ru.example.childwatch.chat.ChatManager
+import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketManager
+import ru.example.childwatch.utils.SecurePreferences
 import java.text.SimpleDateFormat
 import java.util.*
 
 /**
  * Chat Activity for communication between child and parents
- * 
+ *
  * Features:
  * - Real-time messaging
  * - Message history
@@ -25,16 +29,18 @@ import java.util.*
  * - Message status indicators
  */
 class ChatActivity : AppCompatActivity() {
-    
+
     companion object {
         private const val TAG = "ChatActivity"
     }
-    
+
     private lateinit var binding: ActivityChatBinding
     private lateinit var chatAdapter: ChatAdapter
     private lateinit var chatManager: ChatManager
+    private lateinit var networkClient: NetworkClient
+    private lateinit var securePreferences: SecurePreferences
     private val messages = mutableListOf<ChatMessage>()
-    
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityChatBinding.inflate(layoutInflater)
@@ -42,11 +48,22 @@ class ChatActivity : AppCompatActivity() {
 
         // Initialize chat manager
         chatManager = ChatManager(this)
+        networkClient = NetworkClient(this)
+        securePreferences = SecurePreferences(this, "childwatch_prefs")
 
         // Setup UI
         setupUI()
         setupRecyclerView()
         loadMessages()
+
+        // Mark all messages as read
+        chatManager.markAllAsRead()
+
+        // Reset unread count in NotificationManager
+        ru.example.childwatch.utils.NotificationManager.resetUnreadCount()
+
+        // Sync chat history from server
+        syncChatHistory()
 
         // Initialize WebSocket if not connected
         initializeWebSocket()
@@ -155,12 +172,95 @@ class ChatActivity : AppCompatActivity() {
         messages.clear()
         messages.addAll(savedMessages)
         chatAdapter.notifyDataSetChanged()
-        
+
         if (messages.isNotEmpty()) {
             binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
         }
-        
-        Log.d(TAG, "Loaded ${messages.size} messages")
+
+        Log.d(TAG, "Loaded ${messages.size} messages from local storage")
+    }
+
+    /**
+     * Get Retrofit API instance
+     */
+    private fun getRetrofitApi(): ru.example.childwatch.network.ChildWatchApi {
+        val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+        val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
+            ?: "https://childwatch-production.up.railway.app"
+
+        val retrofit = retrofit2.Retrofit.Builder()
+            .baseUrl(serverUrl)
+            .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
+            .build()
+
+        return retrofit.create(ru.example.childwatch.network.ChildWatchApi::class.java)
+    }
+
+    /**
+     * Sync chat history from server
+     */
+    private fun syncChatHistory() {
+        val childDeviceId = securePreferences.getString("child_device_id", null)
+        if (childDeviceId.isNullOrEmpty()) {
+            Log.w(TAG, "Child Device ID not set, skipping chat sync")
+            return
+        }
+
+        lifecycleScope.launch {
+            try {
+                Log.d(TAG, "Syncing chat history from server...")
+                val response = getRetrofitApi().getChatHistory(childDeviceId, limit = 200)
+
+                if (response.isSuccessful) {
+                    val chatHistory = response.body()
+                    if (chatHistory != null && chatHistory.success) {
+                        val serverMessages = chatHistory.messages
+                        Log.d(TAG, "Received ${serverMessages.size} messages from server")
+
+                        // Merge server messages with local messages
+                        var newMessagesCount = 0
+                        serverMessages.forEach { msgData ->
+                            val exists = messages.any { it.id == msgData.id.toString() }
+                            if (!exists) {
+                                val message = ChatMessage(
+                                    id = msgData.id.toString(),
+                                    text = msgData.message,
+                                    sender = msgData.sender,
+                                    timestamp = msgData.timestamp,
+                                    isRead = msgData.isRead
+                                )
+                                messages.add(message)
+                                chatManager.saveMessage(message)
+                                newMessagesCount++
+                            }
+                        }
+
+                        if (newMessagesCount > 0) {
+                            // Sort messages by timestamp
+                            messages.sortBy { it.timestamp }
+
+                            runOnUiThread {
+                                chatAdapter.notifyDataSetChanged()
+                                binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
+                                Toast.makeText(
+                                    this@ChatActivity,
+                                    "✅ Синхронизировано: $newMessagesCount новых сообщений",
+                                    Toast.LENGTH_SHORT
+                                ).show()
+                            }
+
+                            Log.d(TAG, "Added $newMessagesCount new messages from server")
+                        } else {
+                            Log.d(TAG, "No new messages from server")
+                        }
+                    }
+                } else {
+                    Log.w(TAG, "Failed to sync chat history: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error syncing chat history", e)
+            }
+        }
     }
     
     /**

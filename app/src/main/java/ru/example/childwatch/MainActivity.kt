@@ -26,6 +26,7 @@ import ru.example.childwatch.utils.BatteryOptimizationHelper
 import ru.example.childwatch.utils.PermissionHelper
 import ru.example.childwatch.utils.SecurityChecker
 import ru.example.childwatch.utils.SecureSettingsManager
+import ru.example.childwatch.chat.ChatManager
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -47,6 +48,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private lateinit var secureSettings: SecureSettingsManager
     private lateinit var batteryOptimizationHelper: BatteryOptimizationHelper
+    private lateinit var chatManager: ChatManager
     private var hasConsent = false
     private var batteryOptimizationDialogDisplayed = false
     private val deviceInfoScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -77,6 +79,7 @@ class MainActivity : AppCompatActivity() {
         prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         secureSettings = SecureSettingsManager(this)
         batteryOptimizationHelper = BatteryOptimizationHelper(this)
+        chatManager = ChatManager(this)
         hasConsent = ConsentActivity.hasConsent(this)
 
         // Set app version
@@ -84,6 +87,7 @@ class MainActivity : AppCompatActivity() {
 
         setupUI()
         updateUIState()
+        updateChatBadge()
         
         // Perform security checks
         performSecurityChecks()
@@ -377,25 +381,13 @@ class MainActivity : AppCompatActivity() {
             String.format(Locale.getDefault(), "%.1f C", it)
         } ?: getString(R.string.device_info_unknown)
 
-        binding.deviceInfoVoltageValue.text = status.voltage?.takeIf { it > 0 }?.let {
-            String.format(Locale.getDefault(), "%.2f V", it)
-        } ?: getString(R.string.device_info_unknown)
-
-        binding.deviceInfoHealthValue.text = status.health?.takeIf { it.isNotBlank() } ?: getString(R.string.device_info_unknown)
-
         val modelText = listOfNotNull(status.manufacturer, status.model)
             .joinToString(" ")
             .trim()
         binding.deviceInfoModelValue.text = if (modelText.isNotEmpty()) modelText else getString(R.string.device_info_unknown)
 
-        val androidParts = mutableListOf<String>()
-        status.androidVersion?.takeIf { it.isNotBlank() }?.let { androidParts.add("v$it") }
-        status.sdkVersion?.let { androidParts.add("SDK $it") }
-        binding.deviceInfoAndroidValue.text = if (androidParts.isNotEmpty()) {
-            androidParts.joinToString(" • ")
-        } else {
-            getString(R.string.device_info_unknown)
-        }
+        binding.deviceInfoCurrentAppValue.text = status.currentAppName?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.device_info_unknown)
 
         val statusTimestamp = (status.timestamp ?: secureSettings.getLastDeviceStatusTimestamp()).takeIf { it > 0 }
         binding.deviceInfoUpdatedValue.text = if (statusTimestamp != null) {
@@ -758,9 +750,26 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         updateUIState()
+        updateChatBadge()
         refreshChildDeviceStatus(force = true)
         CriticalAlertSyncScheduler.triggerImmediate(this)
         ensureChatBackgroundService()
+    }
+
+    /**
+     * Update chat badge with unread message count
+     */
+    private fun updateChatBadge() {
+        val unreadCount = chatManager.getUnreadCount()
+
+        if (unreadCount > 0) {
+            binding.chatBadge.visibility = View.VISIBLE
+            binding.chatBadge.text = if (unreadCount > 99) "99+" else unreadCount.toString()
+        } else {
+            binding.chatBadge.visibility = View.GONE
+        }
+
+        Log.d("MainActivity", "Chat badge updated: $unreadCount unread messages")
     }
 
     private fun showDeviceIdOptions(serverUrl: String) {

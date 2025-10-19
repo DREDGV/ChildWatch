@@ -364,10 +364,75 @@
                     android:layout_marginBottom="16dp"
                     android:textColor="?attr/colorPrimary" />
 
+                <!-- Notification Size Setting -->
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="ℹ️ Уведомления о новых сообщениях будут автоматически скрываться через указанное время."
+                    android:text="Размер уведомления"
+                    android:textSize="14sp"
+                    android:layout_marginTop="16dp"
+                    android:layout_marginBottom="8dp"
+                    android:textColor="?android:attr/textColorSecondary" />
+
+                <RadioGroup
+                    android:id="@+id/notificationSizeGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:layout_marginBottom="16dp">
+
+                    <com.google.android.material.radiobutton.MaterialRadioButton
+                        android:id="@+id/notificationSizeCompact"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Компактный"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.radiobutton.MaterialRadioButton
+                        android:id="@+id/notificationSizeExpanded"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Расширенный"
+                        android:textSize="12sp"
+                        android:checked="true" />
+
+                </RadioGroup>
+
+                <!-- Notification Priority Setting -->
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Приоритет уведомлений"
+                    android:textSize="14sp"
+                    android:layout_marginBottom="8dp"
+                    android:textColor="?android:attr/textColorSecondary" />
+
+                <com.google.android.material.slider.Slider
+                    android:id="@+id/notificationPrioritySlider"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:valueFrom="0"
+                    android:valueTo="2"
+                    android:stepSize="1"
+                    android:value="2"
+                    android:layout_marginBottom="8dp" />
+
+                <TextView
+                    android:id="@+id/priorityValueText"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Высокий"
+                    android:textSize="14sp"
+                    android:layout_gravity="center"
+                    android:layout_marginBottom="16dp"
+                    android:textColor="?attr/colorPrimary" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="ℹ️ Высокий приоритет делает уведомления более заметными и отображает их первыми."
                     android:textSize="11sp"
                     android:textColor="?android:attr/textColorSecondary" />
 

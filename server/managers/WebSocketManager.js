@@ -199,31 +199,48 @@ class WebSocketManager {
     /**
      * Handle chat message (bidirectional)
      */
-    handleChatMessage(socket, data) {
+    async handleChatMessage(socket, data) {
         try {
-            const { deviceId, text, sender, timestamp } = data;
+            const { deviceId, text, sender, timestamp, id } = data;
 
-            if (!deviceId || !text) {
+            if (!deviceId || !text || !sender) {
                 console.error('❌ Chat message missing required fields');
+                socket.emit('chat_message_error', { error: 'Missing required fields' });
                 return;
             }
 
+            // Save message to database
+            try {
+                await this.dbManager.saveChatMessage(deviceId, {
+                    sender,
+                    message: text,
+                    timestamp: timestamp || Date.now()
+                });
+                console.log(`💾 Chat message saved to database: ${deviceId} from ${sender}`);
+            } catch (dbError) {
+                console.error('❌ Failed to save chat message to database:', dbError);
+                // Continue forwarding even if DB save fails
+            }
+
             // Determine direction based on sender
+            let delivered = false;
+
             if (sender === 'child') {
                 // Message FROM child → Forward TO parent
                 const parentSocketId = Array.from(this.parentSockets.entries())
-                    .find(([id, childDeviceId]) => childDeviceId === deviceId)?.[0];
+                    .find(([socketId, childDeviceId]) => childDeviceId === deviceId)?.[0];
 
                 if (parentSocketId) {
                     const parentSocket = this.io.sockets.sockets.get(parentSocketId);
                     if (parentSocket) {
                         parentSocket.emit('chat_message', data);
+                        delivered = true;
                         console.log(`💬 Chat message forwarded to parent for device: ${deviceId}`);
                     } else {
                         console.log(`⚠️ Parent socket not found for device: ${deviceId}`);
                     }
                 } else {
-                    console.log(`📭 No parent connected for device: ${deviceId}`);
+                    console.log(`📭 No parent connected for device: ${deviceId} (message saved for later)`);
                 }
             } else if (sender === 'parent') {
                 // Message FROM parent → Forward TO child
@@ -233,23 +250,30 @@ class WebSocketManager {
                     const childSocket = this.io.sockets.sockets.get(childSocketId);
                     if (childSocket) {
                         childSocket.emit('chat_message', data);
+                        delivered = true;
                         console.log(`💬 Chat message forwarded to child device: ${deviceId}`);
                     } else {
                         console.log(`⚠️ Child socket not found for device: ${deviceId}`);
                         this.childSockets.delete(deviceId);
                     }
                 } else {
-                    console.log(`📭 No child connected with device ID: ${deviceId}`);
+                    console.log(`📭 No child connected with device ID: ${deviceId} (message saved for later)`);
                 }
             } else {
                 console.error(`❌ Invalid sender: ${sender}. Must be 'parent' or 'child'`);
+                socket.emit('chat_message_error', { error: 'Invalid sender' });
                 return;
             }
 
             // Confirm message sent back to sender
-            socket.emit('chat_message_sent', { id: data.id, timestamp: Date.now() });
+            socket.emit('chat_message_sent', {
+                id: id || data.id,
+                timestamp: Date.now(),
+                delivered: delivered
+            });
         } catch (error) {
             console.error('❌ Error handling chat message:', error);
+            socket.emit('chat_message_error', { error: error.message });
         }
     }
 

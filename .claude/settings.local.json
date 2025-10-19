@@ -22,7 +22,15 @@
       "Bash(echo \"Exit code: $?\")",
       "Bash(git commit:*)",
       "Bash(.gradlew :parentwatch:assembleDebug)",
-      "Bash(git push:*)"
+      "Bash(git push:*)",
+      "Bash(dir C:Usersdr-edChildWatchserver /b)",
+      "Bash(tar --exclude='node_modules' --exclude='childwatch.db' --exclude='uploads' --exclude='*.log' --exclude='test-startup.js' --exclude='simple-server.js' --exclude='minimal-server.js' --exclude='working-server.js' -czf ../childwatch-backend.tar.gz auth database managers middleware routes validators index.js package.json package-lock.json)",
+      "Bash(tar -tzf childwatch-backend.tar.gz)",
+      "Bash(tee build.log)",
+      "Bash(echo $PATH)",
+      "Bash(gradlew.bat :app:assembleDebug)",
+      "Bash(./gradlew.bat :app:assembleDebug)",
+      "Bash(./gradlew.bat :parentwatch:assembleDebug)"
     ],
     "deny": [],
     "ask": []

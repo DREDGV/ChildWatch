@@ -30,6 +30,10 @@
     <!-- Get tasks permission for foreground check -->
     <uses-permission android:name="android.permission.GET_TASKS" />
 
+    <!-- Package usage stats permission (for app tracking) -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
+
     <application
         android:allowBackup="true"
         android:icon="@mipmap/ic_launcher"

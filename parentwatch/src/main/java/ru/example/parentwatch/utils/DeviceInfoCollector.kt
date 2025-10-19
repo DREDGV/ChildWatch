@@ -6,6 +6,7 @@ import android.content.IntentFilter
 import android.os.BatteryManager
 import android.os.Build
 import org.json.JSONObject
+import ru.example.parentwatch.service.AppUsageTracker
 
 /**
  * Collects device battery and hardware information for ParentWatch uploads.
@@ -19,7 +20,36 @@ object DeviceInfoCollector {
         return JSONObject().apply {
             put("battery", getBatteryInfo(context))
             put("device", getDeviceDetails())
+            put("currentApp", getCurrentAppInfo(context))
             put("timestamp", System.currentTimeMillis())
+        }
+    }
+
+    /**
+     * Get current foreground app information
+     */
+    private fun getCurrentAppInfo(context: Context): JSONObject {
+        val appUsageTracker = AppUsageTracker(context)
+
+        return if (appUsageTracker.hasUsageStatsPermission()) {
+            val currentApp = appUsageTracker.getCurrentApp()
+            if (currentApp != null) {
+                JSONObject().apply {
+                    put("packageName", currentApp.packageName)
+                    put("appName", currentApp.appName)
+                    put("lastUsed", currentApp.lastTimeUsed)
+                    put("isSystemApp", currentApp.isSystemApp)
+                }
+            } else {
+                JSONObject().apply {
+                    put("error", "No app data available")
+                }
+            }
+        } else {
+            JSONObject().apply {
+                put("error", "Permission not granted")
+                put("permissionRequired", "PACKAGE_USAGE_STATS")
+            }
         }
     }
 

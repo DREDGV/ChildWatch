@@ -35,6 +35,21 @@ interface ChildWatchApi {
      */
     @GET("api/device/status/{deviceId}")
     suspend fun getDeviceStatus(@Path("deviceId") deviceId: String): Response<DeviceStatusResponse>
+
+    /**
+     * Get chat message history
+     */
+    @GET("api/chat/history/{deviceId}")
+    suspend fun getChatHistory(
+        @Path("deviceId") deviceId: String,
+        @Query("limit") limit: Int = 100
+    ): Response<ChatHistoryResponse>
+
+    /**
+     * Mark chat messages as read
+     */
+    @POST("api/chat/mark-read/{deviceId}")
+    suspend fun markChatMessagesAsRead(@Path("deviceId") deviceId: String): Response<GenericResponse>
 }
 
 /**
@@ -92,6 +107,30 @@ data class DeviceStatus(
     val model: String?,
     val androidVersion: String?,
     val sdkVersion: Int?,
+    val currentAppName: String?,
+    val currentAppPackage: String?,
     val timestamp: Long?,
     val raw: Map<String, Any?>?
+)
+
+data class ChatHistoryResponse(
+    val success: Boolean,
+    val deviceId: String,
+    val count: Int,
+    val messages: List<ChatMessageData>
+)
+
+data class ChatMessageData(
+    val id: Long,
+    val sender: String,
+    val message: String,
+    val timestamp: Long,
+    val isRead: Boolean,
+    val createdAt: String
+)
+
+data class GenericResponse(
+    val success: Boolean,
+    val message: String? = null,
+    val deviceId: String? = null
 )

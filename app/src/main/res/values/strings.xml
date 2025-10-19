@@ -43,6 +43,7 @@
     <string name="device_info_health">Health</string>
     <string name="device_info_model">Device</string>
     <string name="device_info_android">Android</string>
+    <string name="device_info_current_app">Current App</string>
     <string name="device_info_last_sync">Updated</string>
     <string name="device_info_unknown">Unknown</string>
     <string name="device_info_not_available">Status not available</string>

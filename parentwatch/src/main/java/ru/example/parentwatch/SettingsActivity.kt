@@ -2,9 +2,12 @@ package ru.example.parentwatch
 
 import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.isVisible
 import ru.example.parentwatch.databinding.ActivitySettingsBinding
+import ru.example.parentwatch.service.AppUsageTracker
 
 /**
  * Settings Activity for ParentWatch
@@ -42,6 +45,9 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.serverUrlInput.setText(serverUrl)
         binding.deviceIdText.setText(deviceId)
+
+        // Update usage permission status
+        updateUsagePermissionStatus()
 
         // Load notification settings
         val notificationDuration = notificationPrefs.getInt("notification_duration", 10000) / 1000 // Convert ms to seconds
@@ -81,6 +87,49 @@ class SettingsActivity : AppCompatActivity() {
         // Show QR Code button
         binding.showQrButton.setOnClickListener {
             showQRCode()
+        }
+
+        // Request usage stats permission button
+        binding.requestUsagePermissionButton.setOnClickListener {
+            requestUsageStatsPermission()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        updateUsagePermissionStatus()
+    }
+
+    private fun updateUsagePermissionStatus() {
+        val appUsageTracker = AppUsageTracker(this)
+        val hasPermission = appUsageTracker.hasUsageStatsPermission()
+
+        if (hasPermission) {
+            binding.usagePermissionStatus.isVisible = true
+            binding.requestUsagePermissionButton.text = "✅ Разрешение предоставлено"
+            binding.requestUsagePermissionButton.isEnabled = false
+        } else {
+            binding.usagePermissionStatus.isVisible = false
+            binding.requestUsagePermissionButton.text = "🔓 Предоставить разрешение"
+            binding.requestUsagePermissionButton.isEnabled = true
+        }
+    }
+
+    private fun requestUsageStatsPermission() {
+        try {
+            val intent = Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS)
+            startActivity(intent)
+            Toast.makeText(
+                this,
+                "Найдите ParentWatch в списке и включите разрешение",
+                Toast.LENGTH_LONG
+            ).show()
+        } catch (e: Exception) {
+            Toast.makeText(
+                this,
+                "Не удалось открыть настройки разрешений",
+                Toast.LENGTH_SHORT
+            ).show()
         }
     }
     

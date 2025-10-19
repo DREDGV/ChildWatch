@@ -133,10 +133,38 @@ class ChatManager(private val context: Context) {
     }
     
     /**
-     * Get unread messages count
+     * Get unread messages count (from child)
      */
     fun getUnreadCount(): Int {
-        return getAllMessages().count { !it.isRead && it.isFromParent() }
+        return getAllMessages().count { !it.isRead && it.isFromChild() }
+    }
+
+    /**
+     * Mark all messages as read
+     */
+    fun markAllAsRead() {
+        try {
+            val messages = getAllMessages().map { it.copy(isRead = true) }
+
+            // Save updated list
+            val jsonArray = JSONArray()
+            messages.forEach { msg ->
+                val jsonObject = JSONObject().apply {
+                    put("id", msg.id)
+                    put("text", msg.text)
+                    put("sender", msg.sender)
+                    put("timestamp", msg.timestamp)
+                    put("isRead", msg.isRead)
+                }
+                jsonArray.put(jsonObject)
+            }
+
+            securePreferences.putString(MESSAGES_KEY, jsonArray.toString())
+            Log.d(TAG, "All messages marked as read")
+
+        } catch (e: Exception) {
+            Log.e(TAG, "Error marking all messages as read", e)
+        }
     }
     
     /**
