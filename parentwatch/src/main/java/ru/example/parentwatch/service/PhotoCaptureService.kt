@@ -84,20 +84,25 @@ class PhotoCaptureService : Service() {
      * Setup WebSocket listener for photo commands
      */
     private fun setupWebSocketListener() {
-        // WebSocketManager should already be initialized by LocationService
-        // Just set the command callback
-        serviceScope.launch {
-            try {
-                // Since WebSocketClient doesn't expose setCommandCallback directly,
-                // we'll need to add this functionality or use a different approach
-                // For now, we'll create a simple polling mechanism or use chat messages
-
-                // Alternative: Listen via shared preferences or broadcast
-                Log.d(TAG, "Photo capture service ready")
-                updateNotification("Готов к захвату фото")
-            } catch (e: Exception) {
-                Log.e(TAG, "Error setting up listener", e)
+        try {
+            // Add command listener to WebSocketManager
+            WebSocketManager.addCommandListener { command, data ->
+                when (command) {
+                    "take_photo" -> {
+                        val cameraFacing = data?.optString("camera", "front") ?: "front"
+                        Log.d(TAG, "📸 Received take_photo command: camera=$cameraFacing")
+                        handleTakePhotoCommand(cameraFacing)
+                    }
+                    else -> {
+                        Log.d(TAG, "Ignoring command: $command")
+                    }
+                }
             }
+
+            Log.d(TAG, "Photo capture service ready - listening for commands")
+            updateNotification("Готов к захвату фото")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting up listener", e)
         }
     }
 

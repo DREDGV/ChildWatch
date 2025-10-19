@@ -1,6 +1,7 @@
 package ru.example.childwatch
 
 import android.Manifest
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
@@ -9,9 +10,12 @@ import android.provider.MediaStore
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.core.app.ActivityCompat
 import androidx.core.content.FileProvider
+import org.json.JSONObject
 import ru.example.childwatch.databinding.ActivityPhotoBinding
+import ru.example.childwatch.network.WebSocketClient
 import ru.example.childwatch.utils.PermissionHelper
 import java.io.File
 import java.text.SimpleDateFormat
@@ -39,15 +43,28 @@ class PhotoActivity : AppCompatActivity() {
     private lateinit var binding: ActivityPhotoBinding
     private var currentPhotoPath: String? = null
     private var currentVideoUri: Uri? = null
+    private var webSocketClient: WebSocketClient? = null
+    private var childDeviceId: String? = null
+    private var serverUrl: String? = null
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityPhotoBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        
+
+        // Get device info from SharedPreferences
+        val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        childDeviceId = prefs.getString("child_device_id", null)
+        serverUrl = prefs.getString("server_url", null)
+
         // Setup UI
         setupUI()
         updateUI()
+
+        // Initialize WebSocket if device is configured
+        if (childDeviceId != null && serverUrl != null) {
+            initializeWebSocket()
+        }
     }
     
     private fun setupUI() {
@@ -82,35 +99,72 @@ class PhotoActivity : AppCompatActivity() {
     }
     
     private fun takePhoto() {
-        if (!PermissionHelper.hasCameraPermission(this)) {
-            requestCameraPermission()
+        // Show dialog to choose camera (front or back)
+        AlertDialog.Builder(this)
+            .setTitle("Выбор камеры")
+            .setMessage("Какую камеру использовать на устройстве ребенка?")
+            .setPositiveButton("📸 Фронтальная") { _, _ ->
+                sendTakePhotoCommand("front")
+            }
+            .setNegativeButton("📷 Основная") { _, _ ->
+                sendTakePhotoCommand("back")
+            }
+            .setNeutralButton("Отмена", null)
+            .show()
+    }
+
+    private fun sendTakePhotoCommand(camera: String) {
+        if (webSocketClient == null || childDeviceId == null) {
+            Toast.makeText(this, "WebSocket не подключен", Toast.LENGTH_SHORT).show()
             return
         }
-        
+
+        binding.statusText?.text = "Отправка команды..."
+
+        val commandData = JSONObject().apply {
+            put("camera", camera)
+        }
+
+        webSocketClient?.sendCommand(
+            commandType = "take_photo",
+            data = commandData,
+            onSuccess = {
+                runOnUiThread {
+                    binding.statusText?.text = "✅ Команда отправлена! Ожидайте фото..."
+                    Toast.makeText(this, "Команда отправлена на устройство", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onError = { error ->
+                runOnUiThread {
+                    binding.statusText?.text = "❌ Ошибка отправки"
+                    Toast.makeText(this, "Ошибка: $error", Toast.LENGTH_LONG).show()
+                }
+            }
+        )
+    }
+
+    private fun initializeWebSocket() {
         try {
-            val photoFile = createImageFile()
-            currentPhotoPath = photoFile.absolutePath
-            
-            val photoUri = FileProvider.getUriForFile(
-                this,
-                "${packageName}.fileprovider",
-                photoFile
+            binding.statusText?.text = "Подключение к серверу..."
+
+            webSocketClient = WebSocketClient(serverUrl!!, childDeviceId!!)
+            webSocketClient?.connect(
+                onConnected = {
+                    runOnUiThread {
+                        binding.statusText?.text = "✅ Подключено к устройству"
+                        binding.takePhotoBtn.isEnabled = true
+                    }
+                },
+                onError = { error ->
+                    runOnUiThread {
+                        binding.statusText?.text = "❌ Ошибка подключения"
+                        Toast.makeText(this, "Ошибка: $error", Toast.LENGTH_LONG).show()
+                    }
+                }
             )
-            
-            val takePictureIntent = Intent(MediaStore.ACTION_IMAGE_CAPTURE).apply {
-                putExtra(MediaStore.EXTRA_OUTPUT, photoUri)
-                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-            }
-            
-            if (takePictureIntent.resolveActivity(packageManager) != null) {
-                startActivityForResult(takePictureIntent, REQUEST_IMAGE_CAPTURE)
-            } else {
-                Toast.makeText(this, "Камера недоступна", Toast.LENGTH_SHORT).show()
-            }
-            
         } catch (e: Exception) {
-            Log.e(TAG, "Error taking photo", e)
-            Toast.makeText(this, "Ошибка создания фото: ${e.message}", Toast.LENGTH_SHORT).show()
+            Log.e(TAG, "Error initializing WebSocket", e)
+            binding.statusText?.text = "❌ Ошибка инициализации"
         }
     }
     
@@ -267,5 +321,11 @@ class PhotoActivity : AppCompatActivity() {
     override fun onSupportNavigateUp(): Boolean {
         onBackPressed()
         return true
+    }
+
+    override fun onDestroy() {
+        super.onDestroy()
+        webSocketClient?.disconnect()
+        webSocketClient?.cleanup()
     }
 }

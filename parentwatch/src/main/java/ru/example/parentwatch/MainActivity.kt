@@ -20,6 +20,7 @@ import ru.example.parentwatch.BuildConfig
 import ru.example.parentwatch.utils.NotificationManager
 import ru.example.parentwatch.service.LocationService
 import ru.example.parentwatch.service.ChatBackgroundService
+import ru.example.parentwatch.service.PhotoCaptureService
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -190,10 +191,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun ensurePhotoCaptureService() {
+        val serverUrl = prefs.getString("server_url", DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
+        val deviceId = prefs.getString("device_id", null)
+        if (!deviceId.isNullOrEmpty()) {
+            PhotoCaptureService.start(this, serverUrl, deviceId)
+        }
+    }
+
 
     override fun onResume() {
         super.onResume()
         ensureChatBackgroundService()
+        ensurePhotoCaptureService()
     }
 
     private fun requestPermissionsAndStart() {
@@ -253,8 +263,9 @@ class MainActivity : AppCompatActivity() {
                 serviceIntent.putExtra("server_url", prefs.getString("server_url", DEFAULT_SERVER_URL))
                 serviceIntent.putExtra("device_id", getUniqueDeviceId())
                 ContextCompat.startForegroundService(this, serviceIntent)
-                
+
                 ensureChatBackgroundService()
+                ensurePhotoCaptureService()
 
             isServiceRunning = true
             prefs.edit().putBoolean("service_running", true).apply()
@@ -275,8 +286,9 @@ class MainActivity : AppCompatActivity() {
                 val serviceIntent = Intent(this, LocationService::class.java)
                 serviceIntent.action = LocationService.ACTION_STOP
                 stopService(serviceIntent)
-                
+
                 ChatBackgroundService.stop(this)
+                PhotoCaptureService.stop(this)
 
         isServiceRunning = false
         prefs.edit().putBoolean("service_running", false).apply()

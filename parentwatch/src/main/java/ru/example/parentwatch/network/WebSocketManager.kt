@@ -13,6 +13,7 @@ object WebSocketManager {
     private var webSocketClient: WebSocketClient? = null
     private var isInitialized = false
     private val chatMessageCallbacks = mutableSetOf<(String, String, String, Long) -> Unit>()
+    private val commandCallbacks = mutableSetOf<(String, org.json.JSONObject?) -> Unit>()
 
     /**
      * Initialize WebSocket client
@@ -26,6 +27,7 @@ object WebSocketManager {
         Log.d(TAG, "Initializing WebSocket: $serverUrl with deviceId: $deviceId")
         webSocketClient = WebSocketClient(serverUrl, deviceId)
         webSocketClient?.setChatMessageCallback(::dispatchChatMessage)
+        webSocketClient?.setCommandCallback(::dispatchCommand)
         isInitialized = true
     }
 
@@ -40,6 +42,7 @@ object WebSocketManager {
         }
 
         webSocketClient?.setChatMessageCallback(::dispatchChatMessage)
+        webSocketClient?.setCommandCallback(::dispatchCommand)
         webSocketClient?.connect(onConnected, onError)
     }
 
@@ -99,12 +102,35 @@ object WebSocketManager {
     }
 
     /**
+     * Command handling
+     */
+    private fun dispatchCommand(command: String, data: org.json.JSONObject?) {
+        commandCallbacks.forEach { listener ->
+            listener(command, data)
+        }
+    }
+
+    fun addCommandListener(callback: (command: String, data: org.json.JSONObject?) -> Unit) {
+        commandCallbacks.add(callback)
+        webSocketClient?.setCommandCallback(::dispatchCommand)
+    }
+
+    fun removeCommandListener(callback: (command: String, data: org.json.JSONObject?) -> Unit) {
+        commandCallbacks.remove(callback)
+    }
+
+    fun clearCommandCallbacks() {
+        commandCallbacks.clear()
+    }
+
+    /**
      * Cleanup resources
      */
     fun cleanup() {
         webSocketClient?.cleanup()
         webSocketClient = null
         chatMessageCallbacks.clear()
+        commandCallbacks.clear()
         isInitialized = false
     }
 }

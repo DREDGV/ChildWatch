@@ -359,6 +359,39 @@ class WebSocketClient(
     }
 
     /**
+     * Send command to child device
+     */
+    fun sendCommand(
+        commandType: String,
+        data: JSONObject? = null,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        try {
+            if (!isConnected) {
+                onError("Not connected to server")
+                return
+            }
+
+            val commandData = JSONObject().apply {
+                put("type", commandType)
+                put("deviceId", childDeviceId)
+                put("timestamp", System.currentTimeMillis())
+                if (data != null) {
+                    put("data", data)
+                }
+            }
+
+            socket?.emit("command", commandData)
+            Log.d(TAG, "📤 Command sent: $commandType to device: $childDeviceId")
+            onSuccess()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending command", e)
+            onError("Failed to send command: ${e.message}")
+        }
+    }
+
+    /**
      * Set callback for chat messages
      */
     fun setChatMessageCallback(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
