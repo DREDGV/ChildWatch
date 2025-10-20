@@ -11,8 +11,8 @@ android {
         applicationId "ru.example.parentwatch"
         minSdk 26
         targetSdk 34
-        versionCode 19
-        versionName "5.6.0"
+        versionCode 20
+        versionName "5.6.1"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         setProperty("archivesBaseName", "ChildDevice-v$versionName")

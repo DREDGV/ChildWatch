@@ -86,19 +86,23 @@ class AudioActivity : AppCompatActivity() {
         val filterItems = listOf(
             ru.example.childwatch.audio.AudioFilterItem(
                 ru.example.childwatch.audio.AudioEnhancer.FilterMode.ORIGINAL,
-                "📡", "Оригинал", "Без обработки, чистый звук (по умолчанию)"
+                "📡", "Оригинал", "Без обработки, чистый звук"
             ),
             ru.example.childwatch.audio.AudioFilterItem(
                 ru.example.childwatch.audio.AudioEnhancer.FilterMode.VOICE,
-                "🎤", "Голос", "Оптимизация для речи: шумоподавление, компрессия, лёгкое усиление"
+                "🎤", "Голос", "Усиление речи, шумоподавление"
             ),
             ru.example.childwatch.audio.AudioFilterItem(
                 ru.example.childwatch.audio.AudioEnhancer.FilterMode.QUIET_SOUNDS,
-                "🔇", "Тихие звуки", "Максимальное усиление, минимум шумоподавления — для слабых сигналов"
+                "🔇", "Тихие звуки", "Максимальное усиление"
+            ),
+            ru.example.childwatch.audio.AudioFilterItem(
+                ru.example.childwatch.audio.AudioEnhancer.FilterMode.MUSIC,
+                "🎵", "Музыка", "Естественное звучание"
             ),
             ru.example.childwatch.audio.AudioFilterItem(
                 ru.example.childwatch.audio.AudioEnhancer.FilterMode.OUTDOOR,
-                "🌳", "Улица", "Агрессивное шумоподавление, защита от ветра и транспорта"
+                "🌳", "Улица", "Подавление ветра и шума"
             )
         )
 
@@ -125,6 +129,11 @@ class AudioActivity : AppCompatActivity() {
             }
         )
         binding.filterRecyclerView.apply {
+            layoutManager = androidx.recyclerview.widget.LinearLayoutManager(
+                this@AudioActivity,
+                androidx.recyclerview.widget.LinearLayoutManager.HORIZONTAL,
+                false
+            )
             adapter = filterAdapter
             setHasFixedSize(true)
         }
@@ -136,12 +145,16 @@ class AudioActivity : AppCompatActivity() {
         // Update AudioPlaybackService if it's running
         if (ru.example.childwatch.service.AudioPlaybackService.isPlaying) {
             try {
-                // Access the service through a static method or binding
-                // For now, the service will use the mode on next start
-                Log.d(TAG, "Filter mode will be applied on next playback start")
+                // Send broadcast to update filter mode in real-time
+                val intent = android.content.Intent("ru.example.childwatch.UPDATE_FILTER_MODE")
+                intent.putExtra("filter_mode", mode.name)
+                sendBroadcast(intent)
+                Log.d(TAG, "Filter mode broadcast sent: $mode")
             } catch (e: Exception) {
                 Log.e(TAG, "Error updating filter mode", e)
             }
+        } else {
+            Log.d(TAG, "Filter mode will be applied on next playback start")
         }
     }
 

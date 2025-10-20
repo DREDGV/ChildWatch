@@ -5,8 +5,10 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
@@ -112,6 +114,23 @@ class AudioPlaybackService : LifecycleService() {
     private lateinit var recordingRepository: RecordingRepository
     private var streamRecorder: StreamRecorder? = null
     private var localRecordingActive = false
+
+    private val filterModeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            if (intent?.action == "ru.example.childwatch.UPDATE_FILTER_MODE") {
+                val modeName = intent.getStringExtra("filter_mode")
+                if (modeName != null) {
+                    try {
+                        val mode = AudioEnhancer.FilterMode.valueOf(modeName)
+                        setFilterMode(mode)
+                        Log.d(TAG, "Filter mode updated via broadcast: $mode")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Invalid filter mode received: $modeName", e)
+                    }
+                }
+            }
+        }
+    }
     private val mainHandler: Handler = Handler(Looper.getMainLooper())
 
     private var deviceId: String? = null
@@ -179,6 +198,13 @@ class AudioPlaybackService : LifecycleService() {
         streamRecorder = StreamRecorder(this)
         createNotificationChannel()
 
+        // Load saved filter mode
+        loadFilterMode()
+
+        // Register broadcast receiver for filter mode updates
+        val filter = IntentFilter("ru.example.childwatch.UPDATE_FILTER_MODE")
+        registerReceiver(filterModeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
+
         // Initialize WakeLock
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = powerManager.newWakeLock(
@@ -192,6 +218,19 @@ class AudioPlaybackService : LifecycleService() {
             WifiManager.WIFI_MODE_FULL_HIGH_PERF,
             "ChildWatch::AudioWifiLock"
         )
+    }
+
+    private fun loadFilterMode() {
+        val prefs = getSharedPreferences("audio_prefs", Context.MODE_PRIVATE)
+        val savedMode = prefs.getString("filter_mode", AudioEnhancer.FilterMode.ORIGINAL.name)
+        val mode = try {
+            AudioEnhancer.FilterMode.valueOf(savedMode ?: AudioEnhancer.FilterMode.ORIGINAL.name)
+        } catch (e: Exception) {
+            Log.e(TAG, "Invalid filter mode: $savedMode, using ORIGINAL")
+            AudioEnhancer.FilterMode.ORIGINAL
+        }
+        setFilterMode(mode)
+        Log.d(TAG, "Loaded filter mode: $mode")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -723,6 +762,13 @@ class AudioPlaybackService : LifecycleService() {
         super.onDestroy()
         Log.d(TAG, "AudioPlaybackService destroyed")
         stopLocalRecording(save = false)
+
+        // Unregister broadcast receiver
+        try {
+            unregisterReceiver(filterModeReceiver)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error unregistering filter mode receiver", e)
+        }
 
         playbackJob?.cancel()
         audioTrack?.stop()
