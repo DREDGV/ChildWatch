@@ -434,7 +434,7 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Audio Quality Modes -->
+        <!-- Audio Filter Modes -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -452,121 +452,34 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
-                    android:text="Режимы качества звука"
+                    android:text="Аудио фильтры"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
                     android:textColor="?attr/colorOnSurface"
                     android:textStyle="bold" />
 
-                <!-- Quality Mode Selection -->
-                <com.google.android.material.chip.ChipGroup
-                    android:id="@+id/qualityModeChipGroup"
+                <!-- Filter Mode Selection (RecyclerView with cards) -->
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/filterRecyclerView"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    app:singleSelection="true"
-                    app:selectionRequired="true">
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/normalModeChip"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Обычный"
-                        android:checked="false" />
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/noiseReductionChip"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Шумоподавление"
-                        android:checked="true" />
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/voiceEnhancedChip"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Голосовой" />
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/balancedChip"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Сбалансированный" />
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/crystalClearChip"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Кристальная чистота" />
-
-                    <com.google.android.material.chip.Chip
-                        android:id="@+id/sleepModeChip"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Ночной режим" />
-
-                </com.google.android.material.chip.ChipGroup>
+                    android:layout_marginBottom="12dp"
+                    android:clipToPadding="false"
+                    android:paddingStart="4dp"
+                    android:paddingEnd="4dp"
+                    android:orientation="horizontal" />
 
                 <!-- Mode Description -->
                 <TextView
                     android:id="@+id/modeDescriptionText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:text="Убирает фоновый шум и шипение"
+                    android:layout_marginTop="8dp"
+                    android:text="Оригинальный звук без обработки"
                     android:textSize="12sp"
                     android:textColor="?android:attr/textColorSecondary"
-                    android:textStyle="italic" />
-
-                <!-- Advanced Controls (shown when custom mode is selected) -->
-                <LinearLayout
-                    android:id="@+id/advancedControlsLayout"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:visibility="gone">
-
-                    <com.google.android.material.materialswitch.MaterialSwitch
-                        android:id="@+id/noiseSuppressionSwitch"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginBottom="16dp"
-                        android:text="Шумоподавление" />
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginBottom="8dp">
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="Усиление"
-                            android:textSize="14sp" />
-
-                        <TextView
-                            android:id="@+id/gainBoostValueText"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="0 дБ"
-                            android:textSize="14sp"
-                            android:textStyle="bold"
-                            android:textColor="?attr/colorPrimary" />
-
-                    </LinearLayout>
-
-                    <com.google.android.material.slider.Slider
-                        android:id="@+id/gainBoostSlider"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:valueFrom="0"
-                        android:valueTo="12"
-                        android:value="0"
-                        android:stepSize="3" />
-
-                </LinearLayout>
+                    android:textStyle="italic"
+                    android:paddingStart="4dp"
+                    android:paddingEnd="4dp" />
 
             </LinearLayout>
 

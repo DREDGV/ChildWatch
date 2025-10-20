@@ -204,9 +204,58 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun setupQualityModeChips() {
-        // If there are chips defined in the layout, we can optionally wire them later.
-        // For now, we only ensure current mode is applied.
-        setFilterMode(currentFilterMode)
+        // Setup filter mode RecyclerView with cards
+        val filterItems = listOf(
+            ru.example.childwatch.audio.AudioFilterItem(
+                AudioEnhancer.FilterMode.ORIGINAL,
+                "📡", "Оригинал", "Без обработки, чистый звук"
+            ),
+            ru.example.childwatch.audio.AudioFilterItem(
+                AudioEnhancer.FilterMode.VOICE,
+                "🎤", "Голос", "Усиление речи, шумоподавление"
+            ),
+            ru.example.childwatch.audio.AudioFilterItem(
+                AudioEnhancer.FilterMode.QUIET_SOUNDS,
+                "🔇", "Тихие звуки", "Максимальное усиление"
+            ),
+            ru.example.childwatch.audio.AudioFilterItem(
+                AudioEnhancer.FilterMode.MUSIC,
+                "🎵", "Музыка", "Естественное звучание"
+            ),
+            ru.example.childwatch.audio.AudioFilterItem(
+                AudioEnhancer.FilterMode.OUTDOOR,
+                "🌳", "Улица", "Подавление ветра и шума"
+            )
+        )
+
+        val filterAdapter = ru.example.childwatch.audio.AudioFilterAdapter(
+            items = filterItems,
+            selectedMode = currentFilterMode,
+            onFilterSelected = { mode ->
+                setFilterMode(mode)
+                android.widget.Toast.makeText(this, "Фильтр: ${getFilterName(mode)}", android.widget.Toast.LENGTH_SHORT).show()
+            }
+        )
+
+        binding.filterRecyclerView.apply {
+            layoutManager = androidx.recyclerview.widget.LinearLayoutManager(
+                this@AudioStreamingActivity,
+                androidx.recyclerview.widget.LinearLayoutManager.HORIZONTAL,
+                false
+            )
+            adapter = filterAdapter
+            setHasFixedSize(true)
+        }
+    }
+
+    private fun getFilterName(mode: AudioEnhancer.FilterMode): String {
+        return when (mode) {
+            AudioEnhancer.FilterMode.ORIGINAL -> "Оригинал"
+            AudioEnhancer.FilterMode.VOICE -> "Голос"
+            AudioEnhancer.FilterMode.QUIET_SOUNDS -> "Тихие звуки"
+            AudioEnhancer.FilterMode.MUSIC -> "Музыка"
+            AudioEnhancer.FilterMode.OUTDOOR -> "Улица"
+        }
     }
 
     private fun setupVisualizationModeButton() {
