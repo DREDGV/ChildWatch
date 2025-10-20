@@ -2,6 +2,7 @@ package ru.example.childwatch.network
 
 import android.content.Context
 import android.util.Log
+import ru.example.childwatch.chat.ChatMessage
 
 /**
  * Singleton WebSocket Manager for ChildWatch
@@ -17,14 +18,17 @@ object WebSocketManager {
     /**
      * Initialize WebSocket client
      */
-    fun initialize(context: Context, serverUrl: String, childDeviceId: String) {
+    private var missedMessagesCallback: ((List<ChatMessage>) -> Unit)? = null
+
+    fun initialize(context: Context, serverUrl: String, childDeviceId: String, onMissedMessages: ((List<ChatMessage>) -> Unit)? = null) {
         if (isInitialized && webSocketClient != null) {
             Log.d(TAG, "WebSocket already initialized")
             return
         }
 
         Log.d(TAG, "Initializing WebSocket: $serverUrl with childDeviceId: $childDeviceId")
-        webSocketClient = WebSocketClient(serverUrl, childDeviceId)
+        missedMessagesCallback = onMissedMessages
+        webSocketClient = WebSocketClient(serverUrl, childDeviceId, onMissedMessages = missedMessagesCallback)
         chatMessageCallback?.let { callback ->
             webSocketClient?.setChatMessageCallback(callback)
         }

@@ -1,5 +1,6 @@
 package ru.example.childwatch
 
+import android.content.Context
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
@@ -7,7 +8,9 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ru.example.childwatch.databinding.ActivityChatBinding
 import ru.example.childwatch.chat.ChatAdapter
 import ru.example.childwatch.chat.ChatMessage
@@ -29,6 +32,34 @@ import java.util.*
  * - Message status indicators
  */
 class ChatActivity : AppCompatActivity() {
+    // Пометить сообщения как прочитанные на сервере
+    private fun markMessagesAsReadOnServer(messageIds: List<String>) {
+        if (messageIds.isEmpty()) return
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                val client = okhttp3.OkHttpClient()
+                for (id in messageIds) {
+                    try {
+                        val url = "${getServerUrl()}/api/chat/messages/$id/read"
+                        val request = okhttp3.Request.Builder()
+                            .url(url)
+                            .put(okhttp3.RequestBody.create(null, ByteArray(0)))
+                            .build()
+
+                        client.newCall(request).execute().use { response ->
+                            if (response.isSuccessful) {
+                                Log.d(TAG, "Message $id marked as read on server")
+                            } else {
+                                Log.e(TAG, "Failed to mark message $id as read: ${response.message}")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error marking message $id as read", e)
+                    }
+                }
+            }
+        }
+    }
 
     companion object {
         private const val TAG = "ChatActivity"
@@ -65,8 +96,50 @@ class ChatActivity : AppCompatActivity() {
         // Sync chat history from server
         syncChatHistory()
 
-        // Initialize WebSocket if not connected
+        // Initialize WebSocket with missed messages callback
+        WebSocketManager.initialize(
+            this,
+            getServerUrl(),
+            getChildDeviceId(),
+            onMissedMessages = { missed ->
+                runOnUiThread {
+                    val newIds = mutableListOf<String>()
+                    for (msg in missed) {
+                        if (messages.none { it.id == msg.id }) {
+                            messages.add(msg.copy(isRead = true))
+                            chatAdapter.notifyItemInserted(messages.size - 1)
+                            chatManager.saveMessage(msg.copy(isRead = true))
+                            newIds.add(msg.id)
+                            // Показываем уведомление для каждого нового сообщения
+                            ru.example.childwatch.utils.NotificationManager.showChatNotification(
+                                this,
+                                msg.getSenderName(),
+                                msg.text,
+                                msg.timestamp
+                            )
+                        }
+                    }
+                    if (newIds.isNotEmpty()) {
+                        markMessagesAsReadOnServer(newIds)
+                        binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
+                        Toast.makeText(this, "📥 Догружено сообщений: ${newIds.size}", Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+        )
         initializeWebSocket()
+    }
+
+    // Получить URL сервера (может быть из настроек)
+    private fun getServerUrl(): String {
+        val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        return prefs.getString("server_url", "http://10.0.2.2:3000") ?: "http://10.0.2.2:3000"
+    }
+
+    // Получить deviceId (может быть из настроек/SharedPrefs)
+    private fun getChildDeviceId(): String {
+        val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        return prefs.getString("child_device_id", "") ?: ""
     }
     
     private fun setupUI() {

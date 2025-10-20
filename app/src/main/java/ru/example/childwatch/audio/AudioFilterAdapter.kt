@@ -6,12 +6,13 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.card.MaterialCardView
+import com.google.android.material.color.MaterialColors
 import ru.example.childwatch.R
 
 class AudioFilterAdapter(
     private val items: List<AudioFilterItem>,
-    private var selectedMode: AudioQualityMode,
-    private val onFilterSelected: (AudioQualityMode) -> Unit
+    private var selectedMode: AudioEnhancer.FilterMode,
+    private val onFilterSelected: (AudioEnhancer.FilterMode) -> Unit
 ) : RecyclerView.Adapter<AudioFilterAdapter.FilterViewHolder>() {
 
     inner class FilterViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -35,10 +36,9 @@ class AudioFilterAdapter(
         holder.title.text = item.title
         holder.description.text = item.description
         // Выделение выбранного фильтра
-        holder.card.strokeColor = if (item.mode == selectedMode)
-            holder.card.context.getColor(R.color.md_theme_primary)
-        else
-            holder.card.context.getColor(R.color.md_theme_outline)
+        val primary = MaterialColors.getColor(holder.card, com.google.android.material.R.attr.colorPrimary)
+        val outline = MaterialColors.getColor(holder.card, com.google.android.material.R.attr.colorOutline)
+        holder.card.strokeColor = if (item.mode == selectedMode) primary else outline
         holder.card.setOnClickListener {
             if (selectedMode != item.mode) {
                 selectedMode = item.mode
@@ -50,7 +50,7 @@ class AudioFilterAdapter(
 
     override fun getItemCount(): Int = items.size
 
-    fun setSelectedMode(mode: AudioQualityMode) {
+    fun setSelectedMode(mode: AudioEnhancer.FilterMode) {
         selectedMode = mode
         notifyDataSetChanged()
     }

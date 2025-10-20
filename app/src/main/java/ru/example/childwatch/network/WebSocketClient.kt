@@ -5,7 +5,10 @@ import io.socket.client.IO
 import io.socket.client.Socket
 import io.socket.emitter.Emitter
 import kotlinx.coroutines.*
+import okhttp3.OkHttpClient
+import okhttp3.Request
 import org.json.JSONObject
+import ru.example.childwatch.chat.ChatMessage
 
 /**
  * WebSocketClient for ChildWatch (Parent Device)
@@ -13,7 +16,8 @@ import org.json.JSONObject
  */
 class WebSocketClient(
     private val serverUrl: String,
-    private val childDeviceId: String
+    private val childDeviceId: String,
+    private val onMissedMessages: ((List<ChatMessage>) -> Unit)? = null
 ) {
     private var socket: Socket? = null
     private var isConnected = false
@@ -84,10 +88,60 @@ class WebSocketClient(
         
         if (success && deviceId == childDeviceId) {
             Log.d(TAG, "✅ Parent registered for device: $childDeviceId")
+                // После регистрации — авто-догрузка недоставленных сообщений
+                scope.launch {
+                    try {
+                        val missed = fetchMissedMessages()
+                        if (missed.isNotEmpty()) {
+                            Log.d(TAG, "📥 Получено недоставленных сообщений: ${missed.size}")
+                            onMissedMessages?.invoke(missed)
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Ошибка авто-догрузки сообщений", e)
+                    }
+                }
         } else {
             Log.e(TAG, "❌ Parent registration failed for device: $childDeviceId")
         }
     }
+
+        // Запрос недоставленных сообщений через REST
+        private suspend fun fetchMissedMessages(): List<ChatMessage> = withContext(Dispatchers.IO) {
+            val url = "$serverUrl/api/chat/messages/$childDeviceId?limit=100"
+            try {
+                val client = OkHttpClient()
+                val request = Request.Builder().url(url).build()
+
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        val responseBody = response.body?.string() ?: return@withContext emptyList()
+                        val json = org.json.JSONObject(responseBody)
+                        if (json.optBoolean("success")) {
+                            val arr = json.optJSONArray("messages") ?: return@withContext emptyList()
+                            val list = mutableListOf<ChatMessage>()
+                            for (i in 0 until arr.length()) {
+                                val obj = arr.getJSONObject(i)
+                                if (!obj.optBoolean("isRead", false)) {
+                                    list.add(
+                                        ChatMessage(
+                                            id = obj.optString("id"),
+                                            text = obj.optString("message"),
+                                            sender = obj.optString("sender"),
+                                            timestamp = obj.optLong("timestamp"),
+                                            isRead = obj.optBoolean("isRead", false)
+                                        )
+                                    )
+                                }
+                            }
+                            return@withContext list
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Ошибка запроса missed messages", e)
+            }
+            emptyList()
+        }
 
     private val onAudioChunk = Emitter.Listener { args ->
         try {
