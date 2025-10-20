@@ -129,48 +129,41 @@ class AudioEnhancer {
 
     private fun applyNoiseGate(data: ShortArray, length: Int, threshold: Float, kneeWidth: Float) {
         if (length == 0) return
-
+        // Адаптивный порог: вычисляем среднюю громкость
+        val avg = if (length > 0) data.map { abs(it.toFloat()) }.average().toFloat() else threshold
+        val adaptiveThreshold = (threshold + avg * 0.25f).coerceAtMost(threshold * 2)
         for (i in 0 until length) {
             val absValue = abs(data[i].toFloat())
-
             when {
-                // Gate quiet noise
-                absValue < threshold -> {
-                    data[i] = (data[i] * 0.1f).toInt().toShort() // Reduce by 90%
+                absValue < adaptiveThreshold -> {
+                    data[i] = (data[i] * 0.07f).toInt().toShort() // Reduce by 93%
                 }
-                // Smooth transition zone (soft knee)
-                absValue < threshold + kneeWidth -> {
-                    val position = (absValue - threshold) / kneeWidth
-                    val reduction = 0.1f + (position * 0.9f) // Fade from 10% to 100%
+                absValue < adaptiveThreshold + kneeWidth -> {
+                    val position = (absValue - adaptiveThreshold) / kneeWidth
+                    val reduction = 0.07f + (position * 0.93f)
                     data[i] = (data[i] * reduction).toInt().toShort()
                 }
-                // Above threshold - pass through unchanged
             }
         }
     }
 
     private fun applyGain(data: ShortArray, length: Int, multiplier: Float) {
-        // Gentle gain with smooth soft clipping to prevent distortion
+        // Мягкое усиление с адаптивным лимитированием
+        val softLimit = Short.MAX_VALUE * 0.80f
         for (i in 0 until length) {
             val boosted = data[i] * multiplier
-
-            // Soft limiting with smoother transition to prevent harsh clipping
             val limited = when {
-                boosted > Short.MAX_VALUE * 0.85f -> {
-                    // Soft limit the peaks progressively
-                    val excess = boosted - Short.MAX_VALUE * 0.85f
-                    Short.MAX_VALUE * 0.85f + (excess * 0.3f) // Gentle compression
+                boosted > softLimit -> {
+                    val excess = boosted - softLimit
+                    softLimit + (excess * 0.18f) // Ещё мягче
                 }
-                boosted < Short.MIN_VALUE * 0.85f -> {
-                    val excess = boosted - Short.MIN_VALUE * 0.85f
-                    Short.MIN_VALUE * 0.85f + (excess * 0.3f)
+                boosted < -softLimit -> {
+                    val excess = boosted + softLimit
+                    -softLimit + (excess * 0.18f)
                 }
                 else -> boosted
             }
-
-            data[i] = limited.toInt()
-                .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
-                .toShort()
+            data[i] = limited.toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
         }
     }
 
@@ -181,17 +174,13 @@ class AudioEnhancer {
      */
     private fun applyCompressor(data: ShortArray, length: Int, threshold: Float, ratio: Float) {
         val thresholdValue = Short.MAX_VALUE * threshold
-
         for (i in 0 until length) {
             val value = data[i].toFloat()
             val absValue = abs(value)
-
             if (absValue > thresholdValue) {
-                // Calculate how much we're over threshold
                 val excess = absValue - thresholdValue
-                // Reduce excess by ratio
-                val compressed = thresholdValue + (excess / ratio)
-                // Apply sign and convert back
+                // Более плавная компрессия: чуть выше threshold, ratio ниже
+                val compressed = thresholdValue + (excess / (ratio * 1.2f))
                 data[i] = (compressed * (if (value >= 0) 1 else -1)).toInt()
                     .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
                     .toShort()

@@ -31,7 +31,11 @@
       "Bash(gradlew.bat :app:assembleDebug)",
       "Bash(./gradlew.bat :app:assembleDebug)",
       "Bash(./gradlew.bat :parentwatch:assembleDebug)",
-      "Bash(./gradlew.bat :app:assembleDebug :parentwatch:assembleDebug)"
+      "Bash(./gradlew.bat :app:assembleDebug :parentwatch:assembleDebug)",
+      "Bash(dir appbuildoutputsapkdebug*.apk /b)",
+      "Bash(dir parentwatchbuildoutputsapkdebug*.apk /b)",
+      "Bash(echo.)",
+      "Bash(dir \"app/build/outputs/apk/debug\" /b)"
     ],
     "deny": [],
     "ask": []

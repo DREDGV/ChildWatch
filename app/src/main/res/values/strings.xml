@@ -115,7 +115,7 @@
     <string name="app_info_title">Информация о приложении</string>
     <string name="app_description">ChildWatch - приложение для обеспечения безопасности детей через отслеживание геолокации, запись аудио и создание фотографий. Все данные передаются только родителям/опекунам.</string>
     <string name="device_id">ID устройства: %1$s</string>
-    <string name="app_version">ChildWatch v2.0.0</string>
+    <string name="app_version">ChildWatch v4.9.0</string>
     
     <string name="server_version">Версия сервера: %1$s</string>
     <string name="changelog_title">История изменений</string>

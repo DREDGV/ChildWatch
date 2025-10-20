@@ -9,9 +9,9 @@ enum class AudioQualityMode(
     val description: String,
     val config: AudioEnhancer.Config
 ) {
-    NORMAL(
-        displayName = "Обычный",
-        description = "Без обработки, оригинальное качество",
+    ORIGINAL(
+        displayName = "📡 Оригинал",
+        description = "Без обработки, чистый звук (по умолчанию)",
         config = AudioEnhancer.Config(
             noiseSuppressionEnabled = false,
             gainBoostDb = 0,
@@ -19,53 +19,33 @@ enum class AudioQualityMode(
         )
     ),
 
-    NOISE_REDUCTION(
-        displayName = "Шумоподавление",
-        description = "Убирает фоновый шум и шипение",
+    VOICE(
+        displayName = "🎤 Голос",
+        description = "Оптимизация для речи: шумоподавление, компрессия, лёгкое усиление",
         config = AudioEnhancer.Config(
             noiseSuppressionEnabled = true,
-            gainBoostDb = 0,
-            compressionEnabled = false
+            gainBoostDb = 2,
+            compressionEnabled = true
         )
     ),
 
-    VOICE_ENHANCED(
-        displayName = "Голосовой режим",
-        description = "Оптимизирован для речи с компрессией",
+    QUIET_SOUNDS(
+        displayName = "🔇 Тихие звуки",
+        description = "Максимальное усиление, минимум шумоподавления — для слабых сигналов",
         config = AudioEnhancer.Config(
-            noiseSuppressionEnabled = true,
-            gainBoostDb = 3, // Легкое усиление
-            compressionEnabled = true // Компрессия для ровного звука
+            noiseSuppressionEnabled = false,
+            gainBoostDb = 6,
+            compressionEnabled = true
         )
     ),
 
-    BALANCED(
-        displayName = "Сбалансированный",
-        description = "Оптимальный баланс качества и громкости",
+    OUTDOOR(
+        displayName = "🌳 Улица",
+        description = "Агрессивное шумоподавление, защита от ветра и транспорта",
         config = AudioEnhancer.Config(
             noiseSuppressionEnabled = true,
-            gainBoostDb = 2, // Минимальное усиление
-            compressionEnabled = true // Компрессия предотвращает искажения
-        )
-    ),
-
-    CRYSTAL_CLEAR(
-        displayName = "Кристальная чистота",
-        description = "Максимальное качество с защитой от искажений",
-        config = AudioEnhancer.Config(
-            noiseSuppressionEnabled = true,
-            gainBoostDb = 4, // Умеренное усиление (снижено с 6)
-            compressionEnabled = true // Обязательная компрессия
-        )
-    ),
-
-    SLEEP_MODE(
-        displayName = "Ночной режим",
-        description = "Усиление тихих звуков для сна ребенка",
-        config = AudioEnhancer.Config(
-            noiseSuppressionEnabled = true,
-            gainBoostDb = 6, // Максимум 6 dB (было 12 - слишком много!)
-            compressionEnabled = true // Обязательная компрессия против клиппинга
+            gainBoostDb = 1,
+            compressionEnabled = true
         )
     )
 }
@@ -76,7 +56,7 @@ enum class AudioQualityMode(
  */
 class AudioQualityManager {
     
-    private var currentMode: AudioQualityMode = AudioQualityMode.NOISE_REDUCTION
+    private var currentMode: AudioQualityMode = AudioQualityMode.ORIGINAL
     private var customConfig: AudioEnhancer.Config? = null
     
     fun getCurrentMode(): AudioQualityMode = currentMode
@@ -88,7 +68,7 @@ class AudioQualityManager {
     
     fun setCustomConfig(config: AudioEnhancer.Config) {
         customConfig = config
-        currentMode = AudioQualityMode.NORMAL // Reset to normal when using custom
+        currentMode = AudioQualityMode.ORIGINAL // Reset to original when using custom
     }
     
     fun getCurrentConfig(): AudioEnhancer.Config {
@@ -98,7 +78,7 @@ class AudioQualityManager {
     fun isCustomMode(): Boolean = customConfig != null
     
     fun resetToDefault() {
-        currentMode = AudioQualityMode.NOISE_REDUCTION
+        currentMode = AudioQualityMode.ORIGINAL
         customConfig = null
     }
 }

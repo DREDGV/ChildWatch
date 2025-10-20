@@ -45,7 +45,7 @@
                     android:id="@+id/appVersionText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="v5.0.0"
+                    android:text=""
                     android:textSize="14sp"
                     android:textColor="@android:color/darker_gray" />
             </LinearLayout>

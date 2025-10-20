@@ -28,7 +28,7 @@
             android:id="@+id/appVersionText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="v5.0.0-debug"
+            android:text=""
             android:textSize="14sp"
             android:gravity="center"
             android:layout_marginBottom="24dp"

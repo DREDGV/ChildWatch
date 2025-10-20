@@ -115,99 +115,14 @@
                 android:textColor="?attr/colorOnSurface"
                 android:layout_marginBottom="12dp" />
 
-            <RadioGroup
-                android:id="@+id/filterModeGroup"
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/filterRecyclerView"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical">
-
-                <com.google.android.material.radiobutton.MaterialRadioButton
-                    android:id="@+id/radioOriginal"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="📡 Оригинал"
-                    android:checked="true"
-                    android:padding="8dp" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Без фильтров и обработки (по умолчанию)"
-                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:paddingStart="40dp"
-                    android:paddingEnd="8dp"
-                    android:paddingBottom="8dp" />
-
-                <com.google.android.material.radiobutton.MaterialRadioButton
-                    android:id="@+id/radioVoice"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="🎤 Голос"
-                    android:padding="8dp" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Оптимизация для разговоров, подавление фона"
-                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:paddingStart="40dp"
-                    android:paddingEnd="8dp"
-                    android:paddingBottom="8dp" />
-
-                <com.google.android.material.radiobutton.MaterialRadioButton
-                    android:id="@+id/radioQuiet"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="🔇 Тихие звуки"
-                    android:padding="8dp" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Максимальное усиление, минимум шумоподавления"
-                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:paddingStart="40dp"
-                    android:paddingEnd="8dp"
-                    android:paddingBottom="8dp" />
-
-                <com.google.android.material.radiobutton.MaterialRadioButton
-                    android:id="@+id/radioMusic"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="🎵 Музыка"
-                    android:padding="8dp" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Естественное звучание без агрессивной обработки"
-                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:paddingStart="40dp"
-                    android:paddingEnd="8dp"
-                    android:paddingBottom="8dp" />
-
-                <com.google.android.material.radiobutton.MaterialRadioButton
-                    android:id="@+id/radioOutdoor"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="🌳 Улица"
-                    android:padding="8dp" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Подавление ветра и шума транспорта"
-                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:paddingStart="40dp"
-                    android:paddingEnd="8dp"
-                    android:paddingBottom="8dp" />
-
-            </RadioGroup>
+                android:orientation="horizontal"
+                android:paddingBottom="8dp"
+                android:overScrollMode="never"
+                android:scrollbars="horizontal" />
 
         </LinearLayout>
 

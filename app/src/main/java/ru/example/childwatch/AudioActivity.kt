@@ -62,81 +62,76 @@ class AudioActivity : AppCompatActivity() {
         updateUI()
     }
     
+    private lateinit var filterAdapter: ru.example.childwatch.audio.AudioFilterAdapter
+
     private fun setupUI() {
         // Set up action bar
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.title = "Прослушивание окружения"
-        
+
         // Monitor button - прослушка телефона
         binding.monitorButton.setOnClickListener {
-            if (isMonitoring) {
-                stopMonitoring()
-            } else {
-                startMonitoring()
-            }
+            if (isMonitoring) stopMonitoring() else startMonitoring()
         }
-        
+
         // Record button - запись прослушки
         binding.recordButton.setOnClickListener {
-            if (isRecording) {
-                stopRecording()
-            } else {
-                startRecording()
-            }
+            if (isRecording) stopRecording() else startRecording()
         }
-        
+
         // Test button
-        binding.testButton.setOnClickListener {
-            testAudioRecording()
-        }
+        binding.testButton.setOnClickListener { testAudioRecording() }
 
-        // Filter mode radio buttons
-        binding.filterModeGroup.setOnCheckedChangeListener { _, checkedId ->
-            val mode = when (checkedId) {
-                binding.radioOriginal.id -> ru.example.childwatch.audio.AudioEnhancer.FilterMode.ORIGINAL
-                binding.radioVoice.id -> ru.example.childwatch.audio.AudioEnhancer.FilterMode.VOICE
-                binding.radioQuiet.id -> ru.example.childwatch.audio.AudioEnhancer.FilterMode.QUIET_SOUNDS
-                binding.radioMusic.id -> ru.example.childwatch.audio.AudioEnhancer.FilterMode.MUSIC
-                binding.radioOutdoor.id -> ru.example.childwatch.audio.AudioEnhancer.FilterMode.OUTDOOR
-                else -> ru.example.childwatch.audio.AudioEnhancer.FilterMode.ORIGINAL
-            }
+        // --- Новый блок: фильтры через RecyclerView ---
+        val filterItems = listOf(
+            ru.example.childwatch.audio.AudioFilterItem(
+                ru.example.childwatch.audio.AudioQualityMode.ORIGINAL,
+                "📡", "Оригинал", "Без обработки, чистый звук (по умолчанию)"
+            ),
+            ru.example.childwatch.audio.AudioFilterItem(
+                ru.example.childwatch.audio.AudioQualityMode.VOICE,
+                "🎤", "Голос", "Оптимизация для речи: шумоподавление, компрессия, лёгкое усиление"
+            ),
+            ru.example.childwatch.audio.AudioFilterItem(
+                ru.example.childwatch.audio.AudioQualityMode.QUIET_SOUNDS,
+                "🔇", "Тихие звуки", "Максимальное усиление, минимум шумоподавления — для слабых сигналов"
+            ),
+            ru.example.childwatch.audio.AudioFilterItem(
+                ru.example.childwatch.audio.AudioQualityMode.OUTDOOR,
+                "🌳", "Улица", "Агрессивное шумоподавление, защита от ветра и транспорта"
+            )
+        )
 
-            // Save preference
-            getSharedPreferences("audio_prefs", MODE_PRIVATE).edit()
-                .putString("filter_mode", mode.name)
-                .apply()
-
-            // Update service if running
-            updateFilterMode(mode)
-
-            Log.d(TAG, "Filter mode changed to: $mode")
-            Toast.makeText(this, "Режим фильтра: ${getModeName(mode)}", Toast.LENGTH_SHORT).show()
-        }
-
-        // Load saved filter mode
-        loadFilterMode()
-    }
-
-    private fun loadFilterMode() {
         val savedMode = getSharedPreferences("audio_prefs", MODE_PRIVATE)
-            .getString("filter_mode", ru.example.childwatch.audio.AudioEnhancer.FilterMode.ORIGINAL.name)
-            ?: ru.example.childwatch.audio.AudioEnhancer.FilterMode.ORIGINAL.name
-
-        val mode = try {
-            ru.example.childwatch.audio.AudioEnhancer.FilterMode.valueOf(savedMode)
+            .getString("filter_mode", ru.example.childwatch.audio.AudioQualityMode.ORIGINAL.name)
+        val initialMode = try {
+            ru.example.childwatch.audio.AudioQualityMode.valueOf(savedMode ?: ru.example.childwatch.audio.AudioQualityMode.ORIGINAL.name)
         } catch (e: Exception) {
-            ru.example.childwatch.audio.AudioEnhancer.FilterMode.ORIGINAL
+            ru.example.childwatch.audio.AudioQualityMode.ORIGINAL
         }
 
-        // Set radio button
-        when (mode) {
-            ru.example.childwatch.audio.AudioEnhancer.FilterMode.ORIGINAL -> binding.radioOriginal.isChecked = true
-            ru.example.childwatch.audio.AudioEnhancer.FilterMode.VOICE -> binding.radioVoice.isChecked = true
-            ru.example.childwatch.audio.AudioEnhancer.FilterMode.QUIET_SOUNDS -> binding.radioQuiet.isChecked = true
-            ru.example.childwatch.audio.AudioEnhancer.FilterMode.MUSIC -> binding.radioMusic.isChecked = true
-            ru.example.childwatch.audio.AudioEnhancer.FilterMode.OUTDOOR -> binding.radioOutdoor.isChecked = true
+        filterAdapter = ru.example.childwatch.audio.AudioFilterAdapter(
+            items = filterItems,
+            selectedMode = initialMode,
+            onFilterSelected = { mode ->
+                // Сохраняем выбранный режим
+                getSharedPreferences("audio_prefs", MODE_PRIVATE).edit()
+                    .putString("filter_mode", mode.name)
+                    .apply()
+                // Применяем режим к аудио
+                ru.example.childwatch.audio.AudioQualityManager().setMode(mode)
+                updateFilterMode(mode)
+                Log.d(TAG, "Filter mode changed to: $mode")
+                Toast.makeText(this, "Режим фильтра: ${mode.displayName}", Toast.LENGTH_SHORT).show()
+            }
+        )
+        binding.filterRecyclerView.apply {
+            adapter = filterAdapter
+            setHasFixedSize(true)
         }
     }
+
+    // loadFilterMode больше не нужен (логика выбора через адаптер)
 
     private fun updateFilterMode(mode: ru.example.childwatch.audio.AudioEnhancer.FilterMode) {
         // Update AudioPlaybackService if it's running
