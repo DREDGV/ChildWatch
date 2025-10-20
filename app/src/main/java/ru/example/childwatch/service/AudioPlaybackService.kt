@@ -161,19 +161,9 @@ class AudioPlaybackService : LifecycleService() {
         waveformCallback = callback
     }
     
-    fun updateAudioEnhancerConfig(config: AudioEnhancer.Config) {
-        audioEnhancer.updateConfig(config)
-        Log.d(TAG, "Audio enhancer config updated: noiseSuppression=${config.noiseSuppressionEnabled}, gain=${config.gainBoostDb}dB")
-    }
-    
     fun setVolume(volume: Float) {
         audioTrack?.setVolume(volume)
         Log.d(TAG, "Volume set to: ${(volume * 100).toInt()}%")
-    }
-
-    fun updateAudioEnhancer(noiseSuppression: Boolean, gainBoostDb: Int) {
-        val normalizedGain = gainBoostDb.coerceIn(0, 12)
-        audioEnhancer.updateConfig(AudioEnhancer.Config(noiseSuppressionEnabled = noiseSuppression, gainBoostDb = normalizedGain))
     }
 
     fun setFilterMode(mode: AudioEnhancer.FilterMode) {

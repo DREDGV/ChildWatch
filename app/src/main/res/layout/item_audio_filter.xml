@@ -9,7 +9,7 @@
     app:cardCornerRadius="16dp"
     app:cardElevation="6dp"
     app:strokeWidth="2dp"
-    app:strokeColor="@color/md_theme_primary"
+    app:strokeColor="?attr/colorPrimary"
     android:clickable="true"
     android:focusable="true">
 

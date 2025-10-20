@@ -1,10 +1,10 @@
-const sqlite3 = require('sqlite3').verbose();
-const path = require('path');
-const fs = require('fs');
+const sqlite3 = require("sqlite3").verbose();
+const path = require("path");
+const fs = require("fs");
 
 /**
  * Database Manager for ChildWatch Server
- * 
+ *
  * Manages SQLite database operations for:
  * - Device registration and authentication
  * - Location history
@@ -13,42 +13,53 @@ const fs = require('fs');
  * - Activity logs
  */
 class DatabaseManager {
-    constructor(dbPath = './childwatch.db') {
-        this.dbPath = dbPath;
-        this.db = null;
-        this.isInitialized = false;
-    }
+  /**
+   * Mark single chat message as read
+   */
+  async markMessageAsRead(messageId) {
+    const sql = `
+            UPDATE chat_messages
+            SET is_read = 1
+            WHERE id = ?
+        `;
+    return this.run(sql, [messageId]);
+  }
+  constructor(dbPath = "./childwatch.db") {
+    this.dbPath = dbPath;
+    this.db = null;
+    this.isInitialized = false;
+  }
 
-    /**
-     * Initialize database connection and create tables
-     */
-    async initialize() {
-        return new Promise((resolve, reject) => {
-            this.db = new sqlite3.Database(this.dbPath, (err) => {
-                if (err) {
-                    console.error('Error opening database:', err);
-                    reject(err);
-                    return;
-                }
-                
-                console.log('Connected to SQLite database');
-                this.createTables()
-                    .then(() => {
-                        this.isInitialized = true;
-                        resolve();
-                    })
-                    .catch(reject);
-            });
-        });
-    }
+  /**
+   * Initialize database connection and create tables
+   */
+  async initialize() {
+    return new Promise((resolve, reject) => {
+      this.db = new sqlite3.Database(this.dbPath, (err) => {
+        if (err) {
+          console.error("Error opening database:", err);
+          reject(err);
+          return;
+        }
 
-    /**
-     * Create all necessary tables
-     */
-    async createTables() {
-        const tables = [
-            // Devices table
-            `CREATE TABLE IF NOT EXISTS devices (
+        console.log("Connected to SQLite database");
+        this.createTables()
+          .then(() => {
+            this.isInitialized = true;
+            resolve();
+          })
+          .catch(reject);
+      });
+    });
+  }
+
+  /**
+   * Create all necessary tables
+   */
+  async createTables() {
+    const tables = [
+      // Devices table
+      `CREATE TABLE IF NOT EXISTS devices (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_id TEXT UNIQUE NOT NULL,
                 device_name TEXT NOT NULL,
@@ -63,8 +74,8 @@ class DatabaseManager {
                 permissions TEXT DEFAULT 'user'
             )`,
 
-            // Location history
-            `CREATE TABLE IF NOT EXISTS locations (
+      // Location history
+      `CREATE TABLE IF NOT EXISTS locations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_id TEXT NOT NULL,
                 latitude REAL NOT NULL,
@@ -75,8 +86,8 @@ class DatabaseManager {
                 FOREIGN KEY (device_id) REFERENCES devices (device_id)
             )`,
 
-            // Audio files metadata
-            `CREATE TABLE IF NOT EXISTS audio_files (
+      // Audio files metadata
+      `CREATE TABLE IF NOT EXISTS audio_files (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_id TEXT NOT NULL,
                 filename TEXT NOT NULL,
@@ -89,8 +100,8 @@ class DatabaseManager {
                 FOREIGN KEY (device_id) REFERENCES devices (device_id)
             )`,
 
-            // Photo files metadata
-            `CREATE TABLE IF NOT EXISTS photo_files (
+      // Photo files metadata
+      `CREATE TABLE IF NOT EXISTS photo_files (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_id TEXT NOT NULL,
                 filename TEXT NOT NULL,
@@ -104,8 +115,8 @@ class DatabaseManager {
                 FOREIGN KEY (device_id) REFERENCES devices (device_id)
             )`,
 
-            // Chat messages
-            `CREATE TABLE IF NOT EXISTS chat_messages (
+      // Chat messages
+      `CREATE TABLE IF NOT EXISTS chat_messages (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_id TEXT NOT NULL,
                 sender TEXT NOT NULL CHECK (sender IN ('parent', 'child')),
@@ -116,8 +127,8 @@ class DatabaseManager {
                 FOREIGN KEY (device_id) REFERENCES devices (device_id)
             )`,
 
-            // Device status snapshots (battery, device info, etc.)
-            `CREATE TABLE IF NOT EXISTS device_status (
+      // Device status snapshots (battery, device info, etc.)
+      `CREATE TABLE IF NOT EXISTS device_status (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_id TEXT NOT NULL,
                 battery_level INTEGER,
@@ -136,8 +147,8 @@ class DatabaseManager {
                 FOREIGN KEY (device_id) REFERENCES devices (device_id)
             )`,
 
-            // Activity logs
-            `CREATE TABLE IF NOT EXISTS activity_logs (
+      // Activity logs
+      `CREATE TABLE IF NOT EXISTS activity_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_id TEXT NOT NULL,
                 activity_type TEXT NOT NULL,
@@ -147,8 +158,8 @@ class DatabaseManager {
                 FOREIGN KEY (device_id) REFERENCES devices (device_id)
             )`,
 
-            // Geofences (safe zones)
-            `CREATE TABLE IF NOT EXISTS critical_alerts (
+      // Geofences (safe zones)
+      `CREATE TABLE IF NOT EXISTS critical_alerts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_id TEXT NOT NULL,
                 event_type TEXT NOT NULL,
@@ -161,7 +172,7 @@ class DatabaseManager {
                 acknowledged_at INTEGER,
                 FOREIGN KEY (device_id) REFERENCES devices (device_id)
             )`,
-            `CREATE TABLE IF NOT EXISTS geofences (
+      `CREATE TABLE IF NOT EXISTS geofences (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_id TEXT NOT NULL,
                 name TEXT NOT NULL,
@@ -171,160 +182,191 @@ class DatabaseManager {
                 is_active INTEGER DEFAULT 1,
                 created_at INTEGER DEFAULT (strftime('%s', 'now')),
                 FOREIGN KEY (device_id) REFERENCES devices (device_id)
-            )`
-        ];
+            )`,
+    ];
 
-        for (const sql of tables) {
-            await this.run(sql);
-        }
-
-        // Create indexes for better performance
-        const indexes = [
-            'CREATE INDEX IF NOT EXISTS idx_locations_device_timestamp ON locations (device_id, timestamp)',
-            'CREATE INDEX IF NOT EXISTS idx_audio_device_timestamp ON audio_files (device_id, timestamp)',
-            'CREATE INDEX IF NOT EXISTS idx_photo_device_timestamp ON photo_files (device_id, timestamp)',
-            'CREATE INDEX IF NOT EXISTS idx_chat_device_timestamp ON chat_messages (device_id, timestamp)',
-            'CREATE INDEX IF NOT EXISTS idx_activity_device_timestamp ON activity_logs (device_id, timestamp)',
-            'CREATE INDEX IF NOT EXISTS idx_alerts_device_created ON critical_alerts (device_id, created_at)',
-            'CREATE INDEX IF NOT EXISTS idx_devices_auth_token ON devices (auth_token)'
-        ];
-
-        for (const sql of indexes) {
-            await this.run(sql);
-        }
-
-        // Run migrations
-        await this.runMigrations();
-
-        console.log('✅ Database tables created successfully');
+    for (const sql of tables) {
+      await this.run(sql);
     }
 
-    /**
-     * Run database migrations
-     */
-    async runMigrations() {
-        // Check if current_app_name column exists
-        const tableInfo = await this.all(`PRAGMA table_info(device_status)`);
-        const hasCurrentAppName = tableInfo.some(col => col.name === 'current_app_name');
+    // Create indexes for better performance
+    const indexes = [
+      "CREATE INDEX IF NOT EXISTS idx_locations_device_timestamp ON locations (device_id, timestamp)",
+      "CREATE INDEX IF NOT EXISTS idx_audio_device_timestamp ON audio_files (device_id, timestamp)",
+      "CREATE INDEX IF NOT EXISTS idx_photo_device_timestamp ON photo_files (device_id, timestamp)",
+      "CREATE INDEX IF NOT EXISTS idx_chat_device_timestamp ON chat_messages (device_id, timestamp)",
+      "CREATE INDEX IF NOT EXISTS idx_activity_device_timestamp ON activity_logs (device_id, timestamp)",
+      "CREATE INDEX IF NOT EXISTS idx_alerts_device_created ON critical_alerts (device_id, created_at)",
+      "CREATE INDEX IF NOT EXISTS idx_devices_auth_token ON devices (auth_token)",
+    ];
 
-        if (!hasCurrentAppName) {
-            console.log('Running migration: Adding current_app columns to device_status table...');
-            await this.run(`ALTER TABLE device_status ADD COLUMN current_app_name TEXT`);
-            await this.run(`ALTER TABLE device_status ADD COLUMN current_app_package TEXT`);
-            console.log('✅ Migration completed: current_app columns added');
-        }
+    for (const sql of indexes) {
+      await this.run(sql);
     }
 
+    // Run migrations
+    await this.runMigrations();
 
-    async saveCriticalAlert({ deviceId, eventType, severity, message, metadata }) {
-        const result = await this.run(`
+    console.log("✅ Database tables created successfully");
+  }
+
+  /**
+   * Run database migrations
+   */
+  async runMigrations() {
+    // Check if current_app_name column exists
+    const tableInfo = await this.all(`PRAGMA table_info(device_status)`);
+    const hasCurrentAppName = tableInfo.some(
+      (col) => col.name === "current_app_name"
+    );
+
+    if (!hasCurrentAppName) {
+      console.log(
+        "Running migration: Adding current_app columns to device_status table..."
+      );
+      await this.run(
+        `ALTER TABLE device_status ADD COLUMN current_app_name TEXT`
+      );
+      await this.run(
+        `ALTER TABLE device_status ADD COLUMN current_app_package TEXT`
+      );
+      console.log("✅ Migration completed: current_app columns added");
+    }
+  }
+
+  async saveCriticalAlert({
+    deviceId,
+    eventType,
+    severity,
+    message,
+    metadata,
+  }) {
+    const result = await this.run(
+      `
             INSERT INTO critical_alerts (device_id, event_type, severity, message, metadata)
             VALUES (?, ?, ?, ?, ?)
-        `, [deviceId, eventType, severity, message, metadata ? JSON.stringify(metadata) : null]);
+        `,
+      [
+        deviceId,
+        eventType,
+        severity,
+        message,
+        metadata ? JSON.stringify(metadata) : null,
+      ]
+    );
 
-        return {
-            id: result.id,
-            delivered: 0
-        };
-    }
+    return {
+      id: result.id,
+      delivered: 0,
+    };
+  }
 
-    async markAlertDelivered(alertId) {
-        await this.run(`
+  async markAlertDelivered(alertId) {
+    await this.run(
+      `
             UPDATE critical_alerts
             SET delivered = 1
             WHERE id = ?
-        `, [alertId]);
-    }
+        `,
+      [alertId]
+    );
+  }
 
-    async getPendingCriticalAlerts(deviceId, limit = 20) {
-        const rows = await this.all(`
+  async getPendingCriticalAlerts(deviceId, limit = 20) {
+    const rows = await this.all(
+      `
             SELECT id, device_id AS deviceId, event_type AS eventType, severity, message, metadata, created_at AS createdAt
             FROM critical_alerts
             WHERE device_id = ? AND acknowledged = 0
             ORDER BY created_at DESC
             LIMIT ?
-        `, [deviceId, limit]);
+        `,
+      [deviceId, limit]
+    );
 
-        return rows.map(row => ({
-            ...row,
-            metadata: row.metadata ? JSON.parse(row.metadata) : null
-        }));
+    return rows.map((row) => ({
+      ...row,
+      metadata: row.metadata ? JSON.parse(row.metadata) : null,
+    }));
+  }
+
+  async acknowledgeCriticalAlerts(deviceId, alertIds) {
+    if (!alertIds || alertIds.length === 0) {
+      return;
     }
 
-    async acknowledgeCriticalAlerts(deviceId, alertIds) {
-        if (!alertIds || alertIds.length === 0) {
-            return;
-        }
+    const placeholders = alertIds.map(() => "?").join(",");
+    const params = [deviceId, ...alertIds];
 
-        const placeholders = alertIds.map(() => '?').join(',');
-        const params = [deviceId, ...alertIds];
-
-        await this.run(`
+    await this.run(
+      `
             UPDATE critical_alerts
             SET acknowledged = 1,
                 acknowledged_at = strftime('%s', 'now')
             WHERE device_id = ? AND id IN (${placeholders})
-        `, params);
-    }
-    /**
-     * Execute SQL query
-     */
-    run(sql, params = []) {
-        return new Promise((resolve, reject) => {
-            this.db.run(sql, params, function(err) {
-                if (err) {
-                    console.error('❌ Database run error:', err);
-                    reject(err);
-                } else {
-                    resolve({ id: this.lastID, changes: this.changes });
-                }
-            });
-        });
-    }
+        `,
+      params
+    );
+  }
+  /**
+   * Execute SQL query
+   */
+  run(sql, params = []) {
+    return new Promise((resolve, reject) => {
+      this.db.run(sql, params, function (err) {
+        if (err) {
+          console.error("❌ Database run error:", err);
+          reject(err);
+        } else {
+          resolve({ id: this.lastID, changes: this.changes });
+        }
+      });
+    });
+  }
 
-    /**
-     * Get all rows from query
-     */
-    all(sql, params = []) {
-        return new Promise((resolve, reject) => {
-            this.db.all(sql, params, (err, rows) => {
-                if (err) {
-                    console.error('❌ Database query error:', err);
-                    reject(err);
-                } else {
-                    resolve(rows);
-                }
-            });
-        });
-    }
+  /**
+   * Get all rows from query
+   */
+  all(sql, params = []) {
+    return new Promise((resolve, reject) => {
+      this.db.all(sql, params, (err, rows) => {
+        if (err) {
+          console.error("❌ Database query error:", err);
+          reject(err);
+        } else {
+          resolve(rows);
+        }
+      });
+    });
+  }
 
-    /**
-     * Get single row from query
-     */
-    get(sql, params = []) {
-        return new Promise((resolve, reject) => {
-            this.db.get(sql, params, (err, row) => {
-                if (err) {
-                    console.error('❌ Database query error:', err);
-                    reject(err);
-                } else {
-                    resolve(row);
-                }
-            });
-        });
-    }
+  /**
+   * Get single row from query
+   */
+  get(sql, params = []) {
+    return new Promise((resolve, reject) => {
+      this.db.get(sql, params, (err, row) => {
+        if (err) {
+          console.error("❌ Database query error:", err);
+          reject(err);
+        } else {
+          resolve(row);
+        }
+      });
+    });
+  }
 
-    /**
-     * Register or update device
-     */
-    async registerDevice(deviceId, deviceData) {
-        const {
-            device_name = 'Unknown Device',
-            device_type = 'android',
-            app_version = '1.0.0'
-        } = deviceData;
+  /**
+   * Register or update device
+   */
+  async registerDevice(deviceId, deviceData) {
+    const {
+      device_name = "Unknown Device",
+      device_type = "android",
+      app_version = "1.0.0",
+    } = deviceData;
 
-        const sql = `
+    const sql = `
             INSERT INTO devices (device_id, device_name, device_type, app_version)
             VALUES (?, ?, ?, ?)
             ON CONFLICT(device_id) DO UPDATE SET
@@ -334,137 +376,163 @@ class DatabaseManager {
                 updated_at = strftime('%s', 'now')
         `;
 
-        return this.run(sql, [deviceId, device_name, device_type, app_version]);
-    }
+    return this.run(sql, [deviceId, device_name, device_type, app_version]);
+  }
 
-    /**
-     * Get device by ID
-     */
-    async getDevice(deviceId) {
-        const sql = 'SELECT * FROM devices WHERE device_id = ?';
-        return this.get(sql, [deviceId]);
-    }
+  /**
+   * Get device by ID
+   */
+  async getDevice(deviceId) {
+    const sql = "SELECT * FROM devices WHERE device_id = ?";
+    return this.get(sql, [deviceId]);
+  }
 
-    /**
-     * Save location
-     */
-    async saveLocation(deviceId, locationData) {
-        const { latitude, longitude, accuracy, timestamp } = locationData;
+  /**
+   * Save location
+   */
+  async saveLocation(deviceId, locationData) {
+    const { latitude, longitude, accuracy, timestamp } = locationData;
 
-        const sql = `
+    const sql = `
             INSERT INTO locations (device_id, latitude, longitude, accuracy, timestamp)
             VALUES (?, ?, ?, ?, ?)
         `;
 
-        return this.run(sql, [deviceId, latitude, longitude, accuracy, timestamp]);
-    }
+    return this.run(sql, [deviceId, latitude, longitude, accuracy, timestamp]);
+  }
 
-    /**
-     * Get location history
-     */
-    async getLocationHistory(deviceId, limit = 100) {
-        const sql = `
+  /**
+   * Get location history
+   */
+  async getLocationHistory(deviceId, limit = 100) {
+    const sql = `
             SELECT * FROM locations
             WHERE device_id = ?
             ORDER BY timestamp DESC
             LIMIT ?
         `;
 
-        return this.all(sql, [deviceId, limit]);
-    }
+    return this.all(sql, [deviceId, limit]);
+  }
 
-    /**
-     * Get latest location
-     */
-    async getLatestLocation(deviceId) {
-        const sql = `
+  /**
+   * Get latest location
+   */
+  async getLatestLocation(deviceId) {
+    const sql = `
             SELECT * FROM locations
             WHERE device_id = ?
             ORDER BY timestamp DESC
             LIMIT 1
         `;
 
-        return this.get(sql, [deviceId]);
-    }
+    return this.get(sql, [deviceId]);
+  }
 
-    /**
-     * Save audio file metadata
-     */
-    async saveAudioFile(deviceId, fileData) {
-        const { filename, file_path, file_size, mime_type, duration, timestamp } = fileData;
+  /**
+   * Save audio file metadata
+   */
+  async saveAudioFile(deviceId, fileData) {
+    const { filename, file_path, file_size, mime_type, duration, timestamp } =
+      fileData;
 
-        const sql = `
+    const sql = `
             INSERT INTO audio_files (device_id, filename, file_path, file_size, mime_type, duration, timestamp)
             VALUES (?, ?, ?, ?, ?, ?, ?)
         `;
 
-        return this.run(sql, [deviceId, filename, file_path, file_size, mime_type, duration, timestamp]);
-    }
+    return this.run(sql, [
+      deviceId,
+      filename,
+      file_path,
+      file_size,
+      mime_type,
+      duration,
+      timestamp,
+    ]);
+  }
 
-    /**
-     * Get audio files
-     */
-    async getAudioFiles(deviceId, limit = 50) {
-        const sql = `
+  /**
+   * Get audio files
+   */
+  async getAudioFiles(deviceId, limit = 50) {
+    const sql = `
             SELECT * FROM audio_files
             WHERE device_id = ?
             ORDER BY timestamp DESC
             LIMIT ?
         `;
 
-        return this.all(sql, [deviceId, limit]);
-    }
+    return this.all(sql, [deviceId, limit]);
+  }
 
-    /**
-     * Save photo file metadata
-     */
-    async savePhotoFile(deviceId, fileData) {
-        const { filename, file_path, file_size, mime_type, width, height, timestamp } = fileData;
+  /**
+   * Save photo file metadata
+   */
+  async savePhotoFile(deviceId, fileData) {
+    const {
+      filename,
+      file_path,
+      file_size,
+      mime_type,
+      width,
+      height,
+      timestamp,
+    } = fileData;
 
-        const sql = `
+    const sql = `
             INSERT INTO photo_files (device_id, filename, file_path, file_size, mime_type, width, height, timestamp)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
-        return this.run(sql, [deviceId, filename, file_path, file_size, mime_type, width, height, timestamp]);
-    }
+    return this.run(sql, [
+      deviceId,
+      filename,
+      file_path,
+      file_size,
+      mime_type,
+      width,
+      height,
+      timestamp,
+    ]);
+  }
 
-    /**
-     * Get photo files
-     */
-    async getPhotoFiles(deviceId, limit = 50) {
-        const sql = `
+  /**
+   * Get photo files
+   */
+  async getPhotoFiles(deviceId, limit = 50) {
+    const sql = `
             SELECT * FROM photo_files
             WHERE device_id = ?
             ORDER BY timestamp DESC
             LIMIT ?
         `;
 
-        return this.all(sql, [deviceId, limit]);
-    }
+    return this.all(sql, [deviceId, limit]);
+  }
 
-    /**
-     * Save device status snapshot
-     */
-    async saveDeviceStatus(deviceId, status) {
-        const {
-            batteryLevel = null,
-            isCharging = null,
-            chargingType = null,
-            temperature = null,
-            voltage = null,
-            health = null,
-            manufacturer = null,
-            model = null,
-            androidVersion = null,
-            sdkVersion = null,
-            currentAppName = null,
-            currentAppPackage = null,
-            timestamp = Date.now(),
-            raw = null
-        } = status || {};
+  /**
+   * Save device status snapshot
+   */
+  async saveDeviceStatus(deviceId, status) {
+    const {
+      batteryLevel = null,
+      isCharging = null,
+      chargingType = null,
+      temperature = null,
+      voltage = null,
+      health = null,
+      manufacturer = null,
+      model = null,
+      androidVersion = null,
+      sdkVersion = null,
+      currentAppName = null,
+      currentAppPackage = null,
+      timestamp = Date.now(),
+      raw = null,
+    } = status || {};
 
-        const sql = `
+    const sql = `
             INSERT INTO device_status (
                 device_id,
                 battery_level,
@@ -485,32 +553,32 @@ class DatabaseManager {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
-        const statusJson = raw ? JSON.stringify(raw) : null;
+    const statusJson = raw ? JSON.stringify(raw) : null;
 
-        return this.run(sql, [
-            deviceId,
-            batteryLevel,
-            isCharging === null ? null : (isCharging ? 1 : 0),
-            chargingType,
-            temperature,
-            voltage,
-            health,
-            manufacturer,
-            model,
-            androidVersion,
-            sdkVersion,
-            currentAppName,
-            currentAppPackage,
-            statusJson,
-            timestamp
-        ]);
-    }
+    return this.run(sql, [
+      deviceId,
+      batteryLevel,
+      isCharging === null ? null : isCharging ? 1 : 0,
+      chargingType,
+      temperature,
+      voltage,
+      health,
+      manufacturer,
+      model,
+      androidVersion,
+      sdkVersion,
+      currentAppName,
+      currentAppPackage,
+      statusJson,
+      timestamp,
+    ]);
+  }
 
-    /**
-     * Get latest device status
-     */
-    async getLatestDeviceStatus(deviceId) {
-        const sql = `
+  /**
+   * Get latest device status
+   */
+  async getLatestDeviceStatus(deviceId) {
+    const sql = `
             SELECT *
             FROM device_status
             WHERE device_id = ?
@@ -518,136 +586,139 @@ class DatabaseManager {
             LIMIT 1
         `;
 
-        const row = await this.get(sql, [deviceId]);
-        if (!row) {
-            return null;
-        }
-
-        let raw = null;
-        if (row.status_json) {
-            try {
-                raw = JSON.parse(row.status_json);
-            } catch (error) {
-                console.warn('Failed to parse device status JSON:', error.message);
-            }
-        }
-
-        return {
-            batteryLevel: row.battery_level,
-            isCharging: row.is_charging === 1,
-            chargingType: row.charging_type,
-            temperature: row.temperature,
-            voltage: row.voltage,
-            health: row.health,
-            manufacturer: row.manufacturer,
-            model: row.model,
-            androidVersion: row.android_version,
-            sdkVersion: row.sdk_version,
-            currentAppName: row.current_app_name,
-            currentAppPackage: row.current_app_package,
-            timestamp: row.timestamp,
-            raw
-        };
+    const row = await this.get(sql, [deviceId]);
+    if (!row) {
+      return null;
     }
 
-    /**
-     * Save chat message
-     */
-    async saveChatMessage(deviceId, messageData) {
-        const { sender, message, timestamp } = messageData;
+    let raw = null;
+    if (row.status_json) {
+      try {
+        raw = JSON.parse(row.status_json);
+      } catch (error) {
+        console.warn("Failed to parse device status JSON:", error.message);
+      }
+    }
 
-        const sql = `
+    return {
+      batteryLevel: row.battery_level,
+      isCharging: row.is_charging === 1,
+      chargingType: row.charging_type,
+      temperature: row.temperature,
+      voltage: row.voltage,
+      health: row.health,
+      manufacturer: row.manufacturer,
+      model: row.model,
+      androidVersion: row.android_version,
+      sdkVersion: row.sdk_version,
+      currentAppName: row.current_app_name,
+      currentAppPackage: row.current_app_package,
+      timestamp: row.timestamp,
+      raw,
+    };
+  }
+
+  /**
+   * Save chat message
+   */
+  async saveChatMessage(deviceId, messageData) {
+    const { sender, message, timestamp } = messageData;
+
+    const sql = `
             INSERT INTO chat_messages (device_id, sender, message, timestamp)
             VALUES (?, ?, ?, ?)
         `;
 
-        return this.run(sql, [deviceId, sender, message, timestamp]);
-    }
+    return this.run(sql, [deviceId, sender, message, timestamp]);
+  }
 
-    /**
-     * Get chat messages
-     */
-    async getChatMessages(deviceId, limit = 100) {
-        const sql = `
+  /**
+   * Get chat messages
+   */
+  async getChatMessages(deviceId, limit = 100) {
+    const sql = `
             SELECT * FROM chat_messages
             WHERE device_id = ?
             ORDER BY timestamp ASC
             LIMIT ?
         `;
 
-        return this.all(sql, [deviceId, limit]);
-    }
+    return this.all(sql, [deviceId, limit]);
+  }
 
-    /**
-     * Mark chat messages as read
-     */
-    async markMessagesAsRead(deviceId) {
-        const sql = `
+  /**
+   * Mark chat messages as read
+   */
+  async markMessagesAsRead(deviceId) {
+    const sql = `
             UPDATE chat_messages
             SET is_read = 1
             WHERE device_id = ? AND is_read = 0
         `;
 
-        return this.run(sql, [deviceId]);
-    }
+    return this.run(sql, [deviceId]);
+  }
 
-    /**
-     * Save activity log
-     */
-    async saveActivityLog(deviceId, activityData) {
-        const { activity_type, activity_data, timestamp } = activityData;
+  /**
+   * Save activity log
+   */
+  async saveActivityLog(deviceId, activityData) {
+    const { activity_type, activity_data, timestamp } = activityData;
 
-        const sql = `
+    const sql = `
             INSERT INTO activity_logs (device_id, activity_type, activity_data, timestamp)
             VALUES (?, ?, ?, ?)
         `;
 
-        const dataJson = typeof activity_data === 'object' ? JSON.stringify(activity_data) : activity_data;
-        return this.run(sql, [deviceId, activity_type, dataJson, timestamp]);
-    }
+    const dataJson =
+      typeof activity_data === "object"
+        ? JSON.stringify(activity_data)
+        : activity_data;
+    return this.run(sql, [deviceId, activity_type, dataJson, timestamp]);
+  }
 
-    /**
-     * Get activity logs
-     */
-    async getActivityLogs(deviceId, limit = 100) {
-        const sql = `
+  /**
+   * Get activity logs
+   */
+  async getActivityLogs(deviceId, limit = 100) {
+    const sql = `
             SELECT * FROM activity_logs
             WHERE device_id = ?
             ORDER BY timestamp DESC
             LIMIT ?
         `;
 
-        return this.all(sql, [deviceId, limit]);
-    }
+    return this.all(sql, [deviceId, limit]);
+  }
 
-    /**
-     * Log activity (alias for saveActivityLog for compatibility)
-     */
-    async logActivity(deviceId, activityData) {
-        return this.saveActivityLog(deviceId, activityData);
-    }
+  /**
+   * Log activity (alias for saveActivityLog for compatibility)
+   */
+  async logActivity(deviceId, activityData) {
+    return this.saveActivityLog(deviceId, activityData);
+  }
 
-    /**
-     * Close database connection
-     */
-    close() {
-        return new Promise((resolve, reject) => {
-            if (this.db) {
-                this.db.close((err) => {
-                    if (err) {
-                        console.error('❌ Error closing database:', err);
-                        reject(err);
-                    } else {
-                        console.log('✅ Database connection closed');
-                        this.isInitialized = false;
-                        resolve();
-                    }
-                });
-            } else {
-                resolve();
-            }
+  /**
+   * Close database connection
+   */
+  close() {
+    return new Promise((resolve, reject) => {
+      if (this.db) {
+        this.db.close((err) => {
+          if (err) {
+            console.error("❌ Error closing database:", err);
+            reject(err);
+          } else {
+            console.log("✅ Database connection closed");
+            this.isInitialized = false;
+            resolve();
+          }
         });
-    }
+      } else {
+        resolve();
+      }
+    });
+  }
 }
 
 module.exports = DatabaseManager;

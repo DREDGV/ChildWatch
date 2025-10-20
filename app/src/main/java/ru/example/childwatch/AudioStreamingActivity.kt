@@ -14,8 +14,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import ru.example.childwatch.audio.AudioQualityManager
-import ru.example.childwatch.audio.AudioQualityMode
+import ru.example.childwatch.audio.AudioEnhancer
 import ru.example.childwatch.databinding.ActivityAudioStreamingBinding
 import ru.example.childwatch.recordings.RecordingsLibraryActivity
 import ru.example.childwatch.service.AudioPlaybackService
@@ -44,10 +43,9 @@ class AudioStreamingActivity : AppCompatActivity() {
     private lateinit var deviceId: String
     private lateinit var serverUrl: String
     private lateinit var audioPrefs: SharedPreferences
-    
-    // Audio Quality Management
-    private lateinit var audioQualityManager: AudioQualityManager
-    private var currentQualityMode = AudioQualityMode.NOISE_REDUCTION
+
+    // Audio Filter Management
+    private var currentFilterMode = AudioEnhancer.FilterMode.ORIGINAL
     
     // Visualization
     private var currentVisualizationMode = AdvancedAudioVisualizer.VisualizationMode.FREQUENCY_BARS
@@ -67,7 +65,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
             val binder = service as AudioPlaybackService.LocalBinder
             audioService = binder.getService()
-            syncAudioEnhancerWithService()
+            syncFilterModeWithService()
             serviceBound = true
             Log.d(TAG, "Service connected")
 
@@ -118,9 +116,6 @@ class AudioStreamingActivity : AppCompatActivity() {
             return
         }
 
-        // Initialize audio quality manager
-        audioQualityManager = AudioQualityManager()
-        
         // Load preferences
         audioPrefs = getSharedPreferences("audio_streaming", MODE_PRIVATE)
         loadAudioSettings()
@@ -139,26 +134,26 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun loadAudioSettings() {
-        val savedMode = audioPrefs.getString("quality_mode", "NOISE_REDUCTION")
-        currentQualityMode = try {
-            AudioQualityMode.valueOf(savedMode ?: "NOISE_REDUCTION")
+        val savedMode = audioPrefs.getString("filter_mode", AudioEnhancer.FilterMode.ORIGINAL.name)
+        currentFilterMode = try {
+            AudioEnhancer.FilterMode.valueOf(savedMode ?: AudioEnhancer.FilterMode.ORIGINAL.name)
         } catch (e: IllegalArgumentException) {
-            AudioQualityMode.NOISE_REDUCTION
+            AudioEnhancer.FilterMode.ORIGINAL
         }
-        
+
         val savedVisualization = audioPrefs.getString("visualization_mode", "FREQUENCY_BARS")
         currentVisualizationMode = try {
             AdvancedAudioVisualizer.VisualizationMode.valueOf(savedVisualization ?: "FREQUENCY_BARS")
         } catch (e: IllegalArgumentException) {
             AdvancedAudioVisualizer.VisualizationMode.FREQUENCY_BARS
         }
-        
+
         visualizationModeIndex = visualizationModes.indexOf(currentVisualizationMode)
     }
 
     private fun saveAudioSettings() {
         audioPrefs.edit()
-            .putString("quality_mode", currentQualityMode.name)
+            .putString("filter_mode", currentFilterMode.name)
             .putString("visualization_mode", currentVisualizationMode.name)
             .apply()
     }
@@ -205,45 +200,13 @@ class AudioStreamingActivity : AppCompatActivity() {
             startActivity(Intent(this, RecordingsLibraryActivity::class.java))
         }
 
-        // Advanced controls (for custom mode)
-        binding.noiseSuppressionSwitch.setOnCheckedChangeListener { _, isChecked ->
-            if (audioQualityManager.isCustomMode()) {
-                val config = audioQualityManager.getCurrentConfig()
-                audioQualityManager.setCustomConfig(config.copy(noiseSuppressionEnabled = isChecked))
-                syncAudioEnhancerWithService()
-            }
-        }
-
-        binding.gainBoostSlider.addOnChangeListener { _, value, fromUser ->
-            if (fromUser && audioQualityManager.isCustomMode()) {
-                val config = audioQualityManager.getCurrentConfig()
-                audioQualityManager.setCustomConfig(config.copy(gainBoostDb = value.toInt()))
-                syncAudioEnhancerWithService()
-                binding.gainBoostValueText.text = "${value.toInt()} дБ"
-            }
-        }
+        // Advanced controls removed - no custom mode in new filter system
     }
 
     private fun setupQualityModeChips() {
-        // Map chips to modes
-        val chipModeMap = mapOf(
-            binding.normalModeChip to AudioQualityMode.NORMAL,
-            binding.noiseReductionChip to AudioQualityMode.NOISE_REDUCTION,
-            binding.voiceEnhancedChip to AudioQualityMode.VOICE_ENHANCED,
-            binding.balancedChip to AudioQualityMode.BALANCED,
-            binding.crystalClearChip to AudioQualityMode.CRYSTAL_CLEAR,
-            binding.sleepModeChip to AudioQualityMode.SLEEP_MODE
-        )
-
-        // Set up click listeners
-        chipModeMap.forEach { (chip, mode) ->
-            chip.setOnClickListener {
-                setQualityMode(mode)
-            }
-        }
-
-        // Set initial selection
-        setQualityMode(currentQualityMode)
+        // If there are chips defined in the layout, we can optionally wire them later.
+        // For now, we only ensure current mode is applied.
+        setFilterMode(currentFilterMode)
     }
 
     private fun setupVisualizationModeButton() {
@@ -253,30 +216,30 @@ class AudioStreamingActivity : AppCompatActivity() {
         updateVisualizationModeButton()
     }
 
-    private fun setQualityMode(mode: AudioQualityMode) {
-        currentQualityMode = mode
-        audioQualityManager.setMode(mode)
-        
+    private fun setFilterMode(mode: AudioEnhancer.FilterMode) {
+        currentFilterMode = mode
+
+        // Update service with new filter mode
+        if (AudioPlaybackService.isPlaying) {
+            audioService?.setFilterMode(mode)
+        }
+
         // Update UI
         updateModeDescription()
-        updateAdvancedControlsVisibility()
-        syncAudioEnhancerWithService()
         saveAudioSettings()
-        
-        Log.d(TAG, "Quality mode changed to: ${mode.displayName}")
+
+        Log.d(TAG, "Filter mode changed to: $mode")
     }
 
     private fun updateModeDescription() {
-        binding.modeDescriptionText.text = currentQualityMode.description
-    }
-
-    private fun updateAdvancedControlsVisibility() {
-        val isCustomMode = audioQualityManager.isCustomMode()
-        binding.advancedControlsLayout.visibility = if (isCustomMode) {
-            android.view.View.VISIBLE
-        } else {
-            android.view.View.GONE
+        val description = when (currentFilterMode) {
+            AudioEnhancer.FilterMode.ORIGINAL -> "Оригинальный звук без обработки"
+            AudioEnhancer.FilterMode.VOICE -> "Усиление речи, подавление шума"
+            AudioEnhancer.FilterMode.QUIET_SOUNDS -> "Максимальное усиление тихих звуков"
+            AudioEnhancer.FilterMode.MUSIC -> "Естественное звучание музыки"
+            AudioEnhancer.FilterMode.OUTDOOR -> "Подавление ветра и уличного шума"
         }
+        binding.modeDescriptionText?.text = description
     }
 
     private fun cycleVisualizationMode() {
@@ -335,10 +298,11 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
     }
 
-    private fun syncAudioEnhancerWithService() {
-        val config = audioQualityManager.getCurrentConfig()
-        audioService?.updateAudioEnhancerConfig(config)
-        Log.d(TAG, "Audio enhancer config synced: noiseSuppression=${config.noiseSuppressionEnabled}, gain=${config.gainBoostDb}dB")
+    private fun syncFilterModeWithService() {
+        if (AudioPlaybackService.isPlaying) {
+            audioService?.setFilterMode(currentFilterMode)
+            Log.d(TAG, "Filter mode synced with service: $currentFilterMode")
+        }
     }
 
     private fun startStreaming() {
