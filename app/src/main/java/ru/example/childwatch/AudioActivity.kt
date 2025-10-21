@@ -9,6 +9,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import ru.example.childwatch.audio.AudioRecorder
+import ru.example.childwatch.audio.FilterMode
 import ru.example.childwatch.databinding.ActivityAudioBinding
 import ru.example.childwatch.utils.PermissionHelper
 import ru.example.childwatch.ui.AudioVisualizer
@@ -85,33 +86,33 @@ class AudioActivity : AppCompatActivity() {
         // --- Новый блок: фильтры через RecyclerView ---
         val filterItems = listOf(
             ru.example.childwatch.audio.AudioFilterItem(
-                ru.example.childwatch.audio.AudioEnhancer.FilterMode.ORIGINAL,
+                FilterMode.ORIGINAL,
                 "📡", "Оригинал", "Без обработки, чистый звук"
             ),
             ru.example.childwatch.audio.AudioFilterItem(
-                ru.example.childwatch.audio.AudioEnhancer.FilterMode.VOICE,
+                FilterMode.VOICE,
                 "🎤", "Голос", "Усиление речи, шумоподавление"
             ),
             ru.example.childwatch.audio.AudioFilterItem(
-                ru.example.childwatch.audio.AudioEnhancer.FilterMode.QUIET_SOUNDS,
+                FilterMode.QUIET_SOUNDS,
                 "🔇", "Тихие звуки", "Максимальное усиление"
             ),
             ru.example.childwatch.audio.AudioFilterItem(
-                ru.example.childwatch.audio.AudioEnhancer.FilterMode.MUSIC,
+                FilterMode.MUSIC,
                 "🎵", "Музыка", "Естественное звучание"
             ),
             ru.example.childwatch.audio.AudioFilterItem(
-                ru.example.childwatch.audio.AudioEnhancer.FilterMode.OUTDOOR,
+                FilterMode.OUTDOOR,
                 "🌳", "Улица", "Подавление ветра и шума"
             )
         )
 
         val savedMode = getSharedPreferences("audio_prefs", MODE_PRIVATE)
-            .getString("filter_mode", ru.example.childwatch.audio.AudioEnhancer.FilterMode.ORIGINAL.name)
+            .getString("filter_mode", FilterMode.ORIGINAL.name)
         val initialMode = try {
-            ru.example.childwatch.audio.AudioEnhancer.FilterMode.valueOf(savedMode ?: ru.example.childwatch.audio.AudioEnhancer.FilterMode.ORIGINAL.name)
+            FilterMode.valueOf(savedMode ?: FilterMode.ORIGINAL.name)
         } catch (e: Exception) {
-            ru.example.childwatch.audio.AudioEnhancer.FilterMode.ORIGINAL
+            FilterMode.ORIGINAL
         }
 
         filterAdapter = ru.example.childwatch.audio.AudioFilterAdapter(
@@ -141,7 +142,7 @@ class AudioActivity : AppCompatActivity() {
 
     // loadFilterMode больше не нужен (логика выбора через адаптер)
 
-    private fun updateFilterMode(mode: ru.example.childwatch.audio.AudioEnhancer.FilterMode) {
+    private fun updateFilterMode(mode: FilterMode) {
         // Update AudioPlaybackService if it's running
         if (ru.example.childwatch.service.AudioPlaybackService.isPlaying) {
             try {
@@ -158,13 +159,13 @@ class AudioActivity : AppCompatActivity() {
         }
     }
 
-    private fun getModeName(mode: ru.example.childwatch.audio.AudioEnhancer.FilterMode): String {
+    private fun getModeName(mode: FilterMode): String {
         return when (mode) {
-            ru.example.childwatch.audio.AudioEnhancer.FilterMode.ORIGINAL -> "Оригинал (без фильтров)"
-            ru.example.childwatch.audio.AudioEnhancer.FilterMode.VOICE -> "Голос"
-            ru.example.childwatch.audio.AudioEnhancer.FilterMode.QUIET_SOUNDS -> "Тихие звуки"
-            ru.example.childwatch.audio.AudioEnhancer.FilterMode.MUSIC -> "Музыка"
-            ru.example.childwatch.audio.AudioEnhancer.FilterMode.OUTDOOR -> "Улица"
+            FilterMode.ORIGINAL -> "Оригинал (без фильтров)"
+            FilterMode.VOICE -> "Голос"
+            FilterMode.QUIET_SOUNDS -> "Тихие звуки"
+            FilterMode.MUSIC -> "Музыка"
+            FilterMode.OUTDOOR -> "Улица"
         }
     }
     

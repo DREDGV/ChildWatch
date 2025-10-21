@@ -16,17 +16,6 @@ class AudioEnhancer {
 
     private val shortBuffer = ThreadLocal.withInitial { ShortArray(0) }
 
-    /**
-     * Audio filter modes optimized for different scenarios
-     */
-    enum class FilterMode {
-        ORIGINAL,       // Оригинал - без фильтров и обработки (по умолчанию)
-        VOICE,          // Голос - усиление речи, подавление фона
-        QUIET_SOUNDS,   // Тихие звуки - максимальное усиление, минимум шумоподавления
-        MUSIC,          // Музыка - естественное звучание, без агрессивной обработки
-        OUTDOOR         // Улица - подавление ветра и шума, усиление речи
-    }
-
     data class Config(
         val mode: FilterMode = FilterMode.ORIGINAL,
         val noiseSuppressionEnabled: Boolean = true,
@@ -44,29 +33,12 @@ class AudioEnhancer {
     fun getConfig(): Config = config
 
     fun process(chunk: ByteArray): ByteArray {
-        val localConfig = config
+        // Этап B: Filtering now happens on sender side (ParentWatch) using system effects
+        // Receiver (ChildWatch) just passes through audio unchanged
+        // This prevents double-processing and maintains quality
 
-        val sampleCount = chunk.size / 2
-        val shortArray = ensureShortBuffer(sampleCount)
-        ByteBuffer.wrap(chunk).order(ByteOrder.LITTLE_ENDIAN)
-            .asShortBuffer()
-            .get(shortArray, 0, sampleCount)
-
-        // Apply mode-specific processing
-        when (localConfig.mode) {
-            FilterMode.ORIGINAL -> {
-                // No processing - pass through original audio
-                // Audio remains unchanged in shortArray
-            }
-            FilterMode.VOICE -> processVoiceMode(shortArray, sampleCount)
-            FilterMode.QUIET_SOUNDS -> processQuietSoundsMode(shortArray, sampleCount)
-            FilterMode.MUSIC -> processMusicMode(shortArray, sampleCount)
-            FilterMode.OUTDOOR -> processOutdoorMode(shortArray, sampleCount)
-        }
-
-        val byteBuffer = ByteBuffer.allocate(sampleCount * 2).order(ByteOrder.LITTLE_ENDIAN)
-        byteBuffer.asShortBuffer().put(shortArray, 0, sampleCount)
-        return byteBuffer.array()
+        // Simple pass-through - no modifications
+        return chunk
     }
 
     /**

@@ -347,6 +347,82 @@
 
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- Этап D: Compact Diagnostics HUD -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/diagnosticsHud"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="8dp"
+            app:cardElevation="2dp"
+            app:cardCornerRadius="8dp"
+            app:cardBackgroundColor="#1A000000">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:padding="8dp"
+                android:gravity="center_vertical">
+
+                <!-- WS Status -->
+                <TextView
+                    android:id="@+id/hudWsStatus"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1.2"
+                    android:text="🔴 —"
+                    android:textSize="11sp"
+                    android:textColor="@android:color/white"
+                    android:gravity="center"/>
+
+                <!-- Network -->
+                <TextView
+                    android:id="@+id/hudNetwork"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="📡 —"
+                    android:textSize="11sp"
+                    android:textColor="@android:color/white"
+                    android:gravity="center"/>
+
+                <!-- Data Rate -->
+                <TextView
+                    android:id="@+id/hudDataRate"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1.2"
+                    android:text="▼ —"
+                    android:textSize="11sp"
+                    android:textColor="@android:color/white"
+                    android:gravity="center"/>
+
+                <!-- Queue -->
+                <TextView
+                    android:id="@+id/hudQueue"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Q:—"
+                    android:textSize="11sp"
+                    android:textColor="@android:color/white"
+                    android:gravity="center"/>
+
+                <!-- Ping -->
+                <TextView
+                    android:id="@+id/hudPing"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="0.8"
+                    android:text="—ms"
+                    android:textSize="11sp"
+                    android:textColor="@android:color/white"
+                    android:gravity="center"/>
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- Audio Waveform Visualizer Card -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"

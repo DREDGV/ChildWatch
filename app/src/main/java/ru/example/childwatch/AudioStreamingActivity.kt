@@ -15,7 +15,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import ru.example.childwatch.audio.AudioEnhancer
+import ru.example.childwatch.audio.FilterMode
 import ru.example.childwatch.databinding.ActivityAudioStreamingBinding
+import ru.example.childwatch.diagnostics.AudioStreamMetrics
+import ru.example.childwatch.diagnostics.WsStatus
+import ru.example.childwatch.diagnostics.NetworkType
+import ru.example.childwatch.diagnostics.PingStatus
+import android.graphics.Color
 import ru.example.childwatch.recordings.RecordingsLibraryActivity
 import ru.example.childwatch.service.AudioPlaybackService
 import ru.example.childwatch.ui.AdvancedAudioVisualizer
@@ -45,7 +51,7 @@ class AudioStreamingActivity : AppCompatActivity() {
     private lateinit var audioPrefs: SharedPreferences
 
     // Audio Filter Management
-    private var currentFilterMode = AudioEnhancer.FilterMode.ORIGINAL
+    private var currentFilterMode = FilterMode.ORIGINAL
     
     // Visualization
     private var currentVisualizationMode = AdvancedAudioVisualizer.VisualizationMode.FREQUENCY_BARS
@@ -74,6 +80,15 @@ class AudioStreamingActivity : AppCompatActivity() {
                 runOnUiThread {
                     binding.advancedAudioVisualizer.updateVisualization(audioData)
                     updateSignalLevel(audioData)
+                }
+            }
+
+            // Этап D: Subscribe to metrics updates
+            lifecycleScope.launch {
+                audioService?.metricsManager?.metrics?.collect { metrics ->
+                    runOnUiThread {
+                        updateHUD(metrics)
+                    }
                 }
             }
 
@@ -134,11 +149,11 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun loadAudioSettings() {
-        val savedMode = audioPrefs.getString("filter_mode", AudioEnhancer.FilterMode.ORIGINAL.name)
+        val savedMode = audioPrefs.getString("filter_mode", FilterMode.ORIGINAL.name)
         currentFilterMode = try {
-            AudioEnhancer.FilterMode.valueOf(savedMode ?: AudioEnhancer.FilterMode.ORIGINAL.name)
+            FilterMode.valueOf(savedMode ?: FilterMode.ORIGINAL.name)
         } catch (e: IllegalArgumentException) {
-            AudioEnhancer.FilterMode.ORIGINAL
+            FilterMode.ORIGINAL
         }
 
         val savedVisualization = audioPrefs.getString("visualization_mode", "FREQUENCY_BARS")
@@ -207,23 +222,23 @@ class AudioStreamingActivity : AppCompatActivity() {
         // Setup filter mode RecyclerView with cards
         val filterItems = listOf(
             ru.example.childwatch.audio.AudioFilterItem(
-                AudioEnhancer.FilterMode.ORIGINAL,
+                FilterMode.ORIGINAL,
                 "📡", "Оригинал", "Без обработки, чистый звук"
             ),
             ru.example.childwatch.audio.AudioFilterItem(
-                AudioEnhancer.FilterMode.VOICE,
+                FilterMode.VOICE,
                 "🎤", "Голос", "Усиление речи, шумоподавление"
             ),
             ru.example.childwatch.audio.AudioFilterItem(
-                AudioEnhancer.FilterMode.QUIET_SOUNDS,
+                FilterMode.QUIET_SOUNDS,
                 "🔇", "Тихие звуки", "Максимальное усиление"
             ),
             ru.example.childwatch.audio.AudioFilterItem(
-                AudioEnhancer.FilterMode.MUSIC,
+                FilterMode.MUSIC,
                 "🎵", "Музыка", "Естественное звучание"
             ),
             ru.example.childwatch.audio.AudioFilterItem(
-                AudioEnhancer.FilterMode.OUTDOOR,
+                FilterMode.OUTDOOR,
                 "🌳", "Улица", "Подавление ветра и шума"
             )
         )
@@ -248,13 +263,13 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
     }
 
-    private fun getFilterName(mode: AudioEnhancer.FilterMode): String {
+    private fun getFilterName(mode: FilterMode): String {
         return when (mode) {
-            AudioEnhancer.FilterMode.ORIGINAL -> "Оригинал"
-            AudioEnhancer.FilterMode.VOICE -> "Голос"
-            AudioEnhancer.FilterMode.QUIET_SOUNDS -> "Тихие звуки"
-            AudioEnhancer.FilterMode.MUSIC -> "Музыка"
-            AudioEnhancer.FilterMode.OUTDOOR -> "Улица"
+            FilterMode.ORIGINAL -> "Оригинал"
+            FilterMode.VOICE -> "Голос"
+            FilterMode.QUIET_SOUNDS -> "Тихие звуки"
+            FilterMode.MUSIC -> "Музыка"
+            FilterMode.OUTDOOR -> "Улица"
         }
     }
 
@@ -265,7 +280,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         updateVisualizationModeButton()
     }
 
-    private fun setFilterMode(mode: AudioEnhancer.FilterMode) {
+    private fun setFilterMode(mode: FilterMode) {
         currentFilterMode = mode
 
         // Update service with new filter mode
@@ -282,11 +297,11 @@ class AudioStreamingActivity : AppCompatActivity() {
 
     private fun updateModeDescription() {
         val description = when (currentFilterMode) {
-            AudioEnhancer.FilterMode.ORIGINAL -> "Оригинальный звук без обработки"
-            AudioEnhancer.FilterMode.VOICE -> "Усиление речи, подавление шума"
-            AudioEnhancer.FilterMode.QUIET_SOUNDS -> "Максимальное усиление тихих звуков"
-            AudioEnhancer.FilterMode.MUSIC -> "Естественное звучание музыки"
-            AudioEnhancer.FilterMode.OUTDOOR -> "Подавление ветра и уличного шума"
+            FilterMode.ORIGINAL -> "Оригинальный звук без обработки"
+            FilterMode.VOICE -> "Усиление речи, подавление шума"
+            FilterMode.QUIET_SOUNDS -> "Максимальное усиление тихих звуков"
+            FilterMode.MUSIC -> "Естественное звучание музыки"
+            FilterMode.OUTDOOR -> "Подавление ветра и уличного шума"
         }
         binding.modeDescriptionText?.text = description
     }
@@ -489,5 +504,86 @@ class AudioStreamingActivity : AppCompatActivity() {
             serviceBound = false
         }
         binding.advancedAudioVisualizer.stop()
+    }
+
+    /**
+     * Этап D: Update HUD with metrics
+     */
+    private fun updateHUD(metrics: AudioStreamMetrics) {
+        // WS Status with icon
+        val wsIcon = when (metrics.wsStatus) {
+            WsStatus.CONNECTED -> "🟢"
+            WsStatus.CONNECTING -> "🟡"
+            WsStatus.RETRYING -> "🟠"
+            else -> "🔴"
+        }
+        val duration = formatDuration(metrics.connectionDuration)
+        binding.hudWsStatus.text = "$wsIcon $duration"
+
+        // Network
+        val netIcon = when (metrics.networkType) {
+            NetworkType.WIFI -> "📡"
+            NetworkType.MOBILE -> "📱"
+            NetworkType.ETHERNET -> "🌐"
+            else -> "❌"
+        }
+        val networkText = if (metrics.networkName.isNotEmpty() && metrics.networkName != "Wi-Fi") {
+            metrics.networkName.take(5) // Truncate long names
+        } else {
+            when (metrics.networkType) {
+                NetworkType.WIFI -> "WiFi"
+                NetworkType.MOBILE -> "LTE"
+                else -> "—"
+            }
+        }
+        binding.hudNetwork.text = "$netIcon $networkText"
+
+        // Data Rate
+        val dataRateKB = metrics.bytesPerSecond / 1024
+        val rateText = if (dataRateKB > 0) "${dataRateKB}KB/s" else "—"
+        binding.hudDataRate.text = "▼ $rateText"
+
+        // Queue
+        val queueText = if (metrics.queueCapacity > 0) {
+            "${metrics.queueDepth}/${metrics.queueCapacity}"
+        } else {
+            "—"
+        }
+        binding.hudQueue.text = "Q:$queueText"
+
+        // Ping
+        val pingText = if (metrics.pingMs > 0) "${metrics.pingMs}ms" else "—"
+        binding.hudPing.text = pingText
+        binding.hudPing.setTextColor(getPingColor(metrics.pingStatus))
+    }
+
+    /**
+     * Format duration in milliseconds to human-readable string
+     */
+    private fun formatDuration(ms: Long): String {
+        if (ms == 0L) return "—"
+
+        val seconds = ms / 1000
+        val minutes = seconds / 60
+        val hours = minutes / 60
+
+        return when {
+            hours > 0 -> "${hours}h${minutes % 60}m"
+            minutes > 0 -> "${minutes}m${seconds % 60}s"
+            else -> "${seconds}s"
+        }
+    }
+
+    /**
+     * Get color for ping status
+     */
+    private fun getPingColor(status: PingStatus): Int {
+        return when (status) {
+            PingStatus.EXCELLENT -> Color.parseColor("#00FF00") // Green
+            PingStatus.GOOD -> Color.parseColor("#90EE90") // Light green
+            PingStatus.FAIR -> Color.parseColor("#FFFF00") // Yellow
+            PingStatus.POOR -> Color.parseColor("#FF0000") // Red
+            else -> Color.parseColor("#888888") // Gray
+        }
     }
 }

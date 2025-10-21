@@ -33,12 +33,21 @@ class AudioStreamRecorder(
     private val networkHelper: NetworkHelper
 ) {
     companion object {
-        private const val TAG = "AudioStreamRecorder"
-        private const val CHUNK_DURATION_MS = 500L
-        private const val SAMPLE_RATE = 44_100
+        private const val TAG = "AUDIO"
+
+        // Optimized for low-latency voice streaming (Этап A)
+        private const val SAMPLE_RATE = 16_000          // 16 kHz for voice (was 44100)
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
-        private const val RECONNECTION_DELAY_MS = 3_000L
+        private const val CHUNK_DURATION_MS = 20L       // 20ms frames (was 500ms)
+
+        // Frame size: 16000 * 20 / 1000 = 320 samples; 320 * 2 bytes = 640 bytes
+        private const val FRAME_SAMPLES = (SAMPLE_RATE * CHUNK_DURATION_MS / 1000).toInt() // 320
+        private const val FRAME_BYTES = FRAME_SAMPLES * 2 // 640 bytes per frame
+
+        // Reconnection strategy with exponential backoff
+        private const val RECONNECTION_DELAY_MS = 1_000L
+        private const val MAX_RECONNECTION_DELAY_MS = 8_000L
         private const val INITIAL_CONNECTION_TIMEOUT_MS = 7_000L
     }
 
@@ -46,6 +55,7 @@ class AudioStreamRecorder(
     private var isRecording = false
     private var recordingJob: Job? = null
     private var sequence = 0
+    private var sessionId: Int = 0 // for logging
 
     private var deviceId: String? = null
     private var serverUrl: String? = null
@@ -55,6 +65,18 @@ class AudioStreamRecorder(
     private val streamScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var connectionDeferred: CompletableDeferred<Boolean>? = null
     private var hasReportedMissingWebSocket = false
+
+    // Reconnection backoff state
+    private var reconnectAttempt = 0
+    private var reconnectJob: Job? = null
+
+    // Metrics for logging (Этап A)
+    private var totalBytesSent = 0L
+    private var lastMetricsLogTime = 0L
+
+    // System Audio Effects (Этап B)
+    private var systemAudioEffects: SystemAudioEffects? = null
+    private var currentFilterMode: FilterMode = FilterMode.ORIGINAL
 
     private val bufferSize: Int by lazy {
         AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
@@ -271,29 +293,38 @@ class AudioStreamRecorder(
     }
 
     /**
-     * Stop audio streaming
+     * Stop audio streaming (Этап A - idempotent with proper cleanup)
      */
     fun stopStreaming() {
-        Log.d(TAG, "Stopping audio streaming")
-        RemoteLogger.info(
-            serverUrl = serverUrl,
-            deviceId = deviceId,
-            source = TAG,
-            message = "Stopping audio streaming"
-        )
+        try {
+            Log.d(TAG, "AUDIO stop requested")
+            RemoteLogger.info(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "Stopping audio streaming"
+            )
 
-        isRecording = false
-        recordingJob?.cancel()
-        recordingJob = null
+            isRecording = false
+            recordingJob?.cancel()
+            recordingJob = null
+            reconnectJob?.cancel()
+            reconnectJob = null
 
-        // Cleanup WebSocket
-        webSocketClient?.cleanup()
-        webSocketClient = null
-        webSocketConnected = false
-        hasReportedMissingWebSocket = false
+            // Cleanup WebSocket
+            webSocketClient?.cleanup()
+            webSocketClient = null
+            webSocketConnected = false
+            hasReportedMissingWebSocket = false
 
-        releaseRecorder()
-        cleanupChunks()
+            releaseRecorder()
+            cleanupChunks()
+
+            // Этап A: Required log
+            Log.d(TAG, "AUDIO stop ok")
+        } catch (e: Exception) {
+            Log.e(TAG, "AUDIO stop ERROR", e)
+        }
     }
 
     /**
@@ -305,28 +336,44 @@ class AudioStreamRecorder(
     }
 
     /**
-     * Record one chunk and send via WebSocket
+     * Change filter mode (Этап B - runtime filter switching)
+     * Note: Requires AudioRecord reinitialization to change audio source
+     */
+    fun setFilterMode(mode: FilterMode) {
+        if (currentFilterMode == mode) {
+            Log.d(TAG, "FX mode already $mode, skipping")
+            return
+        }
+
+        Log.d(TAG, "FX changing mode: $currentFilterMode → $mode")
+        currentFilterMode = mode
+
+        // If recording, reinitialize AudioRecord with new source
+        if (isRecording) {
+            Log.d(TAG, "FX reinitializing AudioRecord for new mode")
+            streamScope.launch {
+                delay(100)
+                initializeAudioRecord()
+            }
+        }
+    }
+
+    /**
+     * Record one chunk and send via WebSocket (Этап A - with metrics)
      */
     private suspend fun recordAndSendChunk() {
         try {
-            Log.d(TAG, "Recording chunk #$sequence ...")
-
             val audioData = recordChunk()
             if (audioData == null || audioData.isEmpty()) {
-                Log.w(TAG, "No audio data recorded for chunk #$sequence")
-                RemoteLogger.warn(
-                    serverUrl = serverUrl,
-                    deviceId = deviceId,
-                    source = TAG,
-                    message = "No audio data recorded for chunk",
-                    meta = mapOf("sequence" to sequence)
-                )
+                if (sequence < 5) { // Log only first few failures
+                    Log.w(TAG, "AUDIO no data for chunk #$sequence")
+                }
                 return
             }
 
             if (!webSocketConnected) {
-                Log.w(TAG, "WebSocket unavailable, skipping chunk #$sequence")
                 if (!hasReportedMissingWebSocket) {
+                    Log.w(TAG, "AUDIO WS unavailable, skipping chunk #$sequence")
                     RemoteLogger.warn(
                         serverUrl = serverUrl,
                         deviceId = deviceId,
@@ -344,8 +391,17 @@ class AudioStreamRecorder(
                 audioData = audioData,
                 recording = recordingMode,
                 onSuccess = {
-                    Log.d(TAG, "Chunk #$sequence sent successfully (${audioData.size} bytes)")
+                    totalBytesSent += audioData.size
                     hasReportedMissingWebSocket = false
+
+                    // Этап A: Log bytes/s every ~1 second
+                    val now = System.currentTimeMillis()
+                    if (now - lastMetricsLogTime >= 1000) {
+                        val bytesPerSec = totalBytesSent - (totalBytesSent - audioData.size)
+                        Log.d(TAG, "AUDIO send ${audioData.size} bytes, total: ${totalBytesSent}B, ~${bytesPerSec}B/s")
+                        lastMetricsLogTime = now
+                    }
+
                     if (sequence == 0) {
                         RemoteLogger.info(
                             serverUrl = serverUrl,
@@ -357,7 +413,7 @@ class AudioStreamRecorder(
                     }
                 },
                 onError = { error ->
-                    Log.e(TAG, "Failed to send chunk #$sequence: $error")
+                    Log.e(TAG, "AUDIO send chunk #$sequence FAILED: $error")
                     RemoteLogger.error(
                         serverUrl = serverUrl,
                         deviceId = deviceId,
@@ -371,7 +427,7 @@ class AudioStreamRecorder(
 
             sequence++
         } catch (e: Exception) {
-            Log.e(TAG, "Error recording/sending chunk #$sequence", e)
+            Log.e(TAG, "AUDIO chunk #$sequence ERROR", e)
             RemoteLogger.error(
                 serverUrl = serverUrl,
                 deviceId = deviceId,
@@ -384,22 +440,28 @@ class AudioStreamRecorder(
     }
 
     /**
-     * Initialize AudioRecord
+     * Initialize AudioRecord (Этап A+B - with system effects)
      */
     private fun initializeAudioRecord() {
         try {
             releaseRecorder()
 
+            val minBuf = AudioRecord.getMinBufferSize(SAMPLE_RATE, CHANNEL_CONFIG, AUDIO_FORMAT)
+            val actualBuf = minBuf * 2 // Этап A: minBuf * 2
+
+            // Этап B: Select audio source based on filter mode
+            val audioSource = SystemAudioEffects.getAudioSourceForMode(currentFilterMode)
+
             audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
+                audioSource,
                 SAMPLE_RATE,
                 CHANNEL_CONFIG,
                 AUDIO_FORMAT,
-                bufferSize * 4 // Increased buffer size
+                actualBuf
             )
 
             if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                Log.e(TAG, "AudioRecord failed to initialize")
+                Log.e(TAG, "AUDIO record init FAILED")
                 RemoteLogger.error(
                     serverUrl = serverUrl,
                     deviceId = deviceId,
@@ -410,17 +472,39 @@ class AudioStreamRecorder(
                 return
             }
 
+            sessionId = audioRecord?.audioSessionId ?: 0
+
+            // Этап B: Apply system audio effects
+            systemAudioEffects = SystemAudioEffects(sessionId)
+            systemAudioEffects?.checkAvailability()
+            systemAudioEffects?.applyMode(currentFilterMode)
+
             audioRecord?.startRecording()
-            Log.d(TAG, "AudioRecord initialized and started")
+
+            // Этап A: Required log
+            val sourceName = when (audioSource) {
+                MediaRecorder.AudioSource.MIC -> "MIC"
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION -> "VOICE_COMMUNICATION"
+                else -> "UNKNOWN($audioSource)"
+            }
+            Log.d(TAG, "AUDIO record init sid=$sessionId, minBuf=$minBuf, actualBuf=$actualBuf, frame=${FRAME_BYTES}B, src=$sourceName, mode=$currentFilterMode")
             RemoteLogger.info(
                 serverUrl = serverUrl,
                 deviceId = deviceId,
                 source = TAG,
-                message = "AudioRecord initialized and started",
-                meta = mapOf("bufferSize" to bufferSize)
+                message = "AudioRecord initialized with system effects",
+                meta = mapOf(
+                    "sessionId" to sessionId,
+                    "minBuf" to minBuf,
+                    "actualBuf" to actualBuf,
+                    "frameBytes" to FRAME_BYTES,
+                    "sampleRate" to SAMPLE_RATE,
+                    "audioSource" to sourceName,
+                    "filterMode" to currentFilterMode.name
+                )
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Error initializing AudioRecord", e)
+            Log.e(TAG, "AUDIO init ERROR: ${e.message}", e)
             RemoteLogger.error(
                 serverUrl = serverUrl,
                 deviceId = deviceId,
@@ -433,62 +517,92 @@ class AudioStreamRecorder(
     }
 
     /**
-     * Record a single chunk of audio
+     * Record a single chunk of audio (Этап A - 20ms frames = 640 bytes)
      */
     private fun recordChunk(): ByteArray? {
-        val samplesToRecord = (SAMPLE_RATE * CHUNK_DURATION_MS / 1000).toInt()
-        val bytesPerSample = 2 // 16-bit PCM
-        val chunkSizeInBytes = samplesToRecord * bytesPerSample
+        val buffer = ByteArray(FRAME_BYTES) // 640 bytes for 20ms at 16kHz
 
-        val buffer = ByteArray(chunkSizeInBytes)
-        var totalRead = 0
+        try {
+            val read = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                audioRecord?.read(buffer, 0, FRAME_BYTES, AudioRecord.READ_BLOCKING) ?: -1
+            } else {
+                audioRecord?.read(buffer, 0, FRAME_BYTES) ?: -1
+            }
 
-        while (totalRead < chunkSizeInBytes && isRecording) {
-            try {
-                val toRead = minOf(1024, chunkSizeInBytes - totalRead)
-                val read = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                    audioRecord?.read(buffer, totalRead, toRead, AudioRecord.READ_BLOCKING) ?: -1
-                } else {
-                    audioRecord?.read(buffer, totalRead, toRead) ?: -1
-                }
-
-                if (read <= 0) {
-                    Log.w(TAG, "AudioRecord.read returned: $read")
-                    break
-                }
-
-                totalRead += read
-            } catch (e: Exception) {
-                Log.e(TAG, "Error reading from AudioRecord", e)
+            // Check for critical errors
+            if (read == AudioRecord.ERROR_INVALID_OPERATION || read == AudioRecord.ERROR_DEAD_OBJECT) {
+                Log.e(TAG, "AUDIO read ERROR: $read (reinit required)")
                 RemoteLogger.error(
                     serverUrl = serverUrl,
                     deviceId = deviceId,
                     source = TAG,
-                    message = "Error reading from AudioRecord",
-                    throwable = e
+                    message = "AudioRecord.read error: $read - will reinitialize"
                 )
-                break
+                // Этап A: Full reinitialization on errors
+                streamScope.launch {
+                    delay(100) // Small delay before reinit
+                    initializeAudioRecord()
+                }
+                return null
             }
-        }
 
-        return if (totalRead > 0) buffer else null
+            // Check for empty read
+            if (read <= 0) {
+                Log.w(TAG, "AUDIO read returned: $read")
+                return null
+            }
+
+            // Check for partial frame
+            if (read < FRAME_BYTES) {
+                // Этап A: Send actual size if less than expected
+                Log.d(TAG, "AUDIO partial frame: $read bytes (expected $FRAME_BYTES)")
+                return buffer.copyOf(read)
+            }
+
+            // Full frame read successfully
+            return buffer
+
+        } catch (e: Exception) {
+            Log.e(TAG, "AUDIO read exception", e)
+            RemoteLogger.error(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "Error reading from AudioRecord",
+                throwable = e
+            )
+            return null
+        }
     }
 
     /**
-     * Release AudioRecord resources
+     * Release AudioRecord resources (Этап A+B - with effects cleanup)
      */
     private fun releaseRecorder() {
         try {
+            // Этап B: Release system effects first
+            systemAudioEffects?.releaseEffects()
+            systemAudioEffects = null
+
             audioRecord?.let { recorder ->
-                if (recorder.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
-                    recorder.stop()
+                try {
+                    val state = recorder.recordingState
+                    if (state == AudioRecord.RECORDSTATE_RECORDING) {
+                        recorder.stop()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "AUDIO stop() error (ignored)", e)
                 }
-                recorder.release()
+
+                try {
+                    recorder.release()
+                } catch (e: Exception) {
+                    Log.w(TAG, "AUDIO release() error (ignored)", e)
+                }
             }
+        } finally {
             audioRecord = null
-            Log.d(TAG, "AudioRecord released")
-        } catch (e: Exception) {
-            Log.e(TAG, "Error releasing AudioRecord", e)
+            sessionId = 0
         }
     }
 

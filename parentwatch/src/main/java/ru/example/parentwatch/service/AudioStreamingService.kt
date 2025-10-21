@@ -23,7 +23,7 @@ import ru.example.parentwatch.network.NetworkHelper
 class AudioStreamingService : Service() {
 
     companion object {
-        private const val TAG = "AudioStreamingService"
+        private const val TAG = "AUDIO" // Этап A: unified tag
         private const val NOTIFICATION_ID = 2002
         private const val CHANNEL_ID = "audio_streaming_channel"
 
@@ -92,12 +92,13 @@ class AudioStreamingService : Service() {
             return
         }
 
-        Log.d(TAG, "🎙️ Starting audio streaming in foreground service")
+        Log.d(TAG, "Starting audio streaming in foreground service")
 
-        // Start foreground with notification
+        // Этап A: MUST call startForeground BEFORE initializing AudioRecord
         startForeground(NOTIFICATION_ID, createNotification("Отправка аудио активна"))
+        Log.d(TAG, "AUDIO startForeground ok") // Этап A: Required log
 
-        // Initialize audio recorder
+        // Initialize audio recorder AFTER startForeground
         networkHelper?.let { helper ->
             audioStreamRecorder = AudioStreamRecorder(this, helper)
             audioStreamRecorder?.startStreaming(deviceId, serverUrl, recordingMode)

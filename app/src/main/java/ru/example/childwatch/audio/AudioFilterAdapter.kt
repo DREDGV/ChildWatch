@@ -11,8 +11,8 @@ import ru.example.childwatch.R
 
 class AudioFilterAdapter(
     private val items: List<AudioFilterItem>,
-    private var selectedMode: AudioEnhancer.FilterMode,
-    private val onFilterSelected: (AudioEnhancer.FilterMode) -> Unit
+    private var selectedMode: FilterMode,
+    private val onFilterSelected: (FilterMode) -> Unit
 ) : RecyclerView.Adapter<AudioFilterAdapter.FilterViewHolder>() {
 
     inner class FilterViewHolder(view: View) : RecyclerView.ViewHolder(view) {
@@ -50,7 +50,7 @@ class AudioFilterAdapter(
 
     override fun getItemCount(): Int = items.size
 
-    fun setSelectedMode(mode: AudioEnhancer.FilterMode) {
+    fun setSelectedMode(mode: FilterMode) {
         selectedMode = mode
         notifyDataSetChanged()
     }
