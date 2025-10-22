@@ -11,6 +11,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioFormat
+import android.media.AudioManager
 import android.media.AudioTrack
 import android.net.wifi.WifiManager
 import android.os.Binder
@@ -50,15 +51,16 @@ class AudioPlaybackService : LifecycleService() {
         private const val NOTIFICATION_ID = 3001
         private const val CHANNEL_ID = "audio_playback_channel"
 
-        // Этап A: Optimized for 16 kHz, 20ms frames
-        private const val STREAM_SAMPLE_RATE = 16_000   // 16 kHz (was 44100)
+        // Этап A: Optimized for 22.05 kHz, 20ms frames (Task 4: improved quality)
+        private const val STREAM_SAMPLE_RATE = 22_050   // 22.05 kHz
         private const val STREAM_CHANNEL_COUNT = 1       // MONO
         private const val FRAME_MS = 20                  // 20ms frames
-        private const val FRAME_BYTES = (STREAM_SAMPLE_RATE * FRAME_MS / 1000) * 2 // 640 bytes
+        private const val FRAME_BYTES = (STREAM_SAMPLE_RATE * FRAME_MS / 1000) * 2 // 882 bytes
 
         // Jitter buffer: 150-220 ms = 8-11 frames of 20ms
         private const val JITTER_BUFFER_MIN_FRAMES = 8   // 160 ms
-        private const val JITTER_BUFFER_MAX_FRAMES = 100 // Max queue size (2 sec)
+        private const val JITTER_BUFFER_MAX_FRAMES = 50  // Max queue size (1 sec)
+        private const val JITTER_BUFFER_AGGRESSIVE_THRESHOLD = 15 // Trigger aggressive drop (300ms)
 
         const val ACTION_START_PLAYBACK = "ru.example.childwatch.START_PLAYBACK"
         const val ACTION_STOP_PLAYBACK = "ru.example.childwatch.STOP_PLAYBACK"
@@ -128,6 +130,10 @@ class AudioPlaybackService : LifecycleService() {
     private var streamRecorder: StreamRecorder? = null
     private var localRecordingActive = false
 
+    // Improvement: Audio Focus for handling calls/notifications
+    private var audioManager: AudioManager? = null
+    private var wasPlayingBeforeFocusLoss = false
+
     private val filterModeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
             if (intent?.action == "ru.example.childwatch.UPDATE_FILTER_MODE") {
@@ -144,6 +150,43 @@ class AudioPlaybackService : LifecycleService() {
             }
         }
     }
+
+    // Improvement: Audio focus listener to pause on calls/notifications
+    private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
+        when (focusChange) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                // Lost focus for unknown duration - stop playback
+                Log.w(TAG, "🎵 AUDIOFOCUS_LOSS - stopping playback")
+                wasPlayingBeforeFocusLoss = isPlaying
+                stopPlayback()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                // Lost focus temporarily (e.g., incoming call)
+                Log.w(TAG, "🎵 AUDIOFOCUS_LOSS_TRANSIENT - pausing temporarily")
+                wasPlayingBeforeFocusLoss = isPlaying
+                pausePlayback()
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                // Lost focus but can reduce volume
+                Log.i(TAG, "🎵 AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK - reducing volume")
+                audioTrack?.setVolume(0.3f) // Duck to 30% volume
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                // Regained focus
+                Log.i(TAG, "🎵 AUDIOFOCUS_GAIN - resumed")
+                audioTrack?.setVolume(1.0f) // Restore volume
+                // Optionally resume if it was playing before
+                if (wasPlayingBeforeFocusLoss && !isPlaying) {
+                    Log.d(TAG, "Resuming playback after focus regained")
+                    // Note: Full resume might need manual action from user
+                }
+            }
+            else -> {
+                Log.d(TAG, "🎵 Unknown audio focus change: $focusChange")
+            }
+        }
+    }
+
     private val mainHandler: Handler = Handler(Looper.getMainLooper())
 
     private var deviceId: String? = null
@@ -191,6 +234,11 @@ class AudioPlaybackService : LifecycleService() {
 
     fun getAudioEnhancerConfig(): AudioEnhancer.Config = audioEnhancer.getConfig()
 
+    fun setAudioEnhancerConfig(config: AudioEnhancer.Config) {
+        audioEnhancer.updateConfig(config)
+        Log.d(TAG, "AudioEnhancer config updated: volumeMode=${config.volumeMode}")
+    }
+
     override fun onBind(intent: Intent): IBinder {
         super.onBind(intent)
         return binder
@@ -228,6 +276,10 @@ class AudioPlaybackService : LifecycleService() {
             WifiManager.WIFI_MODE_FULL_HIGH_PERF,
             "ChildWatch::AudioWifiLock"
         )
+
+        // Improvement: Initialize AudioManager for audio focus handling
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        Log.d(TAG, "🎵 AudioManager initialized for audio focus handling")
     }
 
     private fun loadFilterMode() {
@@ -321,6 +373,18 @@ class AudioPlaybackService : LifecycleService() {
             wifiLock?.acquire()
             Log.d(TAG, "📶 WiFi Lock acquired (FULL_HIGH_PERF mode)")
 
+            // Improvement: Request audio focus to handle calls/notifications
+            val focusResult = audioManager?.requestAudioFocus(
+                audioFocusListener,
+                AudioManager.STREAM_MUSIC,
+                AudioManager.AUDIOFOCUS_GAIN
+            )
+            if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
+                Log.d(TAG, "🎵 Audio focus granted")
+            } else {
+                Log.w(TAG, "🎵 Audio focus NOT granted (other app playing?)")
+            }
+
             lifecycleScope.launch {
                 try {
                     // Inform server that parent is listening before starting playback
@@ -389,6 +453,30 @@ class AudioPlaybackService : LifecycleService() {
         }
     }
 
+    /**
+     * Pause playback temporarily (for incoming calls, etc.)
+     * Can be resumed without full reconnection
+     */
+    private fun pausePlayback() {
+        Log.d(TAG, "⏸️ Pausing audio playback")
+        isPlaying = false
+
+        // Stop playback job but keep everything else
+        playbackJob?.cancel()
+        playbackJob = null
+
+        // Pause audio track
+        try {
+            audioTrack?.pause()
+            audioTrack?.flush()
+            Log.d(TAG, "✅ AudioTrack paused")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error pausing AudioTrack", e)
+        }
+
+        // Note: Keep the same status (PLAYING) so we know to resume
+    }
+
     private fun stopPlayback() {
         Log.d(TAG, "🛑 Stopping audio playback")
 
@@ -447,6 +535,14 @@ class AudioPlaybackService : LifecycleService() {
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing WiFi Lock", e)
+        }
+
+        // Improvement: Release audio focus so other apps can play
+        try {
+            audioManager?.abandonAudioFocus(audioFocusListener)
+            Log.d(TAG, "🎵 Audio focus abandoned")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error abandoning audio focus", e)
         }
 
         // Reset all state
@@ -623,6 +719,17 @@ class AudioPlaybackService : LifecycleService() {
             webSocketClient?.setAudioChunkCallback { audioData, sequence, timestamp ->
                 totalBytesReceived += audioData.size
 
+                // Task 2: Aggressive drop if queue grows too large
+                val currentQueueSize = chunkQueue.size
+                if (currentQueueSize > JITTER_BUFFER_AGGRESSIVE_THRESHOLD) {
+                    // Drop multiple frames to return to optimal size (8-11)
+                    val framesToDrop = currentQueueSize - JITTER_BUFFER_MIN_FRAMES
+                    repeat(framesToDrop) {
+                        chunkQueue.poll()
+                    }
+                    Log.w(TAG, "AUDIO aggressive drop: queue was $currentQueueSize, dropped $framesToDrop frames")
+                }
+
                 // Этап A: offer() to queue; if full, drop oldest (head)
                 val added = chunkQueue.offer(audioData)
                 if (!added) {
@@ -645,7 +752,14 @@ class AudioPlaybackService : LifecycleService() {
                     val queueDepth = chunkQueue.size
                     val bytesPerSecond = (totalBytesReceived * 1000) / (now - streamingStartTime).coerceAtLeast(1)
 
-                    Log.d(TAG, "AUDIO recv queueDepth=$queueDepth, bytes/s=$bytesPerSecond, total=${totalBytesReceived}B, underruns=$underrunCount")
+                    // Task 2: Enhanced logging with queue health status
+                    val queueStatus = when {
+                        queueDepth in 8..11 -> "OPTIMAL"
+                        queueDepth < 8 -> "LOW"
+                        queueDepth > JITTER_BUFFER_AGGRESSIVE_THRESHOLD -> "HIGH"
+                        else -> "OK"
+                    }
+                    Log.d(TAG, "AUDIO recv queueDepth=$queueDepth [$queueStatus], bytes/s=$bytesPerSecond, total=${totalBytesReceived}B, underruns=$underrunCount")
 
                     // Этап D: Update metrics manager
                     metricsManager.updateDataRate(bytesPerSecond, chunksReceived.toLong())

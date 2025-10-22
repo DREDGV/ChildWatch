@@ -347,77 +347,157 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Этап D: Compact Diagnostics HUD -->
+        <!-- Enhanced Diagnostics HUD (2 rows) - Improved visibility -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/diagnosticsHud"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="8dp"
-            app:cardElevation="2dp"
+            app:cardElevation="4dp"
             app:cardCornerRadius="8dp"
-            app:cardBackgroundColor="#1A000000">
+            app:cardBackgroundColor="#DD000000">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:padding="8dp"
-                android:gravity="center_vertical">
+                android:orientation="vertical"
+                android:padding="10dp">
 
-                <!-- WS Status -->
-                <TextView
-                    android:id="@+id/hudWsStatus"
-                    android:layout_width="0dp"
+                <!-- Row 1: Connection & Network -->
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="1.2"
-                    android:text="🔴 —"
-                    android:textSize="11sp"
-                    android:textColor="@android:color/white"
-                    android:gravity="center"/>
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
 
-                <!-- Network -->
-                <TextView
-                    android:id="@+id/hudNetwork"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="📡 —"
-                    android:textSize="11sp"
-                    android:textColor="@android:color/white"
-                    android:gravity="center"/>
+                    <!-- WS Status + Session Time -->
+                    <TextView
+                        android:id="@+id/hudWsStatus"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1.5"
+                        android:text="🔴 —"
+                        android:textSize="13sp"
+                        android:textColor="@android:color/white"
+                        android:shadowColor="#000000"
+                        android:shadowRadius="2"
+                        android:gravity="center"/>
 
-                <!-- Data Rate -->
-                <TextView
-                    android:id="@+id/hudDataRate"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1.2"
-                    android:text="▼ —"
-                    android:textSize="11sp"
-                    android:textColor="@android:color/white"
-                    android:gravity="center"/>
+                    <!-- Network Type -->
+                    <TextView
+                        android:id="@+id/hudNetwork"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="📡 —"
+                        android:textSize="13sp"
+                        android:textColor="@android:color/white"
+                        android:shadowColor="#000000"
+                        android:shadowRadius="2"
+                        android:gravity="center"/>
 
-                <!-- Queue -->
-                <TextView
-                    android:id="@+id/hudQueue"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Q:—"
-                    android:textSize="11sp"
-                    android:textColor="@android:color/white"
-                    android:gravity="center"/>
+                    <!-- Data Rate -->
+                    <TextView
+                        android:id="@+id/hudDataRate"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1.2"
+                        android:text="▼ —"
+                        android:textSize="13sp"
+                        android:textColor="@android:color/white"
+                        android:shadowColor="#000000"
+                        android:shadowRadius="2"
+                        android:gravity="center"/>
 
-                <!-- Ping -->
-                <TextView
-                    android:id="@+id/hudPing"
-                    android:layout_width="0dp"
+                    <!-- Ping -->
+                    <TextView
+                        android:id="@+id/hudPing"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="0.8"
+                        android:text="—ms"
+                        android:textSize="13sp"
+                        android:textColor="@android:color/white"
+                        android:shadowColor="#000000"
+                        android:shadowRadius="2"
+                        android:gravity="center"/>
+
+                    <!-- Battery -->
+                    <TextView
+                        android:id="@+id/hudBattery"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="🔋 —"
+                        android:textSize="13sp"
+                        android:textColor="@android:color/white"
+                        android:shadowColor="#000000"
+                        android:shadowRadius="2"
+                        android:gravity="center"/>
+
+                </LinearLayout>
+
+                <!-- Row 2: Audio & Quality -->
+                <LinearLayout
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_weight="0.8"
-                    android:text="—ms"
-                    android:textSize="11sp"
-                    android:textColor="@android:color/white"
-                    android:gravity="center"/>
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:layout_marginTop="4dp">
+
+                    <!-- Audio Status -->
+                    <TextView
+                        android:id="@+id/hudAudioStatus"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1.2"
+                        android:text="⏸ —"
+                        android:textSize="13sp"
+                        android:textColor="@android:color/white"
+                        android:shadowColor="#000000"
+                        android:shadowRadius="2"
+                        android:gravity="center"/>
+
+                    <!-- Queue + Underruns -->
+                    <TextView
+                        android:id="@+id/hudQueue"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1.5"
+                        android:text="Q:—"
+                        android:textSize="13sp"
+                        android:textColor="@android:color/white"
+                        android:shadowColor="#000000"
+                        android:shadowRadius="2"
+                        android:gravity="center"/>
+
+                    <!-- Total Data -->
+                    <TextView
+                        android:id="@+id/hudTotalData"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1.2"
+                        android:text="Σ —"
+                        android:textSize="13sp"
+                        android:textColor="@android:color/white"
+                        android:shadowColor="#000000"
+                        android:shadowRadius="2"
+                        android:gravity="center"/>
+
+                    <!-- Sample Rate -->
+                    <TextView
+                        android:id="@+id/hudSampleRate"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1.1"
+                        android:text="♫ —"
+                        android:textSize="13sp"
+                        android:textColor="@android:color/white"
+                        android:shadowColor="#000000"
+                        android:shadowRadius="2"
+                        android:gravity="center"/>
+
+                </LinearLayout>
 
             </LinearLayout>
 
@@ -462,6 +542,16 @@
                         android:textSize="12sp"
                         app:icon="@android:drawable/ic_menu_view"
                         app:iconSize="16dp"
+                        style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                    <!-- Volume Mode Selector -->
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/volumeModeBtn"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="🔉 Тихо"
+                        android:textSize="12sp"
+                        android:layout_marginStart="8dp"
                         style="@style/Widget.Material3.Button.OutlinedButton" />
 
                 </LinearLayout>

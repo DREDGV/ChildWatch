@@ -16,14 +16,31 @@ class AudioEnhancer {
 
     private val shortBuffer = ThreadLocal.withInitial { ShortArray(0) }
 
+    /**
+     * Volume boost modes (like "Где мои дети")
+     */
+    enum class VolumeMode {
+        QUIET,   // x1.0 - original, no amplification
+        NORMAL,  // x1.5 - moderate amplification
+        LOUD     // x3.0 - maximum amplification
+    }
+
     data class Config(
         val mode: FilterMode = FilterMode.ORIGINAL,
+        val volumeMode: VolumeMode = VolumeMode.NORMAL,
         val noiseSuppressionEnabled: Boolean = true,
         val gainBoostDb: Int = 0,
         val compressionEnabled: Boolean = false
     ) {
         val hasGain: Boolean = gainBoostDb != 0
         val gainMultiplier: Float = 10.0f.pow(gainBoostDb / 20f)
+
+        // Volume amplification multiplier
+        val volumeMultiplier: Float = when (volumeMode) {
+            VolumeMode.QUIET -> 1.0f
+            VolumeMode.NORMAL -> 1.5f
+            VolumeMode.LOUD -> 3.0f
+        }
     }
 
     fun updateConfig(newConfig: Config) {
@@ -34,11 +51,42 @@ class AudioEnhancer {
 
     fun process(chunk: ByteArray): ByteArray {
         // Этап B: Filtering now happens on sender side (ParentWatch) using system effects
-        // Receiver (ChildWatch) just passes through audio unchanged
-        // This prevents double-processing and maintains quality
+        // Receiver (ChildWatch) applies volume amplification only
 
-        // Simple pass-through - no modifications
-        return chunk
+        val currentConfig = config
+        val volumeMult = currentConfig.volumeMultiplier
+
+        // If no amplification needed, pass through
+        if (volumeMult == 1.0f) {
+            return chunk
+        }
+
+        // Apply volume amplification
+        return applyVolumeAmplification(chunk, volumeMult)
+    }
+
+    /**
+     * Apply volume amplification with clipping prevention
+     */
+    private fun applyVolumeAmplification(chunk: ByteArray, multiplier: Float): ByteArray {
+        if (multiplier == 1.0f) return chunk
+
+        // Convert bytes to shorts (16-bit PCM)
+        val buffer = ByteBuffer.wrap(chunk).order(ByteOrder.LITTLE_ENDIAN)
+        val output = ByteArray(chunk.size)
+        val outputBuffer = ByteBuffer.wrap(output).order(ByteOrder.LITTLE_ENDIAN)
+
+        while (buffer.remaining() >= 2) {
+            val sample = buffer.short.toInt()
+
+            // Apply amplification with clipping
+            val amplified = (sample * multiplier).toInt()
+            val clipped = amplified.coerceIn(-32768, 32767)
+
+            outputBuffer.putShort(clipped.toShort())
+        }
+
+        return output
     }
 
     /**

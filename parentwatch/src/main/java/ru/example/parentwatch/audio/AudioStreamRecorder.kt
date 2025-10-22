@@ -36,14 +36,14 @@ class AudioStreamRecorder(
         private const val TAG = "AUDIO"
 
         // Optimized for low-latency voice streaming (Этап A)
-        private const val SAMPLE_RATE = 16_000          // 16 kHz for voice (was 44100)
+        private const val SAMPLE_RATE = 22_050          // 22.05 kHz (Task 4: improved quality)
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
         private const val CHUNK_DURATION_MS = 20L       // 20ms frames (was 500ms)
 
-        // Frame size: 16000 * 20 / 1000 = 320 samples; 320 * 2 bytes = 640 bytes
-        private const val FRAME_SAMPLES = (SAMPLE_RATE * CHUNK_DURATION_MS / 1000).toInt() // 320
-        private const val FRAME_BYTES = FRAME_SAMPLES * 2 // 640 bytes per frame
+        // Frame size: 22050 * 20 / 1000 = 441 samples; 441 * 2 bytes = 882 bytes
+        private const val FRAME_SAMPLES = (SAMPLE_RATE * CHUNK_DURATION_MS / 1000).toInt() // 441
+        private const val FRAME_BYTES = FRAME_SAMPLES * 2 // 882 bytes per frame
 
         // Reconnection strategy with exponential backoff
         private const val RECONNECTION_DELAY_MS = 1_000L
@@ -476,8 +476,14 @@ class AudioStreamRecorder(
 
             // Этап B: Apply system audio effects
             systemAudioEffects = SystemAudioEffects(sessionId)
-            systemAudioEffects?.checkAvailability()
+            val availability = systemAudioEffects?.checkAvailability()
+            Log.d(TAG, "FX availability: NS=${availability?.noiseSuppressor}, AGC=${availability?.automaticGainControl}, AEC=${availability?.acousticEchoCanceler}")
+
             systemAudioEffects?.applyMode(currentFilterMode)
+
+            // Verify effects are actually enabled
+            val status = systemAudioEffects?.getStatus()
+            Log.d(TAG, "FX status after apply: mode=${status?.mode}, NS=${status?.nsEnabled}, AGC=${status?.agcEnabled}, AEC=${status?.aecEnabled}")
 
             audioRecord?.startRecording()
 

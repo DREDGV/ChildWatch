@@ -3,11 +3,14 @@ package ru.example.childwatch
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.SharedPreferences
+import android.os.BatteryManager
 import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
+import android.view.WindowManager
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
@@ -17,7 +20,9 @@ import kotlinx.coroutines.launch
 import ru.example.childwatch.audio.AudioEnhancer
 import ru.example.childwatch.audio.FilterMode
 import ru.example.childwatch.databinding.ActivityAudioStreamingBinding
+import ru.example.childwatch.audio.AudioEnhancer.VolumeMode
 import ru.example.childwatch.diagnostics.AudioStreamMetrics
+import ru.example.childwatch.diagnostics.AudioStatus
 import ru.example.childwatch.diagnostics.WsStatus
 import ru.example.childwatch.diagnostics.NetworkType
 import ru.example.childwatch.diagnostics.PingStatus
@@ -52,7 +57,10 @@ class AudioStreamingActivity : AppCompatActivity() {
 
     // Audio Filter Management
     private var currentFilterMode = FilterMode.ORIGINAL
-    
+
+    // Volume Mode Management
+    private var currentVolumeMode = VolumeMode.NORMAL
+
     // Visualization
     private var currentVisualizationMode = AdvancedAudioVisualizer.VisualizationMode.FREQUENCY_BARS
     private val visualizationModes = listOf(
@@ -72,6 +80,7 @@ class AudioStreamingActivity : AppCompatActivity() {
             val binder = service as AudioPlaybackService.LocalBinder
             audioService = binder.getService()
             syncFilterModeWithService()
+            syncVolumeModeWithService()
             serviceBound = true
             Log.d(TAG, "Service connected")
 
@@ -156,6 +165,13 @@ class AudioStreamingActivity : AppCompatActivity() {
             FilterMode.ORIGINAL
         }
 
+        val savedVolumeMode = audioPrefs.getString("volume_mode", VolumeMode.NORMAL.name)
+        currentVolumeMode = try {
+            VolumeMode.valueOf(savedVolumeMode ?: VolumeMode.NORMAL.name)
+        } catch (e: IllegalArgumentException) {
+            VolumeMode.NORMAL
+        }
+
         val savedVisualization = audioPrefs.getString("visualization_mode", "FREQUENCY_BARS")
         currentVisualizationMode = try {
             AdvancedAudioVisualizer.VisualizationMode.valueOf(savedVisualization ?: "FREQUENCY_BARS")
@@ -169,6 +185,7 @@ class AudioStreamingActivity : AppCompatActivity() {
     private fun saveAudioSettings() {
         audioPrefs.edit()
             .putString("filter_mode", currentFilterMode.name)
+            .putString("volume_mode", currentVolumeMode.name)
             .putString("visualization_mode", currentVisualizationMode.name)
             .apply()
     }
@@ -181,6 +198,9 @@ class AudioStreamingActivity : AppCompatActivity() {
         
         // Setup visualization mode button
         setupVisualizationModeButton()
+
+        // Setup volume mode button
+        setupVolumeModeButton()
 
         // Start/Stop streaming button
         binding.toggleStreamingBtn.setOnClickListener {
@@ -280,12 +300,59 @@ class AudioStreamingActivity : AppCompatActivity() {
         updateVisualizationModeButton()
     }
 
+    private fun setupVolumeModeButton() {
+        binding.volumeModeBtn.setOnClickListener {
+            toggleVolumeMode()
+        }
+        updateVolumeModeButton()
+    }
+
+    private fun toggleVolumeMode() {
+        // Cycle through 3 modes: QUIET -> NORMAL -> LOUD -> QUIET
+        currentVolumeMode = when (currentVolumeMode) {
+            VolumeMode.QUIET -> VolumeMode.NORMAL
+            VolumeMode.NORMAL -> VolumeMode.LOUD
+            VolumeMode.LOUD -> VolumeMode.QUIET
+        }
+
+        // Update service with new volume mode
+        audioService?.let { service ->
+            val currentConfig = service.getAudioEnhancerConfig()
+            val newConfig = currentConfig.copy(volumeMode = currentVolumeMode)
+            service.setAudioEnhancerConfig(newConfig)
+        }
+
+        updateVolumeModeButton()
+        saveAudioSettings()
+
+        Log.d(TAG, "Volume mode changed to: $currentVolumeMode")
+    }
+
+    private fun updateVolumeModeButton() {
+        val (icon, text) = when (currentVolumeMode) {
+            VolumeMode.QUIET -> Pair("🔇", "Тихо")
+            VolumeMode.NORMAL -> Pair("🔉", "Средне")
+            VolumeMode.LOUD -> Pair("🔊", "Громко")
+        }
+        binding.volumeModeBtn.text = "$icon $text"
+    }
+
     private fun setFilterMode(mode: FilterMode) {
         currentFilterMode = mode
 
         // Update service with new filter mode
         if (AudioPlaybackService.isPlaying) {
             audioService?.setFilterMode(mode)
+
+            // Task 3: Send broadcast to ParentWatch to update SystemAudioEffects
+            try {
+                val intent = Intent("ru.example.childwatch.UPDATE_FILTER_MODE")
+                intent.putExtra("filter_mode", mode.name)
+                sendBroadcast(intent)
+                Log.d(TAG, "Filter mode broadcast sent to ParentWatch: $mode")
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending filter mode broadcast", e)
+            }
         }
 
         // Update UI
@@ -369,42 +436,59 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
     }
 
+    private fun syncVolumeModeWithService() {
+        audioService?.let { service ->
+            val currentConfig = service.getAudioEnhancerConfig()
+            val newConfig = currentConfig.copy(volumeMode = currentVolumeMode)
+            service.setAudioEnhancerConfig(newConfig)
+            Log.d(TAG, "Volume mode synced with service: $currentVolumeMode")
+        }
+    }
+
     private fun startStreaming() {
         Log.d(TAG, "Starting audio streaming...")
-        
+
+        // Improvement: Keep screen on during streaming to prevent system sleep
+        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        Log.d(TAG, "💡 Screen lock enabled - preventing sleep during streaming")
+
         // Start visualizer
         binding.advancedAudioVisualizer.start()
-        
+
         val intent = Intent(this, AudioPlaybackService::class.java).apply {
             action = AudioPlaybackService.ACTION_START_PLAYBACK
             putExtra(AudioPlaybackService.EXTRA_DEVICE_ID, deviceId)
             putExtra(AudioPlaybackService.EXTRA_SERVER_URL, serverUrl)
             putExtra(AudioPlaybackService.EXTRA_RECORDING, binding.recordingSwitch.isChecked)
         }
-        
+
         startForegroundService(intent)
         bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
-        
+
         streamingStartTime = System.currentTimeMillis()
         updateUI()
     }
 
     private fun stopStreaming() {
         Log.d(TAG, "Stopping audio streaming...")
-        
+
+        // Improvement: Allow screen to sleep when streaming stops
+        window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        Log.d(TAG, "💡 Screen lock disabled - allowing normal sleep")
+
         // Stop visualizer
         binding.advancedAudioVisualizer.stop()
-        
+
         val intent = Intent(this, AudioPlaybackService::class.java).apply {
             action = AudioPlaybackService.ACTION_STOP_PLAYBACK
         }
         startForegroundService(intent)
-        
+
         if (serviceBound) {
             unbindService(serviceConnection)
             serviceBound = false
         }
-        
+
         updateUI()
     }
 
@@ -507,10 +591,12 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     /**
-     * Этап D: Update HUD with metrics
+     * Enhanced HUD with 2 rows of detailed metrics
      */
     private fun updateHUD(metrics: AudioStreamMetrics) {
-        // WS Status with icon
+        // === ROW 1: Connection & Network ===
+
+        // WS Status with session time
         val wsIcon = when (metrics.wsStatus) {
             WsStatus.CONNECTED -> "🟢"
             WsStatus.CONNECTING -> "🟡"
@@ -520,7 +606,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         val duration = formatDuration(metrics.connectionDuration)
         binding.hudWsStatus.text = "$wsIcon $duration"
 
-        // Network
+        // Network Type
         val netIcon = when (metrics.networkType) {
             NetworkType.WIFI -> "📡"
             NetworkType.MOBILE -> "📱"
@@ -528,7 +614,7 @@ class AudioStreamingActivity : AppCompatActivity() {
             else -> "❌"
         }
         val networkText = if (metrics.networkName.isNotEmpty() && metrics.networkName != "Wi-Fi") {
-            metrics.networkName.take(5) // Truncate long names
+            metrics.networkName.take(5)
         } else {
             when (metrics.networkType) {
                 NetworkType.WIFI -> "WiFi"
@@ -543,18 +629,62 @@ class AudioStreamingActivity : AppCompatActivity() {
         val rateText = if (dataRateKB > 0) "${dataRateKB}KB/s" else "—"
         binding.hudDataRate.text = "▼ $rateText"
 
-        // Queue
-        val queueText = if (metrics.queueCapacity > 0) {
-            "${metrics.queueDepth}/${metrics.queueCapacity}"
-        } else {
-            "—"
-        }
-        binding.hudQueue.text = "Q:$queueText"
-
         // Ping
         val pingText = if (metrics.pingMs > 0) "${metrics.pingMs}ms" else "—"
         binding.hudPing.text = pingText
         binding.hudPing.setTextColor(getPingColor(metrics.pingStatus))
+
+        // Battery Level
+        val batteryLevel = getBatteryLevel()
+        val batteryIcon = when {
+            batteryLevel >= 80 -> "🔋"
+            batteryLevel >= 50 -> "🔋"
+            batteryLevel >= 20 -> "🪫"
+            else -> "🪫"
+        }
+        binding.hudBattery.text = "$batteryIcon $batteryLevel%"
+
+        // === ROW 2: Audio & Quality ===
+
+        // Audio Status
+        val audioIcon = when (metrics.audioStatus) {
+            AudioStatus.PLAYING -> "▶️"
+            AudioStatus.BUFFERING -> "⏳"
+            AudioStatus.RECORDING -> "🔴"
+            AudioStatus.ERROR -> "⚠️"
+            else -> "⏸"
+        }
+        val audioText = when (metrics.audioStatus) {
+            AudioStatus.PLAYING -> "Play"
+            AudioStatus.BUFFERING -> "Buf"
+            AudioStatus.RECORDING -> "Rec"
+            AudioStatus.ERROR -> "Err"
+            else -> "Stop"
+        }
+        binding.hudAudioStatus.text = "$audioIcon $audioText"
+
+        // Queue with underruns
+        val queueText = if (metrics.queueCapacity > 0) {
+            val underrunIndicator = if (metrics.underrunCount > 0) "⚠${metrics.underrunCount}" else ""
+            "Q:${metrics.queueDepth}/$underrunIndicator"
+        } else {
+            "Q:—"
+        }
+        binding.hudQueue.text = queueText
+
+        // Total Data Transferred (calculated from frames)
+        val totalBytes = metrics.framesTotal * metrics.frameSize
+        val totalMB = totalBytes / (1024.0 * 1024.0)
+        val totalText = when {
+            totalMB >= 1.0 -> "%.1fM".format(totalMB)
+            totalBytes > 0 -> "%.0fK".format(totalBytes / 1024.0)
+            else -> "—"
+        }
+        binding.hudTotalData.text = "Σ $totalText"
+
+        // Sample Rate
+        val sampleRateKHz = metrics.sampleRate / 1000.0
+        binding.hudSampleRate.text = "♫ %.1fk".format(sampleRateKHz)
     }
 
     /**
@@ -584,6 +714,29 @@ class AudioStreamingActivity : AppCompatActivity() {
             PingStatus.FAIR -> Color.parseColor("#FFFF00") // Yellow
             PingStatus.POOR -> Color.parseColor("#FF0000") // Red
             else -> Color.parseColor("#888888") // Gray
+        }
+    }
+
+    /**
+     * Get current battery level percentage
+     */
+    private fun getBatteryLevel(): Int {
+        return try {
+            val batteryStatus: Intent? = registerReceiver(
+                null,
+                IntentFilter(Intent.ACTION_BATTERY_CHANGED)
+            )
+            val level = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+            val scale = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+
+            if (level >= 0 && scale > 0) {
+                (level * 100 / scale.toFloat()).toInt()
+            } else {
+                0
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error getting battery level", e)
+            0
         }
     }
 }

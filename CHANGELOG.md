@@ -1,3 +1,30 @@
+﻿# Changelog
+
+All notable changes to ChildWatch will be documented in this file.
+
+This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [5.3.0 / 6.1.0] - 2025-10-22
+
+### Added
+- Three-level volume modes (Quiet, Normal, Loud) with a dedicated toggle button and persistent preferences.
+- Enhanced heads-up display that now shows connection status with session timer, network type, data rate, ping, battery level, audio state, queue health, total data transferred and sample rate.
+- Battery indicator on the listening screen so parents can monitor their own device while streaming.
+
+### Improved
+- Audio capture and playback run at 22.05 kHz with 20 ms frames, increasing voice clarity without sacrificing latency.
+- Jitter buffer management drops excess frames aggressively when the queue grows beyond the optimal window, keeping latency under control.
+- Audio focus handling pauses or ducks playback automatically during calls or system notifications and restores volume afterwards.
+
+### Fixed
+- Streaming service now holds a partial WakeLock to prevent the child device from suspending the CPU during long sessions.
+- System audio filter updates broadcast from ChildWatch are applied immediately on ParentWatch with additional diagnostics.
+
+### Technical
+- Added `AudioEnhancer.VolumeMode` on ChildWatch with efficient PCM amplification and clipping protection.
+- ParentWatch logs availability/status of Android audio effects and responds to `UPDATE_FILTER_MODE` broadcasts.
+- HUD layout updated to two rows with improved typography for readability in daylight.
+
 ## [5.2.0 / 4.4.0] - 2025-10-13
 
 ### Added
@@ -6,20 +33,14 @@
 - ChildWatch shows a dedicated "Child Device Status" card with live battery/charging stats and caches the last snapshot locally.
 
 ### Changed
-- ParentWatch location uploads use uploadLocationWithDeviceInfo and the foreground notification shows the current battery state.
-- Both Android apps send their BuildConfig version in the User-Agent header and bumped to ParentWatch v5.2.0 / ChildWatch v4.4.0.
+- ParentWatch location uploads use `uploadLocationWithDeviceInfo` and the foreground notification shows the current battery state.
+- Both Android apps send their `BuildConfig` version in the User-Agent header and bumped to ParentWatch v5.2.0 / ChildWatch v4.4.0.
 - Added a Gson dependency in ChildWatch for parsing the status payload.
-# Changelog
-
-Все значимые изменения в проекте ChildWatch будут документированы в этом файле.
-
-Формат основан на [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
-и проект следует [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [2.0.0] - 2025-01-05
 
 ### Added
-- **ParentWatch модуль** - приложение для ребенка с отслеживанием местоположения
+- **ParentWatch модуль** - приложение для ребёнка с отслеживанием местоположения
 - **QR-код генерация** для передачи ID устройства между приложениями
 - **Короткий формат ID** (4 символа: A1B2) для удобства
 - **Настоящий QR-код** с использованием ZXing библиотеки
@@ -53,7 +74,7 @@
   - Геолокация с картой
   - Аудиозапись и прослушивание
   - Фото и видео с камеры
-  - Чат между родителем и ребенком
+  - Чат между родителем и ребёнком
 - **Серверная часть** с SQLite базой данных
 - **REST API** для всех функций мониторинга
 - **Система безопасности**:
@@ -83,6 +104,6 @@
 - **Added** - новые функции
 - **Changed** - изменения в существующей функциональности
 - **Deprecated** - функции, которые будут удалены в будущих версиях
-- **Removed** - удаленные функции
+- **Removed** - удалённые функции
 - **Fixed** - исправления ошибок
 - **Security** - изменения, касающиеся безопасности

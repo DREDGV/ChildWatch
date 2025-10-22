@@ -45,7 +45,7 @@ data class AudioStreamMetrics(
 
     // Metadata
     val timestamp: Long = System.currentTimeMillis(),
-    val sampleRate: Int = 16000, // Hz
+    val sampleRate: Int = 22050, // Hz (Task 4: improved quality)
     val channelCount: Int = 1 // mono
 ) {
     /**
