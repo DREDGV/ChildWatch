@@ -71,6 +71,7 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var networkClient: NetworkClient
     private lateinit var securePreferences: SecurePreferences
     private val messages = mutableListOf<ChatMessage>()
+    private val currentUser = "child"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -141,7 +142,7 @@ class ChatActivity : AppCompatActivity() {
         val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         return prefs.getString("child_device_id", "") ?: ""
     }
-    
+
     private fun setupUI() {
         // Set up action bar
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
@@ -162,20 +163,20 @@ class ChatActivity : AppCompatActivity() {
         binding.sendButton.setOnClickListener {
             sendMessage()
         }
-        
+
         // Clear chat button
         binding.clearButton.setOnClickListener {
             clearChat()
         }
-        
-        // Test message button
-        binding.testButton.setOnClickListener {
-            sendTestMessage()
+
+        // Emoji button
+        binding.emojiButton.setOnClickListener {
+            showEmojiPicker()
         }
     }
-    
+
     private fun setupRecyclerView() {
-        chatAdapter = ChatAdapter(messages)
+        chatAdapter = ChatAdapter(messages, currentUser)
         binding.messagesRecyclerView.apply {
             layoutManager = LinearLayoutManager(this@ChatActivity).apply {
                 stackFromEnd = true // Показываем новые сообщения снизу
@@ -183,7 +184,7 @@ class ChatActivity : AppCompatActivity() {
             adapter = chatAdapter
         }
     }
-    
+
     private fun sendMessage() {
         val messageText = binding.messageInput.text.toString().trim()
         if (messageText.isEmpty()) {
@@ -218,7 +219,7 @@ class ChatActivity : AppCompatActivity() {
 
         Log.d(TAG, "Message sent: $messageText")
     }
-    
+
     private fun sendTestMessage() {
         val testMessages = listOf(
             "Привет! Как дела?",
@@ -232,14 +233,14 @@ class ChatActivity : AppCompatActivity() {
         binding.messageInput.setText(randomMessage)
         sendMessage()
     }
-    
+
     private fun clearChat() {
         messages.clear()
         chatAdapter.notifyDataSetChanged()
         chatManager.clearAllMessages()
         Toast.makeText(this, "Чат очищен", Toast.LENGTH_SHORT).show()
     }
-    
+
     private fun loadMessages() {
         val savedMessages = chatManager.getAllMessages()
         messages.clear()
@@ -335,7 +336,7 @@ class ChatActivity : AppCompatActivity() {
             }
         }
     }
-    
+
     /**
      * Initialize WebSocket connection via ChatBackgroundService
      */
@@ -423,12 +424,77 @@ class ChatActivity : AppCompatActivity() {
         Log.d(TAG, "Received message from $sender: $text")
         Toast.makeText(this, "💬 Новое сообщение от ${message.getSenderName()}", Toast.LENGTH_SHORT).show()
     }
-    
+
+    /**
+     * Show emoji picker dialog
+     */
+    private fun showEmojiPicker() {
+        val emojis = listOf(
+            "😊", "😂", "❤️", "👍", "👋", "🙏", "😍", "😢", "😭", "😡",
+            "🎉", "🎊", "🎈", "🎁", "⭐", "✨", "🔥", "💯", "✅", "❌",
+            "👶", "👦", "👧", "👨", "👩", "👪", "🏠", "🏫", "📚", "✏️",
+            "🍎", "🍕", "🍰", "🎮", "⚽", "🏀", "🎵", "📱", "💻", "🚗"
+        )
+
+        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+        builder.setTitle("Выберите emoji")
+
+        // Create grid layout for emojis
+        val gridLayout = android.widget.GridLayout(this).apply {
+            columnCount = 5
+            setPadding(24, 24, 24, 24)
+        }
+
+        emojis.forEach { emoji ->
+            val button = com.google.android.material.button.MaterialButton(
+                this,
+                null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle
+            ).apply {
+                text = emoji
+                textSize = 24f
+                val size = (48 * resources.displayMetrics.density).toInt()
+                layoutParams = android.widget.GridLayout.LayoutParams().apply {
+                    width = size
+                    height = size
+                    setMargins(8, 8, 8, 8)
+                }
+                setOnClickListener {
+                    // Insert emoji at cursor position
+                    val cursorPosition = binding.messageInput.selectionStart
+                    val currentText = binding.messageInput.text.toString()
+                    val newText = currentText.substring(0, cursorPosition) +
+                                 emoji +
+                                 currentText.substring(cursorPosition)
+                    binding.messageInput.setText(newText)
+                    binding.messageInput.setSelection(cursorPosition + emoji.length)
+
+                    // Close dialog
+                    (it.parent as? android.view.ViewGroup)?.let { parent ->
+                        var view: android.view.View? = parent
+                        while (view != null) {
+                            if (view is androidx.appcompat.app.AlertDialog) {
+                                view.dismiss()
+                                break
+                            }
+                            view = view.parent as? android.view.View
+                        }
+                    }
+                }
+            }
+            gridLayout.addView(button)
+        }
+
+        builder.setView(gridLayout)
+        builder.setNegativeButton("Закрыть", null)
+        builder.show()
+    }
+
     override fun onSupportNavigateUp(): Boolean {
         onBackPressed()
         return true
     }
-    
+
     override fun onDestroy() {
         super.onDestroy()
         chatManager.cleanup()

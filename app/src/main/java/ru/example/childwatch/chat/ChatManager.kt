@@ -24,30 +24,16 @@ class ChatManager(private val context: Context) {
      */
     fun saveMessage(message: ChatMessage) {
         try {
-            val messages = getAllMessages().toMutableList()
-            
-            // Добавляем новое сообщение
+            val messages = getAllMessages()
+                .filterNot { it.id == message.id }
+                .toMutableList()
+
             messages.add(message)
-            
-            // Ограничиваем количество сообщений
-            if (messages.size > MAX_MESSAGES) {
-                messages.removeAt(0) // Удаляем самое старое
-            }
-            
-            // Сохраняем в JSON формате
-            val jsonArray = JSONArray()
-            messages.forEach { msg ->
-                val jsonObject = JSONObject().apply {
-                    put("id", msg.id)
-                    put("text", msg.text)
-                    put("sender", msg.sender)
-                    put("timestamp", msg.timestamp)
-                    put("isRead", msg.isRead)
-                }
-                jsonArray.put(jsonObject)
-            }
-            
-            securePreferences.putString(MESSAGES_KEY, jsonArray.toString())
+            val limited = messages
+                .sortedBy { it.timestamp }
+                .takeLast(MAX_MESSAGES)
+
+            persistMessages(limited)
             Log.d(TAG, "Message saved: ${message.text}")
             
         } catch (e: Exception) {
@@ -66,18 +52,11 @@ class ChatManager(private val context: Context) {
             
             for (i in 0 until jsonArray.length()) {
                 val jsonObject = jsonArray.getJSONObject(i)
-                val message = ChatMessage(
-                    id = jsonObject.getString("id"),
-                    text = jsonObject.getString("text"),
-                    sender = jsonObject.getString("sender"),
-                    timestamp = jsonObject.getLong("timestamp"),
-                    isRead = jsonObject.getBoolean("isRead")
-                )
-                messages.add(message)
+                messages.add(ChatMessage.fromJson(jsonObject))
             }
             
             Log.d(TAG, "Loaded ${messages.size} messages")
-            return messages
+            return messages.sortedBy { it.timestamp }
             
         } catch (e: Exception) {
             Log.e(TAG, "Error loading messages", e)
@@ -102,31 +81,7 @@ class ChatManager(private val context: Context) {
      */
     fun markAsRead(messageId: String) {
         try {
-            val messages = getAllMessages().toMutableList()
-            val messageIndex = messages.indexOfFirst { it.id == messageId }
-            
-            if (messageIndex != -1) {
-                val message = messages[messageIndex]
-                val updatedMessage = message.copy(isRead = true)
-                messages[messageIndex] = updatedMessage
-                
-                // Сохраняем обновленный список
-                val jsonArray = JSONArray()
-                messages.forEach { msg ->
-                    val jsonObject = JSONObject().apply {
-                        put("id", msg.id)
-                        put("text", msg.text)
-                        put("sender", msg.sender)
-                        put("timestamp", msg.timestamp)
-                        put("isRead", msg.isRead)
-                    }
-                    jsonArray.put(jsonObject)
-                }
-                
-                securePreferences.putString(MESSAGES_KEY, jsonArray.toString())
-                Log.d(TAG, "Message marked as read: $messageId")
-            }
-            
+            updateMessageStatus(messageId, ChatMessage.MessageStatus.READ)
         } catch (e: Exception) {
             Log.e(TAG, "Error marking message as read", e)
         }
@@ -144,22 +99,9 @@ class ChatManager(private val context: Context) {
      */
     fun markAllAsRead() {
         try {
-            val messages = getAllMessages().map { it.copy(isRead = true) }
-
-            // Save updated list
-            val jsonArray = JSONArray()
-            messages.forEach { msg ->
-                val jsonObject = JSONObject().apply {
-                    put("id", msg.id)
-                    put("text", msg.text)
-                    put("sender", msg.sender)
-                    put("timestamp", msg.timestamp)
-                    put("isRead", msg.isRead)
-                }
-                jsonArray.put(jsonObject)
-            }
-
-            securePreferences.putString(MESSAGES_KEY, jsonArray.toString())
+            val messages = getAllMessages()
+                .map { it.withStatus(ChatMessage.MessageStatus.READ) }
+            persistMessages(messages)
             Log.d(TAG, "All messages marked as read")
 
         } catch (e: Exception) {
@@ -173,5 +115,33 @@ class ChatManager(private val context: Context) {
     fun cleanup() {
         // В данном случае ничего не нужно очищать
         Log.d(TAG, "ChatManager cleanup completed")
+    }
+
+    fun updateMessageStatus(messageId: String, status: ChatMessage.MessageStatus) {
+        try {
+            val updated = getAllMessages().map { msg ->
+                if (msg.id == messageId) msg.withStatus(status) else msg
+            }
+            persistMessages(updated)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating message status", e)
+        }
+    }
+
+    private fun persistMessages(messages: List<ChatMessage>) {
+        val jsonArray = JSONArray()
+        messages.forEach { msg ->
+            val jsonObject = JSONObject().apply {
+                put("id", msg.id)
+                put("text", msg.text)
+                put("sender", msg.sender)
+                put("timestamp", msg.timestamp)
+                put("isRead", msg.isRead)
+                put("status", msg.status.name)
+            }
+            jsonArray.put(jsonObject)
+        }
+
+        securePreferences.putString(MESSAGES_KEY, jsonArray.toString())
     }
 }

@@ -17,14 +17,19 @@ router.get('/messages/:deviceId', async (req, res) => {
         const dbManager = new DatabaseManager();
         await dbManager.initialize();
         
-        const messages = await dbManager.getChatMessages(deviceId, parseInt(limit), parseInt(offset));
+        const messages = await dbManager.getChatMessages(
+            deviceId,
+            parseInt(limit),
+            parseInt(offset)
+        );
         
         await dbManager.close();
         
         res.json({
             success: true,
             messages: messages.map(msg => ({
-                id: msg.id,
+                id: msg.client_id || msg.client_message_id || String(msg.id),
+                clientMessageId: msg.client_id || msg.client_message_id || String(msg.id),
                 sender: msg.sender,
                 message: msg.message,
                 timestamp: msg.timestamp,
@@ -45,7 +50,7 @@ router.get('/messages/:deviceId', async (req, res) => {
 // Send a chat message
 router.post('/messages', async (req, res) => {
     try {
-        const { deviceId, sender, message, timestamp } = req.body;
+        const { deviceId, sender, message, timestamp, id } = req.body;
         
         // Validate input
         if (!deviceId || !sender || !message) {
@@ -69,7 +74,8 @@ router.post('/messages', async (req, res) => {
             sender,
             message: message.trim(),
             timestamp: timestamp || Date.now(),
-            isRead: false
+            isRead: false,
+            id: id
         };
         
         const result = await dbManager.saveChatMessage(deviceId, messageData);

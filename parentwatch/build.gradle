@@ -11,8 +11,8 @@ android {
         applicationId "ru.example.parentwatch"
         minSdk 26
         targetSdk 34
-        versionCode 23
-        versionName "6.1.0"
+        versionCode 24
+        versionName "6.2.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         setProperty("archivesBaseName", "ChildDevice-v$versionName")
@@ -61,6 +61,7 @@ dependencies {
     // Networking
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
     implementation 'com.squareup.okhttp3:logging-interceptor:4.12.0'
+    implementation 'com.vanniktech:emoji-google:0.20.0'
 
     // WebSocket (Socket.IO)
     implementation 'io.socket:socket.io-client:2.1.0'

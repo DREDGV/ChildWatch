@@ -107,33 +107,35 @@
 
     </LinearLayout>
 
-    <!-- Action Buttons (for testing/clearing) -->
+    <!-- Action Buttons -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="horizontal"
         android:padding="8dp"
         android:background="@android:color/darker_gray"
-        android:gravity="center">
+        android:gravity="center_vertical">
 
         <com.google.android.material.button.MaterialButton
-            android:id="@+id/testButton"
-            android:layout_width="0dp"
+            android:id="@+id/emojiButton"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginEnd="4dp"
-            android:text="Тест"
-            android:textSize="12sp"
+            android:text="😊"
+            android:textSize="20sp"
             style="@style/Widget.Material3.Button.TextButton" />
+
+        <Space
+            android:layout_width="0dp"
+            android:layout_height="1dp"
+            android:layout_weight="1" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/clearButton"
-            android:layout_width="0dp"
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Очистить"
-            android:textSize="12sp"
-            style="@style/Widget.Material3.Button.TextButton" />
+            android:text="Очистить чат"
+            android:textSize="14sp"
+            style="@style/Widget.Material3.Button.OutlinedButton" />
 
     </LinearLayout>
 

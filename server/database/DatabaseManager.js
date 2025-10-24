@@ -17,12 +17,13 @@ class DatabaseManager {
    * Mark single chat message as read
    */
   async markMessageAsRead(messageId) {
+    const numericId = Number.parseInt(messageId, 10);
     const sql = `
             UPDATE chat_messages
             SET is_read = 1
-            WHERE id = ?
+            WHERE client_message_id = ? OR id = ?
         `;
-    return this.run(sql, [messageId]);
+    return this.run(sql, [messageId, Number.isNaN(numericId) ? -1 : numericId]);
   }
   constructor(dbPath = "./childwatch.db") {
     this.dbPath = dbPath;
@@ -123,6 +124,7 @@ class DatabaseManager {
                 message TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
                 is_read INTEGER DEFAULT 0,
+                client_message_id TEXT UNIQUE,
                 created_at INTEGER DEFAULT (strftime('%s', 'now')),
                 FOREIGN KEY (device_id) REFERENCES devices (device_id)
             )`,
@@ -188,6 +190,15 @@ class DatabaseManager {
     for (const sql of tables) {
       await this.run(sql);
     }
+
+    await this.addColumnIfNotExists(
+      "chat_messages",
+      "client_message_id",
+      "TEXT"
+    );
+    await this.run(
+      "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_client_id ON chat_messages (client_message_id)"
+    );
 
     // Create indexes for better performance
     const indexes = [
@@ -432,6 +443,15 @@ class DatabaseManager {
   /**
    * Save audio file metadata
    */
+  async addColumnIfNotExists(tableName, columnName, columnType) {
+    const columns = await this.all(PRAGMA table_info());
+    const exists = Array.isArray(columns) && columns.some((col) => col.name === columnName);
+    if (!exists) {
+      await this.run(ALTER TABLE  ADD COLUMN  );
+      console.log(✅ Added column  to );
+    }
+  }
+
   async saveAudioFile(deviceId, fileData) {
     const { filename, file_path, file_size, mime_type, duration, timestamp } =
       fileData;
@@ -622,28 +642,40 @@ class DatabaseManager {
    * Save chat message
    */
   async saveChatMessage(deviceId, messageData) {
-    const { sender, message, timestamp } = messageData;
+    const { sender, message, timestamp, id } = messageData;
+    const clientMessageId = id || `${deviceId}_${Date.now()}`;
 
     const sql = `
-            INSERT INTO chat_messages (device_id, sender, message, timestamp)
-            VALUES (?, ?, ?, ?)
+            INSERT INTO chat_messages (device_id, sender, message, timestamp, client_message_id)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(client_message_id) DO UPDATE SET
+                sender = excluded.sender,
+                message = excluded.message,
+                timestamp = excluded.timestamp
         `;
 
-    return this.run(sql, [deviceId, sender, message, timestamp]);
+    return this.run(sql, [
+      deviceId,
+      sender,
+      message,
+      timestamp || Date.now(),
+      clientMessageId,
+    ]);
   }
 
   /**
    * Get chat messages
    */
-  async getChatMessages(deviceId, limit = 100) {
+  async getChatMessages(deviceId, limit = 100, offset = 0) {
     const sql = `
-            SELECT * FROM chat_messages
+            SELECT *, COALESCE(client_message_id, id) AS client_id
+            FROM chat_messages
             WHERE device_id = ?
             ORDER BY timestamp ASC
-            LIMIT ?
+            LIMIT ? OFFSET ?
         `;
 
-    return this.all(sql, [deviceId, limit]);
+    return this.all(sql, [deviceId, limit, offset]);
   }
 
   /**

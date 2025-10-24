@@ -1,28 +1,35 @@
-﻿package ru.example.childwatch.audio
+package ru.example.childwatch.audio
 
+import android.util.Log
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
 import kotlin.math.pow
 
 /**
- * Simple audio post-processor for streamed PCM 16-bit data.
- * Applies optional noise gating and gain boosting before playback/recording.
+ * Post-processing pipeline applied on the parent (listener) device.
+ * Provides lightweight DSP without adding noticeable latency.
  */
 class AudioEnhancer {
+
+    companion object {
+        private const val TAG = "AudioEnhancer"
+        private const val MAX_AMPLITUDE = 32767
+    }
 
     @Volatile
     private var config: Config = Config()
 
-    private val shortBuffer = ThreadLocal.withInitial { ShortArray(0) }
+    private val scratchBuffer = ThreadLocal.withInitial { ShortArray(0) }
 
     /**
-     * Volume boost modes (like "Где мои дети")
+     * Volume boost presets. Values chosen empirically to avoid harsh clipping.
      */
     enum class VolumeMode {
-        QUIET,   // x1.0 - original, no amplification
-        NORMAL,  // x1.5 - moderate amplification
-        LOUD     // x3.0 - maximum amplification
+        QUIET,   // 1.0x
+        NORMAL,  // 1.5x
+        LOUD,    // 3.0x
+        BOOST    // 4.0x (use with caution)
     }
 
     data class Config(
@@ -34,12 +41,11 @@ class AudioEnhancer {
     ) {
         val hasGain: Boolean = gainBoostDb != 0
         val gainMultiplier: Float = 10.0f.pow(gainBoostDb / 20f)
-
-        // Volume amplification multiplier
         val volumeMultiplier: Float = when (volumeMode) {
             VolumeMode.QUIET -> 1.0f
             VolumeMode.NORMAL -> 1.5f
             VolumeMode.LOUD -> 3.0f
+            VolumeMode.BOOST -> 4.0f
         }
     }
 
@@ -49,162 +55,164 @@ class AudioEnhancer {
 
     fun getConfig(): Config = config
 
+    /**
+     * Entry point. Converts PCM to short array, applies filter + volume,
+     * then serialises back to byte array.
+     */
     fun process(chunk: ByteArray): ByteArray {
-        // Этап B: Filtering now happens on sender side (ParentWatch) using system effects
-        // Receiver (ChildWatch) applies volume amplification only
+        val localConfig = config
+        val sampleCount = chunk.size / 2
+        val samples = ensureBuffer(sampleCount)
 
-        val currentConfig = config
-        val volumeMult = currentConfig.volumeMultiplier
+        ByteBuffer.wrap(chunk)
+            .order(ByteOrder.LITTLE_ENDIAN)
+            .asShortBuffer()
+            .get(samples, 0, sampleCount)
 
-        // If no amplification needed, pass through
-        if (volumeMult == 1.0f) {
-            return chunk
+        when (localConfig.mode) {
+            FilterMode.ORIGINAL -> { /* pass-through */ }
+            FilterMode.VOICE -> applyVoicePreset(samples, sampleCount)
+            FilterMode.QUIET_SOUNDS -> applyQuietPreset(samples, sampleCount)
+            FilterMode.MUSIC -> applyMusicPreset(samples, sampleCount)
+            FilterMode.OUTDOOR -> applyOutdoorPreset(samples, sampleCount)
         }
 
-        // Apply volume amplification
-        return applyVolumeAmplification(chunk, volumeMult)
+        applyVolume(samples, sampleCount, localConfig.volumeMultiplier)
+
+        val output = ByteBuffer.allocate(sampleCount * 2)
+            .order(ByteOrder.LITTLE_ENDIAN)
+        output.asShortBuffer().put(samples, 0, sampleCount)
+        return output.array()
     }
 
-    /**
-     * Apply volume amplification with clipping prevention
-     */
-    private fun applyVolumeAmplification(chunk: ByteArray, multiplier: Float): ByteArray {
-        if (multiplier == 1.0f) return chunk
-
-        // Convert bytes to shorts (16-bit PCM)
-        val buffer = ByteBuffer.wrap(chunk).order(ByteOrder.LITTLE_ENDIAN)
-        val output = ByteArray(chunk.size)
-        val outputBuffer = ByteBuffer.wrap(output).order(ByteOrder.LITTLE_ENDIAN)
-
-        while (buffer.remaining() >= 2) {
-            val sample = buffer.short.toInt()
-
-            // Apply amplification with clipping
-            val amplified = (sample * multiplier).toInt()
-            val clipped = amplified.coerceIn(-32768, 32767)
-
-            outputBuffer.putShort(clipped.toShort())
+    private fun ensureBuffer(size: Int): ShortArray {
+        val current = scratchBuffer.get()
+        if (current != null && current.size >= size) {
+            return current
         }
-
-        return output
+        val resized = ShortArray(size)
+        scratchBuffer.set(resized)
+        return resized
     }
 
     /**
-     * VOICE mode: Optimize for speech clarity
-     * - Light noise gate to remove background noise
-     * - Moderate boost for clear speech
-     * - Gentle compression to even out volume
+     * Voice preset – remove rumble, boost presence.
      */
-    private fun processVoiceMode(data: ShortArray, length: Int) {
-        applyNoiseGate(data, length, threshold = 80f, kneeWidth = 200f)
-        applyGain(data, length, multiplier = 1.5f) // +3.5dB (reduced from +6dB)
-        applyCompressor(data, length, threshold = 0.75f, ratio = 2.5f)
-    }
-
-    /**
-     * QUIET_SOUNDS mode: Maximum sensitivity
-     * - Very light noise gate
-     * - Moderate gain boost
-     * - Light compression
-     */
-    private fun processQuietSoundsMode(data: ShortArray, length: Int) {
-        applyNoiseGate(data, length, threshold = 40f, kneeWidth = 80f)
-        applyGain(data, length, multiplier = 2.5f) // +8dB (reduced from +12dB)
-        applyCompressor(data, length, threshold = 0.7f, ratio = 2.0f)
-    }
-
-    /**
-     * MUSIC mode: Natural sound
-     * - Minimal noise gate
-     * - Very light gain
-     * - Minimal compression for dynamics
-     */
-    private fun processMusicMode(data: ShortArray, length: Int) {
-        applyNoiseGate(data, length, threshold = 15f, kneeWidth = 120f)
-        applyGain(data, length, multiplier = 1.1f) // +0.8dB (reduced from +1.6dB)
-        applyCompressor(data, length, threshold = 0.85f, ratio = 1.3f)
-    }
-
-    /**
-     * OUTDOOR mode: Reduce wind/traffic noise
-     * - Moderate noise gate for wind/traffic
-     * - Balanced gain for speech
-     * - Moderate compression
-     */
-    private fun processOutdoorMode(data: ShortArray, length: Int) {
-        applyNoiseGate(data, length, threshold = 150f, kneeWidth = 250f)
-        applyGain(data, length, multiplier = 1.8f) // +5.1dB (reduced from +8dB)
-        applyCompressor(data, length, threshold = 0.7f, ratio = 3.0f)
-    }
-
-    private fun ensureShortBuffer(size: Int): ShortArray {
-        val buffer = shortBuffer.get()
-        if (buffer.size >= size) {
-            return buffer
+    private fun applyVoicePreset(data: ShortArray, length: Int) {
+        val highPassAlpha = 0.93f
+        var prev = 0f
+        for (i in 0 until length) {
+            val current = data[i].toFloat()
+            val filtered = current - highPassAlpha * prev
+            prev = current
+            data[i] = clamp(filtered)
         }
-        val newBuffer = ShortArray(size)
-        shortBuffer.set(newBuffer)
-        return newBuffer
+        applyCompressor(data, length, threshold = 0.7f, ratio = 2.2f)
     }
 
-    private fun applyNoiseGate(data: ShortArray, length: Int, threshold: Float, kneeWidth: Float) {
+    /**
+     * Quiet preset – strong gain and soft compression.
+     */
+    private fun applyQuietPreset(data: ShortArray, length: Int) {
+        applyNoiseGate(data, length, threshold = 35f, knee = 70f)
+        applySoftGain(data, length, quietMultiplier = 2.4f, loudMultiplier = 1.3f)
+        applyCompressor(data, length, threshold = 0.65f, ratio = 1.8f)
+    }
+
+    /**
+     * Music preset – gentle “smile” EQ.
+     */
+    private fun applyMusicPreset(data: ShortArray, length: Int) {
+        var low = data.firstOrNull()?.toFloat() ?: 0f
+        var high = 0f
+        for (i in 0 until length) {
+            val input = data[i].toFloat()
+            low = 0.6f * low + 0.4f * input
+            val highComponent = input - 0.88f * high
+            high = input
+            val mixed = (0.65f * input) + (0.2f * low) + (0.15f * highComponent)
+            data[i] = clamp(mixed)
+        }
+    }
+
+    /**
+     * Outdoor preset – aggressive low-pass to tame wind/traffic.
+     */
+    private fun applyOutdoorPreset(data: ShortArray, length: Int) {
+        val alpha = 0.82f
+        var prev = data.firstOrNull()?.toFloat() ?: 0f
+        for (i in 0 until length) {
+            val current = data[i].toFloat()
+            val smoothed = alpha * prev + (1 - alpha) * current
+            prev = smoothed
+            data[i] = clamp(smoothed)
+        }
+        applyCompressor(data, length, threshold = 0.75f, ratio = 3.0f)
+    }
+
+    private fun applySoftGain(data: ShortArray, length: Int, quietMultiplier: Float, loudMultiplier: Float) {
+        val softLimit = MAX_AMPLITUDE * 0.85f
+        for (i in 0 until length) {
+            val value = data[i].toFloat()
+            val multiplier = if (abs(value) < softLimit * 0.5f) quietMultiplier else loudMultiplier
+            val boosted = value * multiplier
+            val limited = when {
+                boosted > softLimit -> softLimit + (boosted - softLimit) * 0.2f
+                boosted < -softLimit -> -(softLimit + (abs(boosted) - softLimit) * 0.2f)
+                else -> boosted
+            }
+            data[i] = clamp(limited)
+        }
+    }
+
+    private fun applyNoiseGate(data: ShortArray, length: Int, threshold: Float, knee: Float) {
         if (length == 0) return
-        // Адаптивный порог: вычисляем среднюю громкость
-        val avg = if (length > 0) data.map { abs(it.toFloat()) }.average().toFloat() else threshold
-        val adaptiveThreshold = (threshold + avg * 0.25f).coerceAtMost(threshold * 2)
+        val adaptive = threshold + (estimateRms(data, length) * 0.25f)
+        val gate = adaptive.coerceAtMost(threshold * 2)
         for (i in 0 until length) {
             val absValue = abs(data[i].toFloat())
             when {
-                absValue < adaptiveThreshold -> {
-                    data[i] = (data[i] * 0.07f).toInt().toShort() // Reduce by 93%
-                }
-                absValue < adaptiveThreshold + kneeWidth -> {
-                    val position = (absValue - adaptiveThreshold) / kneeWidth
-                    val reduction = 0.07f + (position * 0.93f)
-                    data[i] = (data[i] * reduction).toInt().toShort()
+                absValue < gate -> data[i] = clamp(data[i] * 0.06f)
+                absValue < gate + knee -> {
+                    val factor = (absValue - gate) / knee
+                    val reduction = 0.06f + factor * 0.94f
+                    data[i] = clamp(data[i] * reduction)
                 }
             }
         }
     }
 
-    private fun applyGain(data: ShortArray, length: Int, multiplier: Float) {
-        // Мягкое усиление с адаптивным лимитированием
-        val softLimit = Short.MAX_VALUE * 0.80f
-        for (i in 0 until length) {
-            val boosted = data[i] * multiplier
-            val limited = when {
-                boosted > softLimit -> {
-                    val excess = boosted - softLimit
-                    softLimit + (excess * 0.18f) // Ещё мягче
-                }
-                boosted < -softLimit -> {
-                    val excess = boosted + softLimit
-                    -softLimit + (excess * 0.18f)
-                }
-                else -> boosted
-            }
-            data[i] = limited.toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt()).toShort()
-        }
-    }
-
-    /**
-     * Apply compressor to prevent clipping and even out volume
-     * @param threshold Compression starts at this fraction of max (0.0-1.0)
-     * @param ratio Compression ratio (e.g., 2.0 = 2:1, 4.0 = 4:1)
-     */
     private fun applyCompressor(data: ShortArray, length: Int, threshold: Float, ratio: Float) {
-        val thresholdValue = Short.MAX_VALUE * threshold
+        val limit = MAX_AMPLITUDE * threshold
         for (i in 0 until length) {
             val value = data[i].toFloat()
             val absValue = abs(value)
-            if (absValue > thresholdValue) {
-                val excess = absValue - thresholdValue
-                // Более плавная компрессия: чуть выше threshold, ratio ниже
-                val compressed = thresholdValue + (excess / (ratio * 1.2f))
-                data[i] = (compressed * (if (value >= 0) 1 else -1)).toInt()
-                    .coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
-                    .toShort()
+            if (absValue > limit) {
+                val excess = absValue - limit
+                val compressed = limit + (excess / (ratio * 1.2f))
+                data[i] = clamp(compressed * if (value >= 0) 1 else -1)
             }
         }
+    }
+
+    private fun applyVolume(data: ShortArray, length: Int, multiplier: Float) {
+        if (multiplier == 1.0f) return
+        val safeMultiplier = multiplier.coerceAtMost(5.0f)
+        for (i in 0 until length) {
+            data[i] = clamp(data[i] * safeMultiplier)
+        }
+    }
+
+    private fun estimateRms(data: ShortArray, length: Int): Float {
+        if (length == 0) return 0f
+        var sum = 0.0
+        for (i in 0 until length) {
+            sum += data[i] * data[i]
+        }
+        return kotlin.math.sqrt(sum / length).toFloat()
+    }
+
+    private fun clamp(value: Float): Short {
+        return value.toInt().coerceIn(-MAX_AMPLITUDE, MAX_AMPLITUDE).toShort()
     }
 }

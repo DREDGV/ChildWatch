@@ -15,7 +15,7 @@ data class AudioStreamMetrics(
     val audioStatus: AudioStatus = AudioStatus.STOPPED,
     val bytesPerSecond: Long = 0,
     val framesTotal: Long = 0,
-    val frameSize: Int = 640, // bytes per frame (20ms at 16kHz)
+    val frameSize: Int = 960, // bytes per frame (20ms at 24kHz)
 
     // Network
     val networkType: NetworkType = NetworkType.NONE,
@@ -28,7 +28,7 @@ data class AudioStreamMetrics(
 
     // Queue (receiver only)
     val queueDepth: Int = 0,
-    val queueCapacity: Int = 100,
+    val queueCapacity: Int = 50,
     val underrunCount: Int = 0, // How many times queue was empty when needed
 
     // System
@@ -45,7 +45,7 @@ data class AudioStreamMetrics(
 
     // Metadata
     val timestamp: Long = System.currentTimeMillis(),
-    val sampleRate: Int = 22050, // Hz (Task 4: improved quality)
+    val sampleRate: Int = 24000, // Hz
     val channelCount: Int = 1 // mono
 ) {
     /**

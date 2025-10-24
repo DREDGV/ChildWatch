@@ -92,6 +92,9 @@ class WebSocketManager {
       socket.on("chat_message", (data) => {
         this.handleChatMessage(socket, data);
       });
+      socket.on("chat_message_status", (data) => {
+        this.handleChatMessageStatus(socket, data);
+      });
 
       // Handle disconnection
       socket.on("disconnect", () => {
@@ -264,6 +267,7 @@ class WebSocketManager {
           sender,
           message: text,
           timestamp: timestamp || Date.now(),
+          id: id,
         });
         console.log(
           `💾 Chat message saved to database: ${deviceId} from ${sender}`
@@ -336,6 +340,54 @@ class WebSocketManager {
     } catch (error) {
       console.error("❌ Error handling chat message:", error);
       socket.emit("chat_message_error", { error: error.message });
+    }
+  }
+
+  async handleChatMessageStatus(socket, data) {
+    try {
+      const { deviceId, id, status, actor } = data || {};
+      if (!deviceId || !id || !status || !actor) {
+        console.warn("⚠️ chat_message_status missing required fields", data);
+        return;
+      }
+
+      if (status === "read") {
+        try {
+          await this.dbManager.markMessageAsRead(id);
+        } catch (error) {
+          console.error("❌ Failed to mark message as read:", error);
+        }
+      }
+
+      let targetSocketId = null;
+      if (actor === "child") {
+        // Child reports status (message from parent)
+        targetSocketId = Array.from(this.parentSockets.entries()).find(
+          ([socketId, childDeviceId]) => childDeviceId === deviceId
+        )?.[0];
+      } else if (actor === "parent") {
+        // Parent reports status (message from child)
+        targetSocketId = this.childSockets.get(deviceId);
+      }
+
+      if (targetSocketId) {
+        const targetSocket = this.io.sockets.sockets.get(targetSocketId);
+        if (targetSocket) {
+          targetSocket.emit("chat_message_status", {
+            id,
+            status,
+            timestamp: Date.now(),
+          });
+        }
+      }
+
+      socket.emit("chat_message_status_ack", {
+        id,
+        status,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error("❌ Error handling chat message status:", error);
     }
   }
 

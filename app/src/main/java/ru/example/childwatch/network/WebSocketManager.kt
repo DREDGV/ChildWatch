@@ -2,6 +2,7 @@ package ru.example.childwatch.network
 
 import android.content.Context
 import android.util.Log
+import org.json.JSONObject
 import ru.example.childwatch.chat.ChatMessage
 
 /**
@@ -14,6 +15,8 @@ object WebSocketManager {
     private var webSocketClient: WebSocketClient? = null
     private var isInitialized = false
     private var chatMessageCallback: ((String, String, String, Long) -> Unit)? = null
+    private var chatMessageSentCallback: ((String, Boolean, Long) -> Unit)? = null
+    private var chatStatusCallback: ((String, String, Long) -> Unit)? = null
 
     /**
      * Initialize WebSocket client
@@ -29,9 +32,9 @@ object WebSocketManager {
         Log.d(TAG, "Initializing WebSocket: $serverUrl with childDeviceId: $childDeviceId")
         missedMessagesCallback = onMissedMessages
         webSocketClient = WebSocketClient(serverUrl, childDeviceId, onMissedMessages = missedMessagesCallback)
-        chatMessageCallback?.let { callback ->
-            webSocketClient?.setChatMessageCallback(callback)
-        }
+        chatMessageCallback?.let { webSocketClient?.setChatMessageCallback(it) }
+        chatMessageSentCallback?.let { webSocketClient?.setChatMessageSentCallback(it) }
+        chatStatusCallback?.let { webSocketClient?.setChatStatusCallback(it) }
         isInitialized = true
     }
 
@@ -45,7 +48,12 @@ object WebSocketManager {
             return
         }
 
-        webSocketClient?.connect(onConnected, onError)
+        webSocketClient?.apply {
+            chatMessageCallback?.let { setChatMessageCallback(it) }
+            chatMessageSentCallback?.let { setChatMessageSentCallback(it) }
+            chatStatusCallback?.let { setChatStatusCallback(it) }
+            connect(onConnected, onError)
+        }
     }
 
     /**
@@ -84,6 +92,30 @@ object WebSocketManager {
         webSocketClient?.setChatMessageCallback { _, _, _, _ -> }
     }
 
+    fun setChatMessageSentCallback(callback: (messageId: String, delivered: Boolean, timestamp: Long) -> Unit) {
+        chatMessageSentCallback = callback
+        webSocketClient?.setChatMessageSentCallback(callback)
+    }
+
+    fun clearChatMessageSentCallback() {
+        chatMessageSentCallback = null
+        webSocketClient?.setChatMessageSentCallback { _, _, _ -> }
+    }
+
+    fun setChatStatusCallback(callback: (messageId: String, status: String, timestamp: Long) -> Unit) {
+        chatStatusCallback = callback
+        webSocketClient?.setChatStatusCallback(callback)
+    }
+
+    fun clearChatStatusCallback() {
+        chatStatusCallback = null
+        webSocketClient?.setChatStatusCallback { _, _, _ -> }
+    }
+
+    fun sendChatStatus(messageId: String, status: String, actor: String) {
+        webSocketClient?.sendChatStatus(messageId, status, actor)
+    }
+
     /**
      * Check if connected
      */
@@ -105,5 +137,8 @@ object WebSocketManager {
         webSocketClient?.cleanup()
         webSocketClient = null
         isInitialized = false
+        chatMessageCallback = null
+        chatMessageSentCallback = null
+        chatStatusCallback = null
     }
 }

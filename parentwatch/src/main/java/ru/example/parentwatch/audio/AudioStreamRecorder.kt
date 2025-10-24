@@ -36,14 +36,14 @@ class AudioStreamRecorder(
         private const val TAG = "AUDIO"
 
         // Optimized for low-latency voice streaming (Этап A)
-        private const val SAMPLE_RATE = 22_050          // 22.05 kHz (Task 4: improved quality)
+        private const val SAMPLE_RATE = 24_000          // 24 kHz for higher fidelity
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
         private const val CHUNK_DURATION_MS = 20L       // 20ms frames (was 500ms)
 
-        // Frame size: 22050 * 20 / 1000 = 441 samples; 441 * 2 bytes = 882 bytes
-        private const val FRAME_SAMPLES = (SAMPLE_RATE * CHUNK_DURATION_MS / 1000).toInt() // 441
-        private const val FRAME_BYTES = FRAME_SAMPLES * 2 // 882 bytes per frame
+        // Frame size: 24000 * 20 / 1000 = 480 samples; 480 * 2 bytes = 960 bytes
+        private const val FRAME_SAMPLES = (SAMPLE_RATE * CHUNK_DURATION_MS / 1000).toInt() // 480
+        private const val FRAME_BYTES = FRAME_SAMPLES * 2 // 960 bytes per frame
 
         // Reconnection strategy with exponential backoff
         private const val RECONNECTION_DELAY_MS = 1_000L
@@ -523,10 +523,10 @@ class AudioStreamRecorder(
     }
 
     /**
-     * Record a single chunk of audio (Этап A - 20ms frames = 640 bytes)
+     * Record a single chunk of audio (Этап A - 20ms frames = 960 bytes)
      */
     private fun recordChunk(): ByteArray? {
-        val buffer = ByteArray(FRAME_BYTES) // 640 bytes for 20ms at 16kHz
+        val buffer = ByteArray(FRAME_BYTES) // 960 bytes for 20ms at 24kHz
 
         try {
             val read = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {

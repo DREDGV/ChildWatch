@@ -13,6 +13,8 @@ object WebSocketManager {
     private var webSocketClient: WebSocketClient? = null
     private var isInitialized = false
     private val chatMessageCallbacks = mutableSetOf<(String, String, String, Long) -> Unit>()
+    private val chatMessageSentCallbacks = mutableSetOf<(String, Boolean, Long) -> Unit>()
+    private val chatStatusCallbacks = mutableSetOf<(String, String, Long) -> Unit>()
     private val commandCallbacks = mutableSetOf<(String, org.json.JSONObject?) -> Unit>()
 
     /**
@@ -25,9 +27,12 @@ object WebSocketManager {
         }
 
         Log.d(TAG, "Initializing WebSocket: $serverUrl with deviceId: $deviceId")
-        webSocketClient = WebSocketClient(serverUrl, deviceId)
-        webSocketClient?.setChatMessageCallback(::dispatchChatMessage)
-        webSocketClient?.setCommandCallback(::dispatchCommand)
+        webSocketClient = WebSocketClient(serverUrl, deviceId).also { client ->
+            client.setChatMessageCallback(::dispatchChatMessage)
+            client.setChatMessageSentCallback(::dispatchChatMessageSent)
+            client.setChatStatusCallback(::dispatchChatStatus)
+            client.setCommandCallback(::dispatchCommand)
+        }
         isInitialized = true
     }
 
@@ -41,9 +46,13 @@ object WebSocketManager {
             return
         }
 
-        webSocketClient?.setChatMessageCallback(::dispatchChatMessage)
-        webSocketClient?.setCommandCallback(::dispatchCommand)
-        webSocketClient?.connect(onConnected, onError)
+        webSocketClient?.apply {
+            setChatMessageCallback(::dispatchChatMessage)
+            setChatMessageSentCallback(::dispatchChatMessageSent)
+            setChatStatusCallback(::dispatchChatStatus)
+            setCommandCallback(::dispatchCommand)
+            connect(onConnected, onError)
+        }
     }
 
     /**
@@ -63,6 +72,18 @@ object WebSocketManager {
         }
     }
 
+    private fun dispatchChatMessageSent(messageId: String, delivered: Boolean, timestamp: Long) {
+        chatMessageSentCallbacks.forEach { listener ->
+            listener(messageId, delivered, timestamp)
+        }
+    }
+
+    private fun dispatchChatStatus(messageId: String, status: String, timestamp: Long) {
+        chatStatusCallbacks.forEach { listener ->
+            listener(messageId, status, timestamp)
+        }
+    }
+
     fun addChatMessageListener(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
         chatMessageCallbacks.add(callback)
         webSocketClient?.setChatMessageCallback(::dispatchChatMessage)
@@ -74,6 +95,36 @@ object WebSocketManager {
 
     fun clearChatMessageCallback() {
         chatMessageCallbacks.clear()
+    }
+
+    fun addChatMessageSentListener(callback: (String, Boolean, Long) -> Unit) {
+        chatMessageSentCallbacks.add(callback)
+        webSocketClient?.setChatMessageSentCallback(::dispatchChatMessageSent)
+    }
+
+    fun removeChatMessageSentListener(callback: (String, Boolean, Long) -> Unit) {
+        chatMessageSentCallbacks.remove(callback)
+    }
+
+    fun clearChatMessageSentCallbacks() {
+        chatMessageSentCallbacks.clear()
+    }
+
+    fun addChatStatusListener(callback: (String, String, Long) -> Unit) {
+        chatStatusCallbacks.add(callback)
+        webSocketClient?.setChatStatusCallback(::dispatchChatStatus)
+    }
+
+    fun removeChatStatusListener(callback: (String, String, Long) -> Unit) {
+        chatStatusCallbacks.remove(callback)
+    }
+
+    fun clearChatStatusListeners() {
+        chatStatusCallbacks.clear()
+    }
+
+    fun sendChatStatus(messageId: String, status: String, actor: String) {
+        webSocketClient?.sendChatStatus(messageId, status, actor)
     }
 
     fun sendChatMessage(
@@ -130,6 +181,8 @@ object WebSocketManager {
         webSocketClient?.cleanup()
         webSocketClient = null
         chatMessageCallbacks.clear()
+        chatMessageSentCallbacks.clear()
+        chatStatusCallbacks.clear()
         commandCallbacks.clear()
         isInitialized = false
     }

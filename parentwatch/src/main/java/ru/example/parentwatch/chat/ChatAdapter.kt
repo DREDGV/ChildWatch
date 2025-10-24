@@ -1,57 +1,87 @@
-package ru.example.parentwatch.chat
+﻿package ru.example.parentwatch.chat
 
-import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import ru.example.parentwatch.R
 
-/**
- * Adapter for chat messages RecyclerView
- */
-class ChatAdapter(private val messages: List<ChatMessage>) :
-    RecyclerView.Adapter<ChatAdapter.MessageViewHolder>() {
+class ChatAdapter(
+    private val messages: MutableList<ChatMessage>,
+    private val currentUser: String
+) : RecyclerView.Adapter<ChatAdapter.MessageViewHolder>() {
 
-    class MessageViewHolder(itemView: View) : RecyclerView.ViewHolder(itemView) {
-        val messageText: TextView = itemView.findViewById(R.id.messageText)
-        val timestampText: TextView = itemView.findViewById(R.id.timestampText)
-        val messageContainer: LinearLayout = itemView.findViewById(R.id.messageContainer)
+    private fun isOutgoing(message: ChatMessage) = message.sender == currentUser
+
+    override fun getItemViewType(position: Int): Int {
+        return if (isOutgoing(messages[position])) VIEW_TYPE_OUTGOING else VIEW_TYPE_INCOMING
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MessageViewHolder {
-        val view = LayoutInflater.from(parent.context)
-            .inflate(R.layout.item_chat_message, parent, false)
-        return MessageViewHolder(view)
+        val layoutId = if (viewType == VIEW_TYPE_OUTGOING) {
+            R.layout.item_message_outgoing
+        } else {
+            R.layout.item_message_incoming
+        }
+        val view = LayoutInflater.from(parent.context).inflate(layoutId, parent, false)
+        return MessageViewHolder(view, viewType == VIEW_TYPE_OUTGOING)
     }
 
     override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
-        val message = messages[position]
-
-        holder.messageText.text = message.text
-        holder.timestampText.text = message.getFormattedTime()
-
-        // Style message based on sender
-        if (message.isFromChild()) {
-            // Child's message - align right, different color
-            (holder.itemView.layoutParams as RecyclerView.LayoutParams).apply {
-                marginStart = 60
-                marginEnd = 8
-            }
-            holder.messageContainer.gravity = Gravity.END
-            holder.messageContainer.setBackgroundResource(R.drawable.message_bubble_child)
-        } else {
-            // Parent's message - align left, different color
-            (holder.itemView.layoutParams as RecyclerView.LayoutParams).apply {
-                marginStart = 8
-                marginEnd = 60
-            }
-            holder.messageContainer.gravity = Gravity.START
-            holder.messageContainer.setBackgroundResource(R.drawable.message_bubble_parent)
-        }
+        holder.bind(messages[position])
     }
 
     override fun getItemCount(): Int = messages.size
+
+    inner class MessageViewHolder(itemView: View, private val isOutgoing: Boolean) :
+        RecyclerView.ViewHolder(itemView) {
+        private val messageText: TextView = itemView.findViewById(R.id.messageText)
+        private val timestampText: TextView = itemView.findViewById(R.id.timestampText)
+        private val senderText: TextView? = itemView.findViewById(R.id.senderText)
+        private val statusText: TextView? = itemView.findViewById(R.id.statusText)
+
+        fun bind(message: ChatMessage) {
+            messageText.text = message.text
+            timestampText.text = message.getFormattedTime()
+
+            if (!isOutgoing) {
+                senderText?.apply {
+                    visibility = View.VISIBLE
+                    text = message.getSenderName()
+                }
+            } else {
+                senderText?.visibility = View.GONE
+            }
+
+            statusText?.let { view ->
+                if (isOutgoing) {
+                    view.visibility = View.VISIBLE
+                    // Показываем статус в зависимости от состояния сообщения
+                    view.text = when (message.status) {
+                        ChatMessage.MessageStatus.SENDING -> "🕐"
+                        ChatMessage.MessageStatus.SENT -> "✓"
+                        ChatMessage.MessageStatus.DELIVERED -> "✓✓"
+                        ChatMessage.MessageStatus.READ -> "✓✓"
+                        ChatMessage.MessageStatus.FAILED -> "❌"
+                    }
+                    // Меняем цвет для прочитанных сообщений
+                    view.setTextColor(
+                        if (message.status == ChatMessage.MessageStatus.READ) {
+                            0xFF4CAF50.toInt() // Зелёный для прочитанных
+                        } else {
+                            0xFFB3B3B3.toInt() // Серый для остальных
+                        }
+                    )
+                } else {
+                    view.visibility = View.GONE
+                }
+            }
+        }
+    }
+
+    companion object {
+        private const val VIEW_TYPE_INCOMING = 1
+        private const val VIEW_TYPE_OUTGOING = 2
+    }
 }

@@ -39,6 +39,8 @@ class WebSocketClient(
     private var onConnectedCallback: (() -> Unit)? = null
     private var onErrorCallback: ((String) -> Unit)? = null
     private var onChatMessageCallback: ((String, String, String, Long) -> Unit)? = null
+    private var onChatMessageSentCallback: ((String, Boolean, Long) -> Unit)? = null
+    private var onChatStatusCallback: ((String, String, Long) -> Unit)? = null
     
     // Track last processed sequence to prevent duplicates
     private var lastProcessedSequence = -1
@@ -124,11 +126,16 @@ class WebSocketClient(
                                 if (!obj.optBoolean("isRead", false)) {
                                     list.add(
                                         ChatMessage(
-                                            id = obj.optString("id"),
+                                            id = obj.optString("clientMessageId", obj.optString("client_id", obj.optString("id"))),
                                             text = obj.optString("message"),
                                             sender = obj.optString("sender"),
                                             timestamp = obj.optLong("timestamp"),
-                                            isRead = obj.optBoolean("isRead", false)
+                                            isRead = obj.optBoolean("isRead", false),
+                                            status = if (obj.optBoolean("isRead", false)) {
+                                                ChatMessage.MessageStatus.READ
+                                            } else {
+                                                ChatMessage.MessageStatus.DELIVERED
+                                            }
                                         )
                                     )
                                 }
@@ -239,14 +246,31 @@ class WebSocketClient(
 
     private val onChatMessageSent = Emitter.Listener { args ->
         try {
-            val data = args.getOrNull(0) as? JSONObject
-            val messageId = data?.optString("id") ?: ""
-            val timestamp = data?.optLong("timestamp") ?: System.currentTimeMillis()
-            val delivered = data?.optBoolean("delivered") ?: false
+            val data = args.getOrNull(0) as? JSONObject ?: return@Listener
+            val messageId = data.optString("id")
+            if (messageId.isNullOrEmpty()) return@Listener
+
+            val timestamp = data.optLong("timestamp", System.currentTimeMillis())
+            val delivered = data.optBoolean("delivered", false)
 
             Log.d(TAG, "✅ Chat message sent confirmation: id=$messageId, delivered=$delivered")
+            onChatMessageSentCallback?.invoke(messageId, delivered, timestamp)
         } catch (e: Exception) {
             Log.e(TAG, "❌ Error handling chat message sent confirmation", e)
+        }
+    }
+
+    private val onChatMessageStatus = Emitter.Listener { args ->
+        try {
+            val data = args.getOrNull(0) as? JSONObject ?: return@Listener
+            val messageId = data.optString("id")
+            val status = data.optString("status")
+            if (messageId.isNullOrEmpty() || status.isNullOrEmpty()) return@Listener
+            val timestamp = data.optLong("timestamp", System.currentTimeMillis())
+            Log.d(TAG, "📬 Chat status update: id=$messageId status=$status")
+            onChatStatusCallback?.invoke(messageId, status, timestamp)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error handling chat status update", e)
         }
     }
 
@@ -298,6 +322,7 @@ class WebSocketClient(
             socket?.on("pong", onPong)
             socket?.on("chat_message", onChatMessage)
             socket?.on("chat_message_sent", onChatMessageSent)
+            socket?.on("chat_message_status", onChatMessageStatus)
             socket?.on("chat_message_error", onChatMessageError)
 
             socket?.connect()
@@ -453,6 +478,30 @@ class WebSocketClient(
         Log.d(TAG, "✅ Chat message callback registered")
     }
 
+    fun setChatMessageSentCallback(callback: (messageId: String, delivered: Boolean, timestamp: Long) -> Unit) {
+        onChatMessageSentCallback = callback
+    }
+
+    fun setChatStatusCallback(callback: (messageId: String, status: String, timestamp: Long) -> Unit) {
+        onChatStatusCallback = callback
+    }
+
+    fun sendChatStatus(messageId: String, status: String, actor: String) {
+        try {
+            if (!isConnected) return
+            val payload = JSONObject().apply {
+                put("id", messageId)
+                put("status", status)
+                put("deviceId", childDeviceId)
+                put("actor", actor)
+                put("timestamp", System.currentTimeMillis())
+            }
+            socket?.emit("chat_message_status", payload)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to send chat status", e)
+        }
+    }
+
     /**
      * Check if connected
      */
@@ -517,5 +566,8 @@ class WebSocketClient(
         onConnectedCallback = null
         onErrorCallback = null
         onCriticalAlertCallback = null
+        onChatMessageCallback = null
+        onChatMessageSentCallback = null
+        onChatStatusCallback = null
     }
 }

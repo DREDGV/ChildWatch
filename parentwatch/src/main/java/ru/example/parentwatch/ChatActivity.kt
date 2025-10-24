@@ -32,6 +32,7 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var chatAdapter: ChatAdapter
     private lateinit var chatManager: ChatManager
     private val messages = mutableListOf<ChatMessage>()
+    private val currentUser = "child"
     private val chatListener: (String, String, String, Long) -> Unit = { messageId, text, sender, timestamp ->
         runOnUiThread {
             receiveMessage(messageId, text, sender, timestamp)
@@ -82,14 +83,14 @@ class ChatActivity : AppCompatActivity() {
             clearChat()
         }
 
-        // Test message button
-        binding.testButton.setOnClickListener {
-            sendTestMessage()
+        // Emoji button
+        binding.emojiButton.setOnClickListener {
+            showEmojiPicker()
         }
     }
 
     private fun setupRecyclerView() {
-        chatAdapter = ChatAdapter(messages)
+        chatAdapter = ChatAdapter(messages, currentUser)
         binding.messagesRecyclerView.apply {
             layoutManager = LinearLayoutManager(this@ChatActivity).apply {
                 stackFromEnd = true // Show new messages at bottom
@@ -133,20 +134,6 @@ class ChatActivity : AppCompatActivity() {
         Log.d(TAG, "Message sent: $messageText")
     }
 
-    private fun sendTestMessage() {
-        val testMessages = listOf(
-            "Привет! Я в школе",
-            "Все хорошо, не волнуйтесь",
-            "Когда заберете меня?",
-            "Я уже дома",
-            "Нужна помощь с домашним заданием",
-            "Спасибо за заботу!"
-        )
-
-        val randomMessage = testMessages.random()
-        binding.messageInput.setText(randomMessage)
-        sendMessage()
-    }
 
     private fun clearChat() {
         messages.clear()
@@ -272,6 +259,71 @@ class ChatActivity : AppCompatActivity() {
             return topActivity?.packageName == packageName
         }
         return false
+    }
+
+    /**
+     * Show emoji picker dialog
+     */
+    private fun showEmojiPicker() {
+        val emojis = listOf(
+            "😊", "😂", "❤️", "👍", "👋", "🙏", "😍", "😢", "😭", "😡",
+            "🎉", "🎊", "🎈", "🎁", "⭐", "✨", "🔥", "💯", "✅", "❌",
+            "👶", "👦", "👧", "👨", "👩", "👪", "🏠", "🏫", "📚", "✏️",
+            "🍎", "🍕", "🍰", "🎮", "⚽", "🏀", "🎵", "📱", "💻", "🚗"
+        )
+
+        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
+        builder.setTitle("Выберите emoji")
+
+        // Create grid layout for emojis
+        val gridLayout = android.widget.GridLayout(this).apply {
+            columnCount = 5
+            setPadding(24, 24, 24, 24)
+        }
+
+        emojis.forEach { emoji ->
+            val button = com.google.android.material.button.MaterialButton(
+                this,
+                null,
+                com.google.android.material.R.attr.materialButtonOutlinedStyle
+            ).apply {
+                text = emoji
+                textSize = 24f
+                val size = (48 * resources.displayMetrics.density).toInt()
+                layoutParams = android.widget.GridLayout.LayoutParams().apply {
+                    width = size
+                    height = size
+                    setMargins(8, 8, 8, 8)
+                }
+                setOnClickListener {
+                    // Insert emoji at cursor position
+                    val cursorPosition = binding.messageInput.selectionStart
+                    val currentText = binding.messageInput.text.toString()
+                    val newText = currentText.substring(0, cursorPosition) +
+                                 emoji +
+                                 currentText.substring(cursorPosition)
+                    binding.messageInput.setText(newText)
+                    binding.messageInput.setSelection(cursorPosition + emoji.length)
+
+                    // Close dialog
+                    (it.parent as? android.view.ViewGroup)?.let { parent ->
+                        var view: android.view.View? = parent
+                        while (view != null) {
+                            if (view is androidx.appcompat.app.AlertDialog) {
+                                view.dismiss()
+                                break
+                            }
+                            view = view.parent as? android.view.View
+                        }
+                    }
+                }
+            }
+            gridLayout.addView(button)
+        }
+
+        builder.setView(gridLayout)
+        builder.setNegativeButton("Закрыть", null)
+        builder.show()
     }
 
     override fun onSupportNavigateUp(): Boolean {

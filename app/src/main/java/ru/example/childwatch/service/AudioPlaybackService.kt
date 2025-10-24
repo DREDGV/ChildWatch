@@ -51,11 +51,11 @@ class AudioPlaybackService : LifecycleService() {
         private const val NOTIFICATION_ID = 3001
         private const val CHANNEL_ID = "audio_playback_channel"
 
-        // Этап A: Optimized for 22.05 kHz, 20ms frames (Task 4: improved quality)
-        private const val STREAM_SAMPLE_RATE = 22_050   // 22.05 kHz
+        // Оптимизировано для 24 кГц, кадров по 20 мс
+        private const val STREAM_SAMPLE_RATE = 24_000   // 24 kHz
         private const val STREAM_CHANNEL_COUNT = 1       // MONO
         private const val FRAME_MS = 20                  // 20ms frames
-        private const val FRAME_BYTES = (STREAM_SAMPLE_RATE * FRAME_MS / 1000) * 2 // 882 bytes
+        private const val FRAME_BYTES = (STREAM_SAMPLE_RATE * FRAME_MS / 1000) * 2 // 960 bytes
 
         // Jitter buffer: 150-220 ms = 8-11 frames of 20ms
         private const val JITTER_BUFFER_MIN_FRAMES = 8   // 160 ms
@@ -412,8 +412,8 @@ class AudioPlaybackService : LifecycleService() {
                     // Connect to WebSocket directly
                     connectWebSocket()
 
-                    updateNotification("Прослушка активна")
-                    currentStatus = "Прослушка активна"
+                    updateNotification(getString(R.string.audio_monitor_status_active))
+                    currentStatus = getString(R.string.audio_monitor_status_active)
                     AudioPlaybackService.currentStatus = currentStatus
                     Log.d(TAG, "✅ Direct WebSocket streaming started at $streamingStartTime")
 
@@ -584,22 +584,24 @@ class AudioPlaybackService : LifecycleService() {
             stopLocalRecording(save = true)
         }
 
-
         lifecycleScope.launch {
             try {
-                deviceId?.let { id ->
-                    serverUrl?.let { url ->
-                        val success = if (recording) {
-                            networkClient?.startRecording(url, id)
-                        } else {
-                            networkClient?.stopRecording(url, id)
-                        }
+                val id = deviceId ?: return@launch
+                val url = serverUrl ?: return@launch
 
-                        if (success == true) {
-                            val status = if (recording) "Запись активна" else "Прослушка активна"
-                            updateNotification(status)
-                        }
+                val success = if (recording) {
+                    networkClient?.startRecording(url, id)
+                } else {
+                    networkClient?.stopRecording(url, id)
+                }
+
+                if (success == true) {
+                    val status = if (recording) {
+                        getString(R.string.audio_monitor_status_recording)
+                    } else {
+                        getString(R.string.audio_monitor_status_active)
                     }
+                    updateNotification(status)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error toggling recording", e)
@@ -886,10 +888,10 @@ class AudioPlaybackService : LifecycleService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Аудио прослушка",
+                getString(R.string.audio_monitor_notification_channel),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Уведомления о прослушке"
+                description = getString(R.string.audio_monitor_notification_channel_description)
                 setShowBadge(false)
             }
 
@@ -908,7 +910,7 @@ class AudioPlaybackService : LifecycleService() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("ChildWatch - Прослушка")
+            .setContentTitle(getString(R.string.audio_monitor_notification_title))
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)

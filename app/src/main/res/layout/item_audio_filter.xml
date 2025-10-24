@@ -3,9 +3,9 @@
     android:id="@+id/filterCard"
     xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="120dp"
+    android:layout_width="108dp"
     android:layout_height="wrap_content"
-    android:layout_margin="8dp"
+    android:layout_margin="6dp"
     app:cardCornerRadius="16dp"
     app:cardElevation="6dp"
     app:strokeWidth="2dp"
@@ -18,14 +18,14 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:gravity="center_horizontal"
-        android:padding="12dp">
+        android:padding="10dp">
 
         <TextView
             android:id="@+id/filterEmoji"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="🎤"
-            android:textSize="32sp"
+            android:textSize="20sp"
             android:layout_gravity="center_horizontal"
             android:paddingBottom="4dp" />
 
@@ -34,7 +34,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="Голос"
-            android:textAppearance="@style/TextAppearance.Material3.TitleSmall"
+            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
             android:textColor="?attr/colorOnSurface"
             android:layout_gravity="center_horizontal"
             android:paddingBottom="2dp" />

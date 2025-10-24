@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#F5F5F5">
+    android:background="#ECF0F1">
 
     <!-- Messages RecyclerView -->
     <androidx.recyclerview.widget.RecyclerView
@@ -67,30 +67,42 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:gravity="end">
+                android:gravity="center_vertical">
 
                 <com.google.android.material.button.MaterialButton
-                    android:id="@+id/testButton"
+                    android:id="@+id/emojiButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:layout_marginEnd="8dp"
-                    android:text="Тест"
+                    android:text="😊"
+                    android:textSize="20sp"
                     style="@style/Widget.Material3.Button.TextButton" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/clearButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginEnd="8dp"
-                    android:text="Очистить"
-                    style="@style/Widget.Material3.Button.OutlinedButton" />
+                <Space
+                    android:layout_width="0dp"
+                    android:layout_height="1dp"
+                    android:layout_weight="1" />
 
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/sendButton"
+                <LinearLayout
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Отправить"
-                    app:icon="@android:drawable/ic_menu_send" />
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/clearButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="8dp"
+                        android:text="Очистить"
+                        style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/sendButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Отправить"
+                        app:icon="@android:drawable/ic_menu_send" />
+
+                </LinearLayout>
 
             </LinearLayout>
 

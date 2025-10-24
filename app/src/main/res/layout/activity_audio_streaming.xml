@@ -25,7 +25,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="8dp"
-            android:text="Аудио прослушка"
+            android:text="@string/audio_monitor_title"
             android:textAlignment="center"
             android:textAppearance="@style/TextAppearance.Material3.HeadlineMedium"
             android:textColor="?attr/colorOnSurface" />
@@ -35,7 +35,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="24dp"
-            android:text="Устройство: child-XXXX"
+            android:text="@string/audio_monitor_device_unknown"
             android:textAlignment="center"
             android:textSize="14sp"
             android:textColor="@color/text_secondary" />
@@ -60,7 +60,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
-                    android:text="Статус"
+                    android:text="@string/audio_monitor_section_status"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
                     android:textColor="?attr/colorOnSurface"
                     android:textStyle="bold" />
@@ -76,14 +76,14 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Состояние:"
+                        android:text="@string/audio_monitor_label_state"
                         android:textSize="14sp" />
 
                     <TextView
                         android:id="@+id/statusText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Остановлено"
+                        android:text="@string/audio_monitor_state_stopped"
                         android:textSize="14sp"
                         android:textStyle="bold"
                         android:textColor="?android:attr/textColorSecondary" />
@@ -101,14 +101,14 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Время начала:"
+                        android:text="@string/audio_monitor_label_start_time"
                         android:textSize="14sp" />
 
                     <TextView
                         android:id="@+id/startTimeText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="--:--:--"
+                        android:text="@string/audio_monitor_time_placeholder"
                         android:textSize="14sp"
                         android:fontFamily="monospace"
                         android:textColor="@color/text_primary" />
@@ -126,15 +126,15 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Длительность:"
+                        android:text="@string/audio_monitor_label_duration"
                         android:textSize="14sp" />
 
                     <TextView
                         android:id="@+id/durationText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="00:00:00"
-                        android:textSize="16sp"
+                        android:text="@string/audio_monitor_duration_placeholder"
+                        android:textSize="20sp"
                         android:textStyle="bold"
                         android:fontFamily="monospace"
                         android:textColor="?attr/colorPrimary" />
@@ -151,14 +151,14 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Фрагментов:"
+                        android:text="@string/audio_monitor_label_chunks"
                         android:textSize="14sp" />
 
                     <TextView
                         android:id="@+id/chunksReceivedText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="0"
+                        android:text="@string/audio_monitor_placeholder_zero"
                         android:textSize="14sp"
                         android:fontFamily="monospace"
                         android:textColor="@color/text_primary" />
@@ -187,7 +187,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="12dp"
-                    android:text="Режим записи"
+                    android:text="@string/audio_monitor_section_recording"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
                     android:textColor="?attr/colorOnSurface"
                     android:textStyle="bold" />
@@ -202,8 +202,9 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Записывать аудио"
-                        android:textSize="14sp" />
+                        android:text="@string/audio_monitor_label_record_toggle"
+                        android:textSize="14sp"
+                        android:textColor="?attr/colorOnSurface" />
 
                     <com.google.android.material.switchmaterial.SwitchMaterial
                         android:id="@+id/recordingSwitch"
@@ -213,21 +214,13 @@
 
                 </LinearLayout>
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="При включении записи аудио будет сохраняться на сервере для последующего прослушивания"
-                    android:textSize="12sp"
-                    android:textColor="?android:attr/textColorSecondary" />
-
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/openRecordingsButton"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="12dp"
-                    android:text="Библиотека записей"
-                    app:icon="@android:drawable/ic_menu_agenda"
+                    android:text="@string/audio_monitor_button_open_recordings"
+                    app:icon="@android:drawable/ic_menu_save"
                     app:iconGravity="textStart"
                     app:iconPadding="12dp" />
 
@@ -253,13 +246,14 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="12dp"
-                    android:text="Управление аудио"
+                    android:text="@string/audio_monitor_section_controls"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
                     android:textColor="?attr/colorOnSurface"
                     android:textStyle="bold" />
 
                 <!-- Volume Control -->
                 <LinearLayout
+                    android:id="@+id/volumeContainer"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
@@ -283,14 +277,15 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Громкость:"
-                            android:textSize="14sp" />
+                            android:text="@string/audio_monitor_label_volume"
+                            android:textSize="14sp"
+                            android:textColor="?attr/colorOnSurface" />
 
                         <TextView
                             android:id="@+id/volumeText"
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="100%"
+                            android:text="@string/audio_monitor_volume_default"
                             android:textSize="14sp"
                             android:textStyle="bold"
                             android:textColor="?attr/colorPrimary"
@@ -307,6 +302,30 @@
                         android:valueTo="100"
                         android:value="100"
                         android:stepSize="5" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="@string/audio_monitor_volume_modes"
+                        android:textSize="12sp"
+                        android:textColor="?android:attr/textColorSecondary" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/volumeModeBtn"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:minHeight="64dp"
+                        android:text="@string/audio_monitor_volume_mode_quiet"
+                        android:textSize="18sp"
+                        android:paddingTop="20dp"
+                        android:paddingBottom="20dp"
+                        app:icon="@android:drawable/ic_lock_silent_mode_off"
+                        app:iconGravity="textStart"
+                        app:iconPadding="16dp"
+                        app:iconSize="36dp" />
 
                 </LinearLayout>
 
@@ -329,14 +348,15 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Качество связи:"
-                        android:textSize="14sp" />
+                        android:text="@string/audio_monitor_label_connection_quality"
+                        android:textSize="14sp"
+                        android:textColor="?attr/colorOnSurface" />
 
                     <TextView
                         android:id="@+id/connectionQualityText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="--"
+                        android:text="@string/audio_monitor_placeholder_dash"
                         android:textSize="14sp"
                         android:textStyle="bold"
                         android:textColor="?android:attr/textColorSecondary" />
@@ -347,7 +367,30 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Enhanced Diagnostics HUD (2 rows) - Improved visibility -->
+        <!-- HUD Toggle -->
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="end"
+            android:layout_marginBottom="8dp">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/hudModeButton"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/audio_monitor_hud_toggle_expanded"
+                android:textSize="14sp"
+                android:textColor="?attr/colorOnSurface"
+                app:icon="@android:drawable/ic_menu_view"
+                app:iconGravity="textStart"
+                app:iconPadding="8dp"
+                app:iconSize="24dp"
+                app:iconTint="?attr/colorOnSurface" />
+        </LinearLayout>
+
+        <!-- Enhanced Diagnostics HUD -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/diagnosticsHud"
             android:layout_width="match_parent"
@@ -358,6 +401,7 @@
             app:cardBackgroundColor="#DD000000">
 
             <LinearLayout
+                android:id="@+id/hudContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
@@ -365,137 +409,130 @@
 
                 <!-- Row 1: Connection & Network -->
                 <LinearLayout
+                    android:id="@+id/hudRow1"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical">
 
-                    <!-- WS Status + Session Time -->
                     <TextView
                         android:id="@+id/hudWsStatus"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1.5"
-                        android:text="🔴 —"
-                        android:textSize="13sp"
+                        android:text="@string/audio_monitor_placeholder_dash"
+                        android:textSize="15sp"
                         android:textColor="@android:color/white"
                         android:shadowColor="#000000"
                         android:shadowRadius="2"
-                        android:gravity="center"/>
+                        android:gravity="center" />
 
-                    <!-- Network Type -->
                     <TextView
                         android:id="@+id/hudNetwork"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="📡 —"
-                        android:textSize="13sp"
+                        android:text="@string/audio_monitor_placeholder_dash"
+                        android:textSize="15sp"
                         android:textColor="@android:color/white"
                         android:shadowColor="#000000"
                         android:shadowRadius="2"
-                        android:gravity="center"/>
+                        android:gravity="center" />
 
-                    <!-- Data Rate -->
                     <TextView
                         android:id="@+id/hudDataRate"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1.2"
-                        android:text="▼ —"
-                        android:textSize="13sp"
+                        android:text="@string/audio_monitor_placeholder_dash"
+                        android:textSize="15sp"
                         android:textColor="@android:color/white"
                         android:shadowColor="#000000"
                         android:shadowRadius="2"
-                        android:gravity="center"/>
+                        android:gravity="center" />
 
-                    <!-- Ping -->
                     <TextView
                         android:id="@+id/hudPing"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="0.8"
-                        android:text="—ms"
-                        android:textSize="13sp"
+                        android:text="@string/audio_monitor_placeholder_dash"
+                        android:textSize="15sp"
                         android:textColor="@android:color/white"
                         android:shadowColor="#000000"
                         android:shadowRadius="2"
-                        android:gravity="center"/>
+                        android:gravity="center" />
 
-                    <!-- Battery -->
                     <TextView
                         android:id="@+id/hudBattery"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="🔋 —"
-                        android:textSize="13sp"
+                        android:text="@string/audio_monitor_placeholder_dash"
+                        android:textSize="15sp"
                         android:textColor="@android:color/white"
                         android:shadowColor="#000000"
                         android:shadowRadius="2"
-                        android:gravity="center"/>
+                        android:gravity="center" />
 
                 </LinearLayout>
 
                 <!-- Row 2: Audio & Quality -->
                 <LinearLayout
+                    android:id="@+id/hudRow2"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
                     android:layout_marginTop="4dp">
 
-                    <!-- Audio Status -->
                     <TextView
                         android:id="@+id/hudAudioStatus"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1.2"
-                        android:text="⏸ —"
-                        android:textSize="13sp"
+                        android:text="@string/audio_monitor_placeholder_dash"
+                        android:textSize="15sp"
                         android:textColor="@android:color/white"
                         android:shadowColor="#000000"
                         android:shadowRadius="2"
-                        android:gravity="center"/>
+                        android:gravity="center" />
 
-                    <!-- Queue + Underruns -->
                     <TextView
                         android:id="@+id/hudQueue"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1.5"
-                        android:text="Q:—"
-                        android:textSize="13sp"
+                        android:text="@string/audio_monitor_placeholder_dash"
+                        android:textSize="15sp"
                         android:textColor="@android:color/white"
                         android:shadowColor="#000000"
                         android:shadowRadius="2"
-                        android:gravity="center"/>
+                        android:gravity="center" />
 
-                    <!-- Total Data -->
                     <TextView
                         android:id="@+id/hudTotalData"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1.2"
-                        android:text="Σ —"
-                        android:textSize="13sp"
+                        android:text="@string/audio_monitor_placeholder_dash"
+                        android:textSize="15sp"
                         android:textColor="@android:color/white"
                         android:shadowColor="#000000"
                         android:shadowRadius="2"
-                        android:gravity="center"/>
+                        android:gravity="center" />
 
-                    <!-- Sample Rate -->
                     <TextView
                         android:id="@+id/hudSampleRate"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1.1"
-                        android:text="♫ —"
-                        android:textSize="13sp"
+                        android:text="@string/audio_monitor_placeholder_dash"
+                        android:textSize="15sp"
                         android:textColor="@android:color/white"
                         android:shadowColor="#000000"
                         android:shadowRadius="2"
-                        android:gravity="center"/>
+                        android:gravity="center" />
 
                 </LinearLayout>
 
@@ -503,7 +540,7 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Audio Waveform Visualizer Card -->
+        <!-- Audio Visualizer Card -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -517,53 +554,28 @@
                 android:orientation="vertical"
                 android:padding="20dp">
 
-                <LinearLayout
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/visualizationModeBtn"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="12dp">
+                    android:minHeight="56dp"
+                    android:text="@string/audio_monitor_visualizer_button"
+                    android:textSize="16sp"
+                    android:paddingTop="16dp"
+                    android:paddingBottom="16dp"
+                    app:icon="@android:drawable/ic_menu_slideshow"
+                    app:iconGravity="textStart"
+                    app:iconPadding="16dp"
+                    app:iconSize="32dp"
+                    android:layout_marginBottom="16dp" />
 
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Визуализация аудио"
-                        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                        android:textColor="?attr/colorOnSurface"
-                        android:textStyle="bold" />
-
-                    <!-- Visualization Mode Selector -->
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/visualizationModeBtn"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Эквалайзер"
-                        android:textSize="12sp"
-                        app:icon="@android:drawable/ic_menu_view"
-                        app:iconSize="16dp"
-                        style="@style/Widget.Material3.Button.OutlinedButton" />
-
-                    <!-- Volume Mode Selector -->
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/volumeModeBtn"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="🔉 Тихо"
-                        android:textSize="12sp"
-                        android:layout_marginStart="8dp"
-                        style="@style/Widget.Material3.Button.OutlinedButton" />
-
-                </LinearLayout>
-
-                <!-- Advanced Audio Visualizer -->
                 <ru.example.childwatch.ui.AdvancedAudioVisualizer
                     android:id="@+id/advancedAudioVisualizer"
                     android:layout_width="match_parent"
                     android:layout_height="140dp"
                     android:background="@android:color/black" />
 
-                <!-- Volume Level Indicator -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
@@ -582,14 +594,15 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Уровень сигнала:"
-                        android:textSize="12sp" />
+                        android:text="@string/audio_monitor_label_signal_level"
+                        android:textSize="12sp"
+                        android:textColor="?attr/colorOnSurface" />
 
                     <TextView
                         android:id="@+id/signalLevelText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="--"
+                        android:text="@string/audio_monitor_placeholder_dash"
                         android:textSize="12sp"
                         android:textStyle="bold"
                         android:textColor="?android:attr/textColorSecondary" />
@@ -618,12 +631,11 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
-                    android:text="Аудио фильтры"
+                    android:text="@string/audio_monitor_section_filters"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
                     android:textColor="?attr/colorOnSurface"
                     android:textStyle="bold" />
 
-                <!-- Filter Mode Selection (RecyclerView with cards) -->
                 <androidx.recyclerview.widget.RecyclerView
                     android:id="@+id/filterRecyclerView"
                     android:layout_width="match_parent"
@@ -634,13 +646,12 @@
                     android:paddingEnd="4dp"
                     android:orientation="horizontal" />
 
-                <!-- Mode Description -->
                 <TextView
                     android:id="@+id/modeDescriptionText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:text="Оригинальный звук без обработки"
+                    android:text="@string/audio_monitor_filters_description"
                     android:textSize="12sp"
                     android:textColor="?android:attr/textColorSecondary"
                     android:textStyle="italic"
@@ -651,22 +662,20 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Control Button -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/toggleStreamingBtn"
             android:layout_width="match_parent"
             android:layout_height="60dp"
-            android:text="Начать прослушку"
+            android:text="@string/audio_monitor_toggle_start"
             android:textSize="16sp"
             app:cornerRadius="12dp"
             app:icon="@android:drawable/ic_btn_speak_now" />
 
-        <!-- Info Text -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            android:text="ℹ️ Прослушка работает в реальном времени. Аудио с устройства ребёнка будет воспроизводиться через динамик."
+            android:text="@string/audio_monitor_info_text"
             android:textSize="12sp"
             android:gravity="center"
             android:textColor="?android:attr/textColorSecondary" />
