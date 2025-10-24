@@ -4,3 +4,37 @@ plugins {
     id 'org.jetbrains.kotlin.android' version '1.9.0' apply false
     id 'com.google.gms.google-services' version '4.3.15' apply false
 }
+
+// Guard against broken encodings ("кракозябры") in source/resources
+def utf8Suspicious = ["Ã", "Ð", "Ñ", "�"]
+
+tasks.register('utf8Guard') {
+    group = 'verification'
+    description = 'Проверяет исходники на возможные проблемы с кодировкой (UTF-8).'
+    doLast {
+        def trees = []
+        trees += fileTree('.') {
+            include 'app/src/**/*.kt', 'app/src/**/*.java', 'app/src/**/*.xml'
+            include 'parentwatch/src/**/*.kt', 'parentwatch/src/**/*.java', 'parentwatch/src/**/*.xml'
+            include 'server/**/*.js', 'server/**/*.ts', 'server/**/*.json'
+            exclude '**/build/**', '**/.gradle/**', '**/.git/**'
+        }
+        def bad = []
+        trees.each { f ->
+            def text = f.getText('UTF-8')
+            if (utf8Suspicious.any { s -> text.contains(s) }) {
+                bad << f
+            }
+        }
+        if (!bad.isEmpty()) {
+            throw new GradleException("Найдены возможные проблемы с кодировкой в файлах:\n" + bad.join('\n') + "\nИсправьте кодировку на UTF-8 и замените испорченные символы.")
+        } else {
+            println 'UTF-8 проверка пройдена — проблем не найдено.'
+        }
+    }
+}
+
+// Включить в общий цикл проверок (не останавливает сборку, только при явном запуске `check`)
+tasks.matching { it.name == 'check' }.configureEach {
+    dependsOn tasks.named('utf8Guard')
+}

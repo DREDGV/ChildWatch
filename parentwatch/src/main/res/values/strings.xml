@@ -11,3 +11,4 @@
     <string name="notification_channel_name">Отслеживание местоположения</string>
     <string name="notification_channel_description">Уведомления о работе службы отслеживания</string>
 </resources>
+

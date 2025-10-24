@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Базовые состояния мониторинга -->
+    <string name="monitoring_active">Мониторинг активен</string>
+    <string name="monitoring_inactive">Мониторинг не активен</string>
+    <string name="start_monitoring">Начать мониторинг</string>
+    <string name="stop_monitoring">Остановить мониторинг</string>
+
+    <!-- Согласие и разрешения -->
+    <string name="consent_title">Согласие на мониторинг</string>
+    <string name="consent_text">Мы запрашиваем ваше согласие на сбор и обработку данных устройства для целей мониторинга. Вы можете отозвать согласие в любое время в настройках приложения. Мониторинг может работать в фоновом режиме.</string>
+    <string name="consent_agree">Согласен</string>
+    <string name="consent_decline">Отказать</string>
+    <string name="permission_location_rationale">Нужно разрешение на геолокацию для корректной работы мониторинга.</string>
+    <string name="permission_audio_rationale">Нужно разрешение на запись аудио для работы этой функции.</string>
+    <string name="permission_camera_rationale">Нужно разрешение на камеру для работы этой функции.</string>
+    <string name="permission_background_location_rationale">Нужно разрешение на фоновый доступ к местоположению для корректной работы мониторинга.</string>
+    <string name="permission_denied">Разрешение отклонено. Откройте настройки, чтобы предоставить разрешение.</string>
+    <string name="all_permissions_granted">Все разрешения предоставлены</string>
+    <string name="permissions_denied">Отклонены разрешения: %1$s</string>
+
+    <!-- Настройки и уведомления -->
+    <string name="settings">Настройки</string>
+    <string name="location_interval">Интервал отправки местоположения (мин)</string>
+    <string name="audio_duration">Длительность записи (мин)</string>
+    <string name="server_url">URL сервера</string>
+    <string name="notification_channel_name">Мониторинг ChildWatch</string>
+    <string name="notification_channel_description">Уведомления о работе мониторинга</string>
+    <string name="notification_monitoring_title">ChildWatch активен</string>
+    <string name="notification_monitoring_text">Фоновый мониторинг и сбор данных</string>
+    <string name="notification_recording_audio">Запись аудио…</string>
+    <string name="activate_monitoring">Включить мониторинг</string>
+    <string name="consent_given">Согласие предоставлено</string>
+    <string name="consent_revoked">Согласие отозвано</string>
+    <string name="background_location_manual">Для фонового мониторинга включите доступ к местоположению: Настройки → Разрешения → Местоположение → Всегда</string>
+    <string name="consent_required">Требуется согласие</string>
+    <string name="permissions_required">Необходимы разрешения для работы</string>
+    <string name="monitoring_started">Мониторинг запущен</string>
+    <string name="monitoring_stopped">Мониторинг остановлен</string>
+
+    <!-- Статус устройства ребенка (HUD/главный экран) -->
+    <string name="device_info_header">Статус устройства ребенка</string>
+    <string name="device_info_device_id">ID устройства: %1$s</string>
+    <string name="device_info_battery">Батарея</string>
+    <string name="device_info_charging">Зарядка</string>
+    <string name="device_info_temperature">Температура</string>
+    <string name="device_info_voltage">Напряжение</string>
+    <string name="device_info_health">Состояние</string>
+    <string name="device_info_model">Устройство</string>
+    <string name="device_info_android">Android</string>
+    <string name="device_info_current_app">Текущее приложение</string>
+    <string name="device_info_last_sync">Обновлено</string>
+    <string name="device_info_unknown">Неизвестно</string>
+    <string name="device_info_not_available">Статус недоступен</string>
+    <string name="device_info_needs_pairing">Добавьте ID детского устройства в настройках, чтобы видеть статус.</string>
+    <string name="device_info_charging_yes">Заряжается</string>
+    <string name="device_info_charging_no">Не заряжается</string>
+    <string name="device_info_loading">Обновление…</string>
+</resources>
+
