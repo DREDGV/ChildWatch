@@ -46,9 +46,20 @@ class ChildSelectionActivity : AppCompatActivity() {
         ActivityResultContracts.GetContent()
     ) { uri ->
         uri?.let {
-            selectedAvatarUri = it
-            currentAvatarImageView?.setImageURI(it)
-            Log.d(TAG, "Avatar selected: $it")
+            try {
+                // Запросить постоянный доступ к URI
+                val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
+                contentResolver.takePersistableUriPermission(uri, takeFlags)
+
+                selectedAvatarUri = it
+                currentAvatarImageView?.setImageURI(it)
+                Log.d(TAG, "Avatar selected with persistent permission: $it")
+            } catch (e: Exception) {
+                // Если не получилось получить постоянный доступ, все равно используем URI
+                Log.w(TAG, "Could not take persistable URI permission, using temporary: ${e.message}")
+                selectedAvatarUri = it
+                currentAvatarImageView?.setImageURI(it)
+            }
         }
     }
 

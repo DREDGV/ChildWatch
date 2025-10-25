@@ -774,6 +774,19 @@ class MainActivity : AppCompatActivity() {
                     if (child != null) {
                         binding.selectedChildName.text = child.name
                         binding.selectedChildDeviceId.text = "ID: ${child.deviceId.take(12)}..."
+
+                        // Загрузить аватар
+                        if (child.avatarUrl != null) {
+                            try {
+                                binding.selectedChildAvatar.setImageURI(android.net.Uri.parse(child.avatarUrl))
+                            } catch (e: Exception) {
+                                Log.e(TAG, "Error loading avatar", e)
+                                binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+                            }
+                        } else {
+                            binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+                        }
+
                         Log.d(TAG, "Загружен профиль ребенка: ${child.name}")
                     } else {
                         showDefaultChildSelection()
@@ -795,6 +808,7 @@ class MainActivity : AppCompatActivity() {
         try {
             binding.selectedChildName.text = "Выберите устройство"
             binding.selectedChildDeviceId.text = "Нажмите для выбора"
+            binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
         } catch (e: Exception) {
             Log.e(TAG, "Error in showDefaultChildSelection", e)
         }
@@ -814,6 +828,18 @@ class MainActivity : AppCompatActivity() {
                     // Обновить UI
                     binding.selectedChildName.text = child.name
                     binding.selectedChildDeviceId.text = "ID: ${child.deviceId.take(12)}..."
+
+                    // Обновить аватар
+                    if (child.avatarUrl != null) {
+                        try {
+                            binding.selectedChildAvatar.setImageURI(android.net.Uri.parse(child.avatarUrl))
+                        } catch (e: Exception) {
+                            Log.e(TAG, "Error loading avatar", e)
+                            binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+                        }
+                    } else {
+                        binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+                    }
 
                     // Сохранить в настройках
                     prefs.edit().putString("selected_device_id", deviceId).apply()
