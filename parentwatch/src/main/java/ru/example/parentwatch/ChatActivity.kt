@@ -278,8 +278,10 @@ class ChatActivity : AppCompatActivity() {
         // Create grid layout for emojis
         val gridLayout = android.widget.GridLayout(this).apply {
             columnCount = 5
-            setPadding(24, 24, 24, 24)
+            setPadding(16, 16, 16, 16)
         }
+
+        var dialogInstance: androidx.appcompat.app.AlertDialog? = null
 
         emojis.forEach { emoji ->
             val button = com.google.android.material.button.MaterialButton(
@@ -288,12 +290,21 @@ class ChatActivity : AppCompatActivity() {
                 com.google.android.material.R.attr.materialButtonOutlinedStyle
             ).apply {
                 text = emoji
-                textSize = 24f
-                val size = (48 * resources.displayMetrics.density).toInt()
+                textSize = 28f // Увеличен размер emoji
+                minWidth = 0
+                minHeight = 0
+                minimumWidth = 0
+                minimumHeight = 0
+                setPadding(0, 0, 0, 0)
+                insetTop = 0
+                insetBottom = 0
+                iconPadding = 0
+
+                val size = (64 * resources.displayMetrics.density).toInt() // Увеличен с 48dp до 64dp
                 layoutParams = android.widget.GridLayout.LayoutParams().apply {
                     width = size
                     height = size
-                    setMargins(8, 8, 8, 8)
+                    setMargins(4, 4, 4, 4)
                 }
                 setOnClickListener {
                     // Insert emoji at cursor position
@@ -306,16 +317,7 @@ class ChatActivity : AppCompatActivity() {
                     binding.messageInput.setSelection(cursorPosition + emoji.length)
 
                     // Close dialog
-                    (it.parent as? android.view.ViewGroup)?.let { parent ->
-                        var view: android.view.View? = parent
-                        while (view != null) {
-                            if (view is androidx.appcompat.app.AlertDialog) {
-                                view.dismiss()
-                                break
-                            }
-                            view = view.parent as? android.view.View
-                        }
-                    }
+                    dialogInstance?.dismiss()
                 }
             }
             gridLayout.addView(button)
@@ -323,7 +325,7 @@ class ChatActivity : AppCompatActivity() {
 
         builder.setView(gridLayout)
         builder.setNegativeButton("Закрыть", null)
-        builder.show()
+        dialogInstance = builder.show()
     }
 
     override fun onSupportNavigateUp(): Boolean {

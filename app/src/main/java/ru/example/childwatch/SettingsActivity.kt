@@ -158,6 +158,8 @@ class SettingsActivity : AppCompatActivity() {
         val notificationDuration = notificationPrefs.getInt("notification_duration", 10000) / 1000 // Convert ms to seconds
         val notificationSize = notificationPrefs.getString("notification_size", "expanded") ?: "expanded"
         val notificationPriority = notificationPrefs.getInt("notification_priority", 2)
+        val notificationSound = notificationPrefs.getBoolean("notification_sound", true)
+        val notificationVibration = notificationPrefs.getBoolean("notification_vibration", true)
 
         binding.notificationDurationSlider.value = notificationDuration.toFloat()
         binding.durationValueText.text = "$notificationDuration секунд"
@@ -178,6 +180,10 @@ class SettingsActivity : AppCompatActivity() {
             else -> "Средний"
         }
         binding.priorityValueText.text = priorityText
+
+        // Load notification sound and vibration toggles
+        binding.notificationSoundSwitch.isChecked = notificationSound
+        binding.notificationVibrationSwitch.isChecked = notificationVibration
 
         Log.d(TAG, "Settings loaded")
     }
@@ -224,14 +230,18 @@ class SettingsActivity : AppCompatActivity() {
             val notificationDurationSec = binding.notificationDurationSlider.value.toInt()
             val notificationSize = if (binding.notificationSizeCompact.isChecked) "compact" else "expanded"
             val notificationPriority = binding.notificationPrioritySlider.value.toInt()
+            val notificationSound = binding.notificationSoundSwitch.isChecked
+            val notificationVibration = binding.notificationVibrationSwitch.isChecked
 
             notificationPrefs.edit()
                 .putInt("notification_duration", notificationDurationSec * 1000) // Convert to ms
                 .putString("notification_size", notificationSize)
                 .putInt("notification_priority", notificationPriority)
+                .putBoolean("notification_sound", notificationSound)
+                .putBoolean("notification_vibration", notificationVibration)
                 .apply()
 
-            Log.d(TAG, "Settings saved: interval=$locationInterval, audio=$audioDuration, url=$serverUrl, notif=$notificationDurationSec, size=$notificationSize, priority=$notificationPriority")
+            Log.d(TAG, "Settings saved: interval=$locationInterval, audio=$audioDuration, url=$serverUrl, notif=$notificationDurationSec, size=$notificationSize, priority=$notificationPriority, sound=$notificationSound, vibration=$notificationVibration")
             Toast.makeText(this, "Настройки сохранены", Toast.LENGTH_SHORT).show()
             
             // Finish activity

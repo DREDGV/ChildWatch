@@ -67,12 +67,25 @@
             </intent-filter>
         </activity>
         
+        <!-- Parent Setup Activity (Onboarding) -->
+        <activity
+            android:name=".ParentSetupActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ChildWatch"
+            android:noHistory="true" />
+
+        <!-- Child Selection Activity -->
+        <activity
+            android:name=".ChildSelectionActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ChildWatch" />
+
         <!-- Main Activity -->
         <activity
             android:name=".MainActivity"
             android:exported="false"
             android:theme="@style/Theme.ChildWatch" />
-        
+
         <!-- Settings Authentication Activity -->
         <activity
             android:name=".SettingsAuthActivity"
@@ -193,6 +206,16 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </receiver>
+
+        <!-- Receiver for notification reply actions -->
+        <receiver
+            android:name=".receiver.NotificationReplyReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="ru.example.childwatch.ACTION_REPLY" />
             </intent-filter>
         </receiver>
 

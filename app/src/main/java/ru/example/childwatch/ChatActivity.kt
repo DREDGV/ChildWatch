@@ -3,7 +3,9 @@ package ru.example.childwatch
 import android.content.Context
 import android.os.Bundle
 import android.util.Log
+import android.view.View
 import android.widget.Toast
+import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -15,9 +17,11 @@ import ru.example.childwatch.databinding.ActivityChatBinding
 import ru.example.childwatch.chat.ChatAdapter
 import ru.example.childwatch.chat.ChatMessage
 import ru.example.childwatch.chat.ChatManager
+import ru.example.childwatch.chat.ChatManagerAdapter
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.utils.SecurePreferences
+import ru.example.childwatch.viewmodel.ChatViewModel
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -68,28 +72,44 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var binding: ActivityChatBinding
     private lateinit var chatAdapter: ChatAdapter
     private lateinit var chatManager: ChatManager
+    private lateinit var chatManagerAdapter: ChatManagerAdapter
     private lateinit var networkClient: NetworkClient
     private lateinit var securePreferences: SecurePreferences
     private val messages = mutableListOf<ChatMessage>()
-    private val currentUser = "child"
+    private val currentUser = "parent" // ChildWatch - приложение родителя
+
+    // ViewModel для управления состоянием
+    private val viewModel: ChatViewModel by viewModels()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityChatBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Initialize chat manager
+        // Initialize chat manager (старый для совместимости)
         chatManager = ChatManager(this)
+
+        // Получаем deviceId
+        val deviceId = getChildDeviceId()
+
+        // Initialize новый адаптер с Room Database и автоматической миграцией
+        chatManagerAdapter = ChatManagerAdapter(this, deviceId)
+
+        // Инициализация ViewModel
+        viewModel.initialize(deviceId)
+
         networkClient = NetworkClient(this)
         securePreferences = SecurePreferences(this, "childwatch_prefs")
 
         // Setup UI
         setupUI()
         setupRecyclerView()
+        setupViewModelObservers()
         loadMessages()
 
-        // Mark all messages as read
-        chatManager.markAllAsRead()
+        // Mark all messages as read (используем новый адаптер)
+        chatManagerAdapter.markAllAsRead()
+        viewModel.markAllAsRead()
 
         // Reset unread count in NotificationManager
         ru.example.childwatch.utils.NotificationManager.resetUnreadCount()
@@ -109,7 +129,7 @@ class ChatActivity : AppCompatActivity() {
                         if (messages.none { it.id == msg.id }) {
                             messages.add(msg.copy(isRead = true))
                             chatAdapter.notifyItemInserted(messages.size - 1)
-                            chatManager.saveMessage(msg.copy(isRead = true))
+                            chatManagerAdapter.saveMessage(msg.copy(isRead = true))
                             newIds.add(msg.id)
                             // Показываем уведомление для каждого нового сообщения
                             ru.example.childwatch.utils.NotificationManager.showChatNotification(
@@ -185,6 +205,45 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Настройка наблюдателей за ViewModel
+     */
+    private fun setupViewModelObservers() {
+        // Наблюдение за списком сообщений
+        viewModel.messages.observe(this) { messagesList ->
+            if (messagesList.isNotEmpty()) {
+                Log.d(TAG, "ViewModel: получено ${messagesList.size} сообщений")
+                // Обновляем список если он отличается
+                if (messages != messagesList) {
+                    messages.clear()
+                    messages.addAll(messagesList)
+                    chatAdapter.notifyDataSetChanged()
+                    binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
+                }
+            }
+        }
+
+        // Наблюдение за непрочитанными сообщениями
+        viewModel.unreadCount.observe(this) { count ->
+            Log.d(TAG, "ViewModel: непрочитанных сообщений: $count")
+            // Можно обновить счетчик в UI
+        }
+
+        // Наблюдение за состоянием загрузки
+        viewModel.isLoading.observe(this) { isLoading ->
+            // TODO: Показать/скрыть индикатор загрузки
+            Log.d(TAG, "ViewModel: загрузка = $isLoading")
+        }
+
+        // Наблюдение за ошибками
+        viewModel.error.observe(this) { errorMessage ->
+            errorMessage?.let {
+                Toast.makeText(this, "Ошибка: $it", Toast.LENGTH_SHORT).show()
+                viewModel.clearError()
+            }
+        }
+    }
+
     private fun sendMessage() {
         val messageText = binding.messageInput.text.toString().trim()
         if (messageText.isEmpty()) {
@@ -192,11 +251,11 @@ class ChatActivity : AppCompatActivity() {
             return
         }
 
-        // Создаем сообщение от ребенка (ChildWatch - это приложение ребенка)
+        // Создаем сообщение от родителя (ChildWatch - это приложение родителя)
         val message = ChatMessage(
             id = System.currentTimeMillis().toString(),
             text = messageText,
-            sender = "child",
+            sender = currentUser, // "parent"
             timestamp = System.currentTimeMillis(),
             isRead = false
         )
@@ -210,9 +269,10 @@ class ChatActivity : AppCompatActivity() {
         
         // Очищаем поле ввода
         binding.messageInput.text?.clear()
-        
-        // Сохраняем сообщение
-        chatManager.saveMessage(message)
+
+        // Сохраняем сообщение (используем новый адаптер и ViewModel)
+        chatManagerAdapter.saveMessage(message)
+        viewModel.sendMessage(message)
 
         // Отправляем через WebSocket
         sendMessageViaWebSocket(message)
@@ -237,12 +297,13 @@ class ChatActivity : AppCompatActivity() {
     private fun clearChat() {
         messages.clear()
         chatAdapter.notifyDataSetChanged()
-        chatManager.clearAllMessages()
+        chatManagerAdapter.clearAllMessages()
+        viewModel.clearAllMessages()
         Toast.makeText(this, "Чат очищен", Toast.LENGTH_SHORT).show()
     }
 
     private fun loadMessages() {
-        val savedMessages = chatManager.getAllMessages()
+        val savedMessages = chatManagerAdapter.getAllMessages()
         messages.clear()
         messages.addAll(savedMessages)
         chatAdapter.notifyDataSetChanged()
@@ -304,7 +365,7 @@ class ChatActivity : AppCompatActivity() {
                                     isRead = msgData.isRead
                                 )
                                 messages.add(message)
-                                chatManager.saveMessage(message)
+                                chatManagerAdapter.saveMessage(message)
                                 newMessagesCount++
                             }
                         }
@@ -418,8 +479,8 @@ class ChatActivity : AppCompatActivity() {
         // Scroll to last message
         binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
 
-        // Save message
-        chatManager.saveMessage(message)
+        // Save message (используем новый адаптер)
+        chatManagerAdapter.saveMessage(message)
 
         Log.d(TAG, "Received message from $sender: $text")
         Toast.makeText(this, "💬 Новое сообщение от ${message.getSenderName()}", Toast.LENGTH_SHORT).show()
@@ -442,8 +503,10 @@ class ChatActivity : AppCompatActivity() {
         // Create grid layout for emojis
         val gridLayout = android.widget.GridLayout(this).apply {
             columnCount = 5
-            setPadding(24, 24, 24, 24)
+            setPadding(16, 16, 16, 16)
         }
+
+        var dialogInstance: androidx.appcompat.app.AlertDialog? = null
 
         emojis.forEach { emoji ->
             val button = com.google.android.material.button.MaterialButton(
@@ -452,13 +515,23 @@ class ChatActivity : AppCompatActivity() {
                 com.google.android.material.R.attr.materialButtonOutlinedStyle
             ).apply {
                 text = emoji
-                textSize = 24f
-                val size = (48 * resources.displayMetrics.density).toInt()
+                textSize = 28f // Увеличен размер emoji
+                minWidth = 0
+                minHeight = 0
+                minimumWidth = 0
+                minimumHeight = 0
+                setPadding(0, 0, 0, 0)
+                insetTop = 0
+                insetBottom = 0
+                iconPadding = 0
+
+                val size = (64 * resources.displayMetrics.density).toInt() // Увеличен с 48dp до 64dp
                 layoutParams = android.widget.GridLayout.LayoutParams().apply {
                     width = size
                     height = size
-                    setMargins(8, 8, 8, 8)
+                    setMargins(4, 4, 4, 4)
                 }
+
                 setOnClickListener {
                     // Insert emoji at cursor position
                     val cursorPosition = binding.messageInput.selectionStart
@@ -470,16 +543,7 @@ class ChatActivity : AppCompatActivity() {
                     binding.messageInput.setSelection(cursorPosition + emoji.length)
 
                     // Close dialog
-                    (it.parent as? android.view.ViewGroup)?.let { parent ->
-                        var view: android.view.View? = parent
-                        while (view != null) {
-                            if (view is androidx.appcompat.app.AlertDialog) {
-                                view.dismiss()
-                                break
-                            }
-                            view = view.parent as? android.view.View
-                        }
-                    }
+                    dialogInstance?.dismiss()
                 }
             }
             gridLayout.addView(button)
@@ -487,7 +551,7 @@ class ChatActivity : AppCompatActivity() {
 
         builder.setView(gridLayout)
         builder.setNegativeButton("Закрыть", null)
-        builder.show()
+        dialogInstance = builder.show()
     }
 
     override fun onSupportNavigateUp(): Boolean {
@@ -498,6 +562,7 @@ class ChatActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         chatManager.cleanup()
+        chatManagerAdapter.cleanup()
         WebSocketManager.clearChatMessageCallback()
     }
 }

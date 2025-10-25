@@ -9,8 +9,10 @@ import android.os.Build
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
+import androidx.core.app.RemoteInput
 import ru.example.childwatch.MainActivity
 import ru.example.childwatch.R
+import ru.example.childwatch.receiver.NotificationReplyReceiver
 
 /**
  * Notification Manager for ChildWatch (Parent App)
@@ -28,6 +30,16 @@ object NotificationManager {
 
     // Counter for unread messages
     private var unreadMessageCount = 0
+
+    // Message history for MessagingStyle (last 10 messages)
+    private val messageHistory = mutableListOf<NotificationMessage>()
+    private const val MAX_HISTORY_SIZE = 10
+
+    data class NotificationMessage(
+        val senderName: String,
+        val text: String,
+        val timestamp: Long
+    )
 
     /**
      * Create notification channels for Android O and above
@@ -53,7 +65,7 @@ object NotificationManager {
     }
 
     /**
-     * Show chat notification for new message
+     * Show chat notification for new message with MessagingStyle
      */
     fun showChatNotification(
         context: Context,
@@ -64,15 +76,21 @@ object NotificationManager {
         // Increment unread counter
         unreadMessageCount++
 
+        // Add message to history
+        val message = NotificationMessage(senderName, messageText, timestamp)
+        messageHistory.add(message)
+        if (messageHistory.size > MAX_HISTORY_SIZE) {
+            messageHistory.removeAt(0) // Remove oldest message
+        }
+
         // Get notification preferences
         val prefs = context.getSharedPreferences("notification_prefs", Context.MODE_PRIVATE)
         val durationMs = prefs.getInt("notification_duration", 10000)
-        val notificationSize = prefs.getString("notification_size", "expanded") ?: "expanded"
         val notificationPriority = prefs.getInt("notification_priority", 2)
         val enableSound = prefs.getBoolean("notification_sound", true)
         val enableVibration = prefs.getBoolean("notification_vibration", true)
 
-        Log.d(TAG, "Notification settings: duration=${durationMs}ms, size=$notificationSize, priority=$notificationPriority, sound=$enableSound, vibration=$enableVibration")
+        Log.d(TAG, "Notification settings: duration=${durationMs}ms, priority=$notificationPriority, sound=$enableSound, vibration=$enableVibration")
 
         // Create intent to open chat when notification is tapped
         val intent = Intent(context, MainActivity::class.java).apply {
@@ -95,10 +113,52 @@ object NotificationManager {
             else -> NotificationCompat.PRIORITY_MAX
         }
 
+        // Create MessagingStyle
+        val messagingStyle = NotificationCompat.MessagingStyle("Вы")
+            .setConversationTitle("Чат с ребёнком")
+
+        // Add all messages from history to MessagingStyle
+        messageHistory.forEach { msg ->
+            messagingStyle.addMessage(
+                NotificationCompat.MessagingStyle.Message(
+                    msg.text,
+                    msg.timestamp,
+                    msg.senderName
+                )
+            )
+        }
+
+        // Create RemoteInput for quick reply
+        val remoteInput = RemoteInput.Builder(NotificationReplyReceiver.KEY_TEXT_REPLY)
+            .setLabel("Ответить...")
+            .build()
+
+        // Create reply action intent
+        val replyIntent = Intent(context, NotificationReplyReceiver::class.java).apply {
+            action = NotificationReplyReceiver.ACTION_REPLY
+        }
+
+        val replyPendingIntent = PendingIntent.getBroadcast(
+            context,
+            0,
+            replyIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE // Must be mutable for RemoteInput
+        )
+
+        // Create reply action
+        val replyAction = NotificationCompat.Action.Builder(
+            android.R.drawable.ic_menu_send,
+            "Ответить",
+            replyPendingIntent
+        )
+            .addRemoteInput(remoteInput)
+            .setAllowGeneratedReplies(true)
+            .build()
+
         // Build notification
         val builder = NotificationCompat.Builder(context, CHAT_CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("💬 Новое сообщение от $senderName")
+            .setContentTitle("💬 Чат с ребёнком")
             .setContentText(messageText)
             .setPriority(priority)
             .setAutoCancel(true)
@@ -111,13 +171,8 @@ object NotificationManager {
             .setTimeoutAfter(durationMs.toLong())
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Show on lockscreen
-
-        // Apply notification size style
-        if (notificationSize == "expanded") {
-            builder.setStyle(NotificationCompat.BigTextStyle()
-                .bigText(messageText)
-                .setBigContentTitle("💬 Новое сообщение от $senderName"))
-        } // Compact mode doesn't need a style (just shows single line)
+            .setStyle(messagingStyle)
+            .addAction(replyAction) // Add quick reply action
 
         // Configure sound based on preferences
         if (enableSound) {
@@ -135,7 +190,7 @@ object NotificationManager {
                 notify(CHAT_NOTIFICATION_ID, builder.build())
             }
 
-            android.util.Log.d("NotificationManager", "Chat notification shown: duration=${durationMs}ms, size=$notificationSize, priority=$notificationPriority, sound=$enableSound, vibration=$enableVibration")
+            android.util.Log.d("NotificationManager", "Chat notification shown with MessagingStyle: duration=${durationMs}ms, priority=$notificationPriority, sound=$enableSound, vibration=$enableVibration, history=${messageHistory.size} messages")
         } catch (e: SecurityException) {
             android.util.Log.e("NotificationManager", "Failed to show notification: ${e.message}")
         }
@@ -149,6 +204,7 @@ object NotificationManager {
             cancel(CHAT_NOTIFICATION_ID)
         }
         unreadMessageCount = 0 // Reset counter when notifications dismissed
+        messageHistory.clear() // Clear message history
     }
 
     /**
@@ -156,6 +212,7 @@ object NotificationManager {
      */
     fun resetUnreadCount() {
         unreadMessageCount = 0
+        messageHistory.clear() // Also clear history when chat is opened
     }
 
     /**

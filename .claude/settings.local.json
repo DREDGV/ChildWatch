@@ -35,7 +35,10 @@
       "Bash(dir appbuildoutputsapkdebug*.apk /b)",
       "Bash(dir parentwatchbuildoutputsapkdebug*.apk /b)",
       "Bash(echo.)",
-      "Bash(dir \"app/build/outputs/apk/debug\" /b)"
+      "Bash(dir \"app/build/outputs/apk/debug\" /b)",
+      "Bash(tee:*)",
+      "Bash(./gradlew.bat:*)",
+      "Bash(dir:*)"
     ],
     "deny": [],
     "ask": []

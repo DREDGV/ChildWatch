@@ -64,11 +64,23 @@ class MainActivity : AppCompatActivity() {
     ) { permissions ->
         handleBasicPermissionResults(permissions)
     }
-    
+
     private val backgroundLocationLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { isGranted ->
         handleBackgroundLocationResult(isGranted)
+    }
+
+    // Child selection launcher
+    private val childSelectionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val deviceId = result.data?.getStringExtra(ChildSelectionActivity.EXTRA_SELECTED_DEVICE_ID)
+            if (deviceId != null) {
+                updateSelectedChild(deviceId)
+            }
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -156,8 +168,15 @@ class MainActivity : AppCompatActivity() {
             val intent = Intent(this, SettingsActivity::class.java)
             startActivity(intent)
         }
-        
-        
+
+        // Child selection card
+        binding.childSelectionCard.setOnClickListener {
+            val intent = Intent(this, ChildSelectionActivity::class.java)
+            childSelectionLauncher.launch(intent)
+        }
+
+        // Load and display selected child
+        loadSelectedChild()
     }
     
     private fun setupBatteryOptimizationUi() {
@@ -723,6 +742,75 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton("Отмена", null)
             .show()
+    }
+
+    /**
+     * Загрузить и отобразить выбранное устройство
+     */
+    private fun loadSelectedChild() {
+        lifecycleScope.launch {
+            try {
+                val selectedDeviceId = prefs.getString("selected_device_id", null)
+
+                if (selectedDeviceId != null) {
+                    val database = ru.example.childwatch.database.ChildWatchDatabase.getInstance(this@MainActivity)
+                    val childDao = database.childDao()
+                    val child = childDao.getByDeviceId(selectedDeviceId)
+
+                    if (child != null) {
+                        binding.selectedChildName.text = child.name
+                        binding.selectedChildDeviceId.text = "ID: ${child.deviceId.take(12)}..."
+                        Log.d(TAG, "Загружен профиль ребенка: ${child.name}")
+                    } else {
+                        showDefaultChildSelection()
+                    }
+                } else {
+                    showDefaultChildSelection()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Ошибка загрузки профиля ребенка", e)
+                showDefaultChildSelection()
+            }
+        }
+    }
+
+    /**
+     * Показать состояние по умолчанию (устройство не выбрано)
+     */
+    private fun showDefaultChildSelection() {
+        binding.selectedChildName.text = "Выберите устройство"
+        binding.selectedChildDeviceId.text = "Нажмите для выбора"
+    }
+
+    /**
+     * Обновить выбранное устройство
+     */
+    private fun updateSelectedChild(deviceId: String) {
+        lifecycleScope.launch {
+            try {
+                val database = ru.example.childwatch.database.ChildWatchDatabase.getInstance(this@MainActivity)
+                val childDao = database.childDao()
+                val child = childDao.getByDeviceId(deviceId)
+
+                if (child != null) {
+                    // Обновить UI
+                    binding.selectedChildName.text = child.name
+                    binding.selectedChildDeviceId.text = "ID: ${child.deviceId.take(12)}..."
+
+                    // Сохранить в настройках
+                    prefs.edit().putString("selected_device_id", deviceId).apply()
+
+                    showToast("Выбрано устройство: ${child.name}")
+                    Log.d(TAG, "Устройство выбрано: ${child.name} ($deviceId)")
+                } else {
+                    showToast("Ошибка: устройство не найдено")
+                    showDefaultChildSelection()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Ошибка обновления профиля ребенка", e)
+                showToast("Ошибка обновления устройства")
+            }
+        }
     }
 
     companion object {

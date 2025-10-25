@@ -128,6 +128,16 @@
             </intent-filter>
         </receiver>
 
+        <!-- Notification Reply Receiver -->
+        <receiver
+            android:name=".receiver.NotificationReplyReceiver"
+            android:enabled="true"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="ru.example.parentwatch.ACTION_REPLY" />
+            </intent-filter>
+        </receiver>
+
     </application>
 
 </manifest>
