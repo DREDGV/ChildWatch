@@ -778,8 +778,12 @@ class MainActivity : AppCompatActivity() {
      * Показать состояние по умолчанию (устройство не выбрано)
      */
     private fun showDefaultChildSelection() {
-        binding.selectedChildName.text = "Выберите устройство"
-        binding.selectedChildDeviceId.text = "Нажмите для выбора"
+        try {
+            binding.selectedChildName.text = "Выберите устройство"
+            binding.selectedChildDeviceId.text = "Нажмите для выбора"
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in showDefaultChildSelection", e)
+        }
     }
 
     /**

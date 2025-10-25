@@ -38,16 +38,27 @@ class ChildSelectionActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityChildSelectionBinding.inflate(layoutInflater)
-        setContentView(binding.root)
 
-        database = ChildWatchDatabase.getInstance(this)
-        childRepository = ChildRepository(database.childDao())
+        try {
+            Log.d(TAG, "onCreate started")
+            binding = ActivityChildSelectionBinding.inflate(layoutInflater)
+            setContentView(binding.root)
+            Log.d(TAG, "View binding successful")
 
-        setupToolbar()
-        setupRecyclerView()
-        setupFab()
-        loadChildren()
+            database = ChildWatchDatabase.getInstance(this)
+            childRepository = ChildRepository(database.childDao())
+            Log.d(TAG, "Database initialized")
+
+            setupToolbar()
+            setupRecyclerView()
+            setupFab()
+            loadChildren()
+            Log.d(TAG, "onCreate completed successfully")
+        } catch (e: Exception) {
+            Log.e(TAG, "FATAL: onCreate failed", e)
+            showError("Ошибка инициализации: ${e.message}")
+            finish()
+        }
     }
 
     /**

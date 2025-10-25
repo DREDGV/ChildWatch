@@ -151,20 +151,8 @@ class ConsentActivity : AppCompatActivity() {
     private fun proceedToMainActivity() {
         Log.d(TAG, "Proceeding to main activity")
 
-        // Проверяем, завершен ли онбординг родителя
-        val onboardingPrefs = getSharedPreferences("parent_onboarding", MODE_PRIVATE)
-        val onboardingCompleted = onboardingPrefs.getBoolean("onboarding_completed", false)
-
-        Log.d(TAG, "Onboarding completed: $onboardingCompleted")
-
-        val intent = if (onboardingCompleted) {
-            // Онбординг пройден - идем сразу в главное меню
-            Intent(this, MainActivity::class.java)
-        } else {
-            // Онбординг не пройден - показываем экран настройки профиля
-            Intent(this, ParentSetupActivity::class.java)
-        }
-
+        // ВРЕМЕННО: Пропускаем onboarding для отладки
+        val intent = Intent(this, MainActivity::class.java)
         intent.flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         startActivity(intent)
         finish()
