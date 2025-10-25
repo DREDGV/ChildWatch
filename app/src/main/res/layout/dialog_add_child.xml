@@ -10,9 +10,7 @@
         android:id="@+id/deviceIdInputLayout"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:hint="Device ID"
-        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-        app:startIconDrawable="@android:drawable/ic_menu_info_details">
+        android:hint="Device ID">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/deviceIdInput"
@@ -28,9 +26,7 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:hint="Имя ребенка"
-        android:layout_marginTop="16dp"
-        style="@style/Widget.Material3.TextInputLayout.OutlinedBox"
-        app:startIconDrawable="@android:drawable/ic_menu_myplaces">
+        android:layout_marginTop="16dp">
 
         <com.google.android.material.textfield.TextInputEditText
             android:id="@+id/childNameInput"
