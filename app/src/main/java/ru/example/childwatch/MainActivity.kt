@@ -169,14 +169,28 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         }
 
-        // Child selection card
-        binding.childSelectionCard.setOnClickListener {
-            val intent = Intent(this, ChildSelectionActivity::class.java)
-            childSelectionLauncher.launch(intent)
+        // Child selection - use only container click handler
+        try {
+            binding.childSelectionContainer.setOnClickListener {
+                try {
+                    Log.d(TAG, "Child selection clicked - opening device selection")
+                    val intent = Intent(this, ChildSelectionActivity::class.java)
+                    childSelectionLauncher.launch(intent)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error launching ChildSelectionActivity", e)
+                    showToast("Ошибка запуска: ${e.message}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error setting up child selection click handler", e)
         }
 
         // Load and display selected child
-        loadSelectedChild()
+        try {
+            loadSelectedChild()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading selected child", e)
+        }
     }
     
     private fun setupBatteryOptimizationUi() {

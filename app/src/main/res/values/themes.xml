@@ -26,4 +26,10 @@
     </style>
 
     <style name="Theme.ChildWatch" parent="Base.Theme.ChildWatch" />
+
+    <!-- Theme for activities with custom Toolbar (no ActionBar) -->
+    <style name="Theme.ChildWatch.NoActionBar" parent="Base.Theme.ChildWatch">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
 </resources>

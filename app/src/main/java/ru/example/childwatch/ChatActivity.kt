@@ -75,6 +75,7 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var chatManagerAdapter: ChatManagerAdapter
     private lateinit var networkClient: NetworkClient
     private lateinit var securePreferences: SecurePreferences
+    private lateinit var messageQueue: ru.example.childwatch.chat.MessageQueue
     private val messages = mutableListOf<ChatMessage>()
     private val currentUser = "parent" // ChildWatch - приложение родителя
 
@@ -100,6 +101,14 @@ class ChatActivity : AppCompatActivity() {
 
         networkClient = NetworkClient(this)
         securePreferences = SecurePreferences(this, "childwatch_prefs")
+
+        // Инициализация очереди сообщений
+        messageQueue = ru.example.childwatch.chat.MessageQueue(this)
+        messageQueue.setSendCallback(object : ru.example.childwatch.chat.MessageQueue.SendCallback {
+            override fun send(message: ChatMessage, onSuccess: () -> Unit, onError: (String) -> Unit) {
+                sendMessageViaWebSocket(message, onSuccess, onError)
+            }
+        })
 
         // Setup UI
         setupUI()
@@ -274,10 +283,10 @@ class ChatActivity : AppCompatActivity() {
         chatManagerAdapter.saveMessage(message)
         viewModel.sendMessage(message)
 
-        // Отправляем через WebSocket
-        sendMessageViaWebSocket(message)
+        // Добавляем в очередь для надежной отправки
+        messageQueue.enqueue(message)
 
-        Log.d(TAG, "Message sent: $messageText")
+        Log.d(TAG, "Message queued: $messageText, pending: ${messageQueue.size()}")
     }
 
     private fun sendTestMessage() {
@@ -435,20 +444,25 @@ class ChatActivity : AppCompatActivity() {
     /**
      * Send message via WebSocket
      */
-    private fun sendMessageViaWebSocket(message: ChatMessage) {
+    private fun sendMessageViaWebSocket(
+        message: ChatMessage,
+        onSuccess: (() -> Unit)? = null,
+        onError: ((String) -> Unit)? = null
+    ) {
         WebSocketManager.sendChatMessage(
             messageId = message.id,
             text = message.text,
             sender = message.sender,
             onSuccess = {
                 runOnUiThread {
-                    Toast.makeText(this, "✅ Сообщение отправлено", Toast.LENGTH_SHORT).show()
+                    Log.d(TAG, "✅ Message ${message.id} sent successfully")
+                    onSuccess?.invoke()
                 }
             },
             onError = { error ->
                 runOnUiThread {
-                    Log.e(TAG, "Error sending message: $error")
-                    Toast.makeText(this, "❌ Ошибка отправки: $error", Toast.LENGTH_SHORT).show()
+                    Log.e(TAG, "❌ Error sending message ${message.id}: $error")
+                    onError?.invoke(error)
                 }
             }
         )
@@ -563,6 +577,7 @@ class ChatActivity : AppCompatActivity() {
         super.onDestroy()
         chatManager.cleanup()
         chatManagerAdapter.cleanup()
+        messageQueue.release()
         WebSocketManager.clearChatMessageCallback()
     }
 }

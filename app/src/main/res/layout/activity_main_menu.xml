@@ -112,15 +112,18 @@
             app:cardElevation="4dp"
             app:cardCornerRadius="12dp"
             android:clickable="true"
-            android:focusable="true"
-            android:foreground="?android:attr/selectableItemBackground">
+            android:focusable="true">
 
             <LinearLayout
+                android:id="@+id/childSelectionContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
                 android:padding="16dp"
-                android:gravity="center_vertical">
+                android:gravity="center_vertical"
+                android:background="?android:attr/selectableItemBackground"
+                android:clickable="true"
+                android:focusable="true">
 
                 <!-- Avatar -->
                 <com.google.android.material.card.MaterialCardView
@@ -169,6 +172,7 @@
 
                 <!-- Change Icon -->
                 <ImageView
+                    android:id="@+id/childSelectionEditIcon"
                     android:layout_width="24dp"
                     android:layout_height="24dp"
                     android:src="@android:drawable/ic_menu_edit"

@@ -77,9 +77,10 @@ class ChildSelectionActivity : AppCompatActivity() {
      * Настройка RecyclerView
      */
     private fun setupRecyclerView() {
-        childrenAdapter = ChildrenAdapter { child ->
-            onChildSelected(child)
-        }
+        childrenAdapter = ChildrenAdapter(
+            onChildClick = { child -> onChildSelected(child) },
+            onChildEdit = { child -> showEditChildDialog(child) }
+        )
 
         binding.childrenRecyclerView.apply {
             layoutManager = LinearLayoutManager(this@ChildSelectionActivity)
@@ -147,7 +148,7 @@ class ChildSelectionActivity : AppCompatActivity() {
         Log.d(TAG, "Выбран ребенок: ${child.name} (${child.deviceId})")
 
         // Сохранить выбранное устройство
-        val prefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         prefs.edit().putString("selected_device_id", child.deviceId).apply()
 
         // Вернуть результат
@@ -213,6 +214,112 @@ class ChildSelectionActivity : AppCompatActivity() {
 
             } catch (e: Exception) {
                 Log.e(TAG, "Ошибка добавления устройства", e)
+                showError("Ошибка: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Показать диалог редактирования устройства
+     */
+    private fun showEditChildDialog(child: Child) {
+        val dialogView = layoutInflater.inflate(R.layout.dialog_add_child, null)
+        val deviceIdInput = dialogView.findViewById<TextInputEditText>(R.id.deviceIdInput)
+        val childNameInput = dialogView.findViewById<TextInputEditText>(R.id.childNameInput)
+
+        // Заполнить текущие данные
+        deviceIdInput.setText(child.deviceId)
+        deviceIdInput.isEnabled = false // Device ID нельзя изменить
+        childNameInput.setText(child.name)
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Редактировать устройство")
+            .setView(dialogView)
+            .setPositiveButton("Сохранить") { _, _ ->
+                val newName = childNameInput.text.toString().trim()
+
+                if (newName.isNotEmpty()) {
+                    updateChild(child, newName)
+                } else {
+                    showError("Имя не может быть пустым")
+                }
+            }
+            .setNegativeButton("Отмена", null)
+            .setNeutralButton("Удалить") { _, _ ->
+                showDeleteConfirmDialog(child)
+            }
+            .show()
+    }
+
+    /**
+     * Обновить данные устройства
+     */
+    private fun updateChild(child: Child, newName: String) {
+        lifecycleScope.launch {
+            try {
+                val updatedChild = child.copy(name = newName)
+                childRepository.insertOrUpdateChild(updatedChild)
+                Log.d(TAG, "Устройство обновлено: $newName (${child.deviceId})")
+
+                // Обновить список
+                loadChildren()
+
+                // Показать уведомление
+                android.widget.Toast.makeText(
+                    this@ChildSelectionActivity,
+                    "Данные обновлены",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Ошибка обновления устройства", e)
+                showError("Ошибка: ${e.message}")
+            }
+        }
+    }
+
+    /**
+     * Показать диалог подтверждения удаления
+     */
+    private fun showDeleteConfirmDialog(child: Child) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Удалить устройство?")
+            .setMessage("Вы уверены, что хотите удалить устройство \"${child.name}\"?\n\nЭто действие нельзя отменить.")
+            .setPositiveButton("Удалить") { _, _ ->
+                deleteChild(child)
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    /**
+     * Удалить устройство
+     */
+    private fun deleteChild(child: Child) {
+        lifecycleScope.launch {
+            try {
+                childRepository.deleteChild(child)
+                Log.d(TAG, "Устройство удалено: ${child.name} (${child.deviceId})")
+
+                // Обновить список
+                loadChildren()
+
+                // Показать уведомление
+                android.widget.Toast.makeText(
+                    this@ChildSelectionActivity,
+                    "Устройство удалено",
+                    android.widget.Toast.LENGTH_SHORT
+                ).show()
+
+                // Если удалённое устройство было выбрано, очистить выбор
+                val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+                val selectedDeviceId = prefs.getString("selected_device_id", null)
+                if (selectedDeviceId == child.deviceId) {
+                    prefs.edit().remove("selected_device_id").apply()
+                }
+
+            } catch (e: Exception) {
+                Log.e(TAG, "Ошибка удаления устройства", e)
                 showError("Ошибка: ${e.message}")
             }
         }

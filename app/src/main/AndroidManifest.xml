@@ -78,7 +78,7 @@
         <activity
             android:name=".ChildSelectionActivity"
             android:exported="false"
-            android:theme="@style/Theme.ChildWatch" />
+            android:theme="@style/Theme.ChildWatch.NoActionBar" />
 
         <!-- Main Activity -->
         <activity

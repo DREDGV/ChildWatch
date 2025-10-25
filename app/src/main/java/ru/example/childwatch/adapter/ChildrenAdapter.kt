@@ -17,13 +17,14 @@ import java.util.*
  * Адаптер для отображения списка детских устройств
  */
 class ChildrenAdapter(
-    private val onChildClick: (Child) -> Unit
+    private val onChildClick: (Child) -> Unit,
+    private val onChildEdit: (Child) -> Unit
 ) : ListAdapter<Child, ChildrenAdapter.ChildViewHolder>(ChildDiffCallback()) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ChildViewHolder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_child, parent, false)
-        return ChildViewHolder(view, onChildClick)
+        return ChildViewHolder(view, onChildClick, onChildEdit)
     }
 
     override fun onBindViewHolder(holder: ChildViewHolder, position: Int) {
@@ -32,7 +33,8 @@ class ChildrenAdapter(
 
     class ChildViewHolder(
         itemView: View,
-        private val onChildClick: (Child) -> Unit
+        private val onChildClick: (Child) -> Unit,
+        private val onChildEdit: (Child) -> Unit
     ) : RecyclerView.ViewHolder(itemView) {
 
         private val childAvatar: ImageView = itemView.findViewById(R.id.childAvatar)
@@ -40,6 +42,7 @@ class ChildrenAdapter(
         private val childDeviceId: TextView = itemView.findViewById(R.id.childDeviceId)
         private val lastSeenText: TextView = itemView.findViewById(R.id.lastSeenText)
         private val activeIndicator: View = itemView.findViewById(R.id.activeIndicator)
+        private val editButton: ImageView = itemView.findViewById(R.id.editButton)
 
         private val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale("ru"))
 
@@ -79,9 +82,20 @@ class ChildrenAdapter(
             // Установить аватар по умолчанию
             childAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
 
-            // Обработчик клика
+            // Обработчик клика на карточку
             itemView.setOnClickListener {
                 onChildClick(child)
+            }
+
+            // Обработчик долгого клика на карточку (альтернативный способ редактирования)
+            itemView.setOnLongClickListener {
+                onChildEdit(child)
+                true
+            }
+
+            // Обработчик клика на кнопку редактирования
+            editButton.setOnClickListener {
+                onChildEdit(child)
             }
         }
 
