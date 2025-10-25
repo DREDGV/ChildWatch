@@ -48,11 +48,23 @@ class ParentSetupActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityParentSetupBinding.inflate(layoutInflater)
-        setContentView(binding.root)
 
-        setupUI()
-        checkIfAlreadyCompleted()
+        try {
+            Log.d(TAG, "onCreate started")
+            binding = ActivityParentSetupBinding.inflate(layoutInflater)
+            setContentView(binding.root)
+            Log.d(TAG, "View binding successful")
+
+            setupUI()
+            Log.d(TAG, "UI setup successful")
+
+            checkIfAlreadyCompleted()
+            Log.d(TAG, "onCreate completed")
+        } catch (e: Exception) {
+            Log.e(TAG, "FATAL: onCreate failed", e)
+            Toast.makeText(this, "Ошибка инициализации: ${e.message}", Toast.LENGTH_LONG).show()
+            finish()
+        }
     }
 
     private fun setupUI() {
@@ -209,5 +221,11 @@ class ParentSetupActivity : AppCompatActivity() {
     override fun onBackPressed() {
         // Не даем выйти из онбординга
         Toast.makeText(this, "Пожалуйста, завершите настройку профиля", Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onNewIntent(intent: Intent?) {
+        super.onNewIntent(intent)
+        // Если уже завершен - сразу переходим к MainActivity
+        checkIfAlreadyCompleted()
     }
 }

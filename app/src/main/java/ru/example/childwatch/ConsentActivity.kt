@@ -152,8 +152,10 @@ class ConsentActivity : AppCompatActivity() {
         Log.d(TAG, "Proceeding to main activity")
 
         // Проверяем, завершен ли онбординг родителя
-        val prefs = getSharedPreferences("parent_onboarding", MODE_PRIVATE)
-        val onboardingCompleted = prefs.getBoolean("onboarding_completed", false)
+        val onboardingPrefs = getSharedPreferences("parent_onboarding", MODE_PRIVATE)
+        val onboardingCompleted = onboardingPrefs.getBoolean("onboarding_completed", false)
+
+        Log.d(TAG, "Onboarding completed: $onboardingCompleted")
 
         val intent = if (onboardingCompleted) {
             // Онбординг пройден - идем сразу в главное меню
@@ -226,10 +228,11 @@ class ConsentActivity : AppCompatActivity() {
     
     override fun onResume() {
         super.onResume()
-        
+
         // Check if user came back from settings and now has permissions
-        if (PermissionHelper.hasAllRequiredPermissions(this)) {
-            Log.d(TAG, "All permissions now granted, proceeding to main activity")
+        // Only proceed if consent has been given
+        if (hasConsent(this) && PermissionHelper.hasAllRequiredPermissions(this)) {
+            Log.d(TAG, "Consent given and all permissions granted, proceeding to main activity")
             proceedToMainActivity()
         }
     }
