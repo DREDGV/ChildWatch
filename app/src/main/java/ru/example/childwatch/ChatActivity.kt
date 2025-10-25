@@ -175,7 +175,9 @@ class ChatActivity : AppCompatActivity() {
     private fun setupUI() {
         // Set up action bar
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = "Общение с ребенком"
+
+        // Загрузить имя ребенка из БД
+        loadChildName()
         
         // Configure input method for Cyrillic support
         binding.messageInput.imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEND
@@ -566,6 +568,35 @@ class ChatActivity : AppCompatActivity() {
         builder.setView(gridLayout)
         builder.setNegativeButton("Закрыть", null)
         dialogInstance = builder.show()
+    }
+
+    /**
+     * Загрузить имя ребенка из БД и установить в заголовок
+     */
+    private fun loadChildName() {
+        lifecycleScope.launch {
+            try {
+                val deviceId = getChildDeviceId()
+                val database = ru.example.childwatch.database.ChildWatchDatabase.getInstance(this@ChatActivity)
+                val child = database.childDao().getByDeviceId(deviceId)
+
+                val title = if (child != null) {
+                    "Чат с ${child.name}"
+                } else {
+                    "Чат с ребенком"
+                }
+
+                runOnUiThread {
+                    supportActionBar?.title = title
+                    Log.d(TAG, "Chat title set to: $title")
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading child name", e)
+                runOnUiThread {
+                    supportActionBar?.title = "Чат"
+                }
+            }
+        }
     }
 
     override fun onSupportNavigateUp(): Boolean {
