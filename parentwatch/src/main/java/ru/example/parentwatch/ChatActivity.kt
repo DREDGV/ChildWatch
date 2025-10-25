@@ -69,7 +69,9 @@ class ChatActivity : AppCompatActivity() {
     private fun setupUI() {
         // Set up action bar
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = "Чат с родителями"
+
+        // Load parent name from preferences
+        loadParentName()
 
         // Configure input method for Cyrillic support
         binding.messageInput.imeOptions = android.view.inputmethod.EditorInfo.IME_ACTION_SEND
@@ -340,6 +342,28 @@ class ChatActivity : AppCompatActivity() {
         builder.setView(gridLayout)
         builder.setNegativeButton("Закрыть", null)
         dialogInstance = builder.show()
+    }
+
+    /**
+     * Load parent name from SharedPreferences and set chat title
+     */
+    private fun loadParentName() {
+        try {
+            val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+            val parentName = prefs.getString("parent_name", null)
+
+            val title = if (!parentName.isNullOrEmpty()) {
+                "Чат с $parentName"
+            } else {
+                "Чат с родителями"
+            }
+
+            supportActionBar?.title = title
+            Log.d(TAG, "Chat title set to: $title")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading parent name", e)
+            supportActionBar?.title = "Чат"
+        }
     }
 
     override fun onSupportNavigateUp(): Boolean {
