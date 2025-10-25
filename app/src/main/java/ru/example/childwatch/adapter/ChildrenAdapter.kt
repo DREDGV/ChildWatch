@@ -1,5 +1,6 @@
 package ru.example.childwatch.adapter
 
+import android.net.Uri
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -79,8 +80,16 @@ class ChildrenAdapter(
                 activeIndicator.visibility = View.INVISIBLE
             }
 
-            // Установить аватар по умолчанию
-            childAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+            // Установить аватар
+            if (child.avatarUrl != null) {
+                try {
+                    childAvatar.setImageURI(Uri.parse(child.avatarUrl))
+                } catch (e: Exception) {
+                    childAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+                }
+            } else {
+                childAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+            }
 
             // Обработчик клика на карточку
             itemView.setOnClickListener {

@@ -1,12 +1,16 @@
 package ru.example.childwatch
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.View
+import android.widget.ImageView
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.textfield.TextInputEditText
@@ -35,6 +39,21 @@ class ChildSelectionActivity : AppCompatActivity() {
     private lateinit var childrenAdapter: ChildrenAdapter
     private lateinit var database: ChildWatchDatabase
     private lateinit var childRepository: ChildRepository
+    private var selectedAvatarUri: Uri? = null
+
+    // Launcher for avatar selection
+    private val pickImageLauncher = registerForActivityResult(
+        ActivityResultContracts.GetContent()
+    ) { uri ->
+        uri?.let {
+            selectedAvatarUri = it
+            currentAvatarImageView?.setImageURI(it)
+            Log.d(TAG, "Avatar selected: $it")
+        }
+    }
+
+    // Keep reference to current avatar ImageView in dialog
+    private var currentAvatarImageView: ImageView? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -163,9 +182,22 @@ class ChildSelectionActivity : AppCompatActivity() {
      * Показать диалог добавления нового устройства
      */
     private fun showAddChildDialog() {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_add_child, null)
+        selectedAvatarUri = null  // Reset avatar selection
+        val dialogView = layoutInflater.inflate(R.layout.dialog_edit_child, null)
+
+        // Find views
+        val avatarImage = dialogView.findViewById<ImageView>(R.id.childAvatarImage)
+        val changeAvatarButton = dialogView.findViewById<MaterialButton>(R.id.changeAvatarButton)
         val deviceIdInput = dialogView.findViewById<TextInputEditText>(R.id.deviceIdInput)
         val childNameInput = dialogView.findViewById<TextInputEditText>(R.id.childNameInput)
+        val childAgeInput = dialogView.findViewById<TextInputEditText>(R.id.childAgeInput)
+        val childPhoneInput = dialogView.findViewById<TextInputEditText>(R.id.childPhoneInput)
+
+        // Set up avatar selection
+        currentAvatarImageView = avatarImage
+        changeAvatarButton.setOnClickListener {
+            pickImageLauncher.launch("image/*")
+        }
 
         MaterialAlertDialogBuilder(this)
             .setTitle("Добавить устройство")
@@ -173,21 +205,41 @@ class ChildSelectionActivity : AppCompatActivity() {
             .setPositiveButton("Добавить") { _, _ ->
                 val deviceId = deviceIdInput.text.toString().trim()
                 val childName = childNameInput.text.toString().trim()
+                val ageText = childAgeInput.text.toString().trim()
+                val phoneNumber = childPhoneInput.text.toString().trim()
 
                 if (deviceId.isNotEmpty() && childName.isNotEmpty()) {
-                    addChild(deviceId, childName)
+                    val age = ageText.toIntOrNull()
+                    addChild(
+                        deviceId = deviceId,
+                        name = childName,
+                        age = age,
+                        phoneNumber = phoneNumber.ifEmpty { null },
+                        avatarUrl = selectedAvatarUri?.toString()
+                    )
                 } else {
-                    showError("Заполните все поля")
+                    showError("Заполните обязательные поля (Device ID и имя)")
                 }
             }
-            .setNegativeButton("Отмена", null)
+            .setNegativeButton("Отмена") { _, _ ->
+                currentAvatarImageView = null
+            }
+            .setOnDismissListener {
+                currentAvatarImageView = null
+            }
             .show()
     }
 
     /**
      * Добавить новое устройство
      */
-    private fun addChild(deviceId: String, name: String) {
+    private fun addChild(
+        deviceId: String,
+        name: String,
+        age: Int? = null,
+        phoneNumber: String? = null,
+        avatarUrl: String? = null
+    ) {
         lifecycleScope.launch {
             try {
                 // Проверить, существует ли устройство
@@ -202,6 +254,9 @@ class ChildSelectionActivity : AppCompatActivity() {
                 val child = Child(
                     deviceId = deviceId,
                     name = name,
+                    age = age,
+                    phoneNumber = phoneNumber,
+                    avatarUrl = avatarUrl,
                     lastSeenAt = null,
                     isActive = true
                 )
@@ -223,30 +278,69 @@ class ChildSelectionActivity : AppCompatActivity() {
      * Показать диалог редактирования устройства
      */
     private fun showEditChildDialog(child: Child) {
-        val dialogView = layoutInflater.inflate(R.layout.dialog_add_child, null)
+        selectedAvatarUri = child.avatarUrl?.let { Uri.parse(it) }  // Load existing avatar
+        val dialogView = layoutInflater.inflate(R.layout.dialog_edit_child, null)
+
+        // Find views
+        val avatarImage = dialogView.findViewById<ImageView>(R.id.childAvatarImage)
+        val changeAvatarButton = dialogView.findViewById<MaterialButton>(R.id.changeAvatarButton)
         val deviceIdInput = dialogView.findViewById<TextInputEditText>(R.id.deviceIdInput)
         val childNameInput = dialogView.findViewById<TextInputEditText>(R.id.childNameInput)
+        val childAgeInput = dialogView.findViewById<TextInputEditText>(R.id.childAgeInput)
+        val childPhoneInput = dialogView.findViewById<TextInputEditText>(R.id.childPhoneInput)
 
         // Заполнить текущие данные
         deviceIdInput.setText(child.deviceId)
         deviceIdInput.isEnabled = false // Device ID нельзя изменить
         childNameInput.setText(child.name)
+        childAgeInput.setText(child.age?.toString() ?: "")
+        childPhoneInput.setText(child.phoneNumber ?: "")
+
+        // Set current avatar if exists
+        if (child.avatarUrl != null) {
+            try {
+                avatarImage.setImageURI(Uri.parse(child.avatarUrl))
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading avatar", e)
+            }
+        }
+
+        // Set up avatar selection
+        currentAvatarImageView = avatarImage
+        changeAvatarButton.setOnClickListener {
+            pickImageLauncher.launch("image/*")
+        }
 
         MaterialAlertDialogBuilder(this)
             .setTitle("Редактировать устройство")
             .setView(dialogView)
             .setPositiveButton("Сохранить") { _, _ ->
                 val newName = childNameInput.text.toString().trim()
+                val ageText = childAgeInput.text.toString().trim()
+                val phoneNumber = childPhoneInput.text.toString().trim()
 
                 if (newName.isNotEmpty()) {
-                    updateChild(child, newName)
+                    val age = ageText.toIntOrNull()
+                    updateChild(
+                        child = child,
+                        newName = newName,
+                        newAge = age,
+                        newPhoneNumber = phoneNumber.ifEmpty { null },
+                        newAvatarUrl = selectedAvatarUri?.toString()
+                    )
                 } else {
                     showError("Имя не может быть пустым")
                 }
             }
-            .setNegativeButton("Отмена", null)
+            .setNegativeButton("Отмена") { _, _ ->
+                currentAvatarImageView = null
+            }
             .setNeutralButton("Удалить") { _, _ ->
+                currentAvatarImageView = null
                 showDeleteConfirmDialog(child)
+            }
+            .setOnDismissListener {
+                currentAvatarImageView = null
             }
             .show()
     }
@@ -254,10 +348,22 @@ class ChildSelectionActivity : AppCompatActivity() {
     /**
      * Обновить данные устройства
      */
-    private fun updateChild(child: Child, newName: String) {
+    private fun updateChild(
+        child: Child,
+        newName: String,
+        newAge: Int? = null,
+        newPhoneNumber: String? = null,
+        newAvatarUrl: String? = null
+    ) {
         lifecycleScope.launch {
             try {
-                val updatedChild = child.copy(name = newName)
+                val updatedChild = child.copy(
+                    name = newName,
+                    age = newAge,
+                    phoneNumber = newPhoneNumber,
+                    avatarUrl = newAvatarUrl ?: child.avatarUrl,  // Keep old avatar if no new one selected
+                    updatedAt = System.currentTimeMillis()
+                )
                 childRepository.insertOrUpdateChild(updatedChild)
                 Log.d(TAG, "Устройство обновлено: $newName (${child.deviceId})")
 
