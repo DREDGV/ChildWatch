@@ -1,19 +1,28 @@
 package ru.example.childwatch
 
+import android.Manifest
+import android.content.ClipboardManager
+import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
+import android.database.Cursor
 import android.net.Uri
 import android.os.Bundle
+import android.provider.ContactsContract
 import android.view.View
 import android.widget.ImageView
+import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.launch
 import ru.example.childwatch.adapter.ChildrenAdapter
 import ru.example.childwatch.database.ChildWatchDatabase
@@ -29,11 +38,6 @@ import android.util.Log
  * позволяет добавлять новые и выбирать текущее для мониторинга.
  */
 class ChildSelectionActivity : AppCompatActivity() {
-
-    companion object {
-        private const val TAG = "ChildSelectionActivity"
-        const val EXTRA_SELECTED_DEVICE_ID = "selected_device_id"
-    }
 
     private lateinit var binding: ActivityChildSelectionBinding
     private lateinit var childrenAdapter: ChildrenAdapter
@@ -65,6 +69,28 @@ class ChildSelectionActivity : AppCompatActivity() {
 
     // Keep reference to current avatar ImageView in dialog
     private var currentAvatarImageView: ImageView? = null
+
+    // Keep references to current dialog inputs for contact picker
+    private var currentNameInput: TextInputEditText? = null
+    private var currentPhoneInput: TextInputEditText? = null
+
+    // Launcher for contact selection
+    private val pickContactLauncher = registerForActivityResult(
+        ActivityResultContracts.PickContact()
+    ) { contactUri ->
+        contactUri?.let {
+            loadContactData(it)
+        }
+    }
+
+    // Launcher for single phone number selection
+    private val pickPhoneLauncher = registerForActivityResult(
+        ActivityResultContracts.PickContact()
+    ) { contactUri ->
+        contactUri?.let {
+            loadContactPhone(it)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -199,15 +225,39 @@ class ChildSelectionActivity : AppCompatActivity() {
         // Find views
         val avatarImage = dialogView.findViewById<ImageView>(R.id.childAvatarImage)
         val changeAvatarButton = dialogView.findViewById<MaterialButton>(R.id.changeAvatarButton)
+        val selectContactButton = dialogView.findViewById<MaterialButton>(R.id.selectContactButton)
+        val deviceIdInputLayout = dialogView.findViewById<TextInputLayout>(R.id.deviceIdInputLayout)
         val deviceIdInput = dialogView.findViewById<TextInputEditText>(R.id.deviceIdInput)
         val childNameInput = dialogView.findViewById<TextInputEditText>(R.id.childNameInput)
         val childAgeInput = dialogView.findViewById<TextInputEditText>(R.id.childAgeInput)
+        val childPhoneInputLayout = dialogView.findViewById<TextInputLayout>(R.id.childPhoneInputLayout)
         val childPhoneInput = dialogView.findViewById<TextInputEditText>(R.id.childPhoneInput)
 
         // Set up avatar selection
         currentAvatarImageView = avatarImage
         changeAvatarButton.setOnClickListener {
             pickImageLauncher.launch("image/*")
+        }
+
+        // Set up contact picker
+        currentNameInput = childNameInput
+        currentPhoneInput = childPhoneInput
+        selectContactButton.setOnClickListener {
+            requestContactsPermission {
+                pickContactLauncher.launch(null)
+            }
+        }
+
+        // Set up Device ID paste button
+        deviceIdInputLayout.setEndIconOnClickListener {
+            pasteDeviceIdFromClipboard(deviceIdInput)
+        }
+
+        // Set up phone picker button
+        childPhoneInputLayout.setEndIconOnClickListener {
+            requestContactsPermission {
+                pickPhoneLauncher.launch(null)
+            }
         }
 
         MaterialAlertDialogBuilder(this)
@@ -234,9 +284,13 @@ class ChildSelectionActivity : AppCompatActivity() {
             }
             .setNegativeButton("Отмена") { _, _ ->
                 currentAvatarImageView = null
+                currentNameInput = null
+                currentPhoneInput = null
             }
             .setOnDismissListener {
                 currentAvatarImageView = null
+                currentNameInput = null
+                currentPhoneInput = null
             }
             .show()
     }
@@ -295,14 +349,18 @@ class ChildSelectionActivity : AppCompatActivity() {
         // Find views
         val avatarImage = dialogView.findViewById<ImageView>(R.id.childAvatarImage)
         val changeAvatarButton = dialogView.findViewById<MaterialButton>(R.id.changeAvatarButton)
+        val selectContactButton = dialogView.findViewById<MaterialButton>(R.id.selectContactButton)
+        val deviceIdInputLayout = dialogView.findViewById<TextInputLayout>(R.id.deviceIdInputLayout)
         val deviceIdInput = dialogView.findViewById<TextInputEditText>(R.id.deviceIdInput)
         val childNameInput = dialogView.findViewById<TextInputEditText>(R.id.childNameInput)
         val childAgeInput = dialogView.findViewById<TextInputEditText>(R.id.childAgeInput)
+        val childPhoneInputLayout = dialogView.findViewById<TextInputLayout>(R.id.childPhoneInputLayout)
         val childPhoneInput = dialogView.findViewById<TextInputEditText>(R.id.childPhoneInput)
 
         // Заполнить текущие данные
         deviceIdInput.setText(child.deviceId)
         deviceIdInput.isEnabled = false // Device ID нельзя изменить
+        deviceIdInputLayout.isEnabled = false // Также отключить layout
         childNameInput.setText(child.name)
         childAgeInput.setText(child.age?.toString() ?: "")
         childPhoneInput.setText(child.phoneNumber ?: "")
@@ -337,6 +395,22 @@ class ChildSelectionActivity : AppCompatActivity() {
             pickImageLauncher.launch("image/*")
         }
 
+        // Set up contact picker
+        currentNameInput = childNameInput
+        currentPhoneInput = childPhoneInput
+        selectContactButton.setOnClickListener {
+            requestContactsPermission {
+                pickContactLauncher.launch(null)
+            }
+        }
+
+        // Set up phone picker button
+        childPhoneInputLayout.setEndIconOnClickListener {
+            requestContactsPermission {
+                pickPhoneLauncher.launch(null)
+            }
+        }
+
         MaterialAlertDialogBuilder(this)
             .setTitle("Редактировать устройство")
             .setView(dialogView)
@@ -360,13 +434,19 @@ class ChildSelectionActivity : AppCompatActivity() {
             }
             .setNegativeButton("Отмена") { _, _ ->
                 currentAvatarImageView = null
+                currentNameInput = null
+                currentPhoneInput = null
             }
             .setNeutralButton("Удалить") { _, _ ->
                 currentAvatarImageView = null
+                currentNameInput = null
+                currentPhoneInput = null
                 showDeleteConfirmDialog(child)
             }
             .setOnDismissListener {
                 currentAvatarImageView = null
+                currentNameInput = null
+                currentPhoneInput = null
             }
             .show()
     }
@@ -466,5 +546,171 @@ class ChildSelectionActivity : AppCompatActivity() {
             .setMessage(message)
             .setPositiveButton("OK", null)
             .show()
+    }
+
+    /**
+     * Загрузить данные контакта (имя и телефон) для автозаполнения
+     */
+    private fun loadContactData(contactUri: Uri) {
+        val projection = arrayOf(
+            ContactsContract.Contacts._ID,
+            ContactsContract.Contacts.DISPLAY_NAME
+        )
+
+        try {
+            contentResolver.query(contactUri, projection, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val nameIndex = cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)
+                    val contactName = if (nameIndex >= 0) cursor.getString(nameIndex) else null
+
+                    // Установить имя
+                    contactName?.let {
+                        currentNameInput?.setText(it)
+                        Log.d(TAG, "Contact name loaded: $it")
+                    }
+
+                    // Попробовать загрузить телефон
+                    val idIndex = cursor.getColumnIndex(ContactsContract.Contacts._ID)
+                    if (idIndex >= 0) {
+                        val contactId = cursor.getString(idIndex)
+                        loadPhoneForContact(contactId)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading contact data", e)
+            Toast.makeText(this, "Ошибка загрузки контакта", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Загрузить телефон контакта по ID
+     */
+    private fun loadPhoneForContact(contactId: String) {
+        val phoneProjection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER)
+        val phoneSelection = "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?"
+        val phoneSelectionArgs = arrayOf(contactId)
+
+        try {
+            contentResolver.query(
+                ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
+                phoneProjection,
+                phoneSelection,
+                phoneSelectionArgs,
+                null
+            )?.use { phoneCursor ->
+                if (phoneCursor.moveToFirst()) {
+                    val numberIndex = phoneCursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                    val phoneNumber = if (numberIndex >= 0) phoneCursor.getString(numberIndex) else null
+
+                    phoneNumber?.let {
+                        currentPhoneInput?.setText(it)
+                        Log.d(TAG, "Contact phone loaded: $it")
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading contact phone", e)
+        }
+    }
+
+    /**
+     * Загрузить только телефон из контакта
+     */
+    private fun loadContactPhone(contactUri: Uri) {
+        val projection = arrayOf(ContactsContract.Contacts._ID)
+
+        try {
+            contentResolver.query(contactUri, projection, null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) {
+                    val idIndex = cursor.getColumnIndex(ContactsContract.Contacts._ID)
+                    if (idIndex >= 0) {
+                        val contactId = cursor.getString(idIndex)
+                        loadPhoneForContact(contactId)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error loading contact phone", e)
+            Toast.makeText(this, "Ошибка загрузки телефона", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Вставить Device ID из буфера обмена
+     */
+    private fun pasteDeviceIdFromClipboard(input: TextInputEditText) {
+        val clipboard = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+        val clipData = clipboard.primaryClip
+
+        if (clipData != null && clipData.itemCount > 0) {
+            val text = clipData.getItemAt(0).text?.toString()
+            if (!text.isNullOrEmpty()) {
+                input.setText(text)
+                Toast.makeText(this, "Device ID вставлен", Toast.LENGTH_SHORT).show()
+                Log.d(TAG, "Device ID pasted from clipboard: $text")
+            } else {
+                Toast.makeText(this, "Буфер обмена пуст", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            Toast.makeText(this, "Буфер обмена пуст", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    /**
+     * Проверить разрешение на чтение контактов
+     */
+    private fun checkContactsPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.READ_CONTACTS
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    /**
+     * Запросить разрешение на чтение контактов
+     */
+    private fun requestContactsPermission(onGranted: () -> Unit) {
+        when {
+            checkContactsPermission() -> {
+                onGranted()
+            }
+            shouldShowRequestPermissionRationale(Manifest.permission.READ_CONTACTS) -> {
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("Разрешение на контакты")
+                    .setMessage("Приложению нужен доступ к контактам для автозаполнения данных ребенка")
+                    .setPositiveButton("Разрешить") { _, _ ->
+                        requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQUEST_CONTACTS_PERMISSION)
+                    }
+                    .setNegativeButton("Отмена", null)
+                    .show()
+            }
+            else -> {
+                requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQUEST_CONTACTS_PERMISSION)
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        when (requestCode) {
+            REQUEST_CONTACTS_PERMISSION -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    Toast.makeText(this, "Доступ к контактам разрешен", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Доступ к контактам отклонен", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
+    companion object {
+        private const val TAG = "ChildSelectionActivity"
+        const val EXTRA_SELECTED_DEVICE_ID = "selected_device_id"
+        private const val REQUEST_CONTACTS_PERMISSION = 100
     }
 }

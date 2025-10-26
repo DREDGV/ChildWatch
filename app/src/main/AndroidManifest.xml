@@ -29,10 +29,13 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     
     <!-- Storage permissions for audio files -->
-    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" 
+    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         android:maxSdkVersion="28" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" 
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
         android:maxSdkVersion="32" />
+
+    <!-- Contacts permission for child profile autofill -->
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
     
     <!-- Firebase Cloud Messaging (optional) -->
     <uses-permission android:name="com.google.android.c2dm.permission.RECEIVE" />

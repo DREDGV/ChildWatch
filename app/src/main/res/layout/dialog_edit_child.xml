@@ -31,21 +31,43 @@
 
         </com.google.android.material.card.MaterialCardView>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/changeAvatarButton"
-            android:layout_width="wrap_content"
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_gravity="center_horizontal"
-            android:text="Выбрать фото"
-            style="@style/Widget.MaterialComponents.Button.TextButton"
-            android:layout_marginBottom="16dp" />
+            android:orientation="horizontal"
+            android:gravity="center"
+            android:layout_marginBottom="16dp">
 
-        <!-- Device ID (read-only for edit mode) -->
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/changeAvatarButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Выбрать фото"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_marginEnd="8dp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/selectContactButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Из контактов"
+                style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+                app:icon="@android:drawable/ic_menu_search"
+                app:iconGravity="start" />
+
+        </LinearLayout>
+
+        <!-- Device ID with paste button -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/deviceIdInputLayout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Device ID"
+            android:hint="Device ID *"
+            app:helperText="Скопируйте из ParentWatch на устройстве ребенка"
+            app:helperTextEnabled="true"
+            app:endIconMode="custom"
+            app:endIconDrawable="@android:drawable/ic_menu_upload"
+            app:endIconContentDescription="Вставить из буфера"
             android:layout_marginBottom="12dp">
 
             <com.google.android.material.textfield.TextInputEditText
@@ -53,7 +75,9 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:inputType="text"
-                android:maxLines="1" />
+                android:maxLines="1"
+                android:fontFamily="monospace"
+                android:textSize="14sp" />
 
         </com.google.android.material.textfield.TextInputLayout>
 
@@ -62,7 +86,9 @@
             android:id="@+id/childNameInputLayout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Имя ребенка"
+            android:hint="Имя ребенка *"
+            app:helperText="Или выберите из контактов выше"
+            app:helperTextEnabled="true"
             android:layout_marginBottom="12dp">
 
             <com.google.android.material.textfield.TextInputEditText
@@ -79,7 +105,10 @@
             android:id="@+id/childAgeInputLayout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Возраст (опционально)"
+            android:hint="Возраст"
+            app:helperText="Опционально"
+            app:helperTextEnabled="true"
+            app:suffixText="лет"
             android:layout_marginBottom="12dp">
 
             <com.google.android.material.textfield.TextInputEditText
@@ -91,12 +120,17 @@
 
         </com.google.android.material.textfield.TextInputLayout>
 
-        <!-- Phone Number -->
+        <!-- Phone Number with contact picker -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/childPhoneInputLayout"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Телефон (опционально)"
+            android:hint="Телефон"
+            app:helperText="Опционально, из контактов или вручную"
+            app:helperTextEnabled="true"
+            app:endIconMode="custom"
+            app:endIconDrawable="@android:drawable/ic_menu_call"
+            app:endIconContentDescription="Выбрать из контактов"
             android:layout_marginBottom="12dp">
 
             <com.google.android.material.textfield.TextInputEditText
@@ -108,15 +142,41 @@
 
         </com.google.android.material.textfield.TextInputLayout>
 
-        <!-- Help Text -->
-        <TextView
-            android:id="@+id/helpText"
+        <!-- Info Card -->
+        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Device ID можно найти в настройках ParentWatch на устройстве ребенка"
-            android:textSize="12sp"
-            android:textColor="@android:color/darker_gray"
-            android:layout_marginTop="8dp" />
+            app:cardBackgroundColor="?attr/colorSecondaryContainer"
+            app:cardCornerRadius="8dp"
+            app:cardElevation="0dp"
+            android:layout_marginTop="8dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="💡 Как получить Device ID?"
+                    android:textStyle="bold"
+                    android:textSize="13sp"
+                    android:textColor="?attr/colorOnSecondaryContainer"
+                    android:layout_marginBottom="4dp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="1. Откройте ParentWatch на устройстве ребенка\n2. Зайдите в Настройки\n3. Нажмите на Device ID для копирования\n4. Вернитесь сюда и нажмите 📋 справа"
+                    android:textSize="12sp"
+                    android:textColor="?attr/colorOnSecondaryContainer"
+                    android:lineSpacingExtra="2dp" />
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
 
     </LinearLayout>
 
