@@ -310,9 +310,24 @@ class ChildSelectionActivity : AppCompatActivity() {
         // Set current avatar if exists
         if (child.avatarUrl != null) {
             try {
-                avatarImage.setImageURI(Uri.parse(child.avatarUrl))
+                val uri = Uri.parse(child.avatarUrl)
+                // Проверяем доступность URI
+                contentResolver.openInputStream(uri)?.use {
+                    // URI доступен, загружаем аватар
+                    avatarImage.setImageURI(uri)
+                }
+            } catch (e: SecurityException) {
+                // URI больше недоступен - сбрасываем аватар
+                Log.w(TAG, "Avatar URI no longer accessible, will use default icon", e)
+                avatarImage.setImageResource(android.R.drawable.ic_menu_myplaces)
+                // Очищаем недоступный URI в базе
+                lifecycleScope.launch {
+                    val updatedChild = child.copy(avatarUrl = null)
+                    childRepository.insertOrUpdateChild(updatedChild)
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading avatar", e)
+                avatarImage.setImageResource(android.R.drawable.ic_menu_myplaces)
             }
         }
 

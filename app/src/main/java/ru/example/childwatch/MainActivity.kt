@@ -778,7 +778,11 @@ class MainActivity : AppCompatActivity() {
                         // Загрузить аватар
                         if (child.avatarUrl != null) {
                             try {
-                                binding.selectedChildAvatar.setImageURI(android.net.Uri.parse(child.avatarUrl))
+                                val uri = android.net.Uri.parse(child.avatarUrl)
+                                binding.selectedChildAvatar.setImageURI(uri)
+                            } catch (e: SecurityException) {
+                                Log.w(TAG, "Avatar URI no longer accessible", e)
+                                binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
                             } catch (e: Exception) {
                                 Log.e(TAG, "Error loading avatar", e)
                                 binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
@@ -832,7 +836,11 @@ class MainActivity : AppCompatActivity() {
                     // Обновить аватар
                     if (child.avatarUrl != null) {
                         try {
-                            binding.selectedChildAvatar.setImageURI(android.net.Uri.parse(child.avatarUrl))
+                            val uri = android.net.Uri.parse(child.avatarUrl)
+                            binding.selectedChildAvatar.setImageURI(uri)
+                        } catch (e: SecurityException) {
+                            Log.w(TAG, "Avatar URI no longer accessible", e)
+                            binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
                         } catch (e: Exception) {
                             Log.e(TAG, "Error loading avatar", e)
                             binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)

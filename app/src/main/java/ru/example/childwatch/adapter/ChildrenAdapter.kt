@@ -83,7 +83,11 @@ class ChildrenAdapter(
             // Установить аватар
             if (child.avatarUrl != null) {
                 try {
-                    childAvatar.setImageURI(Uri.parse(child.avatarUrl))
+                    val uri = Uri.parse(child.avatarUrl)
+                    childAvatar.setImageURI(uri)
+                } catch (e: SecurityException) {
+                    // URI недоступен - используем иконку по умолчанию
+                    childAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
                 } catch (e: Exception) {
                     childAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
                 }
