@@ -74,6 +74,9 @@ dependencies {
 
     // Location Services
     implementation 'com.google.android.gms:play-services-location:21.0.1'
+    
+    // OpenStreetMap (OSMdroid) - works in Russia without VPN
+    implementation 'org.osmdroid:osmdroid-android:6.1.18'
 
     // Networking
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'

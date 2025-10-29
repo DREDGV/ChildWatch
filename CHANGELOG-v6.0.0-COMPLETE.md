@@ -14,6 +14,7 @@
 ## ✅ Что реализовано
 
 ### Phase 1.1: Database Infrastructure
+
 - **ParentLocation** entity с полями: latitude, longitude, accuracy, timestamp, battery, speed, bearing
 - **ParentLocationDao** с CRUD операциями
 - **ParentLocationRepository** с расчетом ETA (Haversine formula)
@@ -21,6 +22,7 @@
 - Схема экспортирована в `app/schemas/2.json`
 
 **Файлы**:
+
 - `app/src/main/java/ru/example/childwatch/database/entities/ParentLocation.kt`
 - `app/src/main/java/ru/example/childwatch/database/dao/ParentLocationDao.kt`
 - `app/src/main/java/ru/example/childwatch/database/repository/ParentLocationRepository.kt`
@@ -31,6 +33,7 @@
 ---
 
 ### Phase 1.2: Location Tracking
+
 - **ParentLocationTracker** класс (277 строк)
   - FusedLocationProviderClient с PRIORITY_BALANCED_POWER_ACCURACY
   - Обновления каждые 60 секунд
@@ -41,6 +44,7 @@
 - **NetworkClient** метод `uploadParentLocation()`
 
 **Файлы**:
+
 - `app/src/main/java/ru/example/childwatch/location/ParentLocationTracker.kt` (NEW)
 - `app/src/main/res/layout/activity_settings.xml` (updated)
 - `app/src/main/java/ru/example/childwatch/SettingsActivity.kt` (updated)
@@ -52,6 +56,7 @@
 ---
 
 ### Phase 1.3: Server API Endpoints
+
 - **POST** `/api/location/parent/:parentId` - сохранение локации родителя
   - Auto-create `parent_locations` table with indices
   - Cleanup old data (keeps last 1000)
@@ -60,6 +65,7 @@
 - **Client integration**: `getLatestParentLocation()` с fallback to local DB
 
 **Файлы**:
+
 - `server/routes/location.js` (updated +200 lines)
 - `app/src/main/java/ru/example/childwatch/network/NetworkClient.kt` (updated)
 
@@ -68,6 +74,7 @@
 ---
 
 ### Phase 1.4: Map UI
+
 - **ParentLocationMapActivity** (398 строк)
   - OSMdroid карта с двумя маркерами (🟢 parent, 🔵 child)
   - Линия между маркерами
@@ -84,6 +91,7 @@
 - **MainActivity** интеграция с новой карточкой "📍 Где родители?"
 
 **Файлы**:
+
 - `app/src/main/java/ru/example/childwatch/ParentLocationMapActivity.kt` (NEW)
 - `app/src/main/res/layout/activity_parent_location_map.xml` (NEW)
 - `app/src/main/res/drawable/ic_parent_marker.xml` (NEW)
@@ -103,6 +111,7 @@
 ---
 
 ### Phase 1.5: Permissions & Polish
+
 - **Background location permission** dialog для Android 10+
   - Clear explanation перед запросом
   - Auto-request при включении "Делиться локацией"
@@ -112,6 +121,7 @@
   - `onRequestPermissionsResult()` handler
 
 **Файлы**:
+
 - `app/src/main/java/ru/example/childwatch/SettingsActivity.kt` (updated)
 
 **Коммит**: 542b8ec
@@ -121,6 +131,7 @@
 ## 📊 Статистика
 
 ### Коммиты
+
 - **5 commits** за сессию
 - **bd9a262**: fix: Increase Gradle heap memory to 6GB
 - **fb2f64e**: feat: Add Room Database infrastructure (Phase 1.1)
@@ -130,11 +141,13 @@
 - **64a9487**: docs: Update PROGRESS - Feature complete!
 
 ### Файлы
+
 - **13 новых файлов** создано
 - **15 файлов** обновлено
 - **~3500 строк** кода добавлено
 
 ### Время разработки
+
 - Iteration 1.1: ~2 часа (Database)
 - Iteration 1.2: ~1.5 часа (Location Tracking)
 - Iteration 1.3: ~1 час (Server API)
@@ -147,18 +160,21 @@
 ## 🧪 Тестирование
 
 ### Unit Tests ✅
+
 - [x] Database migration v1→v2
 - [x] ParentLocationDao CRUD operations
 - [x] ParentLocationRepository.calculateETA()
 - [x] Distance calculation (Haversine)
 
 ### Integration Tests ⏳
+
 - [ ] ParentLocationTracker в фоне
 - [ ] Server endpoints (POST/GET)
 - [ ] Network fallback to local DB
 - [ ] Map UI rendering
 
 ### End-to-End Test ⏳
+
 1. Родитель включает "Делиться локацией"
 2. Проверить background permission dialog
 3. Убедиться что локация загружается на сервер каждые 60s
@@ -174,6 +190,7 @@
 Функция **"Где родители?"** полностью реализована и готова к тестированию!
 
 ### Следующие шаги:
+
 1. **Testing** - E2E тестирование на двух устройствах
 2. **Bug fixes** - исправление найденных проблем
 3. **Documentation** - обновить README и user guide

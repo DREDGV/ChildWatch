@@ -98,9 +98,9 @@
             android:exported="false"
             android:theme="@style/Theme.ChildWatch" />
         
-        <!-- Parent Location Map Activity -->
+        <!-- Dual Location Map Activity (Parent + Child) -->
         <activity
-            android:name=".ParentLocationMapActivity"
+            android:name=".DualLocationMapActivity"
             android:exported="false"
             android:theme="@style/Theme.ChildWatch.NoActionBar" />
         

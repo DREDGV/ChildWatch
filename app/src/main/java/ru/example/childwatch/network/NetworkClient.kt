@@ -463,6 +463,75 @@ class NetworkClient(private val context: Context) {
     }
 
     /**
+     * Get latest child location from server
+     */
+    suspend fun getLatestLocation(deviceId: String): ParentLocationData? = withContext(Dispatchers.IO) {
+        try {
+            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+            val serverUrl = prefs.getString("server_url", null)
+            
+            if (serverUrl.isNullOrEmpty()) {
+                Log.w(TAG, "Server URL not configured")
+                return@withContext null
+            }
+            
+            val secureUrl = ensureHttpsUrl(serverUrl)
+            val url = "${secureUrl.trimEnd('/')}/api/location/latest/$deviceId"
+            
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
+                .build()
+            
+            Log.d(TAG, "Fetching latest child location from: $url")
+            
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string()
+                    if (!responseBody.isNullOrEmpty()) {
+                        val jsonResponse = JSONObject(responseBody)
+                        
+                        if (jsonResponse.getBoolean("success")) {
+                            val locationObj = jsonResponse.getJSONObject("location")
+                            
+                            return@withContext ParentLocationData(
+                                parentId = deviceId,
+                                latitude = locationObj.getDouble("latitude"),
+                                longitude = locationObj.getDouble("longitude"),
+                                accuracy = locationObj.optDouble("accuracy", 0.0).toFloat(),
+                                timestamp = locationObj.getLong("timestamp"),
+                                battery = null,
+                                speed = null,
+                                bearing = null
+                            )
+                        } else {
+                            Log.w(TAG, "Server returned success=false")
+                            return@withContext null
+                        }
+                    } else {
+                        Log.w(TAG, "Empty response body")
+                        return@withContext null
+                    }
+                } else if (response.code == 404) {
+                    Log.d(TAG, "No child location data available (404)")
+                    return@withContext null
+                } else {
+                    Log.w(TAG, "Failed to get child location: ${response.code}")
+                    return@withContext null
+                }
+            }
+            
+        } catch (e: IOException) {
+            Log.e(TAG, "Network error getting child location", e)
+            return@withContext null
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected error getting child location", e)
+            return@withContext null
+        }
+    }
+
+    /**
      * Upload audio file to server
      */
     suspend fun uploadAudio(
@@ -1256,8 +1325,8 @@ data class ParentLocationData(
     val longitude: Double,
     val accuracy: Float,
     val timestamp: Long,
-    val battery: Int,
-    val speed: Float,
-    val bearing: Float
+    val battery: Int?,
+    val speed: Float?,
+    val bearing: Float?
 )
 

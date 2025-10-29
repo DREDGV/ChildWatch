@@ -164,10 +164,23 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         }
         
-        // Parent location card - using findViewById as workaround
+        // Location map card - show parent+child on map
         findViewById<View>(R.id.parentLocationCard)?.setOnClickListener {
-            val intent = Intent(this, ParentLocationMapActivity::class.java)
-            startActivity(intent)
+            val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+            val parentId = prefs.getString("device_id", "unknown") ?: "unknown"
+            val childId = prefs.getString("child_device_id", null)
+            
+            if (childId != null) {
+                val intent = DualLocationMapActivity.createIntent(
+                    context = this,
+                    myRole = DualLocationMapActivity.ROLE_PARENT,
+                    myId = parentId,
+                    otherId = childId
+                )
+                startActivity(intent)
+            } else {
+                Toast.makeText(this, "Выберите устройство ребенка в настройках", Toast.LENGTH_SHORT).show()
+            }
         }
         
         binding.settingsCard.setOnClickListener {

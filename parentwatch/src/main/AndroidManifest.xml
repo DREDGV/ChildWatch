@@ -68,6 +68,12 @@
             android:parentActivityName=".MainActivity"
             android:screenOrientation="portrait" />
 
+        <!-- Dual Location Map Activity -->
+        <activity
+            android:name=".DualLocationMapActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity" />
+
         <!-- QR Code Activity -->
         <activity
             android:name=".QrCodeActivity"

@@ -1,0 +1,212 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    tools:context=".ParentLocationMapActivity">
+
+    <!-- Map View -->
+    <org.osmdroid.views.MapView
+        android:id="@+id/mapView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Top App Bar -->
+    <com.google.android.material.appbar.AppBarLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="@android:color/transparent"
+        app:elevation="0dp">
+
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
+            android:layout_width="match_parent"
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/primary"
+            android:elevation="4dp"
+            app:navigationIcon="@drawable/ic_arrow_back"
+            app:title="Где родители?"
+            app:titleTextColor="@android:color/white" />
+
+    </com.google.android.material.appbar.AppBarLayout>
+
+    <!-- Stats Card - Расстояние и ETA -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/statsCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:layout_gravity="bottom"
+        android:visibility="gone"
+        app:cardElevation="8dp"
+        app:cardCornerRadius="12dp"
+        tools:visibility="visible">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <!-- Расстояние -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:src="@drawable/ic_distance"
+                    android:contentDescription="Расстояние"
+                    app:tint="@color/primary" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Расстояние"
+                        android:textSize="12sp"
+                        android:textColor="@color/text_secondary" />
+
+                    <TextView
+                        android:id="@+id/distanceText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="--"
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary"
+                        tools:text="1.2 км" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- Divider -->
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="1dp"
+                android:layout_marginVertical="12dp"
+                android:background="@color/divider" />
+
+            <!-- ETA -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <ImageView
+                    android:layout_width="24dp"
+                    android:layout_height="24dp"
+                    android:src="@drawable/ic_time"
+                    android:contentDescription="Время прибытия"
+                    app:tint="@color/primary" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:layout_marginStart="12dp"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Время прибытия"
+                        android:textSize="12sp"
+                        android:textColor="@color/text_secondary" />
+
+                    <TextView
+                        android:id="@+id/etaText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="--"
+                        android:textSize="18sp"
+                        android:textStyle="bold"
+                        android:textColor="@color/text_primary"
+                        tools:text="~15 минут" />
+
+                </LinearLayout>
+
+            </LinearLayout>
+
+            <!-- Info Text -->
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Обновляется каждые 30 секунд"
+                android:textSize="11sp"
+                android:textColor="@color/text_secondary"
+                android:gravity="center" />
+
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Error Message -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/errorCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="16dp"
+        android:layout_gravity="center"
+        android:visibility="gone"
+        app:cardElevation="8dp"
+        app:cardCornerRadius="12dp"
+        app:cardBackgroundColor="@color/error_background">
+
+        <TextView
+            android:id="@+id/errorText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="24dp"
+            android:text="Локация родителя недоступна"
+            android:textSize="16sp"
+            android:textColor="@color/error"
+            android:gravity="center"
+            android:lineSpacingExtra="4dp" />
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Loading Indicator -->
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        app:cardElevation="4dp"
+        app:cardCornerRadius="8dp">
+
+        <ProgressBar
+            android:id="@+id/loadingIndicator"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_margin="16dp"
+            android:visibility="gone"
+            tools:visibility="visible" />
+
+    </com.google.android.material.card.MaterialCardView>
+
+    <!-- Refresh FAB -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/refreshButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|top"
+        android:layout_margin="16dp"
+        android:layout_marginTop="80dp"
+        android:src="@drawable/ic_refresh"
+        android:contentDescription="Обновить"
+        app:tint="@android:color/white" />
+
+</androidx.coordinatorlayout.widget.CoordinatorLayout>

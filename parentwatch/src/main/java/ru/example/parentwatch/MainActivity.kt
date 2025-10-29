@@ -134,6 +134,25 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         }
         
+        // Parent location map card
+        findViewById<MaterialCardView>(R.id.parentLocationCard)?.setOnClickListener {
+            val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+            val childId = prefs.getString("device_id", "unknown") ?: "unknown"
+            val parentId = prefs.getString("parent_id", null)
+            
+            if (parentId != null) {
+                val intent = DualLocationMapActivity.createIntent(
+                    context = this,
+                    myRole = DualLocationMapActivity.ROLE_CHILD,
+                    myId = childId,
+                    otherId = parentId
+                )
+                startActivity(intent)
+            } else {
+                Toast.makeText(this, "ID родителя не настроен. Зайдите в настройки.", Toast.LENGTH_SHORT).show()
+            }
+        }
+        
         settingsCard.setOnClickListener {
             val intent = Intent(this, SettingsActivity::class.java)
             startActivity(intent)

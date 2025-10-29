@@ -80,6 +80,7 @@ app/src/main/java/ru/example/childwatch/database/
 ### Реализация:
 
 1. ✅ `ParentLocationTracker.kt` (277 строк):
+
    - FusedLocationProviderClient с PRIORITY_BALANCED_POWER_ACCURACY
    - Обновления каждые 60 секунд
    - Автоматическая загрузка на сервер
@@ -87,11 +88,13 @@ app/src/main/java/ru/example/childwatch/database/
    - Lifecycle management (start/stop/cleanup)
 
 2. ✅ Settings UI:
+
    - Добавлен `shareParentLocationSwitch` в `activity_settings.xml`
    - Текст: "📍 Делиться моей локацией"
    - Описание: "Обновляется каждые 60 секунд"
 
 3. ✅ MonitorService интеграция:
+
    - Проверка `KEY_SHARE_PARENT_LOCATION` при старте
    - Автоматический запуск/остановка трекера
    - Cleanup при destroy
@@ -109,6 +112,7 @@ app/src/main/java/ru/example/childwatch/database/
 ### Реализация:
 
 1. ✅ Server endpoints в `routes/location.js`:
+
    - `POST /api/location/parent/:parentId` - сохранение локации родителя
      - Auto-create table and indices
      - Cleanup old data (keeps last 1000)
@@ -129,6 +133,7 @@ app/src/main/java/ru/example/childwatch/database/
 ### Реализация:
 
 1. ✅ `ParentLocationMapActivity.kt` (398 строк):
+
    - OSMdroid карта с двумя маркерами (зеленый parent, синий child)
    - Линия между маркерами с цветом #2196F3
    - Distance calculation (Haversine formula)
@@ -138,6 +143,7 @@ app/src/main/java/ru/example/childwatch/database/
    - Error handling (fallback to child-only if parent unavailable)
 
 2. ✅ Layout `activity_parent_location_map.xml`:
+
    - MapView на весь экран
    - Stats card внизу (distance + ETA)
    - Floating refresh button
@@ -145,6 +151,7 @@ app/src/main/java/ru/example/childwatch/database/
    - Loading indicator
 
 3. ✅ Icon drawables:
+
    - ic_parent_marker.xml (green)
    - ic_child_marker.xml (blue)
    - ic_distance.xml
@@ -167,12 +174,14 @@ app/src/main/java/ru/example/childwatch/database/
 ### Реализация:
 
 1. ✅ Background location permission (Android 10+):
+
    - Dialog с объяснением перед запросом
    - Auto-request при включении "Делиться локацией"
    - Proper handling of permission denial
    - Disable switch if permission denied
 
 2. ✅ SettingsActivity updates:
+
    - `checkAndRequestBackgroundLocationPermission()` method
    - `onRequestPermissionsResult()` handler
    - Clear user messaging
@@ -216,12 +225,14 @@ app/src/main/java/ru/example/childwatch/database/
 ### Следующий этап тестирования (End-to-End):
 
 1. **На устройстве родителя (ChildWatch):**
+
    - Включить "Делиться моей локацией" в Settings
    - Предоставить background location permission
    - Убедиться что MonitorService запущен
    - Проверить логи uploadParentLocation()
 
 2. **На устройстве ребенка (ChildWatch):**
+
    - Открыть "📍 Где родители?" из MainActivity
    - Проверить что карта загружается
    - Проверить оба маркера (parent + child)
