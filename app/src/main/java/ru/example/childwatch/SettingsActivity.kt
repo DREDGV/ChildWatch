@@ -1,15 +1,19 @@
 package ru.example.childwatch
 
+import android.Manifest
 import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
 import ru.example.childwatch.databinding.ActivitySettingsBinding
 import ru.example.childwatch.utils.PermissionHelper
 import ru.example.childwatch.service.MonitorService
@@ -134,6 +138,13 @@ class SettingsActivity : AppCompatActivity() {
         // About button
         binding.aboutBtn.setOnClickListener {
             openAboutScreen()
+        }
+        
+        // Share parent location switch with background permission check
+        binding.shareParentLocationSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (isChecked) {
+                checkAndRequestBackgroundLocationPermission()
+            }
         }
     }
     
@@ -348,6 +359,72 @@ class SettingsActivity : AppCompatActivity() {
                 .show()
         } else {
             super.onBackPressed()
+        }
+    }
+    
+    /**
+     * Check and request background location permission for Android 10+
+     */
+    private fun checkAndRequestBackgroundLocationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            if (!PermissionHelper.hasBackgroundLocationPermission(this)) {
+                // Show explanation dialog first
+                AlertDialog.Builder(this)
+                    .setTitle("Требуется разрешение")
+                    .setMessage(
+                        "Для отслеживания вашей локации в фоновом режиме необходимо разрешение " +
+                        "\"Разрешить всегда\" в настройках локации.\n\n" +
+                        "Это позволит ребенку видеть где вы находитесь на карте."
+                    )
+                    .setPositiveButton("Предоставить") { _, _ ->
+                        requestBackgroundLocationPermission()
+                    }
+                    .setNegativeButton("Отмена") { _, _ ->
+                        // Disable switch if permission denied
+                        binding.shareParentLocationSwitch.isChecked = false
+                    }
+                    .show()
+            }
+        }
+        // For Android 9 and below, background location is included in fine/coarse location
+    }
+    
+    /**
+     * Request background location permission
+     */
+    private fun requestBackgroundLocationPermission() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.ACCESS_BACKGROUND_LOCATION),
+                PermissionHelper.REQUEST_CODE_BACKGROUND_LOCATION
+            )
+        }
+    }
+    
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        
+        if (requestCode == PermissionHelper.REQUEST_CODE_BACKGROUND_LOCATION) {
+            if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                Toast.makeText(
+                    this,
+                    "Разрешение на фоновую локацию получено",
+                    Toast.LENGTH_SHORT
+                ).show()
+            } else {
+                // Permission denied
+                binding.shareParentLocationSwitch.isChecked = false
+                Toast.makeText(
+                    this,
+                    "Без разрешения фоновой локации функция недоступна",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
         }
     }
 }

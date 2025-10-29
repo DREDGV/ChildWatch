@@ -174,8 +174,31 @@ class ParentLocationMapActivity : AppCompatActivity() {
                 
                 // Получить локацию родителя
                 val parentId = prefs.getString("parent_id", "unknown") ?: "unknown"
-                val parentLocation = withContext(Dispatchers.IO) {
-                    parentLocationRepository.getLatestLocation(parentId)
+                
+                // Try to get from server first, fallback to local DB
+                val parentLocationFromServer = withContext(Dispatchers.IO) {
+                    networkClient.getLatestParentLocation(parentId)
+                }
+                
+                val parentLocation = if (parentLocationFromServer != null) {
+                    // Use server data
+                    ParentLocationDisplay(
+                        latitude = parentLocationFromServer.latitude,
+                        longitude = parentLocationFromServer.longitude,
+                        speed = parentLocationFromServer.speed
+                    )
+                } else {
+                    // Fallback to local DB
+                    val localLocation = withContext(Dispatchers.IO) {
+                        parentLocationRepository.getLatestLocation(parentId)
+                    }
+                    localLocation?.let {
+                        ParentLocationDisplay(
+                            latitude = it.latitude,
+                            longitude = it.longitude,
+                            speed = it.speed
+                        )
+                    }
                 }
                 
                 if (parentLocation != null && childLatitude != null && childLongitude != null) {
@@ -372,3 +395,12 @@ class ParentLocationMapActivity : AppCompatActivity() {
         return true
     }
 }
+
+/**
+ * Simple data class for parent location display
+ */
+private data class ParentLocationDisplay(
+    val latitude: Double,
+    val longitude: Double,
+    val speed: Float?
+)
