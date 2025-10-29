@@ -273,12 +273,16 @@ class NetworkClient(private val context: Context) {
             val secureUrl = ensureHttpsUrl(serverUrl)
             val url = "${secureUrl.trimEnd('/')}/api/loc"
             
+            // Get child_device_id from preferences
+            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+            val childDeviceId = prefs.getString("child_device_id", null) ?: getDeviceId()
+
             val jsonData = JSONObject().apply {
                 put("latitude", latitude)
                 put("longitude", longitude)
                 put("accuracy", accuracy)
                 put("timestamp", timestamp)
-                put("deviceId", getDeviceId())
+                put("deviceId", childDeviceId)
             }
             
             val requestBody = jsonData.toString()
@@ -293,6 +297,7 @@ class NetworkClient(private val context: Context) {
             
             Log.d(TAG, "Uploading location to: $url")
             Log.d(TAG, "Location data: lat=$latitude, lng=$longitude, acc=$accuracy")
+            Log.d(TAG, "Full JSON payload: ${jsonData.toString()}")
             
             client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
@@ -321,6 +326,73 @@ class NetworkClient(private val context: Context) {
         }
     }
     
+    /**
+     * Upload parent location to server for "Where are parents?" feature
+     */
+    suspend fun uploadParentLocation(
+        parentId: String,
+        latitude: Double,
+        longitude: Double,
+        accuracy: Float,
+        timestamp: Long,
+        speed: Float? = null,
+        bearing: Float? = null,
+        batteryLevel: Int? = null
+    ): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+            val serverUrl = prefs.getString("server_url", null)
+            
+            if (serverUrl.isNullOrEmpty()) {
+                Log.w(TAG, "Server URL not configured, skipping parent location upload")
+                return@withContext false
+            }
+            
+            val secureUrl = ensureHttpsUrl(serverUrl)
+            val url = "${secureUrl.trimEnd('/')}/api/location/parent/$parentId"
+            
+            val jsonData = JSONObject().apply {
+                put("latitude", latitude)
+                put("longitude", longitude)
+                put("accuracy", accuracy)
+                put("timestamp", timestamp)
+                put("provider", "fused")
+                speed?.let { put("speed", it) }
+                bearing?.let { put("bearing", it) }
+                batteryLevel?.let { put("batteryLevel", it) }
+            }
+            
+            val requestBody = jsonData.toString()
+                .toRequestBody("application/json; charset=utf-8".toMediaType())
+            
+            val request = Request.Builder()
+                .url(url)
+                .post(requestBody)
+                .addHeader("Content-Type", "application/json")
+                .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
+                .build()
+            
+            Log.d(TAG, "Uploading parent location to: $url")
+            
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    Log.d(TAG, "Parent location uploaded successfully: ${response.code}")
+                    return@withContext true
+                } else {
+                    Log.w(TAG, "Failed to upload parent location: ${response.code}")
+                    return@withContext false
+                }
+            }
+            
+        } catch (e: IOException) {
+            Log.e(TAG, "Network error uploading parent location", e)
+            return@withContext false
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected error uploading parent location", e)
+            return@withContext false
+        }
+    }
+
     /**
      * Upload audio file to server
      */
@@ -528,12 +600,18 @@ class NetworkClient(private val context: Context) {
     }
 
     /**
-     * Ensure URL uses HTTPS
+     * Ensure URL uses HTTPS (but allow HTTP for local/test servers)
      */
     private fun ensureHttpsUrl(url: String): String {
         return when {
             url.startsWith("https://") -> url
-            url.startsWith("http://") -> url.replace("http://", "https://")
+            // Allow HTTP for localhost, 127.0.0.1, and local IP addresses (192.168.x.x, 10.x.x.x, etc.)
+            url.startsWith("http://localhost") -> url
+            url.startsWith("http://127.0.0.1") -> url
+            url.matches(Regex("http://192\\.168\\.\\d+\\.\\d+(:\\d+)?.*")) -> url
+            url.matches(Regex("http://10\\.\\d+\\.\\d+\\.\\d+(:\\d+)?.*")) -> url
+            url.matches(Regex("http://31\\.\\d+\\.\\d+\\.\\d+(:\\d+)?.*")) -> url // Allow 31.x.x.x (your server)
+            url.startsWith("http://") -> url.replace("http://", "https://") // Force HTTPS for public servers
             else -> "https://$url"
         }
     }

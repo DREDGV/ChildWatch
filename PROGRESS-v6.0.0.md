@@ -8,11 +8,13 @@
 ## ✅ Завершено: Итерация 1.1 - Базовая инфраструктура БД (8-10 часов)
 
 ### 1.1.1 ✅ Настройка Room Database
+
 - Room зависимости уже добавлены в `app/build.gradle`
 - KSP plugin настроен
 - Схемы БД экспортируются в `app/schemas/`
 
 ### 1.1.2 ✅ Entity классы созданы
+
 - `Child.kt` - профиль ребенка (уже существовал)
 - `Parent.kt` - профиль родителя (уже существовал)
 - `ChatMessage.kt` - сообщения с привязкой к child_id (обновлен)
@@ -21,6 +23,7 @@
 - `ParentLocation.kt` - **НОВАЯ** локация родителя для функции "Где родители?"
 
 ### 1.1.3 ✅ DAO интерфейсы созданы
+
 - `ChildDao.kt` - CRUD для детей (уже существовал)
 - `ParentDao.kt` - CRUD для родителей (уже существовал)
 - `ChatMessageDao.kt` - работа с сообщениями + пагинация (уже существовал)
@@ -29,12 +32,14 @@
 - `ParentLocationDao.kt` - **НОВЫЙ** работа с локацией родителя
 
 ### 1.1.4 ✅ Database класс обновлен
+
 - `ChildWatchDatabase.kt` обновлен до версии 2
 - Добавлена миграция `MIGRATION_1_2` для создания `parent_locations` таблицы
 - Индексы созданы для оптимальной производительности
 - Singleton pattern реализован
 
 ### 1.1.5 ✅ Repository классы
+
 - `ChildRepository.kt` - бизнес-логика работы с детьми (уже существовал)
 - `ChatRepository.kt` - бизнес-логика чата (уже существовал)
 - `LocationRepository.kt` - бизнес-логика геолокации с расчетом статистики (уже существовал)
@@ -75,13 +80,16 @@ app/src/main/java/ru/example/childwatch/database/
 ### Итерация 1.2: Location Tracking для родителя (2 часа)
 
 **Задачи:**
+
 1. Создать `ParentLocationTracker.kt`:
+
    - Использовать FusedLocationProviderClient
    - Периодичность: каждые 60 секунд
    - Priority: PRIORITY_BALANCED_POWER_ACCURACY
    - Методы: startTracking(), stopTracking(), uploadLocationToServer()
 
 2. Добавить настройку в `preferences.xml`:
+
    - SwitchPreference "Делиться моей локацией"
    - По умолчанию: выключено
 
@@ -90,6 +98,7 @@ app/src/main/java/ru/example/childwatch/database/
    - Запускать/останавливать трекер при изменении настройки
 
 **Файлы для создания:**
+
 - `app/src/main/java/ru/example/childwatch/location/ParentLocationTracker.kt`
 - Обновить `app/src/main/res/xml/preferences.xml`
 - Обновить `app/src/main/java/ru/example/childwatch/service/MonitorService.kt`
@@ -97,7 +106,9 @@ app/src/main/java/ru/example/childwatch/database/
 ### Итерация 1.3: Server API Endpoints (1 час)
 
 **Задачи:**
+
 1. Добавить в `ChildWatchApi.kt`:
+
    - `POST api/location/parent/{parentId}` - загрузка локации родителя
    - `GET api/location/parent/latest/{parentId}` - получение последней локации
 
@@ -105,13 +116,16 @@ app/src/main/java/ru/example/childwatch/database/
    - Методы uploadParentLocation() и getParentLocation()
 
 **Файлы для обновления:**
+
 - `app/src/main/java/ru/example/childwatch/network/ChildWatchApi.kt`
 - `app/src/main/java/ru/example/childwatch/network/NetworkClient.kt`
 
 ### Итерация 1.4: UI на детском устройстве (3-4 часа)
 
 **Задачи:**
+
 1. Создать `ParentLocationMapActivity`:
+
    - OSMdroid карта с двумя маркерами
    - Линия между ними с расстоянием
    - Расчет и отображение ETA
@@ -122,6 +136,7 @@ app/src/main/java/ru/example/childwatch/database/
    - Иконка и навигация
 
 **Файлы для создания:**
+
 - `app/src/main/java/ru/example/childwatch/ParentLocationMapActivity.kt`
 - `app/src/main/res/layout/activity_parent_location_map.xml`
 - Обновить `app/src/main/java/ru/example/childwatch/MainActivity.kt`
@@ -131,6 +146,7 @@ app/src/main/java/ru/example/childwatch/database/
 ## 📊 Прогресс по ROADMAP
 
 ### ФАЗА 1: Система пользователей и БД
+
 - ✅ Итерация 1.1: Базовая инфраструктура БД (100%)
 - ⏳ Итерация 1.2: Location Tracking для родителя (0%)
 - ⏳ Итерация 1.3: Server API Endpoints (0%)
@@ -144,12 +160,14 @@ app/src/main/java/ru/example/childwatch/database/
 ## 🧪 Тестирование
 
 ### Готово к тестированию:
+
 - [ ] Миграция БД с версии 1 на версию 2
 - [ ] Вставка и чтение ParentLocation из БД
 - [ ] Работа ParentLocationRepository.calculateETA()
 - [ ] Все DAO методы работают корректно
 
 ### Команды для тестирования:
+
 ```kotlin
 // В любой Activity или ViewModel:
 val db = ChildWatchDatabase.getInstance(context)
@@ -167,7 +185,7 @@ lifecycleScope.launch {
         speed = 5f // 18 км/ч
     )
     parentLocationDao.insertLocation(location)
-    
+
     // Получить обратно
     val latest = parentLocationDao.getLatestLocation("parent_001")
     Log.d("Test", "Location: $latest")
@@ -179,11 +197,13 @@ lifecycleScope.launch {
 ## 🚀 Быстрый старт для разработки
 
 1. **Собрать проект**:
+
    ```bash
    ./gradlew assembleDebug
    ```
 
 2. **Проверить схему БД**:
+
    - Схема экспортируется в `app/schemas/2.json`
    - Проверить наличие таблицы `parent_locations`
 

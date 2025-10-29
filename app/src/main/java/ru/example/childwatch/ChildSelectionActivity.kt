@@ -23,6 +23,8 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import com.journeyapps.barcodescanner.ScanContract
+import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.launch
 import ru.example.childwatch.adapter.ChildrenAdapter
 import ru.example.childwatch.database.ChildWatchDatabase
@@ -73,6 +75,7 @@ class ChildSelectionActivity : AppCompatActivity() {
     // Keep references to current dialog inputs for contact picker
     private var currentNameInput: TextInputEditText? = null
     private var currentPhoneInput: TextInputEditText? = null
+    private var currentDeviceIdInput: TextInputEditText? = null
 
     // Launcher for contact selection
     private val pickContactLauncher = registerForActivityResult(
@@ -89,6 +92,17 @@ class ChildSelectionActivity : AppCompatActivity() {
     ) { contactUri ->
         contactUri?.let {
             loadContactPhone(it)
+        }
+    }
+
+    // Launcher for QR code scanning
+    private val qrScannerLauncher = registerForActivityResult(ScanContract()) { result ->
+        if (result.contents != null) {
+            currentDeviceIdInput?.setText(result.contents)
+            Log.d(TAG, "QR code scanned: ${result.contents}")
+            Toast.makeText(this, "Device ID отсканирован", Toast.LENGTH_SHORT).show()
+        } else {
+            Log.d(TAG, "QR scan cancelled")
         }
     }
 
@@ -226,6 +240,7 @@ class ChildSelectionActivity : AppCompatActivity() {
         val avatarImage = dialogView.findViewById<ImageView>(R.id.childAvatarImage)
         val changeAvatarButton = dialogView.findViewById<MaterialButton>(R.id.changeAvatarButton)
         val selectContactButton = dialogView.findViewById<MaterialButton>(R.id.selectContactButton)
+        val scanQrButton = dialogView.findViewById<MaterialButton>(R.id.scanQrButton)
         val deviceIdInputLayout = dialogView.findViewById<TextInputLayout>(R.id.deviceIdInputLayout)
         val deviceIdInput = dialogView.findViewById<TextInputEditText>(R.id.deviceIdInput)
         val childNameInput = dialogView.findViewById<TextInputEditText>(R.id.childNameInput)
@@ -242,9 +257,27 @@ class ChildSelectionActivity : AppCompatActivity() {
         // Set up contact picker
         currentNameInput = childNameInput
         currentPhoneInput = childPhoneInput
+        currentDeviceIdInput = deviceIdInput
+        Log.d(TAG, "Setting up contact picker button")
         selectContactButton.setOnClickListener {
+            Log.d(TAG, "Contact picker button clicked!")
             requestContactsPermission {
+                Log.d(TAG, "Contacts permission granted, launching picker")
                 pickContactLauncher.launch(null)
+            }
+        }
+
+        // Set up QR scanner button
+        scanQrButton.setOnClickListener {
+            Log.d(TAG, "QR scanner button clicked")
+            requestCameraPermission {
+                Log.d(TAG, "Camera permission granted, launching QR scanner")
+                val options = ScanOptions()
+                options.setPrompt("Наведите камеру на QR-код")
+                options.setBeepEnabled(true)
+                options.setBarcodeImageEnabled(false)
+                options.setOrientationLocked(false)
+                qrScannerLauncher.launch(options)
             }
         }
 
@@ -398,8 +431,11 @@ class ChildSelectionActivity : AppCompatActivity() {
         // Set up contact picker
         currentNameInput = childNameInput
         currentPhoneInput = childPhoneInput
+        Log.d(TAG, "Setting up contact picker button")
         selectContactButton.setOnClickListener {
+            Log.d(TAG, "Contact picker button clicked!")
             requestContactsPermission {
+                Log.d(TAG, "Contacts permission granted, launching picker")
                 pickContactLauncher.launch(null)
             }
         }
@@ -552,34 +588,64 @@ class ChildSelectionActivity : AppCompatActivity() {
      * Загрузить данные контакта (имя и телефон) для автозаполнения
      */
     private fun loadContactData(contactUri: Uri) {
+        Log.d(TAG, "Loading contact data from URI: $contactUri")
+        Log.d(TAG, "currentNameInput is null: ${currentNameInput == null}")
+        Log.d(TAG, "currentPhoneInput is null: ${currentPhoneInput == null}")
+
         val projection = arrayOf(
             ContactsContract.Contacts._ID,
-            ContactsContract.Contacts.DISPLAY_NAME
+            ContactsContract.Contacts.DISPLAY_NAME,
+            ContactsContract.Contacts.HAS_PHONE_NUMBER
         )
 
         try {
-            contentResolver.query(contactUri, projection, null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val nameIndex = cursor.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)
-                    val contactName = if (nameIndex >= 0) cursor.getString(nameIndex) else null
+            val cursor = contentResolver.query(contactUri, projection, null, null, null)
+            if (cursor == null) {
+                Log.e(TAG, "Contact query returned null")
+                return
+            }
 
-                    // Установить имя
-                    contactName?.let {
-                        currentNameInput?.setText(it)
-                        Log.d(TAG, "Contact name loaded: $it")
-                    }
+            cursor.use {
+                if (!it.moveToFirst()) {
+                    Log.w(TAG, "Contact cursor is empty")
+                    return@use
+                }
 
-                    // Попробовать загрузить телефон
-                    val idIndex = cursor.getColumnIndex(ContactsContract.Contacts._ID)
-                    if (idIndex >= 0) {
-                        val contactId = cursor.getString(idIndex)
-                        loadPhoneForContact(contactId)
-                    }
+                // Загрузить имя
+                val nameIndex = it.getColumnIndex(ContactsContract.Contacts.DISPLAY_NAME)
+                val contactName: String? = if (nameIndex >= 0) it.getString(nameIndex) else null
+
+                contactName?.let { name ->
+                    currentNameInput?.setText(name)
+                    Log.d(TAG, "Contact name loaded: $name")
+                }
+
+                // Проверить наличие телефона
+                val hasPhoneIndex = it.getColumnIndex(ContactsContract.Contacts.HAS_PHONE_NUMBER)
+                val hasPhoneNumber: Int = if (hasPhoneIndex >= 0) it.getInt(hasPhoneIndex) else 0
+                val hasPhone = hasPhoneNumber > 0
+                Log.d(TAG, "Contact has phone: $hasPhone")
+
+                if (!hasPhone) {
+                    Log.w(TAG, "Contact has no phone number")
+                    Toast.makeText(this, "У контакта нет телефона", Toast.LENGTH_SHORT).show()
+                    return@use
+                }
+
+                // Загрузить телефон
+                val idIndex = it.getColumnIndex(ContactsContract.Contacts._ID)
+                val contactId: String? = if (idIndex >= 0) it.getString(idIndex) else null
+
+                if (contactId != null) {
+                    Log.d(TAG, "Loading phone for contact ID: $contactId")
+                    loadPhoneForContact(contactId)
+                } else {
+                    Log.w(TAG, "Contact ID is null")
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading contact data", e)
-            Toast.makeText(this, "Ошибка загрузки контакта", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Ошибка загрузки контакта: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -587,30 +653,46 @@ class ChildSelectionActivity : AppCompatActivity() {
      * Загрузить телефон контакта по ID
      */
     private fun loadPhoneForContact(contactId: String) {
+        Log.d(TAG, "loadPhoneForContact called with ID: $contactId")
         val phoneProjection = arrayOf(ContactsContract.CommonDataKinds.Phone.NUMBER)
         val phoneSelection = "${ContactsContract.CommonDataKinds.Phone.CONTACT_ID} = ?"
         val phoneSelectionArgs = arrayOf(contactId)
 
         try {
-            contentResolver.query(
+            val phoneCursor = contentResolver.query(
                 ContactsContract.CommonDataKinds.Phone.CONTENT_URI,
                 phoneProjection,
                 phoneSelection,
                 phoneSelectionArgs,
                 null
-            )?.use { phoneCursor ->
-                if (phoneCursor.moveToFirst()) {
-                    val numberIndex = phoneCursor.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
-                    val phoneNumber = if (numberIndex >= 0) phoneCursor.getString(numberIndex) else null
+            )
+            if (phoneCursor == null) {
+                Log.e(TAG, "Phone query returned null")
+                return
+            }
 
-                    phoneNumber?.let {
-                        currentPhoneInput?.setText(it)
-                        Log.d(TAG, "Contact phone loaded: $it")
+            phoneCursor.use {
+                Log.d(TAG, "Phone cursor count: ${it.count}")
+                if (it.moveToFirst()) {
+                    val numberIndex = it.getColumnIndex(ContactsContract.CommonDataKinds.Phone.NUMBER)
+                    Log.d(TAG, "Phone number column index: $numberIndex")
+                    val phoneNumber = if (numberIndex >= 0) it.getString(numberIndex) else null
+
+                    Log.d(TAG, "Phone number retrieved: $phoneNumber")
+                    if (phoneNumber != null) {
+                        currentPhoneInput?.setText(phoneNumber)
+                        Log.d(TAG, "Contact phone loaded and set: $phoneNumber")
+                        Toast.makeText(this, "Телефон загружен: $phoneNumber", Toast.LENGTH_SHORT).show()
+                    } else {
+                        Log.w(TAG, "Phone number is null")
                     }
+                } else {
+                    Log.w(TAG, "Phone cursor is empty")
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading contact phone", e)
+            Toast.makeText(this, "Ошибка загрузки телефона: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -621,18 +703,24 @@ class ChildSelectionActivity : AppCompatActivity() {
         val projection = arrayOf(ContactsContract.Contacts._ID)
 
         try {
-            contentResolver.query(contactUri, projection, null, null, null)?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    val idIndex = cursor.getColumnIndex(ContactsContract.Contacts._ID)
+            val cursor = contentResolver.query(contactUri, projection, null, null, null)
+            if (cursor == null) {
+                Log.e(TAG, "Contact query returned null for phone")
+                return
+            }
+
+            cursor.use {
+                if (it.moveToFirst()) {
+                    val idIndex = it.getColumnIndex(ContactsContract.Contacts._ID)
                     if (idIndex >= 0) {
-                        val contactId = cursor.getString(idIndex)
+                        val contactId = it.getString(idIndex)
                         loadPhoneForContact(contactId)
                     }
                 }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading contact phone", e)
-            Toast.makeText(this, "Ошибка загрузки телефона", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "Ошибка загрузки телефона: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -671,21 +759,26 @@ class ChildSelectionActivity : AppCompatActivity() {
      * Запросить разрешение на чтение контактов
      */
     private fun requestContactsPermission(onGranted: () -> Unit) {
+        Log.d(TAG, "requestContactsPermission called")
         when {
             checkContactsPermission() -> {
+                Log.d(TAG, "Permission already granted")
                 onGranted()
             }
             shouldShowRequestPermissionRationale(Manifest.permission.READ_CONTACTS) -> {
+                Log.d(TAG, "Showing permission rationale")
                 MaterialAlertDialogBuilder(this)
                     .setTitle("Разрешение на контакты")
                     .setMessage("Приложению нужен доступ к контактам для автозаполнения данных ребенка")
                     .setPositiveButton("Разрешить") { _, _ ->
+                        Log.d(TAG, "User clicked allow in rationale dialog")
                         requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQUEST_CONTACTS_PERMISSION)
                     }
                     .setNegativeButton("Отмена", null)
                     .show()
             }
             else -> {
+                Log.d(TAG, "Requesting permission directly")
                 requestPermissions(arrayOf(Manifest.permission.READ_CONTACTS), REQUEST_CONTACTS_PERMISSION)
             }
         }
@@ -705,12 +798,59 @@ class ChildSelectionActivity : AppCompatActivity() {
                     Toast.makeText(this, "Доступ к контактам отклонен", Toast.LENGTH_SHORT).show()
                 }
             }
+            REQUEST_CAMERA_PERMISSION -> {
+                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                    Toast.makeText(this, "Доступ к камере разрешен", Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(this, "Доступ к камере отклонен", Toast.LENGTH_SHORT).show()
+                }
+            }
         }
+    }
+
+    /**
+     * Запросить разрешение на использование камеры
+     */
+    private fun requestCameraPermission(onGranted: () -> Unit) {
+        Log.d(TAG, "requestCameraPermission called")
+        when {
+            checkCameraPermission() -> {
+                Log.d(TAG, "Camera permission already granted")
+                onGranted()
+            }
+            shouldShowRequestPermissionRationale(Manifest.permission.CAMERA) -> {
+                Log.d(TAG, "Showing camera permission rationale")
+                MaterialAlertDialogBuilder(this)
+                    .setTitle("Разрешение на камеру")
+                    .setMessage("Приложению нужен доступ к камере для сканирования QR-кода")
+                    .setPositiveButton("Разрешить") { _, _ ->
+                        Log.d(TAG, "User clicked allow in camera rationale dialog")
+                        requestPermissions(arrayOf(Manifest.permission.CAMERA), REQUEST_CAMERA_PERMISSION)
+                    }
+                    .setNegativeButton("Отмена", null)
+                    .show()
+            }
+            else -> {
+                Log.d(TAG, "Requesting camera permission directly")
+                requestPermissions(arrayOf(Manifest.permission.CAMERA), REQUEST_CAMERA_PERMISSION)
+            }
+        }
+    }
+
+    /**
+     * Проверить наличие разрешения на камеру
+     */
+    private fun checkCameraPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
     }
 
     companion object {
         private const val TAG = "ChildSelectionActivity"
         const val EXTRA_SELECTED_DEVICE_ID = "selected_device_id"
         private const val REQUEST_CONTACTS_PERMISSION = 100
+        private const val REQUEST_CAMERA_PERMISSION = 101
     }
 }

@@ -49,10 +49,11 @@ class WebSocketClient(
 
     companion object {
         private const val TAG = "WebSocketClient"
-        private const val CONNECTION_TIMEOUT = 20000L // 20 seconds
-        private const val RECONNECTION_DELAY = 1000L // 1 second
-        private const val RECONNECTION_DELAY_MAX = 5000L // 5 seconds max
+        private const val CONNECTION_TIMEOUT = 15000L // 15 seconds (reduced from 20)
+        private const val RECONNECTION_DELAY = 500L // 0.5 second (faster initial retry)
+        private const val RECONNECTION_DELAY_MAX = 10000L // 10 seconds max (increased from 5)
         private const val PING_INTERVAL = 25000L // 25 seconds (heartbeat)
+        private const val MAX_RECONNECT_ATTEMPTS_BEFORE_WARNING = 3 // Warn user after 3 failed attempts
     }
 
     // Connection event handlers

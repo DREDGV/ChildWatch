@@ -3,57 +3,52 @@ package ru.example.childwatch
 import android.Manifest
 import android.content.pm.PackageManager
 import android.location.Geocoder
-import android.location.Location
 import android.os.Bundle
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
-import java.io.IOException
-import java.util.Locale
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.GoogleMap
-import com.google.android.gms.maps.OnMapReadyCallback
-import com.google.android.gms.maps.SupportMapFragment
-import com.google.android.gms.maps.model.LatLng
-import com.google.android.gms.maps.model.MarkerOptions
-import com.google.android.gms.maps.model.BitmapDescriptorFactory
-import com.google.android.gms.maps.model.PolylineOptions
-import com.google.android.gms.maps.model.Polyline
+import androidx.preference.PreferenceManager
+import org.osmdroid.config.Configuration
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
 import ru.example.childwatch.databinding.ActivityLocationMapNewBinding
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.LocationData
 import ru.example.childwatch.utils.PermissionHelper
 import kotlinx.coroutines.*
+import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
 import android.graphics.Color
 
 /**
- * Location Map Activity with Google Maps integration
+ * Location Map Activity with OpenStreetMap integration
  *
  * Features:
- * - Google Map display
+ * - OpenStreetMap display (works in Russia without VPN)
  * - Child location marker
  * - Real-time location updates from server
  * - Location history
  * - Auto-refresh
  */
-class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
+class LocationMapActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "LocationMapActivity"
         private const val LOCATION_PERMISSION_REQUEST_CODE = 1001
-        private const val DEFAULT_ZOOM = 15f
+        private const val DEFAULT_ZOOM = 15.0
         private const val AUTO_REFRESH_INTERVAL = 30000L // 30 seconds
     }
 
     private lateinit var binding: ActivityLocationMapNewBinding
     private lateinit var networkClient: NetworkClient
-    private var googleMap: GoogleMap? = null
-    private var currentMarker: com.google.android.gms.maps.model.Marker? = null
-    private val historyMarkers = mutableListOf<com.google.android.gms.maps.model.Marker>()
+    private var osmMapView: MapView? = null
+    private var currentMarker: Marker? = null
+    private val historyMarkers = mutableListOf<Marker>()
     private var historyPolyline: Polyline? = null
     private var isHistoryVisible = false
 
@@ -65,6 +60,11 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        // Initialize OSMdroid configuration
+        Configuration.getInstance().load(this, PreferenceManager.getDefaultSharedPreferences(this))
+        Configuration.getInstance().userAgentValue = packageName
+
         binding = ActivityLocationMapNewBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
@@ -79,9 +79,7 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
         setupUI()
 
         // Initialize map
-        val mapFragment = supportFragmentManager
-            .findFragmentById(R.id.mapFragment) as SupportMapFragment
-        mapFragment.getMapAsync(this)
+        initializeMap()
     }
 
     private fun setupUI() {
@@ -108,21 +106,26 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
         updateLocationInfo("Подключение к серверу...", null)
     }
 
-    override fun onMapReady(map: GoogleMap) {
-        googleMap = map
+    private fun initializeMap() {
+        osmMapView = binding.osmMapView
 
-        // Configure map
-        googleMap?.apply {
-            uiSettings.isZoomControlsEnabled = true
-            uiSettings.isCompassEnabled = true
-            uiSettings.isMyLocationButtonEnabled = false
-        }
+        osmMapView?.apply {
+            // Set tile source (OpenStreetMap)
+            setTileSource(TileSourceFactory.MAPNIK)
 
-        // Request location permission
-        if (!PermissionHelper.hasLocationPermissions(this)) {
-            requestLocationPermission()
-        } else {
-            enableMyLocation()
+            // Enable zoom controls
+            setBuiltInZoomControls(true)
+            setMultiTouchControls(true)
+
+            // Set default zoom and center (will be updated when location loads)
+            controller.setZoom(DEFAULT_ZOOM)
+
+            // Enable my location overlay if permission granted
+            if (PermissionHelper.hasLocationPermissions(this@LocationMapActivity)) {
+                enableMyLocation()
+            } else {
+                requestLocationPermission()
+            }
         }
 
         // Load initial location
@@ -138,7 +141,9 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
                 Manifest.permission.ACCESS_FINE_LOCATION
             ) == PackageManager.PERMISSION_GRANTED
         ) {
-            googleMap?.isMyLocationEnabled = true
+            // OSMdroid doesn't have built-in MyLocation like Google Maps
+            // We could add a MyLocationNewOverlay if needed, but not essential for this app
+            Log.d(TAG, "Location permission granted")
         }
     }
 
@@ -199,11 +204,11 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
     }
 
     private fun updateMapLocation(latitude: Double, longitude: Double, accuracy: Float, timestamp: Long) {
-        val position = LatLng(latitude, longitude)
+        val position = GeoPoint(latitude, longitude)
 
-        googleMap?.apply {
+        osmMapView?.apply {
             // Remove old marker
-            currentMarker?.remove()
+            currentMarker?.let { overlays.remove(it) }
 
             // Get address asynchronously
             serviceScope.launch {
@@ -216,21 +221,25 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
                     append("Время: ${formatTime(timestamp)}")
                 }
 
-                // Add new marker
-                currentMarker = addMarker(
-                    MarkerOptions()
-                        .position(position)
-                        .title("Местоположение ребенка")
-                        .snippet(snippet)
-                        .icon(BitmapDescriptorFactory.defaultMarker(BitmapDescriptorFactory.HUE_AZURE))
-                )
+                // Create new marker
+                currentMarker = Marker(this@apply).apply {
+                    this.position = position
+                    this.title = "Местоположение ребенка"
+                    this.snippet = snippet
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
 
-                // Show info window
-                currentMarker?.showInfoWindow()
+                    // Show info window
+                    showInfoWindow()
+                }
+
+                // Add marker to map
+                currentMarker?.let { overlays.add(it) }
+                invalidate()
+
+                // Move camera
+                controller.animateTo(position)
+                controller.setZoom(DEFAULT_ZOOM)
             }
-
-            // Move camera
-            animateCamera(CameraUpdateFactory.newLatLngZoom(position, DEFAULT_ZOOM))
         }
     }
 
@@ -271,7 +280,8 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
 
     private fun centerMapOnChild() {
         currentMarker?.let { marker ->
-            googleMap?.animateCamera(CameraUpdateFactory.newLatLngZoom(marker.position, DEFAULT_ZOOM))
+            osmMapView?.controller?.animateTo(marker.position)
+            osmMapView?.controller?.setZoom(DEFAULT_ZOOM)
         } ?: run {
             Toast.makeText(this, "Местоположение недоступно", Toast.LENGTH_SHORT).show()
         }
@@ -360,11 +370,13 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
 
     override fun onResume() {
         super.onResume()
+        osmMapView?.onResume()
         startAutoRefresh()
     }
 
     override fun onPause() {
         super.onPause()
+        osmMapView?.onPause()
         stopAutoRefresh()
     }
 
@@ -484,51 +496,65 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
     private fun displayHistoryOnMap(locations: List<LocationData>) {
         if (locations.isEmpty()) return
 
-        googleMap?.let { map ->
-            // Create list of LatLng points
-            val points = locations.map { LatLng(it.latitude, it.longitude) }
+        osmMapView?.let { map ->
+            // Create list of GeoPoint points
+            val points = locations.map { GeoPoint(it.latitude, it.longitude) }
 
             // Draw polyline (route)
-            historyPolyline = map.addPolyline(
-                PolylineOptions()
-                    .addAll(points)
-                    .color(Color.BLUE)
-                    .width(10f)
-                    .geodesic(true)
-            )
+            historyPolyline = Polyline().apply {
+                setPoints(points)
+                outlinePaint.color = Color.BLUE
+                outlinePaint.strokeWidth = 10f
+            }
+            map.overlays.add(historyPolyline)
 
             // Add markers for significant points (first, last, and every 10th point)
             locations.forEachIndexed { index, location ->
                 if (index == 0 || index == locations.size - 1 || index % 10 == 0) {
-                    val marker = map.addMarker(
-                        MarkerOptions()
-                            .position(LatLng(location.latitude, location.longitude))
-                            .title(when {
-                                index == 0 -> "Начало"
-                                index == locations.size - 1 -> "Конец"
-                                else -> "Точка ${index + 1}"
-                            })
-                            .snippet(formatTime(location.timestamp))
-                            .icon(BitmapDescriptorFactory.defaultMarker(
-                                when {
-                                    index == 0 -> BitmapDescriptorFactory.HUE_GREEN
-                                    index == locations.size - 1 -> BitmapDescriptorFactory.HUE_RED
-                                    else -> BitmapDescriptorFactory.HUE_ORANGE
-                                }
-                            ))
-                    )
-                    marker?.let { historyMarkers.add(it) }
+                    val marker = Marker(map).apply {
+                        position = GeoPoint(location.latitude, location.longitude)
+                        title = when {
+                            index == 0 -> "Начало"
+                            index == locations.size - 1 -> "Конец"
+                            else -> "Точка ${index + 1}"
+                        }
+                        snippet = formatTime(location.timestamp)
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    }
+                    map.overlays.add(marker)
+                    historyMarkers.add(marker)
                 }
             }
 
             // Adjust camera to show all points
             if (points.isNotEmpty()) {
-                val boundsBuilder = com.google.android.gms.maps.model.LatLngBounds.Builder()
-                points.forEach { boundsBuilder.include(it) }
-                val bounds = boundsBuilder.build()
-                val padding = 100 // pixels
-                map.animateCamera(CameraUpdateFactory.newLatLngBounds(bounds, padding))
+                // Calculate bounding box
+                val minLat = points.minOf { it.latitude }
+                val maxLat = points.maxOf { it.latitude }
+                val minLon = points.minOf { it.longitude }
+                val maxLon = points.maxOf { it.longitude }
+
+                val centerLat = (minLat + maxLat) / 2
+                val centerLon = (minLon + maxLon) / 2
+
+                map.controller.setCenter(GeoPoint(centerLat, centerLon))
+
+                // Calculate appropriate zoom level
+                val latSpan = maxLat - minLat
+                val lonSpan = maxLon - minLon
+                val maxSpan = maxOf(latSpan, lonSpan)
+
+                val zoom = when {
+                    maxSpan > 1.0 -> 8.0
+                    maxSpan > 0.5 -> 10.0
+                    maxSpan > 0.1 -> 12.0
+                    maxSpan > 0.05 -> 14.0
+                    else -> 15.0
+                }
+                map.controller.setZoom(zoom)
             }
+
+            map.invalidate()
         }
     }
 
@@ -536,13 +562,17 @@ class LocationMapActivity : AppCompatActivity(), OnMapReadyCallback {
      * Hide history from map
      */
     private fun hideHistory() {
-        // Remove polyline
-        historyPolyline?.remove()
-        historyPolyline = null
+        osmMapView?.let { map ->
+            // Remove polyline
+            historyPolyline?.let { map.overlays.remove(it) }
+            historyPolyline = null
 
-        // Remove all history markers
-        historyMarkers.forEach { it.remove() }
-        historyMarkers.clear()
+            // Remove all history markers
+            historyMarkers.forEach { map.overlays.remove(it) }
+            historyMarkers.clear()
+
+            map.invalidate()
+        }
 
         isHistoryVisible = false
         binding.viewHistoryButton.text = "Показать историю"

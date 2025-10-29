@@ -19,7 +19,7 @@ import java.net.URL
 /**
  * About Activity showing app information, changelog, roadmap, and instructions
  * 
- * ChildWatch v2.0.0 - Parental Monitoring Application
+ * ChildWatch v5.7.0 - Parental Monitoring Application
  * 
  * Features:
  * - App version and build information

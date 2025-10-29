@@ -17,6 +17,7 @@ import kotlinx.coroutines.CancellationException
 import ru.example.childwatch.MainActivity
 import ru.example.childwatch.R
 import ru.example.childwatch.location.LocationManager
+import ru.example.childwatch.location.ParentLocationTracker
 import ru.example.childwatch.audio.AudioRecorder
 import ru.example.childwatch.photo.PhotoCapture
 import ru.example.childwatch.network.NetworkClient
@@ -87,6 +88,7 @@ class MonitorService : Service() {
     private lateinit var recoveryManager: RecoveryManager
     private lateinit var batteryOptimizer: BatteryOptimizationManager
     private lateinit var auditLogger: AuditLogger
+    private var parentLocationTracker: ParentLocationTracker? = null
     
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var locationUpdateJob: Job? = null
@@ -134,6 +136,10 @@ class MonitorService : Service() {
         audioRecorder = AudioRecorder(appContext)
         photoCapture = PhotoCapture(appContext)
         networkClient = NetworkClient(appContext)
+        
+        // Initialize parent location tracker
+        val parentId = prefs.getString("parent_id", android.provider.Settings.Secure.getString(contentResolver, android.provider.Settings.Secure.ANDROID_ID)) ?: "unknown"
+        parentLocationTracker = ParentLocationTracker(appContext, parentId)
         
         // Load configuration
         loadConfiguration()
@@ -209,6 +215,13 @@ class MonitorService : Service() {
             auditLogger.cleanup()
         } catch (e: Exception) {
             Log.w(TAG, "AuditLogger cleanup failed", e)
+        }
+        
+        // Cleanup parent location tracker
+        try {
+            parentLocationTracker?.cleanup()
+        } catch (e: Exception) {
+            Log.w(TAG, "ParentLocationTracker cleanup failed", e)
         }
         
         serviceScope.cancel()
@@ -423,6 +436,12 @@ class MonitorService : Service() {
         if (secureSettings.isAudioEnabled()) {
             startPeriodicAudioRecording()
         }
+        
+        // Start parent location tracking if enabled
+        if (prefs.getBoolean("share_parent_location", false)) {
+            parentLocationTracker?.startTracking()
+            Log.d(TAG, "Parent location tracking started")
+        }
     }
     
     private fun startChatBackgroundService() {
@@ -471,6 +490,10 @@ class MonitorService : Service() {
         }
 
         locationManager.stopLocationUpdates()
+        
+        // Stop parent location tracking
+        parentLocationTracker?.stopTracking()
+        Log.d(TAG, "Parent location tracking stopped")
 
         if (isAudioRecording.get()) {
             stopAudioCapture("monitoring stop")

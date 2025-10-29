@@ -15,7 +15,7 @@
     Для debug сертификата используйте:
     keytool -list -v -keystore ~/.android/debug.keystore -alias androiddebugkey -storepass android -keypass android
     -->
-    <string name="google_maps_key" translatable="false">AIzaSyDummy_Key_Replace_With_Your_Real_Key</string>
+    <string name="google_maps_key" translatable="false">AIzaSyApF_lSeY66nSu4C7J8HX8e3dOf6xDluuE</string>
     <!-- 
     ВРЕМЕННЫЙ КЛЮЧ ДЛЯ ТЕСТИРОВАНИЯ:
     Замените на ваш реальный ключ из Google Cloud Console

@@ -5,13 +5,13 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent">
 
-    <!-- Google Map -->
-    <fragment
-        android:id="@+id/mapFragment"
-        android:name="com.google.android.gms.maps.SupportMapFragment"
+    <!-- OpenStreetMap (OSMdroid) -->
+    <org.osmdroid.views.MapView
+        android:id="@+id/osmMapView"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        tools:context=".LocationMapActivity" />
+        android:clickable="true"
+        android:focusable="true" />
 
     <!-- Floating Info Card -->
     <com.google.android.material.card.MaterialCardView

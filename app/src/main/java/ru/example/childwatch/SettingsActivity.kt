@@ -47,6 +47,7 @@ class SettingsActivity : AppCompatActivity() {
         private const val KEY_LOCATION_ENABLED = "location_enabled"
         private const val KEY_AUDIO_ENABLED = "audio_enabled"
         private const val KEY_PHOTO_ENABLED = "photo_enabled"
+        private const val KEY_SHARE_PARENT_LOCATION = "share_parent_location"
     }
     
     private lateinit var binding: ActivitySettingsBinding
@@ -152,6 +153,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.locationMonitoringSwitch.isChecked = prefs.getBoolean(KEY_LOCATION_ENABLED, true)
         binding.audioMonitoringSwitch.isChecked = prefs.getBoolean(KEY_AUDIO_ENABLED, true)
         binding.photoMonitoringSwitch.isChecked = prefs.getBoolean(KEY_PHOTO_ENABLED, false)
+        binding.shareParentLocationSwitch.isChecked = prefs.getBoolean(KEY_SHARE_PARENT_LOCATION, false)
 
         // Load notification settings
         val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
@@ -223,6 +225,7 @@ class SettingsActivity : AppCompatActivity() {
                 .putBoolean(KEY_LOCATION_ENABLED, binding.locationMonitoringSwitch.isChecked)
                 .putBoolean(KEY_AUDIO_ENABLED, binding.audioMonitoringSwitch.isChecked)
                 .putBoolean(KEY_PHOTO_ENABLED, binding.photoMonitoringSwitch.isChecked)
+                .putBoolean(KEY_SHARE_PARENT_LOCATION, binding.shareParentLocationSwitch.isChecked)
                 .apply()
 
             // Save notification settings

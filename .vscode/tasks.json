@@ -36,6 +36,124 @@
                 "Build and Install ChildWatch",
                 "Launch ChildWatch"
             ]
+        },
+        {
+            "label": "🔴 Start Live Mirror (scrcpy)",
+            "type": "shell",
+            "command": "scrcpy --max-size 1024 --video-bit-rate 2M --always-on-top --window-title 'ChildWatch Live Preview'",
+            "isBackground": true,
+            "presentation": {
+                "reveal": "never",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "⚡ Quick Install + Restart",
+            "type": "shell",
+            "command": "adb install -r app/build/outputs/apk/debug/ChildWatch-*.apk; adb shell am force-stop ru.example.childwatch; adb shell monkey -p ru.example.childwatch -c android.intent.category.LAUNCHER 1",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "focus": false
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "📸 Capture Screenshot",
+            "type": "shell",
+            "command": "$date = Get-Date -Format 'yyyy-MM-dd-HHmmss'; adb exec-out screencap -p > \"screenshot-$date.png\"; Write-Host \"Screenshot saved: screenshot-$date.png\"",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "📋 View Logcat (Filtered)",
+            "type": "shell",
+            "command": "adb logcat MainActivity:D ChildSelectionActivity:D AudioStreamingActivity:D *:E",
+            "isBackground": true,
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🔄 Restart ADB Server",
+            "type": "shell",
+            "command": "adb kill-server; Start-Sleep -Seconds 2; adb start-server; adb devices",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "📱 Start Emulator: Pixel 8 (Child Device)",
+            "type": "shell",
+            "command": "Start-Process -FilePath 'C:\\Users\\dr-ed\\AppData\\Local\\Android\\Sdk\\emulator\\emulator.exe' -ArgumentList '-avd Pixel_8_API_35'",
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "📱 Start Emulator: Nokia G21 (Virtual)",
+            "type": "shell",
+            "command": "Start-Process -FilePath 'C:\\Users\\dr-ed\\AppData\\Local\\Android\\Sdk\\emulator\\emulator.exe' -ArgumentList '-avd Nokia_G21'",
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "📱 Start Emulator: Medium Phone",
+            "type": "shell",
+            "command": "Start-Process -FilePath 'C:\\Users\\dr-ed\\AppData\\Local\\Android\\Sdk\\emulator\\emulator.exe' -ArgumentList '-avd Medium_Phone_API_35'",
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "🔴 Mirror: Pixel 8 Emulator",
+            "type": "shell",
+            "command": "Start-Sleep -Seconds 10; scrcpy --serial emulator-5554 --max-size 1024 --video-bit-rate 2M --window-title 'ChildWatch (Pixel 8)' --always-on-top",
+            "isBackground": true,
+            "dependsOn": "📱 Start Emulator: Pixel 8 (Child Device)",
+            "problemMatcher": []
+        },
+        {
+            "label": "🎯 Dual Mirror: Real + Emulator",
+            "type": "shell",
+            "command": "$realDevice = 'PT19655KA1280800674'; Start-Process scrcpy -ArgumentList \"--serial $realDevice --max-size 1024 --video-bit-rate 2M --window-title 'ParentWatch (Nokia Real)' --window-x 0 --window-y 0\"; Start-Sleep -Seconds 2; Start-Process scrcpy -ArgumentList '--serial emulator-5554 --max-size 1024 --video-bit-rate 2M --window-title ''ChildWatch (Pixel 8)'' --window-x 550 --window-y 0'",
+            "isBackground": true,
+            "problemMatcher": []
+        },
+        {
+            "label": "🚀 Quick Deploy: ParentWatch to Real Device",
+            "type": "shell",
+            "command": "adb -s PT19655KA1280800674 install -r parentwatch/build/outputs/apk/debug/ParentWatch-*.apk; if ($?) { adb -s PT19655KA1280800674 shell am force-stop ru.example.parentwatch; adb -s PT19655KA1280800674 shell monkey -p ru.example.parentwatch -c android.intent.category.LAUNCHER 1 }",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🚀 Quick Deploy: ChildWatch to Emulator",
+            "type": "shell",
+            "command": "adb -s emulator-5554 install -r app/build/outputs/apk/debug/ChildWatch-*.apk; if ($?) { adb -s emulator-5554 shell am force-stop ru.example.childwatch; adb -s emulator-5554 shell monkey -p ru.example.childwatch -c android.intent.category.LAUNCHER 1 }",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🎬 Full Workflow: Build + Deploy Both Apps",
+            "dependsOrder": "sequence",
+            "dependsOn": [
+                "Build and Install ChildWatch",
+                "🚀 Quick Deploy: ParentWatch to Real Device",
+                "🚀 Quick Deploy: ChildWatch to Emulator"
+            ]
         }
     ]
 }

@@ -63,23 +63,34 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:hint="Device ID *"
-            app:helperText="Скопируйте из ParentWatch на устройстве ребенка"
+            app:helperText="Отсканируйте QR-код или вставьте из буфера"
             app:helperTextEnabled="true"
             app:endIconMode="custom"
             app:endIconDrawable="@android:drawable/ic_menu_upload"
             app:endIconContentDescription="Вставить из буфера"
-            android:layout_marginBottom="12dp">
+            android:layout_marginBottom="8dp">
 
             <com.google.android.material.textfield.TextInputEditText
                 android:id="@+id/deviceIdInput"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:inputType="text"
+                android:inputType="text|textNoSuggestions"
+                android:importantForAutofill="no"
                 android:maxLines="1"
                 android:fontFamily="monospace"
                 android:textSize="14sp" />
 
         </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- QR Code Scan Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/scanQrButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="📷 Сканировать QR-код"
+            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
+            android:layout_gravity="center_horizontal"
+            android:layout_marginBottom="12dp" />
 
         <!-- Child Name -->
         <com.google.android.material.textfield.TextInputLayout

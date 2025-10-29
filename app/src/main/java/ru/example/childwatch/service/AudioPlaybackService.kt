@@ -57,10 +57,11 @@ class AudioPlaybackService : LifecycleService() {
         private const val FRAME_MS = 20                  // 20ms frames
         private const val FRAME_BYTES = (STREAM_SAMPLE_RATE * FRAME_MS / 1000) * 2 // 960 bytes
 
-        // Jitter buffer: 150-220 ms = 8-11 frames of 20ms
-        private const val JITTER_BUFFER_MIN_FRAMES = 8   // 160 ms
-        private const val JITTER_BUFFER_MAX_FRAMES = 50  // Max queue size (1 sec)
-        private const val JITTER_BUFFER_AGGRESSIVE_THRESHOLD = 15 // Trigger aggressive drop (300ms)
+        // Jitter buffer: Increased for poor network conditions
+        // 250-400 ms = 12-20 frames of 20ms (improved for unstable connections)
+        private const val JITTER_BUFFER_MIN_FRAMES = 12  // 240 ms (increased from 160ms)
+        private const val JITTER_BUFFER_MAX_FRAMES = 60  // Max queue size (1.2 sec, increased from 1 sec)
+        private const val JITTER_BUFFER_AGGRESSIVE_THRESHOLD = 20 // Trigger aggressive drop (400ms)
 
         const val ACTION_START_PLAYBACK = "ru.example.childwatch.START_PLAYBACK"
         const val ACTION_STOP_PLAYBACK = "ru.example.childwatch.STOP_PLAYBACK"
@@ -198,6 +199,7 @@ class AudioPlaybackService : LifecycleService() {
     private val chunkQueue = java.util.concurrent.ArrayBlockingQueue<ByteArray>(JITTER_BUFFER_MAX_FRAMES)
     private var isBuffering = true
     private var bufferUnderrunCount = 0
+
 
     // Metrics (Этап A)
     private var totalBytesReceived = 0L
@@ -818,7 +820,7 @@ class AudioPlaybackService : LifecycleService() {
 
             while (isActive && isPlaying) {
                 try {
-                    // Wait for initial jitter buffer to fill (Этап A: 160ms = 8 frames)
+                    // Wait for initial jitter buffer to fill
                     if (isBuffering) {
                         if (chunkQueue.size >= JITTER_BUFFER_MIN_FRAMES) {
                             isBuffering = false

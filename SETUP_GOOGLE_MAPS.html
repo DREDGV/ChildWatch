@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Настройка Google Maps API для ChildWatch</title>
+    <style>
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #1976D2;
+            border-bottom: 3px solid #1976D2;
+            padding-bottom: 10px;
+        }
+        h2 {
+            color: #333;
+            margin-top: 30px;
+        }
+        .step {
+            background: #E3F2FD;
+            padding: 20px;
+            margin: 20px 0;
+            border-radius: 8px;
+            border-left: 5px solid #1976D2;
+        }
+        .info-box {
+            background: #FFF3E0;
+            padding: 15px;
+            border-radius: 5px;
+            border: 1px solid #FFB74D;
+            margin: 15px 0;
+        }
+        .code {
+            background: #263238;
+            color: #A5D6A7;
+            padding: 15px;
+            border-radius: 5px;
+            font-family: 'Courier New', monospace;
+            overflow-x: auto;
+            margin: 10px 0;
+        }
+        button {
+            background: #1976D2;
+            color: white;
+            border: none;
+            padding: 12px 25px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            margin: 10px 5px;
+        }
+        button:hover {
+            background: #1565C0;
+        }
+        .success {
+            background: #C8E6C9;
+            border-color: #4CAF50;
+        }
+        .warning {
+            background: #FFCCBC;
+            border-color: #FF5722;
+        }
+        ul {
+            line-height: 1.8;
+        }
+        .copy-btn {
+            background: #4CAF50;
+            padding: 5px 10px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        .copy-btn:hover {
+            background: #45a049;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🗺️ Настройка Google Maps API для ChildWatch</h1>
+
+        <div class="info-box warning">
+            <strong>⚠️ Проблема:</strong> API ключ существует, но не настроен для приложения ChildWatch.<br>
+            <strong>⏱️ Время:</strong> 3-5 минут
+        </div>
+
+        <div class="step">
+            <h2>Шаг 1: Открой Google Cloud Console</h2>
+            <p>Войди под аккаунтом <strong>edgvaud@gmail.com</strong></p>
+            <button onclick="window.open('https://console.cloud.google.com/', '_blank')">
+                🌐 Открыть Google Cloud Console
+            </button>
+        </div>
+
+        <div class="step">
+            <h2>Шаг 2: Выбери или создай проект</h2>
+            <p>Вверху страницы нажми на выпадающий список проектов:</p>
+            <ul>
+                <li>Если есть проект для Android-разработки - выбери его</li>
+                <li>Если нет - создай новый проект с названием <strong>"ChildWatch"</strong></li>
+            </ul>
+            <button onclick="window.open('https://console.cloud.google.com/projectcreate', '_blank')">
+                ➕ Создать новый проект
+            </button>
+        </div>
+
+        <div class="step">
+            <h2>Шаг 3: Включи Maps SDK for Android</h2>
+            <p>Перейди в библиотеку API и включи Maps SDK:</p>
+            <button onclick="window.open('https://console.cloud.google.com/apis/library/maps-android-backend.googleapis.com', '_blank')">
+                📚 Открыть Maps SDK for Android
+            </button>
+            <p style="margin-top: 15px;">Нажми кнопку <strong>"ENABLE"</strong> (Включить)</p>
+        </div>
+
+        <div class="step">
+            <h2>Шаг 4: Создай API ключ</h2>
+            <p>Перейди в раздел Credentials (Учетные данные):</p>
+            <button onclick="window.open('https://console.cloud.google.com/apis/credentials', '_blank')">
+                🔑 Открыть Credentials
+            </button>
+            <p style="margin-top: 15px;">
+                1. Нажми <strong>"+ CREATE CREDENTIALS"</strong> → <strong>"API key"</strong><br>
+                2. Скопируй созданный ключ (он начинается с AIzaSy...)<br>
+                3. Нажми <strong>"RESTRICT KEY"</strong> (Ограничить ключ)
+            </p>
+        </div>
+
+        <div class="step">
+            <h2>Шаг 5: Настрой ограничения ключа</h2>
+
+            <h3>5.1 Application restrictions:</h3>
+            <p>Выбери <strong>"Android apps"</strong></p>
+            <p>Нажми <strong>"+ Add an item"</strong> и введи:</p>
+
+            <div class="info-box">
+                <strong>Package name:</strong>
+                <div class="code">
+                    ru.example.childwatch
+                    <button class="copy-btn" onclick="copyToClipboard('ru.example.childwatch')">📋 Копировать</button>
+                </div>
+
+                <strong>SHA-1 certificate fingerprint:</strong>
+                <div class="code">
+                    51:43:7F:5D:56:3A:63:D6:CC:6C:D5:40:94:EF:1C:86:01:33:85:F6
+                    <button class="copy-btn" onclick="copyToClipboard('51:43:7F:5D:56:3A:63:D6:CC:6C:D5:40:94:EF:1C:86:01:33:85:F6')">📋 Копировать</button>
+                </div>
+            </div>
+
+            <h3>5.2 API restrictions:</h3>
+            <ul>
+                <li>Выбери <strong>"Restrict key"</strong></li>
+                <li>Выбери <strong>"Maps SDK for Android"</strong></li>
+            </ul>
+
+            <p>Нажми <strong>"SAVE"</strong> (Сохранить)</p>
+        </div>
+
+        <div class="step success">
+            <h2>Шаг 6: Скопируй новый API ключ</h2>
+            <p>После сохранения ты увидишь свой API ключ. Он выглядит примерно так:</p>
+            <div class="code">AIzaSy... (39 символов)</div>
+            <p><strong>📋 СКОПИРУЙ ЭТОТ КЛЮЧ</strong> и вставь его в терминал/чат со мной.</p>
+            <p>Я сразу обновлю приложение и пересоберу APK!</p>
+        </div>
+
+        <div class="info-box success">
+            <h3>✅ После этих шагов:</h3>
+            <ul>
+                <li>Отправь мне новый API ключ</li>
+                <li>Я обновлю google_maps_api.xml</li>
+                <li>Пересоберу и установлю APK</li>
+                <li>Карта заработает! 🎉</li>
+            </ul>
+        </div>
+
+        <hr style="margin: 30px 0;">
+
+        <div class="info-box">
+            <h3>🔄 Альтернатива: Настроить существующий ключ</h3>
+            <p>Если у тебя уже есть API ключ <code>AIzaSyABrfflV49aFWF4Kohsf1VSx68td8f-sFY</code>:</p>
+            <button onclick="window.open('https://console.cloud.google.com/apis/credentials', '_blank')">
+                🔧 Открыть Credentials
+            </button>
+            <ol style="margin-top: 15px;">
+                <li>Найди этот ключ в списке</li>
+                <li>Нажми на него для редактирования</li>
+                <li>Добавь ограничения как в Шаге 5</li>
+                <li>Сохрани</li>
+            </ol>
+            <p><strong>Подожди 5 минут</strong> после сохранения - Google нужно время на обновление.</p>
+        </div>
+    </div>
+
+    <script>
+        function copyToClipboard(text) {
+            navigator.clipboard.writeText(text).then(function() {
+                alert('✅ Скопировано: ' + text);
+            }, function(err) {
+                prompt('Скопируй это значение:', text);
+            });
+        }
+    </script>
+</body>
+</html>
