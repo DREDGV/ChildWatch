@@ -164,6 +164,12 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         }
         
+        // Parent location card - using findViewById as workaround
+        findViewById<View>(R.id.parentLocationCard)?.setOnClickListener {
+            val intent = Intent(this, ParentLocationMapActivity::class.java)
+            startActivity(intent)
+        }
+        
         binding.settingsCard.setOnClickListener {
             val intent = Intent(this, SettingsActivity::class.java)
             startActivity(intent)

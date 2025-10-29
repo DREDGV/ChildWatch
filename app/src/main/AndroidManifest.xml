@@ -98,6 +98,12 @@
             android:exported="false"
             android:theme="@style/Theme.ChildWatch" />
         
+        <!-- Parent Location Map Activity -->
+        <activity
+            android:name=".ParentLocationMapActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ChildWatch.NoActionBar" />
+        
         <!-- Location Map Activity (2GIS) -->
         <activity
             android:name=".LocationMapActivity2GIS"

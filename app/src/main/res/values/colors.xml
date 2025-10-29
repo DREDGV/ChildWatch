@@ -33,4 +33,8 @@
     <color name="background_color">#FFFBFE</color>
     <color name="text_primary">#1C1B1F</color>
     <color name="text_secondary">#49454F</color>
+    <color name="primary">#6750A4</color>
+    <color name="divider">#E0E0E0</color>
+    <color name="error">#BA1A1A</color>
+    <color name="error_background">#FFDAD6</color>
 </resources>
