@@ -4,6 +4,8 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.migration.Migration
+import androidx.sqlite.db.SupportSQLiteDatabase
 import ru.example.childwatch.database.dao.*
 import ru.example.childwatch.database.entity.*
 
@@ -19,6 +21,9 @@ import ru.example.childwatch.database.entity.*
  * - Chat messages table
  * - Audio recordings table
  * - Location points table
+ *
+ * Version 2: Added ParentLocation for "Where are parents?" feature
+ * - Parent locations table with battery level, speed, bearing
  */
 @Database(
     entities = [
@@ -26,9 +31,10 @@ import ru.example.childwatch.database.entity.*
         Parent::class,
         ChatMessageEntity::class,
         AudioRecording::class,
-        LocationPoint::class
+        LocationPoint::class,
+        ParentLocation::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = true
 )
 abstract class ChildWatchDatabase : RoomDatabase() {
@@ -58,6 +64,11 @@ abstract class ChildWatchDatabase : RoomDatabase() {
      */
     abstract fun locationDao(): LocationDao
 
+    /**
+     * Get ParentLocationDao instance
+     */
+    abstract fun parentLocationDao(): ParentLocationDao
+
     companion object {
         /**
          * Singleton instance
@@ -69,6 +80,34 @@ abstract class ChildWatchDatabase : RoomDatabase() {
          * Database name
          */
         private const val DATABASE_NAME = "childwatch.db"
+
+        /**
+         * Migration from version 1 to 2
+         * Adds parent_locations table for "Where are parents?" feature
+         */
+        val MIGRATION_1_2 = object : Migration(1, 2) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Create parent_locations table
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS parent_locations (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        parent_id TEXT NOT NULL,
+                        latitude REAL NOT NULL,
+                        longitude REAL NOT NULL,
+                        accuracy REAL NOT NULL,
+                        timestamp INTEGER NOT NULL,
+                        provider TEXT NOT NULL,
+                        battery_level INTEGER,
+                        speed REAL,
+                        bearing REAL
+                    )
+                """.trimIndent())
+                
+                // Create indices for performance
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_parent_locations_parent_id ON parent_locations(parent_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_parent_locations_timestamp ON parent_locations(timestamp)")
+            }
+        }
 
         /**
          * Get database instance (Singleton pattern)
@@ -83,7 +122,8 @@ abstract class ChildWatchDatabase : RoomDatabase() {
                     ChildWatchDatabase::class.java,
                     DATABASE_NAME
                 )
-                    // Migration strategy will be added in future versions
+                    .addMigrations(MIGRATION_1_2)
+                    // Fallback only in debug builds or for future migrations
                     .fallbackToDestructiveMigration()
                     .build()
 
