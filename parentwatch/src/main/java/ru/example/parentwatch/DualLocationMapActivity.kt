@@ -108,7 +108,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         
         // Initialize components
         prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
-        database = ParentWatchDatabase.getDatabase(this)
+        database = ParentWatchDatabase.getInstance(this)
         locationManager = LocationManager(this)
         networkClient = NetworkClient(this)
         parentLocationRepository = ParentLocationRepository(database.parentLocationDao())

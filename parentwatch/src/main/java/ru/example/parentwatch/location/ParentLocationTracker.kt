@@ -10,7 +10,7 @@ import android.util.Log
 import androidx.core.content.ContextCompat
 import com.google.android.gms.location.*
 import kotlinx.coroutines.*
-import ru.example.parentwatch.database.ChildWatchDatabase
+import ru.example.parentwatch.database.ParentWatchDatabase
 import ru.example.parentwatch.database.entity.ParentLocation
 import ru.example.parentwatch.network.NetworkClient
 import java.util.concurrent.TimeUnit
@@ -32,7 +32,7 @@ class ParentLocationTracker(
     private val fusedLocationClient: FusedLocationProviderClient =
         LocationServices.getFusedLocationProviderClient(context)
     
-    private val database = ChildWatchDatabase.getInstance(context)
+    private val database = ParentWatchDatabase.getInstance(context)
     private val networkClient = NetworkClient(context)
     
     private var locationCallback: LocationCallback? = null
