@@ -67,7 +67,8 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
-        // Set up action bar
+        // Set up toolbar as action bar
+        setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
         // Load parent name from preferences
@@ -89,10 +90,7 @@ class ChatActivity : AppCompatActivity() {
             sendMessage()
         }
 
-        // Clear chat button
-        binding.clearButton.setOnClickListener {
-            clearChat()
-        }
+        // Clear chat removed from UI
 
         // Emoji button
         binding.emojiButton.setOnClickListener {
@@ -367,7 +365,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     override fun onSupportNavigateUp(): Boolean {
-        onBackPressed()
+        finish()
         return true
     }
 

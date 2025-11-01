@@ -18,6 +18,7 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.gson.Gson
 import ru.example.childwatch.alerts.CriticalAlertSyncScheduler
 import ru.example.childwatch.databinding.ActivityMainMenuBinding
+import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.network.DeviceStatus
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.service.MonitorService
@@ -127,11 +128,7 @@ class MainActivity : AppCompatActivity() {
             showEmergencyStopDialog()
         }
 
-        // Menu card click listeners
-        binding.homeCard.setOnClickListener {
-            showToast(getString(R.string.home_already_here))
-        }
-        
+        // Menu card click listeners (unified emerald design)
         binding.locationCard.setOnClickListener {
             // Use Google Maps
             val intent = Intent(this, LocationMapActivity::class.java)
@@ -159,9 +156,9 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         }
         
-        binding.photoCard.setOnClickListener {
-            val intent = Intent(this, PhotoActivity::class.java)
-            startActivity(intent)
+        // Единственная кнопка камеры - удалённая съёмка
+        binding.remoteCameraCard.setOnClickListener {
+            openRemoteCamera()
         }
         
         // Location map card - show parent+child on map
@@ -881,6 +878,42 @@ class MainActivity : AppCompatActivity() {
                 Log.e(TAG, "Ошибка обновления профиля ребенка", e)
                 showToast("Ошибка обновления устройства")
             }
+        }
+    }
+
+    /**
+     * Open remote camera activity
+     */
+    private fun openRemoteCamera() {
+        val childId = prefs.getString("child_device_id", null)
+        
+        if (childId == null) {
+            Toast.makeText(
+                this,
+                "Сначала выберите устройство ребенка",
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        // Get child name from database if available
+        lifecycleScope.launch {
+            var childName: String? = null
+            try {
+                val database = ChildWatchDatabase.getInstance(this@MainActivity)
+                val child = database.childDao().getByDeviceId(childId)
+                childName = child?.name
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting child name", e)
+            }
+
+            val intent = Intent(this@MainActivity, RemoteCameraActivity::class.java).apply {
+                putExtra(RemoteCameraActivity.EXTRA_CHILD_ID, childId)
+                if (childName != null) {
+                    putExtra(RemoteCameraActivity.EXTRA_CHILD_NAME, childName)
+                }
+            }
+            startActivity(intent)
         }
     }
 

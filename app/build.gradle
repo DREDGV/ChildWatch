@@ -13,14 +13,14 @@ android {
         applicationId "ru.example.childwatch"
         minSdk 26
         targetSdk 34
-        versionCode 38
-        versionName "5.7.4"
+        versionCode 39
+        versionName "6.4.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary true
         }
-        setProperty("archivesBaseName", "ChildWatch-v$versionName")
+        setProperty("archivesBaseName", "ParentMonitor-v$versionName")
     }
 
     buildTypes {

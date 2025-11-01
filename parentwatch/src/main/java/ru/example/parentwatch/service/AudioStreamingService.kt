@@ -137,7 +137,7 @@ class AudioStreamingService : Service() {
             return
         }
 
-        Log.d(TAG, "Starting audio streaming in foreground service")
+ns pfdthibk&        Log.d(TAG, "Starting audio streaming in foreground service")
 
         // Этап A: MUST call startForeground BEFORE initializing AudioRecord
         startForeground(NOTIFICATION_ID, createNotification("Отправка аудио активна"))

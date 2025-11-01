@@ -4,6 +4,50 @@ All notable changes to ChildWatch will be documented in this file.
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [6.4.0 / 5.4.0] - 2025-11-01
+
+### 🎯 MAJOR: Application Renaming for Clarity
+
+**BREAKING CHANGE:** Applications have been renamed to eliminate confusion:
+- **ParentWatch** → **ChildDevice** (телефон ребенка)
+- **ChildWatch** → **ParentMonitor** (телефон родителя)
+
+This change makes it crystal clear which app goes on which device. Previous naming was counterintuitive.
+
+### Added
+- **Remote Camera Feature** - Parents can now remotely take photos from child's device
+  - Front and back camera support
+  - Silent photo capture via WebSocket commands
+  - Photo gallery view (ready for implementation)
+  - New `RemoteCameraActivity` with material design UI
+  - Orange menu card on main screen for quick access
+- **Unified Design System** - Complete UI consistency across all screens
+  - Emerald green color scheme (`#0F766E` primary, `#115E59` variant)
+  - Centered section headers in Settings
+  - Consistent button styling (14sp text, green borders)
+  - Semi-transparent FAB in chat blending with gradient
+  - Navigation arrows in all screens (Map, Chat, Settings)
+  - Chat title changed to "Чат с родителями"
+
+### Changed
+- Settings screen: all buttons now use unified outlined style with green borders
+- All section titles in Settings are now centered
+- "О приложении" and "Статистика" buttons are now equal size (64dp height)
+- Font sizes increased from 12sp to 14sp for better readability
+- Toolbar titles centered with emerald green background
+
+### Technical
+- Added `RemoteCameraActivity.kt` with WebSocket command sending
+- Created `activity_remote_camera.xml` layout with camera controls
+- Added `bg_menu_card_orange.xml` drawable for camera menu card
+- Updated `AndroidManifest.xml` with new activity registration
+- PhotoCaptureService already supports `take_photo` commands
+- CameraService handles front/back camera selection
+
+### Documentation
+- Updated `.github/copilot-instructions.md` with clear warnings about app naming
+- Added prominent section explaining the counterintuitive naming
+
 ## [5.3.0 / 6.1.0] - 2025-10-22
 
 ### Added

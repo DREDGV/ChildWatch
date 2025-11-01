@@ -74,6 +74,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var myRole: String = ROLE_PARENT
     private var myId: String = ""
     private var otherId: String = ""
+    private var limitedMode: Boolean = false
     
     private var myMarker: Marker? = null
     private var otherMarker: Marker? = null
@@ -93,11 +94,8 @@ class DualLocationMapActivity : AppCompatActivity() {
         myId = intent.getStringExtra(EXTRA_MY_ID) ?: ""
         otherId = intent.getStringExtra(EXTRA_OTHER_ID) ?: ""
         
-        if (myId.isEmpty() || otherId.isEmpty()) {
-            Toast.makeText(this, "Ошибка: не указаны ID устройств", Toast.LENGTH_LONG).show()
-            finish()
-            return
-        }
+        // Allow opening without full setup (limited mode: show only my location)
+        limitedMode = myId.isEmpty() || otherId.isEmpty()
         
         // Initialize OSMdroid
         Configuration.getInstance().load(this, getSharedPreferences("osmdroid", MODE_PRIVATE))
@@ -114,7 +112,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         parentLocationRepository = ParentLocationRepository(database.parentLocationDao())
         
         // Setup UI
-        setupToolbar()
+    setupToolbar()
         setupMap()
         setupRefreshButton()
         
@@ -131,6 +129,9 @@ class DualLocationMapActivity : AppCompatActivity() {
             ROLE_PARENT -> "📍 Где ребенок?"
             ROLE_CHILD -> "📍 Где родители?"
             else -> "📍 Карта"
+        }
+        if (limitedMode) {
+            binding.toolbar.subtitle = "Режим просмотра — свяжите устройства"
         }
     }
     
@@ -212,8 +213,10 @@ class DualLocationMapActivity : AppCompatActivity() {
                     Log.w(TAG, "My location not available")
                 }
                 
-                // Получить локацию другого устройства с сервера
-                val otherLocation = withContext(Dispatchers.IO) {
+                // Получить локацию другого устройства с сервера (если доступно)
+                val otherLocation = if (limitedMode) {
+                    null
+                } else withContext(Dispatchers.IO) {
                     if (myRole == ROLE_PARENT) {
                         // Я родитель → получить локацию ребенка
                         networkClient.getLatestLocation(otherId)
@@ -241,7 +244,9 @@ class DualLocationMapActivity : AppCompatActivity() {
                     binding.loadingIndicator.visibility = View.GONE
                     binding.errorText.visibility = View.VISIBLE
                     
-                    val errorMsg = when (myRole) {
+                    val errorMsg = if (limitedMode) {
+                        "Чтобы видеть локацию родителей — свяжите устройства в Настройках."
+                    } else when (myRole) {
                         ROLE_PARENT -> "Локация ребенка недоступна.\nПроверьте что детское устройство подключено к интернету."
                         ROLE_CHILD -> "Локация родителя недоступна.\nПопросите родителя включить 'Делиться моей локацией' в настройках."
                         else -> "Локация недоступна"

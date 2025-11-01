@@ -170,6 +170,13 @@
             android:exported="false"
             android:foregroundServiceType="dataSync" />
 
+        <!-- Remote Camera Activity -->
+        <activity
+            android:name=".RemoteCameraActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ChildWatch"
+            android:parentActivityName=".MainActivity" />
+
         <!-- Settings Activity -->
         <activity
             android:name=".SettingsActivity"
@@ -183,6 +190,14 @@
             android:exported="false"
             android:theme="@style/Theme.ChildWatch"
             android:parentActivityName=".SettingsActivity" />
+
+            <!-- QR Code Display Activity -->
+            <activity
+                android:name=".QrCodeActivity"
+                android:exported="false"
+                android:theme="@style/Theme.ChildWatch"
+                android:parentActivityName=".SettingsActivity"
+                android:screenOrientation="portrait" />
 
         <!-- About Activity -->
         <activity

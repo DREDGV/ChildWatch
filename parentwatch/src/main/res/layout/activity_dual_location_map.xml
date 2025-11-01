@@ -26,6 +26,7 @@
             android:background="@color/primary"
             android:elevation="4dp"
             app:navigationIcon="@drawable/ic_arrow_back"
+            app:navigationIconTint="@android:color/white"
             app:title="Где родители?"
             app:titleTextColor="@android:color/white" />
 

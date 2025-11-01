@@ -39,7 +39,7 @@
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:supportsRtl="true"
-        android:theme="@style/Theme.MaterialComponents.DayNight.DarkActionBar"
+    android:theme="@style/Theme.ParentWatch"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
 
@@ -81,6 +81,13 @@
             android:parentActivityName=".SettingsActivity"
             android:screenOrientation="portrait" />
 
+        <!-- QR Scanner Activity -->
+        <activity
+            android:name=".QrScannerActivity"
+            android:exported="false"
+            android:parentActivityName=".SettingsActivity"
+            android:screenOrientation="portrait" />
+
         <!-- About Activity -->
         <activity
             android:name=".AboutActivity"
@@ -94,6 +101,8 @@
             android:exported="false"
             android:parentActivityName=".MainActivity"
             android:screenOrientation="portrait" />
+
+        <!-- Remote Camera Activity removed: this feature belongs to ParentMonitor only -->
 
         <!-- Location Service -->
         <service

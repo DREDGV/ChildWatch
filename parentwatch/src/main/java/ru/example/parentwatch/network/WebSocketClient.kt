@@ -41,6 +41,7 @@ class WebSocketClient(
     private var onChatMessageCallback: ((String, String, String, Long) -> Unit)? = null
     private var onChatMessageSentCallback: ((String, Boolean, Long) -> Unit)? = null
     private var onChatStatusCallback: ((String, String, Long) -> Unit)? = null
+    private var onCommandCallback: ((String, JSONObject?) -> Unit)? = null
     
     // Track last processed sequence to prevent duplicates
     private var lastProcessedSequence = -1
@@ -225,6 +226,25 @@ class WebSocketClient(
         Log.d(TAG, "🏓 Pong received")
     }
 
+    private val onCommand = Emitter.Listener { args ->
+        try {
+            val commandData = args.getOrNull(0) as? JSONObject
+            if (commandData != null) {
+                val type = commandData.optString("type", "")
+                val data = commandData.optJSONObject("data")
+                val timestamp = commandData.optLong("timestamp", System.currentTimeMillis())
+
+                Log.d(TAG, "📥 Command received: type=$type, timestamp=$timestamp")
+
+                scope.launch {
+                    onCommandCallback?.invoke(type, data)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error handling command", e)
+        }
+    }
+
     private val onChatMessage = Emitter.Listener { args ->
         try {
             val messageData = args.getOrNull(0) as? JSONObject
@@ -321,6 +341,7 @@ class WebSocketClient(
             socket?.on("critical_alert", onCriticalAlert)
             socket?.on("child_disconnected", onChildDisconnectedEvent)
             socket?.on("pong", onPong)
+            socket?.on("command", onCommand)
             socket?.on("chat_message", onChatMessage)
             socket?.on("chat_message_sent", onChatMessageSent)
             socket?.on("chat_message_status", onChatMessageStatus)
@@ -375,23 +396,22 @@ class WebSocketClient(
     private fun registerAsParent() {
         try {
             val registrationData = JSONObject().apply {
-                put("deviceId", childDeviceId)
-                put("parentId", "parent_${System.currentTimeMillis()}")
+                put("deviceId", childDeviceId) // This IS our device ID (ParentWatch's own ID)
             }
 
-            socket?.emit("register_parent", registrationData)
-            Log.d(TAG, "📤 Parent registration sent for device: $childDeviceId, socketId: ${socket?.id()}")
+            socket?.emit("register_child", registrationData) // ParentWatch IS the child device!
+            Log.d(TAG, "📤 Child device registration sent: $childDeviceId, socketId: ${socket?.id()}")
 
             // Retry registration after 2 seconds to ensure it's received
             scope.launch {
                 delay(2000)
                 if (isConnected && socket != null) {
-                    socket?.emit("register_parent", registrationData)
-                    Log.d(TAG, "📤 Parent registration RETRY sent for device: $childDeviceId")
+                    socket?.emit("register_child", registrationData)
+                    Log.d(TAG, "📤 Child device registration RETRY sent: $childDeviceId")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error registering as parent", e)
+            Log.e(TAG, "❌ Error registering as child device", e)
         }
     }
 
@@ -555,6 +575,60 @@ class WebSocketClient(
         heartbeatJob = null
     }
 
+    // Legacy API compatibility methods for audio streaming
+    private var commandCallback: ((String, JSONObject?) -> Unit)? = null
+    private var parentConnectedCallback: (() -> Unit)? = null
+    private var parentDisconnectedCallback: (() -> Unit)? = null
+    
+    fun setCommandCallback(callback: (commandType: String, data: JSONObject?) -> Unit) {
+        commandCallback = callback
+        onCommandCallback = callback // Link to event handler
+        Log.d(TAG, "Command callback set")
+    }
+    
+    fun setParentConnectedCallback(callback: () -> Unit) {
+        parentConnectedCallback = callback
+        onConnectedCallback = callback // Link to existing callback
+        Log.d(TAG, "Parent connected callback set")
+    }
+    
+    fun setParentDisconnectedCallback(callback: () -> Unit) {
+        parentDisconnectedCallback = callback
+        onChildDisconnected = callback // Link to existing callback
+        Log.d(TAG, "Parent disconnected callback set")
+    }
+    
+    fun sendAudioChunk(
+        sequence: Int,
+        audioData: ByteArray,
+        recording: Boolean = true,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        if (!isConnected) {
+            Log.w(TAG, "Cannot send audio chunk - not connected")
+            onError("Not connected")
+            return
+        }
+        
+        try {
+            val timestamp = System.currentTimeMillis()
+            val metadata = JSONObject().apply {
+                put("deviceId", childDeviceId) // Our own device ID
+                put("sequence", sequence)
+                put("timestamp", timestamp)
+                put("recording", recording)
+            }
+            // Send metadata and binary data separately (matching server expectations)
+            socket?.emit("audio_chunk", metadata, audioData)
+            Log.d(TAG, "Sent audio chunk #$sequence (${audioData.size} bytes)")
+            onSuccess()
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending audio chunk", e)
+            onError(e.message ?: "Unknown error")
+        }
+    }
+
     /**
      * Cleanup resources
      */
@@ -570,6 +644,9 @@ class WebSocketClient(
         onChatMessageCallback = null
         onChatMessageSentCallback = null
         onChatStatusCallback = null
+        commandCallback = null
+        parentConnectedCallback = null
+        parentDisconnectedCallback = null
     }
 }
 

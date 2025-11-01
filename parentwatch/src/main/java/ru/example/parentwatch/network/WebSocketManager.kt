@@ -141,5 +141,27 @@ object WebSocketManager {
         chatMessageSentCallback = null
         chatStatusCallback = null
     }
+    
+    // Legacy API compatibility methods
+    fun addChatMessageListener(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
+        setChatMessageCallback(callback)
+    }
+    
+    fun removeChatMessageListener(callback: ((String, String, String, Long) -> Unit)? = null) {
+        clearChatMessageCallback()
+    }
+    
+    private var commandCallback: ((String, org.json.JSONObject?) -> Unit)? = null
+    
+    fun addCommandListener(callback: (command: String, data: org.json.JSONObject?) -> Unit) {
+        commandCallback = callback
+        webSocketClient?.setCommandCallback(callback)
+        Log.d(TAG, "Command listener added")
+    }
+    
+    fun removeCommandListener() {
+        commandCallback = null
+        Log.d(TAG, "Command listener removed")
+    }
 }
 

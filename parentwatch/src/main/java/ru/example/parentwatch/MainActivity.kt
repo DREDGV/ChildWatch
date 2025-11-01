@@ -10,6 +10,7 @@ import android.os.Bundle
 import android.util.Log
 import android.widget.TextView
 import android.widget.Toast
+import android.widget.EditText
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -21,6 +22,8 @@ import ru.example.parentwatch.utils.NotificationManager
 import ru.example.parentwatch.service.LocationService
 import ru.example.parentwatch.service.ChatBackgroundService
 import ru.example.parentwatch.service.PhotoCaptureService
+import android.view.MotionEvent
+import android.view.View
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -41,17 +44,13 @@ class MainActivity : AppCompatActivity() {
 
     private lateinit var prefs: SharedPreferences
     private var isServiceRunning = false
+    private val appVersion: String by lazy { BuildConfig.VERSION_NAME.replace("-debug", "") }
 
     // UI elements
-    private lateinit var appVersionText: TextView
-    private lateinit var statusText: TextView
-    private lateinit var statusIndicator: android.view.View
+    private lateinit var titleText: TextView
     private lateinit var chatCard: MaterialCardView
     private lateinit var settingsCard: MaterialCardView
-    private lateinit var aboutCard: MaterialCardView
-    private lateinit var statsCard: MaterialCardView
-    private lateinit var toggleServiceButton: MaterialButton
-    private lateinit var emergencyStopButton: MaterialButton
+    // Removed extra cards/buttons from main screen for a minimal menu
     private lateinit var lastUpdateText: TextView
 
     // Permission launchers
@@ -114,19 +113,13 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupUI() {
         // Find UI elements
-        appVersionText = findViewById(R.id.appVersionText)
-        statusText = findViewById(R.id.statusText)
-        statusIndicator = findViewById(R.id.statusIndicator)
+    titleText = findViewById(R.id.titleText)
         chatCard = findViewById(R.id.chatCard)
         settingsCard = findViewById(R.id.settingsCard)
-        aboutCard = findViewById(R.id.aboutCard)
-        statsCard = findViewById(R.id.statsCard)
-        toggleServiceButton = findViewById(R.id.toggleServiceButton)
-        emergencyStopButton = findViewById(R.id.emergencyStopButton)
         lastUpdateText = findViewById(R.id.lastUpdateText)
 
-        // Set app version
-        appVersionText.text = "ChildDevice v${BuildConfig.VERSION_NAME}"
+    // Set header title: name only (no version)
+    titleText.text = "ChildDevice"
         
         // Menu card click listeners
         chatCard.setOnClickListener {
@@ -134,60 +127,157 @@ class MainActivity : AppCompatActivity() {
             startActivity(intent)
         }
         
-        // Parent location map card
+        // Parent location map card (always open, limited mode if not paired)
         findViewById<MaterialCardView>(R.id.parentLocationCard)?.setOnClickListener {
             val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
             val childId = prefs.getString("device_id", "unknown") ?: "unknown"
-            val parentId = prefs.getString("parent_id", null)
-            
-            if (parentId != null) {
-                val intent = DualLocationMapActivity.createIntent(
-                    context = this,
-                    myRole = DualLocationMapActivity.ROLE_CHILD,
-                    myId = childId,
-                    otherId = parentId
-                )
-                startActivity(intent)
-            } else {
-                Toast.makeText(this, "ID родителя не настроен. Зайдите в настройки.", Toast.LENGTH_SHORT).show()
+            val parentId = prefs.getString("parent_device_id", null)
+
+            val myId = if (childId != "unknown") childId else ""
+            val otherId = parentId ?: ""
+
+            if (otherId.isEmpty() || myId.isEmpty()) {
+                Toast.makeText(
+                    this,
+                    "Открыт режим просмотра карты. Чтобы видеть локацию родителей — свяжите устройства в Настройках.",
+                    Toast.LENGTH_SHORT
+                ).show()
             }
+
+            val intent = DualLocationMapActivity.createIntent(
+                context = this,
+                myRole = DualLocationMapActivity.ROLE_CHILD,
+                myId = myId,
+                otherId = otherId
+            )
+            startActivity(intent)
         }
         
         settingsCard.setOnClickListener {
-            val intent = Intent(this, SettingsActivity::class.java)
-            startActivity(intent)
+            promptSettingsAccess()
         }
+
+        // Remote Camera card is not present on ChildDevice
+
+        // Add subtle press animation to cards
+        applyPressAnimation(chatCard)
+        findViewById<MaterialCardView>(R.id.parentLocationCard)?.let { applyPressAnimation(it) }
+    // Remote Camera card was removed
+        applyPressAnimation(settingsCard)
         
-        aboutCard.setOnClickListener {
-            val intent = Intent(this, AboutActivity::class.java)
-            startActivity(intent)
-        }
+        // About, Stats, and Service controls moved to Settings
+    }
 
-        statsCard.setOnClickListener {
-            val intent = Intent(this, StatsActivity::class.java)
-            startActivity(intent)
-        }
+    // ==== Settings access with PIN ====
+    private fun promptSettingsAccess() {
+        val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+        val pinHash = prefs.getString("settings_pin_hash", null)
 
-        // Toggle service button
-        toggleServiceButton.setOnClickListener {
-            if (isServiceRunning) {
-                stopLocationService()
-            } else {
-                requestPermissionsAndStart()
+        if (pinHash.isNullOrEmpty()) {
+            // First-time setup: ask to create PIN, then confirm
+            promptCreatePin { success ->
+                if (success) openSettings() else Toast.makeText(this, "PIN не установлен", Toast.LENGTH_SHORT).show()
+            }
+        } else {
+            // Ask to enter existing PIN
+            promptEnterPin { ok ->
+                if (ok) openSettings() else Toast.makeText(this, "Неверный PIN", Toast.LENGTH_SHORT).show()
             }
         }
+    }
 
-        // Emergency stop button
-        emergencyStopButton.setOnClickListener {
-            // Show confirmation dialog
-            AlertDialog.Builder(this)
-                .setTitle("🚨 Экстренная остановка")
-                .setMessage("Это немедленно остановит ВСЕ функции:\n• Прослушку\n• Отслеживание геолокации\n• Все фоновые процессы\n\nВы уверены?")
-                .setPositiveButton("Да, остановить всё") { _, _ ->
-                    emergencyStopAllFunctions()
+    private fun openSettings() {
+        val intent = Intent(this, SettingsActivity::class.java)
+        startActivity(intent)
+    }
+
+    // openRemoteCamera() removed: remote camera is a ParentMonitor feature
+
+    private fun applyPressAnimation(view: View) {
+        view.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> v.animate().scaleX(0.98f).scaleY(0.98f).setDuration(80).start()
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> v.animate().scaleX(1f).scaleY(1f).setDuration(120).start()
+            }
+            false
+        }
+    }
+
+    private fun promptCreatePin(onResult: (Boolean) -> Unit) {
+        // Step 1: enter PIN
+        val input1 = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            hint = "Введите PIN"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Создание PIN для настроек")
+            .setView(input1)
+            .setPositiveButton("Далее") { _, _ ->
+                val pin1 = input1.text?.toString()?.trim().orEmpty()
+                if (pin1.length < 4) {
+                    Toast.makeText(this, "Минимум 4 цифры", Toast.LENGTH_SHORT).show()
+                    onResult(false)
+                    return@setPositiveButton
                 }
-                .setNegativeButton("Отмена", null)
-                .show()
+                // Step 2: confirm PIN
+                val input2 = EditText(this).apply {
+                    inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+                    hint = "Повторите PIN"
+                }
+                AlertDialog.Builder(this)
+                    .setTitle("Подтверждение PIN")
+                    .setView(input2)
+                    .setPositiveButton("Сохранить") { _, _ ->
+                        val pin2 = input2.text?.toString()?.trim().orEmpty()
+                        if (pin1 == pin2) {
+                            savePin(pin1)
+                            Toast.makeText(this, "PIN сохранён", Toast.LENGTH_SHORT).show()
+                            onResult(true)
+                        } else {
+                            Toast.makeText(this, "PIN не совпадает", Toast.LENGTH_SHORT).show()
+                            onResult(false)
+                        }
+                    }
+                    .setNegativeButton("Отмена", null)
+                    .show()
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    private fun promptEnterPin(onResult: (Boolean) -> Unit) {
+        val input = EditText(this).apply {
+            inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
+            hint = "Введите PIN"
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Введите PIN для доступа к настройкам")
+            .setView(input)
+            .setPositiveButton("ОК") { _, _ ->
+                val pin = input.text?.toString()?.trim().orEmpty()
+                onResult(verifyPin(pin))
+            }
+            .setNegativeButton("Отмена", null)
+            .show()
+    }
+
+    private fun savePin(pin: String) {
+        val hash = sha256(pin)
+        prefs.edit().putString("settings_pin_hash", hash).apply()
+    }
+
+    private fun verifyPin(pin: String): Boolean {
+        val stored = prefs.getString("settings_pin_hash", null) ?: return false
+        return stored == sha256(pin)
+    }
+
+    private fun sha256(input: String): String {
+        return try {
+            val md = java.security.MessageDigest.getInstance("SHA-256")
+            val bytes = md.digest(input.toByteArray())
+            bytes.joinToString("") { "%02x".format(it) }
+        } catch (e: Exception) {
+            input // fallback (shouldn't happen)
         }
     }
 
@@ -196,8 +286,8 @@ class MainActivity : AppCompatActivity() {
 
         val lastUpdate = prefs.getLong("last_update", 0)
         if (lastUpdate > 0) {
-            val format = SimpleDateFormat("HH:mm:ss, dd.MM.yyyy", Locale.getDefault())
-            lastUpdateText.text = "Последнее обновление: ${format.format(Date(lastUpdate))}"
+            val dateLine = SimpleDateFormat("dd.MM.yy", Locale.getDefault()).format(Date(lastUpdate))
+            lastUpdateText.text = "$dateLine — ChildDevice v$appVersion\nЕрмошкин-Дмитриев Лев © 2025"
         }
     }
 
@@ -343,33 +433,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateUI() {
-        if (isServiceRunning) {
-            // Состояние "Работает" - красная кнопка
-            statusText.text = getString(R.string.status_running)
-            statusIndicator.setBackgroundColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
-            
-            toggleServiceButton.text = getString(R.string.stop_service)
-            toggleServiceButton.setBackgroundColor(ContextCompat.getColor(this, android.R.color.holo_red_dark))
-            toggleServiceButton.setTextColor(ContextCompat.getColor(this, android.R.color.white))
-            
-        } else {
-            // Состояние "Остановлен" - зеленая кнопка
-            statusText.text = getString(R.string.status_stopped)
-            statusIndicator.setBackgroundColor(ContextCompat.getColor(this, android.R.color.darker_gray))
-            
-            toggleServiceButton.text = getString(R.string.start_service)
-            toggleServiceButton.setBackgroundColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
-            toggleServiceButton.setTextColor(ContextCompat.getColor(this, android.R.color.white))
-        }
+        // Status badge removed from UI; keep service state internally only.
         
         // Update last update text
         val lastUpdate = prefs.getLong("last_update", 0)
-        if (lastUpdate > 0) {
-            val format = SimpleDateFormat("HH:mm", Locale.getDefault())
-            lastUpdateText.text = "Последнее обновление: ${format.format(Date(lastUpdate))}"
+        val dateLine = if (lastUpdate > 0) {
+            SimpleDateFormat("dd.MM.yy", Locale.getDefault()).format(Date(lastUpdate))
         } else {
-            lastUpdateText.text = "Последнее обновление: нет данных"
+            SimpleDateFormat("dd.MM.yy", Locale.getDefault()).format(Date())
         }
+    lastUpdateText.text = "$dateLine — ChildDevice v$appVersion\nЕрмошкин-Дмитриев Лев © 2025"
     }
 
     private fun syncDeviceIds() {

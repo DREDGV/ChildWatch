@@ -109,6 +109,12 @@ class SettingsActivity : AppCompatActivity() {
             qrScannerLauncher.launch(intent)
         }
 
+            // Show QR Code button
+            binding.showQrCodeBtn.setOnClickListener {
+                val intent = Intent(this, QrCodeActivity::class.java)
+                startActivity(intent)
+            }
+
         // Server URL preset buttons
         binding.useVpsBtn.setOnClickListener {
             binding.serverUrlInput.setText(VPS_URL)

@@ -117,6 +117,18 @@ object WebSocketManager {
     }
 
     /**
+     * Send command to child device
+     */
+    fun sendCommand(
+        commandType: String,
+        data: JSONObject? = null,
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        webSocketClient?.sendCommand(commandType, data, onSuccess, onError)
+    }
+
+    /**
      * Check if connected
      */
     fun isConnected(): Boolean {

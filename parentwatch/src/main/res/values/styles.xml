@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- App Theme using Material Components with emerald palette -->
+    <style name="Theme.ParentWatch" parent="Theme.MaterialComponents.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/emerald_primary</item>
+        <item name="colorPrimaryVariant">@color/emerald_primary_variant</item>
+        <item name="colorOnPrimary">@color/on_primary</item>
+
+        <item name="colorSecondary">@color/emerald_secondary</item>
+        <item name="colorSecondaryVariant">@color/emerald_secondary_variant</item>
+        <item name="colorOnSecondary">@color/on_secondary</item>
+
+        <item name="android:colorBackground">@color/app_background</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/on_surface</item>
+
+        <!-- Neon ripple highlight -->
+        <item name="colorControlHighlight">@color/neon_accent</item>
+
+        <item name="materialCardViewStyle">@style/Widget.ParentWatch.CardView</item>
+        <item name="materialButtonStyle">@style/Widget.ParentWatch.Button</item>
+    </style>
+
+    <style name="Widget.ParentWatch.CardView" parent="Widget.MaterialComponents.CardView">
+        <item name="cardCornerRadius">16dp</item>
+        <item name="cardUseCompatPadding">true</item>
+        <item name="cardElevation">4dp</item>
+    </style>
+
+    <style name="Widget.ParentWatch.Button" parent="Widget.MaterialComponents.Button">
+        <item name="android:textAllCaps">false</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="backgroundTint">@color/emerald_primary</item>
+        <item name="android:textColor">@color/on_primary</item>
+        <item name="rippleColor">@color/neon_accent</item>
+    </style>
+
+    <style name="Widget.ParentWatch.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textSize">14sp</item>
+        <item name="cornerRadius">12dp</item>
+        <item name="strokeColor">@color/emerald_primary</item>
+        <item name="android:textColor">@color/emerald_primary</item>
+        <item name="rippleColor">@color/neon_accent</item>
+    </style>
+</resources>

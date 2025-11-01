@@ -15,45 +15,20 @@
         android:paddingTop="16dp"
         android:paddingBottom="24dp">
 
-        <!-- Header -->
-        <LinearLayout
+        <!-- Top App Bar -->
+        <com.google.android.material.appbar.MaterialToolbar
+            android:id="@+id/toolbar"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center_vertical"
-            android:layout_marginBottom="24dp">
+            android:layout_height="?attr/actionBarSize"
+            android:background="@color/emerald_primary"
+            android:elevation="4dp"
+            app:navigationIcon="@drawable/ic_arrow_back"
+            app:navigationIconTint="@android:color/white"
+            app:title="Настройки"
+            app:titleTextColor="@android:color/white"
+            app:titleCentered="true" />
 
-            <ImageView
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:src="@android:drawable/ic_menu_preferences"
-                android:tint="?attr/colorPrimary"
-                android:layout_marginEnd="16dp" />
-
-            <LinearLayout
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:orientation="vertical">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="⚙️ Настройки"
-                    android:textSize="20sp"
-                    android:textStyle="bold"
-                    android:textColor="?attr/colorOnSurface" />
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Конфигурация приложения"
-                    android:textSize="12sp"
-                    android:textColor="?android:attr/textColorSecondary" />
-
-            </LinearLayout>
-
-        </LinearLayout>
+        <!-- Header (removed, now using toolbar) -->
 
         <!-- Server Configuration Card -->
         <com.google.android.material.card.MaterialCardView
@@ -70,13 +45,14 @@
                 android:padding="20dp">
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="🌐 Сервер"
                     android:textSize="16sp"
                     android:textStyle="bold"
                     android:layout_marginBottom="12dp"
-                    android:textColor="?attr/colorOnSurface" />
+                    android:textColor="?attr/colorOnSurface"
+                    android:gravity="center" />
 
                 <TextView
                     android:layout_width="match_parent"
@@ -108,25 +84,32 @@
                     android:gravity="center">
 
                     <com.google.android.material.button.MaterialButton
-                        android:id="@+id/useLocalhostBtn"
+                        android:id="@+id/useVpsBtn"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:layout_marginEnd="8dp"
-                        android:text="🏠 Local"
-                        android:textSize="12sp"
+                        android:layout_marginEnd="4dp"
+                        android:text="VPS"
+                        android:textSize="14sp"
                         android:textAllCaps="false"
-                        style="@style/Widget.Material3.Button.OutlinedButton" />
+                        style="@style/Widget.Material3.Button" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/useRailwayBtn"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="☁️ Cloud"
-                        android:textSize="12sp"
-                        android:textAllCaps="false"
-                        style="@style/Widget.Material3.Button.OutlinedButton" />
+                        android:layout_marginEnd="4dp"
+                        android:text="Railway"
+                        style="@style/Widget.ParentWatch.Button.Outlined" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/useLocalhostBtn"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="Local"
+                        style="@style/Widget.ParentWatch.Button.Outlined" />
 
                 </LinearLayout>
 
@@ -149,13 +132,14 @@
                 android:padding="20dp">
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="📱 Устройство"
                     android:textSize="16sp"
                     android:textStyle="bold"
                     android:layout_marginBottom="12dp"
-                    android:textColor="?attr/colorOnSurface" />
+                    android:textColor="?attr/colorOnSurface"
+                    android:gravity="center" />
 
                 <TextView
                     android:layout_width="match_parent"
@@ -197,9 +181,7 @@
                         android:layout_weight="1"
                         android:layout_marginEnd="8dp"
                         android:text="📋 Копировать"
-                        android:textSize="12sp"
-                        android:textAllCaps="false"
-                        style="@style/Widget.Material3.Button.OutlinedButton" />
+                        style="@style/Widget.ParentWatch.Button.Outlined" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/showQrButton"
@@ -207,11 +189,64 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="📱 QR-код"
-                        android:textSize="12sp"
-                        android:textAllCaps="false"
-                        style="@style/Widget.Material3.Button.OutlinedButton" />
+                        style="@style/Widget.ParentWatch.Button.Outlined" />
 
                 </LinearLayout>
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Parent Device Connection Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="👨‍👩‍👧 Связь с родителем"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="12dp"
+                    android:textColor="?attr/colorOnSurface"
+                    android:gravity="center" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Для работы функции &quot;Где родители?&quot; отсканируйте QR-код с родительского устройства"
+                    android:textSize="13sp"
+                    android:layout_marginBottom="12dp"
+                    android:textColor="?android:attr/textColorSecondary" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/scanParentQrButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="📷 Сканировать QR родителя"
+                    android:textSize="14sp"
+                    android:textAllCaps="false"
+                    style="@style/Widget.Material3.Button" />
+
+                <TextView
+                    android:id="@+id/parentIdStatus"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="❌ Не подключено"
+                    android:textSize="13sp"
+                    android:layout_marginTop="8dp"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:gravity="center" />
 
             </LinearLayout>
 
@@ -232,13 +267,14 @@
                 android:padding="20dp">
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="📊 Отслеживание приложений"
                     android:textSize="16sp"
                     android:textStyle="bold"
                     android:layout_marginBottom="12dp"
-                    android:textColor="?attr/colorOnSurface" />
+                    android:textColor="?attr/colorOnSurface"
+                    android:gravity="center" />
 
                 <TextView
                     android:layout_width="match_parent"
@@ -253,9 +289,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="🔓 Предоставить разрешение"
-                    android:textSize="14sp"
-                    android:textAllCaps="false"
-                    style="@style/Widget.Material3.Button.OutlinedButton" />
+                    style="@style/Widget.ParentWatch.Button.Outlined" />
 
                 <TextView
                     android:id="@+id/usagePermissionStatus"
@@ -263,7 +297,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
                     android:text="✅ Разрешение предоставлено"
-                    android:textSize="12sp"
+                    android:textSize="14sp"
                     android:gravity="center"
                     android:visibility="gone"
                     android:textColor="?attr/colorPrimary" />
@@ -287,13 +321,14 @@
                 android:padding="20dp">
 
                 <TextView
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="🔔 Уведомления"
                     android:textSize="16sp"
                     android:textStyle="bold"
                     android:layout_marginBottom="12dp"
-                    android:textColor="?attr/colorOnSurface" />
+                    android:textColor="?attr/colorOnSurface"
+                    android:gravity="center" />
 
                 <TextView
                     android:layout_width="match_parent"
@@ -376,6 +411,115 @@
                         android:layout_height="wrap_content"
                         android:checked="true" />
 
+                </LinearLayout>
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- Service Controls Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="🛰️ Сервис мониторинга"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="12dp"
+                    android:textColor="?attr/colorOnSurface"
+                    android:gravity="center" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/startStopServiceButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="56dp"
+                    android:text="Запустить мониторинг"
+                    android:textAllCaps="false"
+                    android:textSize="16sp"
+                    style="@style/Widget.Material3.Button"
+                    app:cornerRadius="12dp"
+                    app:icon="@android:drawable/ic_media_play" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/emergencyStopButtonSettings"
+                    android:layout_width="match_parent"
+                    android:layout_height="48dp"
+                    android:layout_marginTop="8dp"
+                    android:text="🚨 Экстренная остановка"
+                    style="@style/Widget.ParentWatch.Button.Outlined"
+                    app:cornerRadius="10dp"
+                    app:icon="@android:drawable/ic_delete" />
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
+        <!-- About and Diagnostics Card -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="ℹ️ О приложении и диагностика"
+                    android:textSize="16sp"
+                    android:textStyle="bold"
+                    android:layout_marginBottom="12dp"
+                    android:textColor="?attr/colorOnSurface"
+                    android:gravity="center" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center"
+                    android:weightSum="2">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/openAboutButton"
+                        android:layout_width="0dp"
+                        android:layout_height="64dp"
+                        android:layout_weight="1"
+                        android:layout_marginEnd="4dp"
+                        android:text="ℹ️\nО приложении"
+                        android:gravity="center"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        style="@style/Widget.ParentWatch.Button.Outlined" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/openStatsButton"
+                        android:layout_width="0dp"
+                        android:layout_height="64dp"
+                        android:layout_weight="1"
+                        android:layout_marginStart="4dp"
+                        android:text="📊\nСтатистика"
+                        android:gravity="center"
+                        android:paddingStart="8dp"
+                        android:paddingEnd="8dp"
+                        style="@style/Widget.ParentWatch.Button.Outlined" />
                 </LinearLayout>
 
             </LinearLayout>

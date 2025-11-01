@@ -1,12 +1,20 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="md_theme_light_primary">#6750A4</color>
+    <!-- Emerald palette -->
+    <color name="emerald_primary">#0F766E</color>
+    <color name="emerald_primary_variant">#115E59</color>
+    <color name="emerald_secondary">#0EA5A4</color>
+    <color name="emerald_secondary_variant">#0A8483</color>
+    <color name="neon_accent">#22D3EE</color>
+    <color name="neon_glow">#67E8F9</color>
+
+    <color name="md_theme_light_primary">#0F766E</color>
     <color name="md_theme_light_onPrimary">#FFFFFF</color>
-    <color name="md_theme_light_primaryContainer">#EADDFF</color>
+    <color name="md_theme_light_primaryContainer">#CFF6F3</color>
     <color name="md_theme_light_onPrimaryContainer">#21005D</color>
-    <color name="md_theme_light_secondary">#625B71</color>
+    <color name="md_theme_light_secondary">#0EA5A4</color>
     <color name="md_theme_light_onSecondary">#FFFFFF</color>
-    <color name="md_theme_light_secondaryContainer">#E8DEF8</color>
+    <color name="md_theme_light_secondaryContainer">#E0F7F5</color>
     <color name="md_theme_light_onSecondaryContainer">#1D192B</color>
     <color name="md_theme_light_tertiary">#7D5260</color>
     <color name="md_theme_light_onTertiary">#FFFFFF</color>
@@ -29,11 +37,11 @@
     <color name="md_theme_light_inversePrimary">#D0BCFF</color>
     
     <!-- Additional colors -->
-    <color name="colorAccent">#6750A4</color>
+    <color name="colorAccent">#0F766E</color>
     <color name="background_color">#FFFBFE</color>
     <color name="text_primary">#1C1B1F</color>
     <color name="text_secondary">#49454F</color>
-    <color name="primary">#6750A4</color>
+    <color name="primary">#0F766E</color>
     <color name="divider">#E0E0E0</color>
     <color name="error">#BA1A1A</color>
     <color name="error_background">#FFDAD6</color>

@@ -8,14 +8,16 @@ Start-Process -FilePath "C:\Users\dr-ed\AppData\Local\Android\Sdk\emulator\emula
 
 # Подождать 30 секунд, затем:
 
-# 2. Запустить scrcpy для Nokia
-Start-Process scrcpy -ArgumentList "--serial PT19655KA1280800674 --max-size 1024 --video-bit-rate 2M --window-title 'ParentWatch' --window-x 0"
+# 2. Запустить scrcpy для Nokia (ChildDevice - устройство ребенка)
+Start-Process scrcpy -ArgumentList "--serial PT19655KA1280800674 --max-size 1024 --video-bit-rate 2M --window-title 'ChildDevice (Nokia)' --window-x 0"
 
-# 3. Запустить scrcpy для Pixel 8
-Start-Process scrcpy -ArgumentList "--serial emulator-5554 --max-size 1024 --video-bit-rate 2M --window-title 'ChildWatch' --window-x 600"
+# 3. Запустить scrcpy для Pixel 8 (ParentMonitor - телефон родителя)
+Start-Process scrcpy -ArgumentList "--serial emulator-5554 --max-size 1024 --video-bit-rate 2M --window-title 'ParentMonitor (Pixel 8)' --window-x 600"
 ```
 
-**Готово!** Теперь видите 2 окна: Nokia слева, Pixel 8 справа.
+**Готово!** Теперь видите 2 окна: 
+- Nokia слева = **ChildDevice** (телефон ребенка)
+- Pixel 8 справа = **ParentMonitor** (телефон родителя)
 
 ---
 
@@ -25,14 +27,14 @@ Start-Process scrcpy -ArgumentList "--serial emulator-5554 --max-size 1024 --vid
 # Вариант 1: Автоматический (САМЫЙ ПРОСТОЙ)
 .\scripts\dev-workflow.ps1 -Action deploy
 
-# Вариант 2: Только для ChildWatch (эмулятор)
+# Вариант 2: Только для ParentMonitor (эмулятор Pixel 8 - РОДИТЕЛЬ)
 .\gradlew.bat :app:assembleDebug
-adb -s emulator-5554 install -r app/build/outputs/apk/debug/ChildWatch-v5.5.0-debug.apk
+adb -s emulator-5554 install -r app/build/outputs/apk/debug/ParentMonitor-v6.4.0-debug.apk
 adb -s emulator-5554 shell am start -n ru.example.childwatch/ru.example.childwatch.MainActivity
 
-# Вариант 3: Только для ParentWatch (Nokia)
+# Вариант 3: Только для ChildDevice (Nokia - РЕБЕНОК)
 .\gradlew.bat :parentwatch:assembleDebug
-adb -s PT19655KA1280800674 install -r parentwatch/build/outputs/apk/debug/ChildDevice-v6.3.0-debug.apk
+adb -s PT19655KA1280800674 install -r parentwatch/build/outputs/apk/debug/ChildDevice-v5.4.0-debug.apk
 adb -s PT19655KA1280800674 shell am start -n ru.example.parentwatch.debug/ru.example.parentwatch.MainActivity
 
 # Вариант 4: Быстрый перезапуск (если уже установлено)

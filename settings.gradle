@@ -15,5 +15,5 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "ChildWatch"
-include ':app'
-include ':parentwatch'
+include ':app'          // ParentMonitor - родительское приложение (v6.4.0)
+include ':parentwatch'  // ChildDevice - детское устройство (v5.4.0)

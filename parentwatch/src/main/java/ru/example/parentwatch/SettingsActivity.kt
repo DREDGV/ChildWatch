@@ -20,28 +20,63 @@ import ru.example.parentwatch.service.AppUsageTracker
  */
 class SettingsActivity : AppCompatActivity() {
 
+    companion object {
+        private const val TAG = "SettingsActivity"
+        private const val PREFS_NAME = "parentwatch_prefs"
+
+        // Default values
+        private const val DEFAULT_SERVER_URL = "http://31.28.27.96:3000"
+
+        // Server URL presets
+        private const val LOCALHOST_URL = "http://10.0.2.2:3000"
+        private const val RAILWAY_URL = "https://childwatch-production.up.railway.app"
+        private const val VPS_URL = "http://31.28.27.96:3000"
+    }
+
     private lateinit var binding: ActivitySettingsBinding
+    
+    // QR Scanner result launcher
+    private val qrScannerLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == RESULT_OK) {
+            val scannedCode = result.data?.getStringExtra("SCANNED_QR_CODE")
+            if (scannedCode != null) {
+                saveParentDeviceId(scannedCode)
+            }
+        }
+    }
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
         
-        // Set up action bar
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = "Настройки"
+    // Set up toolbar
+    setSupportActionBar(binding.toolbar)
+    supportActionBar?.setDisplayHomeAsUpEnabled(true)
+    supportActionBar?.title = "Настройки"
         
         setupUI()
         loadSettings()
     }
     
     private fun setupUI() {
-        val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
 
         // Load current settings
-        val serverUrl = prefs.getString("server_url", getString(R.string.server_url_hint)) ?: getString(R.string.server_url_hint)
-        val deviceId = prefs.getString("device_id", "Не настроен") ?: "Не настроен"
+        val serverUrl = prefs.getString("server_url", DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
+        
+        // Generate device_id if not exists
+        var deviceId = prefs.getString("device_id", null)
+        if (deviceId == null) {
+            deviceId = "child-" + java.util.UUID.randomUUID().toString().substring(0, 8)
+            prefs.edit()
+                .putString("device_id", deviceId)
+                .putBoolean("device_id_permanent", true)
+                .apply()
+        }
 
         binding.serverUrlInput.setText(serverUrl)
         binding.deviceIdText.setText(deviceId)
@@ -69,14 +104,20 @@ class SettingsActivity : AppCompatActivity() {
             saveSettings()
         }
 
-        // Localhost button
-        binding.useLocalhostBtn.setOnClickListener {
-            binding.serverUrlInput.setText("http://10.0.2.2:3000")
+        // Server URL preset buttons
+        binding.useVpsBtn.setOnClickListener {
+            binding.serverUrlInput.setText(VPS_URL)
+            Toast.makeText(this, "VPS URL установлен", Toast.LENGTH_SHORT).show()
         }
 
-        // Railway button
         binding.useRailwayBtn.setOnClickListener {
-            binding.serverUrlInput.setText("https://childwatch-production.up.railway.app")
+            binding.serverUrlInput.setText(RAILWAY_URL)
+            Toast.makeText(this, "Railway URL установлен", Toast.LENGTH_SHORT).show()
+        }
+
+        binding.useLocalhostBtn.setOnClickListener {
+            binding.serverUrlInput.setText(LOCALHOST_URL)
+            Toast.makeText(this, "Localhost URL установлен", Toast.LENGTH_SHORT).show()
         }
 
         // Copy Device ID button
@@ -89,15 +130,51 @@ class SettingsActivity : AppCompatActivity() {
             showQRCode()
         }
 
+        // Scan Parent QR button
+        binding.scanParentQrButton.setOnClickListener {
+            val intent = Intent(this, QrScannerActivity::class.java)
+            qrScannerLauncher.launch(intent)
+        }
+
+        // Update parent connection status
+        updateParentConnectionStatus()
+
         // Request usage stats permission button
         binding.requestUsagePermissionButton.setOnClickListener {
             requestUsageStatsPermission()
+        }
+
+        // Service controls
+        val isRunning = prefs.getBoolean("service_running", false)
+        updateServiceButtons(isRunning)
+        binding.startStopServiceButton.setOnClickListener {
+            val currentlyRunning = prefs.getBoolean("service_running", false)
+            if (currentlyRunning) stopMonitoring() else startMonitoring()
+        }
+        binding.emergencyStopButtonSettings.setOnClickListener {
+            androidx.appcompat.app.AlertDialog.Builder(this)
+                .setTitle("🚨 Экстренная остановка")
+                .setMessage("Это немедленно остановит ВСЕ функции: прослушку, геолокацию, фоновые процессы. Продолжить?")
+                .setPositiveButton("Остановить всё") { _, _ -> emergencyStopAll() }
+                .setNegativeButton("Отмена", null)
+                .show()
+        }
+
+        // About & Stats
+        binding.openAboutButton.setOnClickListener {
+            startActivity(Intent(this, AboutActivity::class.java))
+        }
+        binding.openStatsButton.setOnClickListener {
+            startActivity(Intent(this, StatsActivity::class.java))
         }
     }
 
     override fun onResume() {
         super.onResume()
         updateUsagePermissionStatus()
+        // Refresh service button state
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        updateServiceButtons(prefs.getBoolean("service_running", false))
     }
 
     private fun updateUsagePermissionStatus() {
@@ -138,7 +215,7 @@ class SettingsActivity : AppCompatActivity() {
     }
     
     private fun saveSettings() {
-        val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
         val serverUrl = binding.serverUrlInput.text.toString().trim()
 
@@ -166,9 +243,75 @@ class SettingsActivity : AppCompatActivity() {
         Toast.makeText(this, "✅ Настройки сохранены", Toast.LENGTH_SHORT).show()
         finish()
     }
+
+    private fun startMonitoring() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val serverUrl = prefs.getString("server_url", DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
+        val deviceId = prefs.getString("device_id", null)
+        if (deviceId.isNullOrEmpty()) {
+            Toast.makeText(this, "Device ID не настроен", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        try {
+            val intent = Intent(this, ru.example.parentwatch.service.LocationService::class.java).apply {
+                action = ru.example.parentwatch.service.LocationService.ACTION_START
+                putExtra("server_url", serverUrl)
+                putExtra("device_id", deviceId)
+            }
+            androidx.core.content.ContextCompat.startForegroundService(this, intent)
+            prefs.edit().putBoolean("service_running", true).apply()
+            updateServiceButtons(true)
+            Toast.makeText(this, "Мониторинг запущен", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Ошибка запуска: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun stopMonitoring() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        try {
+            val intent = Intent(this, ru.example.parentwatch.service.LocationService::class.java).apply {
+                action = ru.example.parentwatch.service.LocationService.ACTION_STOP
+            }
+            stopService(intent)
+            ru.example.parentwatch.service.ChatBackgroundService.stop(this)
+            ru.example.parentwatch.service.PhotoCaptureService.stop(this)
+            prefs.edit().putBoolean("service_running", false).apply()
+            updateServiceButtons(false)
+            Toast.makeText(this, "Мониторинг остановлен", Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Ошибка остановки: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun emergencyStopAll() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        try {
+            val intent = Intent(this, ru.example.parentwatch.service.LocationService::class.java).apply {
+                action = ru.example.parentwatch.service.LocationService.ACTION_EMERGENCY_STOP
+            }
+            startService(intent)
+            prefs.edit().putBoolean("service_running", false).apply()
+            updateServiceButtons(false)
+            Toast.makeText(this, "Экстренная остановка выполнена", Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Ошибка экстренной остановки: ${e.message}", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun updateServiceButtons(running: Boolean) {
+        if (running) {
+            binding.startStopServiceButton.text = "Остановить мониторинг"
+            binding.startStopServiceButton.icon = androidx.core.content.ContextCompat.getDrawable(this, android.R.drawable.ic_media_pause)
+        } else {
+            binding.startStopServiceButton.text = "Запустить мониторинг"
+            binding.startStopServiceButton.icon = androidx.core.content.ContextCompat.getDrawable(this, android.R.drawable.ic_media_play)
+        }
+    }
     
     private fun copyDeviceId() {
-        val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val deviceId = prefs.getString("device_id", null)
         
         if (deviceId == null) {
@@ -194,6 +337,29 @@ class SettingsActivity : AppCompatActivity() {
 
         val intent = Intent(this, QrCodeActivity::class.java)
         startActivity(intent)
+    }
+    
+    private fun saveParentDeviceId(parentId: String) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        prefs.edit()
+            .putString("parent_device_id", parentId)
+            .apply()
+        
+        Toast.makeText(this, "✅ Родительское устройство подключено!", Toast.LENGTH_LONG).show()
+        updateParentConnectionStatus()
+    }
+    
+    private fun updateParentConnectionStatus() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val parentId = prefs.getString("parent_device_id", null)
+        
+        if (parentId != null) {
+            binding.parentIdStatus.text = "✅ Подключено (${parentId.take(8)}...)"
+            binding.parentIdStatus.setTextColor(getColor(android.R.color.holo_green_dark))
+        } else {
+            binding.parentIdStatus.text = "❌ Не подключено"
+            binding.parentIdStatus.setTextColor(getColor(android.R.color.holo_red_dark))
+        }
     }
     
     override fun onSupportNavigateUp(): Boolean {
