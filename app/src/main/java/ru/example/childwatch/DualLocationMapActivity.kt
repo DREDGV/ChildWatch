@@ -117,6 +117,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         setupToolbar()
         setupMap()
         setupRefreshButton()
+        setupHistoryButton()
         
         // Load locations
         checkPermissionsAndLoad()
@@ -147,6 +148,154 @@ class DualLocationMapActivity : AppCompatActivity() {
         binding.refreshButton.setOnClickListener {
             loadLocations()
         }
+    }
+    
+    private fun setupHistoryButton() {
+        binding.historyButton.setOnClickListener {
+            showHistoryPeriodDialog()
+        }
+    }
+    
+    private fun showHistoryPeriodDialog() {
+        val periods = arrayOf("Сегодня", "Вчера", "Неделя", "Месяц")
+        val builder = android.app.AlertDialog.Builder(this)
+        builder.setTitle("Выберите период")
+        builder.setItems(periods) { _, which ->
+            val now = System.currentTimeMillis()
+            val (from, to) = when (which) {
+                0 -> { // Сегодня
+                    val startOfDay = now - (now % 86400000)
+                    Pair(startOfDay, now)
+                }
+                1 -> { // Вчера
+                    val startOfYesterday = now - (now % 86400000) - 86400000
+                    val endOfYesterday = now - (now % 86400000) - 1
+                    Pair(startOfYesterday, endOfYesterday)
+                }
+                2 -> { // Неделя
+                    Pair(now - 7 * 86400000, now)
+                }
+                3 -> { // Месяц
+                    Pair(now - 30 * 86400000, now)
+                }
+                else -> Pair(now - 86400000, now)
+            }
+            loadLocationHistory(from, to)
+        }
+        builder.show()
+    }
+    
+    private fun loadLocationHistory(fromTimestamp: Long, toTimestamp: Long) {
+        lifecycleScope.launch {
+            try {
+                binding.loadingCard.visibility = View.VISIBLE
+                binding.loadingText.text = "Загрузка истории..."
+                
+                val history = networkClient.getLocationHistory(
+                    deviceId = otherId,
+                    fromTimestamp = fromTimestamp,
+                    toTimestamp = toTimestamp,
+                    limit = 1000
+                )
+                
+                if (history.isNullOrEmpty()) {
+                    Toast.makeText(
+                        this@DualLocationMapActivity,
+                        "Нет данных за выбранный период",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    binding.loadingCard.visibility = View.GONE
+                    return@launch
+                }
+                
+                // Отображаем историю на карте
+                displayLocationHistory(history)
+                
+                Toast.makeText(
+                    this@DualLocationMapActivity,
+                    "Загружено ${history.size} точек",
+                    Toast.LENGTH_SHORT
+                ).show()
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error loading location history", e)
+                Toast.makeText(
+                    this@DualLocationMapActivity,
+                    "Ошибка загрузки истории: ${e.message}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            } finally {
+                binding.loadingCard.visibility = View.GONE
+            }
+        }
+    }
+    
+    private fun displayLocationHistory(history: List<ru.example.childwatch.network.ParentLocationData>) {
+        if (history.isEmpty()) return
+        
+        // Удаляем старую линию истории, если есть
+        mapView.overlays.removeAll { it is Polyline && it.id == "history_line" }
+        
+        // Создаём Polyline для истории
+        val historyLine = Polyline(mapView).apply {
+            id = "history_line"
+            
+            // Сортируем по времени (от старых к новым)
+            val sortedHistory = history.sortedBy { it.timestamp }
+            
+            // Добавляем точки
+            val points = sortedHistory.map { GeoPoint(it.latitude, it.longitude) }
+            setPoints(points)
+            
+            // Стиль линии с градиентом (от прозрачного к яркому)
+            outlinePaint.color = Color.parseColor("#4285F4") // Google Blue
+            outlinePaint.strokeWidth = 8f
+            outlinePaint.alpha = 200
+        }
+        
+        mapView.overlays.add(0, historyLine) // Добавляем под маркеры
+        
+        // Добавляем маркеры начала и конца маршрута
+        val firstPoint = history.minByOrNull { it.timestamp }
+        val lastPoint = history.maxByOrNull { it.timestamp }
+        
+        if (firstPoint != null && lastPoint != null && firstPoint != lastPoint) {
+            // Маркер начала (зелёный)
+            val startMarker = Marker(mapView).apply {
+                position = GeoPoint(firstPoint.latitude, firstPoint.longitude)
+                title = "Начало маршрута"
+                snippet = formatTimestamp(firstPoint.timestamp)
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                icon = ContextCompat.getDrawable(this@DualLocationMapActivity, R.drawable.ic_child_marker)
+            }
+            
+            // Маркер конца (красный)
+            val endMarker = Marker(mapView).apply {
+                position = GeoPoint(lastPoint.latitude, lastPoint.longitude)
+                title = "Конец маршрута"
+                snippet = formatTimestamp(lastPoint.timestamp)
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                icon = ContextCompat.getDrawable(this@DualLocationMapActivity, R.drawable.ic_parent_marker)
+            }
+            
+            mapView.overlays.add(startMarker)
+            mapView.overlays.add(endMarker)
+        }
+        
+        mapView.invalidate()
+        
+        // Центрируем карту на истории
+        if (history.isNotEmpty()) {
+            val bounds = org.osmdroid.util.BoundingBox.fromGeoPoints(
+                history.map { GeoPoint(it.latitude, it.longitude) }
+            )
+            mapView.zoomToBoundingBox(bounds, true, 100)
+        }
+    }
+    
+    private fun formatTimestamp(timestamp: Long): String {
+        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        return sdf.format(java.util.Date(timestamp))
     }
     
     private fun checkPermissionsAndLoad() {

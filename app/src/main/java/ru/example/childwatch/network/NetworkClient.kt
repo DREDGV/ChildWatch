@@ -532,6 +532,102 @@ class NetworkClient(private val context: Context) {
     }
 
     /**
+     * Get location history for a device
+     * @param deviceId Device ID to get history for
+     * @param fromTimestamp Start timestamp (milliseconds), optional
+     * @param toTimestamp End timestamp (milliseconds), optional
+     * @param limit Maximum number of points to return (default 1000)
+     * @return List of location points or null on error
+     */
+    suspend fun getLocationHistory(
+        deviceId: String,
+        fromTimestamp: Long? = null,
+        toTimestamp: Long? = null,
+        limit: Int = 1000
+    ): List<ParentLocationData>? = withContext(Dispatchers.IO) {
+        try {
+            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+            val serverUrl = prefs.getString("server_url", null)
+            
+            if (serverUrl.isNullOrEmpty()) {
+                Log.w(TAG, "Server URL not configured")
+                return@withContext null
+            }
+            
+            val secureUrl = ensureHttpsUrl(serverUrl)
+            var url = "${secureUrl.trimEnd('/')}/api/location/history/$deviceId?limit=$limit"
+            
+            // Add optional time range parameters
+            if (fromTimestamp != null) {
+                url += "&from=$fromTimestamp"
+            }
+            if (toTimestamp != null) {
+                url += "&to=$toTimestamp"
+            }
+            
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
+                .build()
+            
+            Log.d(TAG, "Fetching location history from: $url")
+            
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string()
+                    if (!responseBody.isNullOrEmpty()) {
+                        val jsonResponse = JSONObject(responseBody)
+                        
+                        if (jsonResponse.getBoolean("success")) {
+                            val locationsArray = jsonResponse.getJSONArray("locations")
+                            val locationList = mutableListOf<ParentLocationData>()
+                            
+                            for (i in 0 until locationsArray.length()) {
+                                val locationObj = locationsArray.getJSONObject(i)
+                                locationList.add(
+                                    ParentLocationData(
+                                        parentId = deviceId,
+                                        latitude = locationObj.getDouble("latitude"),
+                                        longitude = locationObj.getDouble("longitude"),
+                                        accuracy = locationObj.optDouble("accuracy", 0.0).toFloat(),
+                                        timestamp = locationObj.getLong("timestamp"),
+                                        battery = null,
+                                        speed = null,
+                                        bearing = null
+                                    )
+                                )
+                            }
+                            
+                            Log.d(TAG, "Retrieved ${locationList.size} location points")
+                            return@withContext locationList
+                        } else {
+                            Log.w(TAG, "Server returned success=false")
+                            return@withContext null
+                        }
+                    } else {
+                        Log.w(TAG, "Empty response body")
+                        return@withContext null
+                    }
+                } else if (response.code == 404) {
+                    Log.d(TAG, "No location history available (404)")
+                    return@withContext emptyList()
+                } else {
+                    Log.w(TAG, "Failed to get location history: ${response.code}")
+                    return@withContext null
+                }
+            }
+            
+        } catch (e: IOException) {
+            Log.e(TAG, "Network error getting location history", e)
+            return@withContext null
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected error getting location history", e)
+            return@withContext null
+        }
+    }
+
+    /**
      * Upload audio file to server
      */
     suspend fun uploadAudio(

@@ -209,4 +209,16 @@
         android:contentDescription="Обновить"
         app:tint="@android:color/white" />
 
+    <!-- History FAB -->
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/historyButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end|bottom"
+        android:layout_margin="16dp"
+        android:text="История"
+        android:textColor="@android:color/white"
+        app:icon="@drawable/ic_history"
+        app:iconTint="@android:color/white" />
+
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
