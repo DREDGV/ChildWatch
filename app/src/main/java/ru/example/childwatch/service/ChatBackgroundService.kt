@@ -60,6 +60,8 @@ class ChatBackgroundService : LifecycleService() {
     }
 
     private lateinit var chatManager: ChatManager
+    private var chatManagerAdapter: ru.example.childwatch.chat.ChatManagerAdapter? = null
+    private var serviceChatListener: ((String, String, String, Long) -> Unit)? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -117,6 +119,9 @@ class ChatBackgroundService : LifecycleService() {
         // Cleanup and reinitialize WebSocket
         WebSocketManager.cleanup()
 
+        // Prepare modern chat adapter (Room-based) bound to current child
+        chatManagerAdapter = ru.example.childwatch.chat.ChatManagerAdapter(this, childDeviceId)
+
         // Use coroutine for delayed connection with retry logic
         lifecycleScope.launch {
             var attempt = 0
@@ -132,11 +137,45 @@ class ChatBackgroundService : LifecycleService() {
                 delay(delayMs)
 
                 try {
-                    WebSocketManager.initialize(this@ChatBackgroundService, serverUrl, childDeviceId)
+                    WebSocketManager.initialize(
+                        this@ChatBackgroundService,
+                        serverUrl,
+                        childDeviceId,
+                        onMissedMessages = { missed ->
+                            // Persist missed messages to both storages to keep badge/UI in sync
+                            missed.forEach { msg ->
+                                try {
+                                    // Save to Room (new)
+                                    chatManagerAdapter?.saveMessage(msg)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error saving missed message to DB", e)
+                                }
+                                try {
+                                    // Save to legacy storage for badge compatibility
+                                    chatManager.saveMessage(msg)
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "Error saving missed message to legacy store", e)
+                                }
+                            }
+                            // Optionally, show notifications for missed messages
+                            missed.forEach { msg ->
+                                val senderName = if (msg.sender == "child") "Ребенок" else "Родитель"
+                                ru.example.childwatch.utils.NotificationManager.showChatNotification(
+                                    context = this@ChatBackgroundService,
+                                    senderName = senderName,
+                                    messageText = msg.text,
+                                    timestamp = msg.timestamp
+                                )
+                            }
+                        }
+                    )
 
-                    // Set up message callback
-                    WebSocketManager.setChatMessageCallback { messageId, text, sender, timestamp ->
-                        handleIncomingMessage(messageId, text, sender, timestamp)
+                    // Set up message listener (do not override others)
+                    if (serviceChatListener == null) {
+                        serviceChatListener = { messageId, text, sender, timestamp ->
+                            handleIncomingMessage(messageId, text, sender, timestamp)
+                        }
+                        WebSocketManager.addChatMessageListener(serviceChatListener!!)
                     }
 
                     // Connect WebSocket
@@ -182,8 +221,9 @@ class ChatBackgroundService : LifecycleService() {
     private fun stopForegroundService() {
         Log.d(TAG, "Stopping chat background service")
 
-        // Clear callback
-        WebSocketManager.clearChatMessageCallback()
+        // Remove service-scoped listener only
+        serviceChatListener?.let { WebSocketManager.removeChatMessageListener(it) }
+        serviceChatListener = null
 
         // Stop foreground
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -198,7 +238,7 @@ class ChatBackgroundService : LifecycleService() {
     }
 
     private fun handleIncomingMessage(messageId: String, text: String, sender: String, timestamp: Long) {
-        Log.d(TAG, "Received message: $text from $sender")
+    Log.d(TAG, "Received message: $text from $sender")
 
         // Save message to local storage
         val message = ChatMessage(
@@ -208,6 +248,14 @@ class ChatBackgroundService : LifecycleService() {
             timestamp = timestamp,
             isRead = false // Mark as unread
         )
+        // Persist to Room (new storage)
+        try {
+            chatManagerAdapter?.saveMessage(message)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error saving message to DB", e)
+        }
+
+        // Persist to legacy storage (for badge compatibility in MainActivity)
         chatManager.saveMessage(message)
 
         // Show notification
@@ -273,7 +321,8 @@ class ChatBackgroundService : LifecycleService() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "ChatBackgroundService destroyed")
-        WebSocketManager.clearChatMessageCallback()
+        serviceChatListener?.let { WebSocketManager.removeChatMessageListener(it) }
+        serviceChatListener = null
         isRunning = false
     }
 }

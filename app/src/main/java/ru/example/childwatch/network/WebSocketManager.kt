@@ -14,7 +14,12 @@ object WebSocketManager {
 
     private var webSocketClient: WebSocketClient? = null
     private var isInitialized = false
+    // Legacy single callback for backward compatibility
     private var chatMessageCallback: ((String, String, String, Long) -> Unit)? = null
+    // Multiple listeners support (service + activities)
+    private val chatMessageListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(String, String, String, Long) -> Unit>()
+    )
     private var chatMessageSentCallback: ((String, Boolean, Long) -> Unit)? = null
     private var chatStatusCallback: ((String, String, Long) -> Unit)? = null
 
@@ -32,7 +37,10 @@ object WebSocketManager {
         Log.d(TAG, "Initializing WebSocket: $serverUrl with childDeviceId: $childDeviceId")
         missedMessagesCallback = onMissedMessages
         webSocketClient = WebSocketClient(serverUrl, childDeviceId, onMissedMessages = missedMessagesCallback)
-        chatMessageCallback?.let { webSocketClient?.setChatMessageCallback(it) }
+        // Always set dispatching callback to propagate to all listeners and legacy single
+        webSocketClient?.setChatMessageCallback { id, text, sender, ts ->
+            dispatchChatMessage(id, text, sender, ts)
+        }
         chatMessageSentCallback?.let { webSocketClient?.setChatMessageSentCallback(it) }
         chatStatusCallback?.let { webSocketClient?.setChatStatusCallback(it) }
         isInitialized = true
@@ -49,7 +57,10 @@ object WebSocketManager {
         }
 
         webSocketClient?.apply {
-            chatMessageCallback?.let { setChatMessageCallback(it) }
+            // Ensure dispatching callback is set on each connect
+            setChatMessageCallback { id, text, sender, ts ->
+                dispatchChatMessage(id, text, sender, ts)
+            }
             chatMessageSentCallback?.let { setChatMessageSentCallback(it) }
             chatStatusCallback?.let { setChatStatusCallback(it) }
             connect(onConnected, onError)
@@ -80,8 +91,12 @@ object WebSocketManager {
      * Set chat message callback
      */
     fun setChatMessageCallback(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
+        // Backward compatibility: override legacy single callback
         chatMessageCallback = callback
-        webSocketClient?.setChatMessageCallback(callback)
+        // Make sure client keeps dispatching to all listeners + legacy
+        webSocketClient?.setChatMessageCallback { id, text, sender, ts ->
+            dispatchChatMessage(id, text, sender, ts)
+        }
     }
 
     /**
@@ -89,7 +104,47 @@ object WebSocketManager {
      */
     fun clearChatMessageCallback() {
         chatMessageCallback = null
-        webSocketClient?.setChatMessageCallback { _, _, _, _ -> }
+        // Keep dispatching for registered listeners even if legacy cleared
+        webSocketClient?.setChatMessageCallback { id, text, sender, ts ->
+            dispatchChatMessage(id, text, sender, ts)
+        }
+    }
+
+    /**
+     * Add/remove message listeners (preferred API)
+     */
+    fun addChatMessageListener(listener: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
+        chatMessageListeners.add(listener)
+        // Ensure client uses dispatching callback
+        webSocketClient?.setChatMessageCallback { id, text, sender, ts ->
+            dispatchChatMessage(id, text, sender, ts)
+        }
+    }
+
+    fun removeChatMessageListener(listener: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
+        chatMessageListeners.remove(listener)
+    }
+
+    fun clearChatMessageListeners() {
+        chatMessageListeners.clear()
+    }
+
+    private fun dispatchChatMessage(messageId: String, text: String, sender: String, timestamp: Long) {
+        try {
+            // Notify all registered listeners
+            val snapshot = synchronized(chatMessageListeners) { chatMessageListeners.toList() }
+            snapshot.forEach { listener ->
+                try {
+                    listener(messageId, text, sender, timestamp)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in chat listener", e)
+                }
+            }
+            // Also notify legacy single callback if present
+            chatMessageCallback?.invoke(messageId, text, sender, timestamp)
+        } catch (e: Exception) {
+            Log.e(TAG, "dispatchChatMessage failed", e)
+        }
     }
 
     fun setChatMessageSentCallback(callback: (messageId: String, delivered: Boolean, timestamp: Long) -> Unit) {

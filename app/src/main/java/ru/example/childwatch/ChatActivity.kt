@@ -81,6 +81,9 @@ class ChatActivity : AppCompatActivity() {
 
     // ViewModel для управления состоянием
     private val viewModel: ChatViewModel by viewModels()
+    
+    // Activity-scoped chat message listener
+    private var activityChatListener: ((String, String, String, Long) -> Unit)? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -160,10 +163,11 @@ class ChatActivity : AppCompatActivity() {
         initializeWebSocket()
     }
 
-    // Получить URL сервера (может быть из настроек)
+    // Получить URL сервера (единый источник как в MainActivity/service)
     private fun getServerUrl(): String {
-        val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-        return prefs.getString("server_url", "http://10.0.2.2:3000") ?: "http://10.0.2.2:3000"
+        val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+        return prefs.getString("server_url", "https://childwatch-production.up.railway.app")
+            ?: "https://childwatch-production.up.railway.app"
     }
 
     // Получить deviceId (может быть из настроек/SharedPrefs)
@@ -430,12 +434,11 @@ class ChatActivity : AppCompatActivity() {
             Log.d(TAG, "ChatBackgroundService started")
         }
 
-        // Set up message callback for this activity
-        WebSocketManager.setChatMessageCallback { messageId, text, sender, timestamp ->
-            runOnUiThread {
-                receiveMessage(messageId, text, sender, timestamp)
-            }
+        // Register activity-scoped listener (do not override service)
+        activityChatListener = { messageId, text, sender, timestamp ->
+            runOnUiThread { receiveMessage(messageId, text, sender, timestamp) }
         }
+        WebSocketManager.addChatMessageListener(activityChatListener!!)
 
         // Check if already connected
         if (WebSocketManager.isConnected()) {
@@ -609,6 +612,8 @@ class ChatActivity : AppCompatActivity() {
         chatManager.cleanup()
         chatManagerAdapter.cleanup()
         messageQueue.release()
-        WebSocketManager.clearChatMessageCallback()
+        // Remove only this activity's listener to keep background service receiving
+        activityChatListener?.let { WebSocketManager.removeChatMessageListener(it) }
+        activityChatListener = null
     }
 }

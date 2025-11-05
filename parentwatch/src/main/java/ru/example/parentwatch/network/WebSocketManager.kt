@@ -35,6 +35,8 @@ object WebSocketManager {
         chatMessageCallback?.let { webSocketClient?.setChatMessageCallback(it) }
         chatMessageSentCallback?.let { webSocketClient?.setChatMessageSentCallback(it) }
         chatStatusCallback?.let { webSocketClient?.setChatStatusCallback(it) }
+        // Ensure previously registered command listener is also applied after initialization
+        commandCallback?.let { webSocketClient?.setCommandCallback(it) }
         isInitialized = true
     }
 
