@@ -22,6 +22,7 @@ import ru.example.parentwatch.utils.NotificationManager
 import ru.example.parentwatch.service.LocationService
 import ru.example.parentwatch.service.ChatBackgroundService
 import ru.example.parentwatch.service.PhotoCaptureService
+import ru.example.parentwatch.location.ParentLocationTracker
 import android.view.MotionEvent
 import android.view.View
 import java.text.SimpleDateFormat
@@ -45,6 +46,9 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private var isServiceRunning = false
     private val appVersion: String by lazy { BuildConfig.VERSION_NAME.replace("-debug", "") }
+    
+    // Parent location tracker instance
+    private var parentLocationTracker: ParentLocationTracker? = null
 
     // UI elements
     private lateinit var titleText: TextView
@@ -316,11 +320,12 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun requestPermissionsAndStart() {
-        // First request foreground location and audio permissions
+        // First request foreground location, audio, and camera permissions
         val permissions = mutableListOf(
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION,
-            Manifest.permission.RECORD_AUDIO
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.CAMERA
         )
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
@@ -375,6 +380,9 @@ class MainActivity : AppCompatActivity() {
 
                 ensureChatBackgroundService()
                 ensurePhotoCaptureService()
+                
+                // Start parent location tracking (for "Where are parents?" feature)
+                startParentLocationTracking()
 
             isServiceRunning = true
             prefs.edit().putBoolean("service_running", true).apply()
@@ -398,6 +406,9 @@ class MainActivity : AppCompatActivity() {
 
                 ChatBackgroundService.stop(this)
                 PhotoCaptureService.stop(this)
+                
+                // Stop parent location tracking
+                stopParentLocationTracking()
 
         isServiceRunning = false
         prefs.edit().putBoolean("service_running", false).apply()
@@ -411,6 +422,42 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Ошибка остановки мониторинга: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
+    
+    /**
+     * Start parent location tracking for "Where are parents?" feature
+     */
+    private fun startParentLocationTracking() {
+        try {
+            // Get parent ID from shared preferences
+            val parentId = prefs.getString("parent_device_id", null)
+            
+            if (parentId.isNullOrEmpty()) {
+                Log.w("MainActivity", "Parent device ID not set - cannot start parent location tracking")
+                return
+            }
+            
+            // Create and start tracker
+            parentLocationTracker = ParentLocationTracker(this, parentId)
+            parentLocationTracker?.startTracking()
+            
+            Log.i("MainActivity", "Parent location tracking started for parentId: $parentId")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error starting parent location tracking", e)
+        }
+    }
+    
+    /**
+     * Stop parent location tracking
+     */
+    private fun stopParentLocationTracking() {
+        try {
+            parentLocationTracker?.stopTracking()
+            parentLocationTracker = null
+            Log.i("MainActivity", "Parent location tracking stopped")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Error stopping parent location tracking", e)
+        }
+    }
 
     private fun emergencyStopAllFunctions() {
         try {
@@ -419,6 +466,9 @@ class MainActivity : AppCompatActivity() {
             action = LocationService.ACTION_EMERGENCY_STOP
         }
         startService(intent)
+        
+        // Stop parent location tracking
+        stopParentLocationTracking()
 
         // Update local state
         isServiceRunning = false

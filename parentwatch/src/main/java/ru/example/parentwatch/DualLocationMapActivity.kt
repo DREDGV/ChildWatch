@@ -214,16 +214,11 @@ class DualLocationMapActivity : AppCompatActivity() {
                 }
                 
                 // Получить локацию другого устройства с сервера (если доступно)
+                // Используем единый endpoint для всех устройств для совместимости
                 val otherLocation = if (limitedMode) {
                     null
                 } else withContext(Dispatchers.IO) {
-                    if (myRole == ROLE_PARENT) {
-                        // Я родитель → получить локацию ребенка
-                        networkClient.getLatestLocation(otherId)
-                    } else {
-                        // Я ребенок → получить локацию родителя
-                        networkClient.getLatestParentLocation(otherId)
-                    }
+                    networkClient.getLatestLocation(otherId)
                 }
                 
                 if (otherLocation != null && myLatitude != null && myLongitude != null) {

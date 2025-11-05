@@ -287,4 +287,5 @@
     <string name="audio_monitor_notification_channel">Аудио мониторинг</string>
     <string name="audio_monitor_notification_channel_description">Уведомления о аудио мониторинге</string>
     <string name="audio_monitor_notification_title">ChildWatch - Аудио мониторинг</string>
+    <string name="remote_photo_preview">Миниатюра фотографии</string>
 </resources>

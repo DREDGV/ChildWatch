@@ -90,7 +90,7 @@
         <activity
             android:name=".MainActivity"
             android:exported="false"
-            android:theme="@style/Theme.ChildWatch" />
+            android:theme="@style/Theme.ChildWatch.NoActionBar" />
 
         <!-- Settings Authentication Activity -->
         <activity
@@ -104,12 +104,6 @@
             android:exported="false"
             android:theme="@style/Theme.ChildWatch.NoActionBar" />
         
-        <!-- Location Map Activity (2GIS) -->
-        <activity
-            android:name=".LocationMapActivity2GIS"
-            android:exported="false"
-            android:theme="@style/Theme.ChildWatch"
-            android:parentActivityName=".MainActivity" />
 
         <!-- Location Map Activity (Google Maps - backup) -->
         <activity
@@ -174,7 +168,7 @@
         <activity
             android:name=".RemoteCameraActivity"
             android:exported="false"
-            android:theme="@style/Theme.ChildWatch"
+            android:theme="@style/Theme.ChildWatch.NoActionBar"
             android:parentActivityName=".MainActivity" />
 
         <!-- Settings Activity -->

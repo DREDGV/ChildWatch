@@ -50,6 +50,16 @@ interface ChildWatchApi {
      */
     @POST("api/chat/mark-read/{deviceId}")
     suspend fun markChatMessagesAsRead(@Path("deviceId") deviceId: String): Response<GenericResponse>
+
+    /**
+     * Get gallery of photos captured on the child device
+     */
+    @GET("api/media/photos/{deviceId}")
+    suspend fun getPhotoGallery(
+        @Path("deviceId") deviceId: String,
+        @Query("limit") limit: Int = 50,
+        @Query("offset") offset: Int = 0
+    ): Response<PhotoGalleryResponse>
 }
 
 /**
@@ -133,4 +143,23 @@ data class GenericResponse(
     val success: Boolean,
     val message: String? = null,
     val deviceId: String? = null
+)
+
+data class PhotoGalleryResponse(
+    val success: Boolean,
+    val photoFiles: List<PhotoFileData> = emptyList(),
+    val count: Int = 0
+)
+
+data class PhotoFileData(
+    val id: Long,
+    val filename: String,
+    val fileSize: Long,
+    val mimeType: String,
+    val width: Int? = null,
+    val height: Int? = null,
+    val timestamp: Long,
+    val createdAt: String?,
+    val downloadUrl: String,
+    val thumbnailUrl: String?
 )

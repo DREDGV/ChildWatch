@@ -170,7 +170,7 @@ class SettingsActivity : AppCompatActivity() {
         binding.locationMonitoringSwitch.isChecked = prefs.getBoolean(KEY_LOCATION_ENABLED, true)
         binding.audioMonitoringSwitch.isChecked = prefs.getBoolean(KEY_AUDIO_ENABLED, true)
         binding.photoMonitoringSwitch.isChecked = prefs.getBoolean(KEY_PHOTO_ENABLED, false)
-        binding.shareParentLocationSwitch.isChecked = prefs.getBoolean(KEY_SHARE_PARENT_LOCATION, false)
+        binding.shareParentLocationSwitch.isChecked = prefs.getBoolean(KEY_SHARE_PARENT_LOCATION, true)
 
         // Load notification settings
         val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)

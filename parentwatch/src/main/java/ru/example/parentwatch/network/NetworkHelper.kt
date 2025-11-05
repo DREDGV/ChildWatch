@@ -341,7 +341,7 @@ class NetworkHelper(private val context: Context) {
      */
     suspend fun uploadPhoto(serverUrl: String, deviceId: String, photoFile: java.io.File): Boolean = withContext(Dispatchers.IO) {
         try {
-            val url = "${serverUrl.trimEnd('/')}/api/photos/upload"
+            val url = "${serverUrl.trimEnd('/')}/api/photo"
 
             val requestBody = MultipartBody.Builder()
                 .setType(MultipartBody.FORM)

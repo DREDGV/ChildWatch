@@ -156,27 +156,35 @@ class ParentLocationTracker(
     
     /**
      * Загрузка локации на сервер
+     * Используем обычный /api/loc endpoint для совместимости со старыми серверами
      */
     private suspend fun uploadLocationToServer(location: ParentLocation) {
         try {
-            val success = networkClient.uploadParentLocation(
-                parentId = location.parentId,
+            // Получаем URL сервера из настроек
+            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+            val serverUrl = prefs.getString("server_url", null)
+            
+            if (serverUrl.isNullOrEmpty()) {
+                Log.w(TAG, "Server URL not configured")
+                return
+            }
+            
+            // Используем стандартный location endpoint вместо специального parent endpoint
+            val success = networkClient.uploadLocation(
+                serverUrl = serverUrl,
                 latitude = location.latitude,
                 longitude = location.longitude,
                 accuracy = location.accuracy,
-                timestamp = location.timestamp,
-                speed = location.speed,
-                bearing = location.bearing,
-                batteryLevel = location.batteryLevel
+                timestamp = location.timestamp
             )
             
             if (success) {
-                Log.d(TAG, "Location uploaded to server successfully")
+                Log.d(TAG, "Parent location uploaded to server successfully (via /api/loc)")
             } else {
-                Log.w(TAG, "Failed to upload location to server")
+                Log.w(TAG, "Failed to upload parent location to server")
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Error uploading location to server", e)
+            Log.e(TAG, "Error uploading parent location to server", e)
         }
     }
     

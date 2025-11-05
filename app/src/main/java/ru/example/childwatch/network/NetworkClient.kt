@@ -900,6 +900,34 @@ class NetworkClient(private val context: Context) {
     }
 
     /**
+     * Get captured photos for the child device
+     */
+    suspend fun getRemotePhotos(
+        childDeviceId: String,
+        limit: Int = 50,
+        offset: Int = 0
+    ): retrofit2.Response<PhotoGalleryResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
+                    ?: "https://childwatch-production.up.railway.app"
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+
+                Log.d(TAG, "Getting remote photos from server: $serverUrl")
+                Log.d(TAG, "Child device ID: $childDeviceId, limit=$limit, offset=$offset")
+
+                api.getPhotoGallery(childDeviceId, limit, offset)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting remote photos", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    /**
      * Create Retrofit client with authentication
      */
     private fun createRetrofitClient(baseUrl: String): retrofit2.Retrofit {

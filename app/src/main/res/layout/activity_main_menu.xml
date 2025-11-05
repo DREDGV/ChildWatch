@@ -218,8 +218,8 @@
 
                     <ImageView
                         android:id="@+id/statusIcon"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
+                        android:layout_width="32dp"
+                        android:layout_height="32dp"
                         android:layout_marginEnd="12dp"
                         android:src="@android:drawable/ic_dialog_alert"
                         android:tint="@color/colorAccent" />
@@ -230,7 +230,8 @@
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
                         android:text="@string/monitoring_inactive"
-                        android:textSize="16sp"
+                        android:textSize="20sp"
+                        android:textStyle="bold"
                         android:textColor="?attr/colorOnSurface" />
 
                 </LinearLayout>
@@ -616,9 +617,42 @@
                 android:orientation="vertical"
             android:layout_marginBottom="24dp">
 
-            <!-- Location Button -->
+            <!-- Location Button (My Location) — hidden (replaced by dual map) -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/locationCard"
+                    android:layout_width="match_parent"
+                    android:layout_height="88dp"
+                    android:visibility="gone"
+                    android:layout_marginBottom="16dp"
+                    app:cardElevation="6dp"
+                    app:cardCornerRadius="20dp"
+                    app:strokeColor="@android:color/transparent"
+                    app:strokeWidth="0dp"
+                android:clickable="false"
+                android:focusable="false"
+                    android:foreground="?attr/selectableItemBackground">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical"
+                    android:gravity="center"
+                        android:padding="16dp"
+                        android:background="@drawable/bg_menu_card_cyan">
+
+                    <ImageView
+                        android:layout_width="48dp"
+                        android:layout_height="48dp"
+                        android:src="@android:drawable/ic_dialog_map"
+                            android:tint="@android:color/white" />
+
+                </LinearLayout>
+
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- Parent Location Button (Where are parents?) -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/parentLocationCard"
                     android:layout_width="match_parent"
                     android:layout_height="88dp"
                     android:layout_marginBottom="16dp"
@@ -641,7 +675,7 @@
                     <ImageView
                         android:layout_width="48dp"
                         android:layout_height="48dp"
-                        android:src="@android:drawable/ic_dialog_map"
+                        android:src="@android:drawable/ic_menu_mylocation"
                             android:tint="@android:color/white" />
 
                 </LinearLayout>
@@ -803,11 +837,30 @@
         <!-- Quick Actions -->
         
 
+        <!-- Unified Monitoring Toggle Button -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/monitoringToggleBtn"
+            android:layout_width="match_parent"
+            android:layout_height="64dp"
+            android:layout_marginBottom="24dp"
+            android:text="@string/start_monitoring"
+            android:textSize="18sp"
+            android:textStyle="bold"
+            android:textColor="@android:color/white"
+            android:backgroundTint="@color/emerald_primary"
+            app:icon="@drawable/ic_play"
+            app:iconGravity="textStart"
+            app:iconTint="@android:color/white"
+            app:iconSize="28dp"
+            app:cornerRadius="12dp"
+            style="@style/Widget.Material3.Button" />
+        
+        <!-- Keep old buttons hidden for compatibility -->
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="horizontal"
-            android:layout_marginBottom="24dp">
+            android:visibility="gone">
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/startMonitoringBtn"

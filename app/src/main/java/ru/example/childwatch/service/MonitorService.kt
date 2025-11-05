@@ -438,7 +438,7 @@ class MonitorService : Service() {
         }
         
         // Start parent location tracking if enabled
-        if (prefs.getBoolean("share_parent_location", false)) {
+        if (prefs.getBoolean("share_parent_location", true)) {
             parentLocationTracker?.startTracking()
             Log.d(TAG, "Parent location tracking started")
         }

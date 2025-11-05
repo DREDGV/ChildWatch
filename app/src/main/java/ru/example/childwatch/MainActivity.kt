@@ -107,14 +107,68 @@ class MainActivity : AppCompatActivity() {
         checkBatteryOptimizationStatus()
         CriticalAlertSyncScheduler.schedule(this)
         ensureChatBackgroundService()
+        
+        // Initialize WebSocket for commands (remote camera, etc.)
+        initializeWebSocket()
     }
     
+    /**
+     * Initialize WebSocket connection for real-time commands
+     */
+    private fun initializeWebSocket() {
+        try {
+            val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app") 
+                ?: "https://childwatch-production.up.railway.app"
+            val deviceId = prefs.getString("device_id", "") ?: ""
+            
+            if (deviceId.isNotEmpty()) {
+                ru.example.childwatch.network.WebSocketManager.initialize(
+                    this,
+                    serverUrl,
+                    deviceId
+                )
+                ru.example.childwatch.network.WebSocketManager.connect(
+                    onConnected = {
+                        Log.d(TAG, "✅ WebSocket connected for commands")
+                    },
+                    onError = { error ->
+                        Log.e(TAG, "❌ WebSocket connection error: $error")
+                    }
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error initializing WebSocket", e)
+        }
+    }
 
 
     private fun setupUI() {
         setupBatteryOptimizationUi()
 
-        // Quick action buttons
+        // Unified monitoring toggle button with visual feedback
+        binding.monitoringToggleBtn.setOnClickListener {
+            // Prevent double-tap by disabling button during state transition
+            if (!binding.monitoringToggleBtn.isEnabled) return@setOnClickListener
+            
+            val isMonitoring = MonitorService.isRunning
+            Log.d(TAG, "Monitoring toggle clicked: current state isRunning=$isMonitoring")
+            
+            // Disable button temporarily to prevent rapid clicks
+            binding.monitoringToggleBtn.isEnabled = false
+            
+            if (isMonitoring) {
+                stopMonitoring()
+            } else {
+                startMonitoring()
+            }
+            
+            // Re-enable after 2 seconds (enough time for service to start/stop)
+            binding.monitoringToggleBtn.postDelayed({
+                binding.monitoringToggleBtn.isEnabled = true
+            }, 2000)
+        }
+
+        // Keep old buttons for compatibility (hidden in layout)
         binding.startMonitoringBtn.setOnClickListener {
             startMonitoring()
         }
@@ -129,11 +183,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         // Menu card click listeners (unified emerald design)
-        binding.locationCard.setOnClickListener {
-            // Use Google Maps
-            val intent = Intent(this, LocationMapActivity::class.java)
-            startActivity(intent)
-        }
+        // locationCard hidden; using parentLocationCard (DualLocationMapActivity) only
 
         binding.audioStreamingCard.setOnClickListener {
             val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
@@ -256,17 +306,47 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun updateUIState() {
+    private fun updateUIState(skipAutoRecovery: Boolean = false) {
         // Check consent first
         hasConsent = ConsentActivity.hasConsent(this)
         
         if (hasConsent) {
+            // Use only runtime flag for UI state to avoid confusion
             val isMonitoring = MonitorService.isRunning
+            
+            // Auto-recover ONLY on app resume if persisted state says monitoring should be on
+            // BUT skip during user actions or if runtime already matches
+            if (!skipAutoRecovery && !isMonitoring) {
+                val persistedEnabled = secureSettings.isMonitoringEnabled()
+                if (persistedEnabled) {
+                    try {
+                        val intent = Intent(this, MonitorService::class.java).apply {
+                            action = MonitorService.ACTION_START_MONITORING
+                        }
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(intent)
+                        } else {
+                            startService(intent)
+                        }
+                        android.util.Log.d(TAG, "Auto-recovered MonitorService to match persisted state")
+                        // Give service time to start before updating UI
+                        binding.monitoringToggleBtn.postDelayed({
+                            updateUIState(skipAutoRecovery = true)
+                        }, 500)
+                        return
+                    } catch (e: Exception) {
+                        android.util.Log.e(TAG, "Failed to auto-start MonitorService", e)
+                    }
+                }
+            }
             
             // Update status display
             updateStatusDisplay(isMonitoring)
             
-            // Update button states
+            // Update unified toggle button with animation
+            updateMonitoringButton(isMonitoring)
+            
+            // Update old button states (hidden, for compatibility)
             binding.startMonitoringBtn.isEnabled = !isMonitoring
             binding.stopMonitoringBtn.isEnabled = isMonitoring
             
@@ -279,13 +359,63 @@ class MainActivity : AppCompatActivity() {
         checkBatteryOptimizationStatus()
     }
     
+    private fun updateMonitoringButton(isMonitoring: Boolean) {
+        binding.monitoringToggleBtn.apply {
+            // Animate scale
+            animate()
+                .scaleX(0.95f)
+                .scaleY(0.95f)
+                .setDuration(100)
+                .withEndAction {
+                    // Update appearance
+                    if (isMonitoring) {
+                        // Active state - red/danger color
+                        text = getString(R.string.stop_monitoring)
+                        setIconResource(R.drawable.ic_stop)
+                        backgroundTintList = android.content.res.ColorStateList.valueOf(
+                            ContextCompat.getColor(context, android.R.color.holo_red_dark)
+                        )
+                    } else {
+                        // Inactive state - emerald/start color
+                        text = getString(R.string.start_monitoring)
+                        setIconResource(R.drawable.ic_play)
+                        backgroundTintList = android.content.res.ColorStateList.valueOf(
+                            ContextCompat.getColor(context, R.color.emerald_primary)
+                        )
+                    }
+                    
+                    // Scale back
+                    animate()
+                        .scaleX(1.0f)
+                        .scaleY(1.0f)
+                        .setDuration(100)
+                        .start()
+                }
+                .start()
+        }
+    }
+    
     private fun updateStatusDisplay(isMonitoring: Boolean) {
         val dateFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
         
         if (isMonitoring) {
+            // Active monitoring - bright green with pulsing animation
             binding.statusText.text = getString(R.string.monitoring_active_status)
-            binding.statusIcon.setImageResource(android.R.drawable.ic_dialog_alert)
-            binding.statusIcon.setColorFilter(ContextCompat.getColor(this, R.color.colorAccent))
+            binding.statusText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
+            binding.statusIcon.setImageResource(android.R.drawable.presence_online)
+            binding.statusIcon.setColorFilter(ContextCompat.getColor(this, android.R.color.holo_green_light))
+            
+            // Add pulsing animation to icon
+            binding.statusIcon.animate()
+                .alpha(0.3f)
+                .setDuration(800)
+                .withEndAction {
+                    binding.statusIcon.animate()
+                        .alpha(1.0f)
+                        .setDuration(800)
+                        .start()
+                }
+                .start()
             
             // Update service running time
             val serviceStartTime = secureSettings.getServiceStartTime()
@@ -295,6 +425,7 @@ class MainActivity : AppCompatActivity() {
                 val minutes = (runningTime % (1000 * 60 * 60)) / (1000 * 60)
                 val timeString = "${hours}ч ${minutes}м"
                 binding.serviceRunningTimeText.text = getString(R.string.service_running_time, timeString)
+                binding.serviceRunningTimeText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
             } else {
                 binding.serviceRunningTimeText.text = getString(R.string.service_running_time, getString(R.string.unknown))
             }
@@ -305,11 +436,18 @@ class MainActivity : AppCompatActivity() {
             binding.photoStatusText.text = getString(R.string.status_photo_active)
             
         } else {
+            // Inactive monitoring - gray
             binding.statusText.text = getString(R.string.monitoring_inactive_status)
-            binding.statusIcon.setImageResource(android.R.drawable.ic_dialog_alert)
+            binding.statusText.setTextColor(ContextCompat.getColor(this, android.R.color.darker_gray))
+            binding.statusIcon.setImageResource(android.R.drawable.presence_offline)
             binding.statusIcon.setColorFilter(ContextCompat.getColor(this, android.R.color.darker_gray))
             
+            // Stop any animation
+            binding.statusIcon.animate().cancel()
+            binding.statusIcon.alpha = 1.0f
+            
             binding.serviceRunningTimeText.text = getString(R.string.service_running_time, getString(R.string.not_working))
+            binding.serviceRunningTimeText.setTextColor(ContextCompat.getColor(this, android.R.color.darker_gray))
 
             // Update feature status
             binding.locationStatusText.text = getString(R.string.status_location_inactive)
@@ -469,15 +607,27 @@ class MainActivity : AppCompatActivity() {
         if (!force && now - lastStatusFetchTime < 60_000) {
             return
         }
+        
+        // Если force=false и загрузка уже идёт, не запускаем новую
+        if (!force && deviceStatusJob?.isActive == true) {
+            return
+        }
+        
+        // Если force=true, отменяем старую загрузку и запускаем новую
+        if (force) {
+            deviceStatusJob?.cancel()
+        }
+        
         lastStatusFetchTime = now
 
-        deviceStatusJob?.cancel()
         binding.deviceInfoProgress.isVisible = true
         binding.deviceInfoStatusMessage.isVisible = false
 
         deviceStatusJob = lifecycleScope.launch {
             try {
-                val response = networkClient.getChildDeviceStatus(childDeviceId)
+                val response = withContext(Dispatchers.IO) {
+                    networkClient.getChildDeviceStatus(childDeviceId)
+                }
                 if (response.isSuccessful) {
                     val status = response.body()?.status
                     if (status != null) {
@@ -492,6 +642,9 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     showDeviceInfoMessage(getString(R.string.device_info_not_available))
                 }
+            } catch (error: CancellationException) {
+                // Игнорируем отмену корутины - это нормально
+                Log.d(TAG, "Device status fetch cancelled")
             } catch (error: Exception) {
                 Log.e(TAG, "Failed to load device status", error)
                 showDeviceInfoMessage(getString(R.string.device_info_not_available))
@@ -540,6 +693,7 @@ class MainActivity : AppCompatActivity() {
             return
         }
         
+        Log.d(TAG, "User action: starting monitoring")
         val intent = Intent(this, MonitorService::class.java).apply {
             action = MonitorService.ACTION_START_MONITORING
         }
@@ -552,10 +706,14 @@ class MainActivity : AppCompatActivity() {
 
         ensureChatBackgroundService()
         showToast(getString(R.string.monitoring_started))
-        updateUIState()
+        // Optimistically update button state, then refresh UI
+        updateMonitoringButton(true)
+        // Skip auto-recovery during user action to avoid race condition
+        updateUIState(skipAutoRecovery = true)
     }
 
     private fun stopMonitoring() {
+        Log.d(TAG, "User action: stopping monitoring")
         val intent = Intent(this, MonitorService::class.java).apply {
             action = MonitorService.ACTION_STOP_MONITORING
         }
@@ -563,7 +721,10 @@ class MainActivity : AppCompatActivity() {
 
         stopChatBackgroundService()
         showToast(getString(R.string.monitoring_stopped))
-        updateUIState()
+        // Optimistically update button state, then refresh UI
+        updateMonitoringButton(false)
+        // Skip auto-recovery during user action to avoid race condition
+        updateUIState(skipAutoRecovery = true)
     }
 
     private fun showEmergencyStopDialog() {
@@ -907,13 +1068,25 @@ class MainActivity : AppCompatActivity() {
                 Log.e(TAG, "Error getting child name", e)
             }
 
-            val intent = Intent(this@MainActivity, RemoteCameraActivity::class.java).apply {
-                putExtra(RemoteCameraActivity.EXTRA_CHILD_ID, childId)
-                if (childName != null) {
-                    putExtra(RemoteCameraActivity.EXTRA_CHILD_NAME, childName)
+            // Switch to main thread for startActivity
+            withContext(Dispatchers.Main) {
+                try {
+                    val intent = Intent(this@MainActivity, RemoteCameraActivity::class.java).apply {
+                        putExtra(RemoteCameraActivity.EXTRA_CHILD_ID, childId)
+                        if (childName != null) {
+                            putExtra(RemoteCameraActivity.EXTRA_CHILD_NAME, childName)
+                        }
+                    }
+                    startActivity(intent)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error opening RemoteCameraActivity", e)
+                    Toast.makeText(
+                        this@MainActivity,
+                        "Ошибка открытия камеры: ${e.message}",
+                        Toast.LENGTH_SHORT
+                    ).show()
                 }
             }
-            startActivity(intent)
         }
     }
 

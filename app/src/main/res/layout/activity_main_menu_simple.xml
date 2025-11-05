@@ -208,18 +208,19 @@
                 android:orientation="vertical"
                 android:gravity="center">
 
-                <!-- Location Card -->
+                <!-- Location Card (hidden) -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/locationCard"
                     android:layout_width="88dp"
                     android:layout_height="88dp"
+                    android:visibility="gone"
                     android:layout_marginBottom="16dp"
                     app:cardCornerRadius="20dp"
                     app:cardElevation="6dp"
                     app:strokeColor="@android:color/transparent"
                     app:strokeWidth="0dp"
-                    android:clickable="true"
-                    android:focusable="true"
+                    android:clickable="false"
+                    android:focusable="false"
                     android:foreground="?attr/selectableItemBackground">
 
                     <LinearLayout
