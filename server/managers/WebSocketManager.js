@@ -114,6 +114,16 @@ class WebSocketManager {
         this.handleCommand(socket, data);
       });
 
+        // Handle photo request from parent
+        socket.on("request_photo", (data) => {
+          this.handlePhotoRequest(socket, data);
+        });
+
+        // Handle photo response from child
+        socket.on("photo", (data) => {
+          this.handlePhotoResponse(socket, data);
+        });
+
       // Handle disconnection
       socket.on("disconnect", () => {
         this.handleDisconnect(socket);
