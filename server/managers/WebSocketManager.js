@@ -62,6 +62,19 @@ class WebSocketManager {
     this.io.on("connection", (socket) => {
       console.log(`🔌 Client connected: ${socket.id}`);
 
+      // Debug: log any incoming WS events to verify routing
+      try {
+        socket.onAny((event, ...args) => {
+          const type = socket.deviceType || "unknown";
+          const did = socket.deviceId || "n/a";
+          console.log(
+            `🔵 WS event '${event}' from ${type} ${socket.id} (deviceId=${did})`
+          );
+        });
+      } catch (e) {
+        console.warn("⚠️ Failed to attach onAny logger:", e?.message || e);
+      }
+
       // Handle child device (ParentWatch) connection
       socket.on("register_child", (data) => {
         this.handleChildRegistration(socket, data);
@@ -96,6 +109,11 @@ class WebSocketManager {
         this.handleChatMessageStatus(socket, data);
       });
 
+      // Handle direct commands from parent app (e.g. take_photo)
+      socket.on("command", (data) => {
+        this.handleCommand(socket, data);
+      });
+
       // Handle disconnection
       socket.on("disconnect", () => {
         this.handleDisconnect(socket);
@@ -108,6 +126,71 @@ class WebSocketManager {
     });
 
     console.log("✅ WebSocket event handlers registered");
+  }
+
+  /**
+   * Handle command request coming from a parent socket
+   */
+  handleCommand(socket, data) {
+    console.log(
+      `📥 [handleCommand] Received command from socket ${socket.id}, deviceType=${socket.deviceType}:`,
+      JSON.stringify(data)
+    );
+
+    try {
+      if (!data || typeof data !== "object") {
+        console.warn("⚠️ Invalid command payload", data);
+        return;
+      }
+
+      const rawType = data.type;
+      const payload = data.data || {};
+      const explicitDeviceId = data.deviceId;
+
+      console.log(
+        `📋 Command details: type=${rawType}, deviceId=${explicitDeviceId}, socketType=${socket.deviceType}`
+      );
+
+      if (!rawType) {
+        console.warn("⚠️ Command missing type", data);
+        return;
+      }
+
+      // Determine target child device
+      let targetDeviceId = explicitDeviceId;
+      if (!targetDeviceId) {
+        const mappedDeviceId = this.parentSockets.get(socket.id);
+        if (mappedDeviceId) {
+          targetDeviceId = mappedDeviceId;
+        }
+      }
+
+      if (!targetDeviceId) {
+        console.warn(
+          `⚠️ Unable to resolve target device for command ${rawType}`,
+          data
+        );
+        return;
+      }
+
+      const commandEnvelope = {
+        type: rawType,
+        data: payload,
+        timestamp: Date.now(),
+        origin: socket.deviceType || "unknown",
+      };
+
+      const sent = this.sendCommandToChild(targetDeviceId, commandEnvelope);
+
+      if (!sent && this.commandManager) {
+        this.commandManager.addCommand(targetDeviceId, rawType, payload);
+        console.log(
+          `📥 Child ${targetDeviceId} оффлайн — команда ${rawType} поставлена в очередь`
+        );
+      }
+    } catch (error) {
+      console.error("❌ Error handling command from parent:", error);
+    }
   }
 
   /**

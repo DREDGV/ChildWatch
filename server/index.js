@@ -509,9 +509,9 @@ app.post(
       // Save audio file metadata to database
       await dbManager.saveAudioFile(deviceId, {
         filename: req.file.filename,
-        filePath: req.file.path,
-        fileSize: req.file.size,
-        mimeType: req.file.mimetype,
+        file_path: req.file.path,
+        file_size: req.file.size,
+        mime_type: req.file.mimetype,
         duration: null, // Could be extracted with ffprobe
         timestamp: audioTimestamp,
       });
@@ -582,9 +582,9 @@ app.post(
       // Save photo file metadata to database
       await dbManager.savePhotoFile(deviceId, {
         filename: req.file.filename,
-        filePath: req.file.path,
-        fileSize: req.file.size,
-        mimeType: req.file.mimetype,
+        file_path: req.file.path,
+        file_size: req.file.size,
+        mime_type: req.file.mimetype,
         width: null, // Could be extracted with image processing
         height: null,
         timestamp: photoTimestamp,
