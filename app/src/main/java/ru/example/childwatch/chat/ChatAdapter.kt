@@ -9,7 +9,8 @@ import ru.example.childwatch.R
 
 class ChatAdapter(
     private val messages: MutableList<ChatMessage>,
-    private val currentUser: String
+    private val currentUser: String,
+    private val onRetryMessage: ((ChatMessage) -> Unit)? = null
 ) : RecyclerView.Adapter<ChatAdapter.MessageViewHolder>() {
 
     private fun isOutgoing(message: ChatMessage) = message.sender == currentUser
@@ -40,6 +41,7 @@ class ChatAdapter(
         private val timestampText: TextView = itemView.findViewById(R.id.timestampText)
         private val senderText: TextView? = itemView.findViewById(R.id.senderText)
         private val statusText: TextView? = itemView.findViewById(R.id.statusText)
+        private val retryButton: TextView? = itemView.findViewById(R.id.retryButton)
 
         fun bind(message: ChatMessage) {
             messageText.text = message.text
@@ -75,6 +77,19 @@ class ChatAdapter(
                     )
                 } else {
                     view.visibility = View.GONE
+                }
+            }
+
+            // Показываем кнопку retry только для неотправленных сообщений
+            retryButton?.let { button ->
+                if (isOutgoing && message.status == ChatMessage.MessageStatus.FAILED) {
+                    button.visibility = View.VISIBLE
+                    button.setOnClickListener {
+                        onRetryMessage?.invoke(message)
+                    }
+                } else {
+                    button.visibility = View.GONE
+                    button.setOnClickListener(null)
                 }
             }
         }

@@ -2,6 +2,10 @@ package ru.example.childwatch
 
 import android.content.Context
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.text.Editable
+import android.text.TextWatcher
 import android.util.Log
 import android.view.View
 import android.widget.Toast
@@ -84,6 +88,12 @@ class ChatActivity : AppCompatActivity() {
     
     // Activity-scoped chat message listener
     private var activityChatListener: ((String, String, String, Long) -> Unit)? = null
+    
+    // Typing indicator
+    private val typingHandler = Handler(Looper.getMainLooper())
+    private var typingRunnable: Runnable? = null
+    private var isCurrentlyTyping = false
+    private val TYPING_TIMEOUT = 5000L // 5 seconds
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -208,10 +218,65 @@ class ChatActivity : AppCompatActivity() {
         binding.emojiButton.setOnClickListener {
             showEmojiPicker()
         }
+        
+        // Setup typing indicator
+        setupTypingIndicator()
+    }
+
+    /**
+     * Setup typing indicator with debounce
+     */
+    private fun setupTypingIndicator() {
+        // Listen for incoming typing events
+        WebSocketManager.setTypingCallback { isTyping ->
+            runOnUiThread {
+                binding.typingIndicator.visibility = if (isTyping) View.VISIBLE else View.GONE
+            }
+        }
+        
+        // Send typing events when user types
+        binding.messageInput.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) {}
+            
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) {
+                // Cancel previous typing stop runnable
+                typingRunnable?.let { typingHandler.removeCallbacks(it) }
+                
+                val hasText = !s.isNullOrEmpty()
+                
+                if (hasText && !isCurrentlyTyping) {
+                    // Start typing
+                    isCurrentlyTyping = true
+                    WebSocketManager.sendTypingStatus(true)
+                    Log.d(TAG, "📝 Started typing")
+                }
+                
+                if (hasText) {
+                    // Schedule typing stop after 5 seconds of inactivity
+                    typingRunnable = Runnable {
+                        if (isCurrentlyTyping) {
+                            isCurrentlyTyping = false
+                            WebSocketManager.sendTypingStatus(false)
+                            Log.d(TAG, "📝 Stopped typing (timeout)")
+                        }
+                    }
+                    typingHandler.postDelayed(typingRunnable!!, TYPING_TIMEOUT)
+                } else if (isCurrentlyTyping) {
+                    // Stop typing if field is empty
+                    isCurrentlyTyping = false
+                    WebSocketManager.sendTypingStatus(false)
+                    Log.d(TAG, "📝 Stopped typing (empty)")
+                }
+            }
+            
+            override fun afterTextChanged(s: Editable?) {}
+        })
     }
 
     private fun setupRecyclerView() {
-        chatAdapter = ChatAdapter(messages, currentUser)
+        chatAdapter = ChatAdapter(messages, currentUser) { message ->
+            retryFailedMessage(message)
+        }
         binding.messagesRecyclerView.apply {
             layoutManager = LinearLayoutManager(this@ChatActivity).apply {
                 stackFromEnd = true // Показываем новые сообщения снизу
@@ -266,18 +331,27 @@ class ChatActivity : AppCompatActivity() {
             return
         }
 
+        // Stop typing indicator when sending
+        if (isCurrentlyTyping) {
+            isCurrentlyTyping = false
+            WebSocketManager.sendTypingStatus(false)
+            typingRunnable?.let { typingHandler.removeCallbacks(it) }
+        }
+
         // Создаем сообщение от родителя (ChildWatch - это приложение родителя)
         val message = ChatMessage(
             id = System.currentTimeMillis().toString(),
             text = messageText,
             sender = currentUser, // "parent"
             timestamp = System.currentTimeMillis(),
-            isRead = false
+            isRead = false,
+            status = ChatMessage.MessageStatus.SENDING
         )
         
         // Добавляем в список
         messages.add(message)
-        chatAdapter.notifyItemInserted(messages.size - 1)
+        val messagePosition = messages.size - 1
+        chatAdapter.notifyItemInserted(messagePosition)
         
         // Прокручиваем к последнему сообщению
         binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
@@ -512,16 +586,32 @@ class ChatActivity : AppCompatActivity() {
             onSuccess = {
                 runOnUiThread {
                     Log.d(TAG, "✅ Message ${message.id} sent successfully")
+                    // Update message status to SENT
+                    updateMessageStatus(message.id, ChatMessage.MessageStatus.SENT)
                     onSuccess?.invoke()
                 }
             },
             onError = { error ->
                 runOnUiThread {
                     Log.e(TAG, "❌ Error sending message ${message.id}: $error")
+                    // Update message status to FAILED
+                    updateMessageStatus(message.id, ChatMessage.MessageStatus.FAILED)
                     onError?.invoke(error)
                 }
             }
         )
+    }
+
+    /**
+     * Update message status in the list
+     */
+    private fun updateMessageStatus(messageId: String, newStatus: ChatMessage.MessageStatus) {
+        val index = messages.indexOfFirst { it.id == messageId }
+        if (index != -1) {
+            messages[index] = messages[index].withStatus(newStatus)
+            chatAdapter.notifyItemChanged(index)
+            Log.d(TAG, "Updated message $messageId status to $newStatus")
+        }
     }
 
     /**
@@ -653,6 +743,19 @@ class ChatActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Повторная отправка неудавшегося сообщения
+     */
+    private fun retryFailedMessage(message: ChatMessage) {
+        Log.d(TAG, "Повторная отправка сообщения: ${message.id}")
+        
+        // Обновляем статус на "отправка"
+        updateMessageStatus(message.id, ChatMessage.MessageStatus.SENDING)
+        
+        // Повторно добавляем в очередь
+        messageQueue.enqueue(message)
+    }
+
     override fun onSupportNavigateUp(): Boolean {
         onBackPressed()
         return true
@@ -660,6 +763,13 @@ class ChatActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         super.onDestroy()
+        
+        // Stop typing indicator
+        if (isCurrentlyTyping) {
+            WebSocketManager.sendTypingStatus(false)
+        }
+        typingRunnable?.let { typingHandler.removeCallbacks(it) }
+        
         chatManager.cleanup()
         chatManagerAdapter.cleanup()
         messageQueue.release()

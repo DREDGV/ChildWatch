@@ -58,6 +58,19 @@
             android:textColor="?attr/colorOnSurfaceVariant"
             android:visibility="gone" />
 
+        <TextView
+            android:id="@+id/retryButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="Повтор"
+            android:textSize="11sp"
+            android:textColor="@android:color/holo_red_dark"
+            android:textStyle="bold"
+            android:padding="4dp"
+            android:background="?attr/selectableItemBackground"
+            android:visibility="gone" />
+
     </LinearLayout>
 
 </LinearLayout>

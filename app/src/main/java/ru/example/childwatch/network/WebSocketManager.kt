@@ -129,6 +129,20 @@ object WebSocketManager {
         chatMessageListeners.clear()
     }
 
+    /**
+     * Set typing indicator callback
+     */
+    fun setTypingCallback(callback: (isTyping: Boolean) -> Unit) {
+        webSocketClient?.setTypingCallback(callback)
+    }
+
+    /**
+     * Send typing start/stop status
+     */
+    fun sendTypingStatus(isTyping: Boolean) {
+        webSocketClient?.sendTypingStatus(isTyping)
+    }
+
     private fun dispatchChatMessage(messageId: String, text: String, sender: String, timestamp: Long) {
         try {
             // Notify all registered listeners

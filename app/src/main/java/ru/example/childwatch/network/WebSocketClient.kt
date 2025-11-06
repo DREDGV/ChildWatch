@@ -43,6 +43,7 @@ class WebSocketClient(
     private var onChatStatusCallback: ((String, String, Long) -> Unit)? = null
     var onPhotoReceived: ((photoBase64: String, requestId: String, timestamp: Long) -> Unit)? = null
     var onPhotoError: ((requestId: String, error: String) -> Unit)? = null
+    private var onTypingCallback: ((isTyping: Boolean) -> Unit)? = null
     
     // Track last processed sequence to prevent duplicates
     private var lastProcessedSequence = -1
@@ -318,6 +319,36 @@ class WebSocketClient(
         }
     }
 
+    private val onTypingStart = Emitter.Listener { args ->
+        try {
+            val data = args.getOrNull(0) as? JSONObject
+            val deviceId = data?.optString("deviceId") ?: ""
+            
+            // Only process if it's from the child device
+            if (deviceId == childDeviceId) {
+                Log.d(TAG, "📝 Child started typing")
+                onTypingCallback?.invoke(true)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error handling typing_start", e)
+        }
+    }
+
+    private val onTypingStop = Emitter.Listener { args ->
+        try {
+            val data = args.getOrNull(0) as? JSONObject
+            val deviceId = data?.optString("deviceId") ?: ""
+            
+            // Only process if it's from the child device
+            if (deviceId == childDeviceId) {
+                Log.d(TAG, "📝 Child stopped typing")
+                onTypingCallback?.invoke(false)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error handling typing_stop", e)
+        }
+    }
+
     /**
      * Connect to WebSocket server
      */
@@ -359,6 +390,8 @@ class WebSocketClient(
             socket?.on("chat_message_error", onChatMessageError)
             socket?.on("photo", onPhoto)
             socket?.on("photo_error", onPhotoErrorEvent)
+            socket?.on("typing_start", onTypingStart)
+            socket?.on("typing_stop", onTypingStop)
 
             socket?.connect()
 
@@ -519,6 +552,35 @@ class WebSocketClient(
 
     fun setChatStatusCallback(callback: (messageId: String, status: String, timestamp: Long) -> Unit) {
         onChatStatusCallback = callback
+    }
+
+    /**
+     * Set callback for typing indicator
+     */
+    fun setTypingCallback(callback: (isTyping: Boolean) -> Unit) {
+        onTypingCallback = callback
+        Log.d(TAG, "✅ Typing indicator callback registered")
+    }
+
+    /**
+     * Send typing start/stop event
+     */
+    fun sendTypingStatus(isTyping: Boolean) {
+        try {
+            if (!isConnected) {
+                Log.w(TAG, "⚠️ Cannot send typing status - not connected")
+                return
+            }
+            val event = if (isTyping) "typing_start" else "typing_stop"
+            val payload = JSONObject().apply {
+                put("deviceId", childDeviceId)
+                put("timestamp", System.currentTimeMillis())
+            }
+            socket?.emit(event, payload)
+            Log.d(TAG, "📝 Sent $event event")
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Failed to send typing status", e)
+        }
     }
 
     fun sendChatStatus(messageId: String, status: String, actor: String) {

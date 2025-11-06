@@ -43,6 +43,22 @@
 
     </com.google.android.material.card.MaterialCardView>
 
+    <!-- Typing Indicator -->
+    <TextView
+        android:id="@+id/typingIndicator"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="6dp"
+        android:paddingBottom="6dp"
+        android:text="Ребёнок печатает..."
+        android:textSize="12sp"
+        android:textColor="#757575"
+        android:textStyle="italic"
+        android:visibility="gone"
+        android:gravity="start" />
+
     <!-- Messages RecyclerView -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/messagesRecyclerView"

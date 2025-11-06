@@ -119,6 +119,20 @@ object WebSocketManager {
     }
 
     /**
+     * Set typing indicator callback
+     */
+    fun setTypingCallback(callback: (isTyping: Boolean) -> Unit) {
+        webSocketClient?.setTypingCallback(callback)
+    }
+
+    /**
+     * Send typing start/stop status
+     */
+    fun sendTypingStatus(isTyping: Boolean) {
+        webSocketClient?.sendTypingStatus(isTyping)
+    }
+
+    /**
      * Check if connected
      */
     fun isConnected(): Boolean {
