@@ -26,31 +26,25 @@
 
 ---
 
-#### Задача 1.2: UI запроса фото (ChildWatch)
+#### ✅ Задача 1.2: UI запроса фото (ChildWatch) — **ЗАВЕРШЕНО**
 **Файлы:** 
-- `app/src/main/java/ru/example/childwatch/MainActivity.kt` (или ChildSelectionActivity)
-- `app/src/main/java/ru/example/childwatch/PhotoPreviewActivity.kt` (новый)
-- `app/src/main/res/layout/activity_photo_preview.xml` (новый)
+- `app/src/main/java/ru/example/childwatch/MainActivity.kt` ✅
+- `app/src/main/java/ru/example/childwatch/PhotoPreviewActivity.kt` ✅
+- `app/src/main/java/ru/example/childwatch/network/WebSocketManager.kt` ✅
+- `app/src/main/java/ru/example/childwatch/network/WebSocketClient.kt` ✅
+- `app/src/main/res/layout/activity_photo_preview.xml` ✅
 
-**Шаги:**
-1. Добавить FloatingActionButton 📷 в главное меню рядом с кнопкой мониторинга
-2. По клику:
-   - Проверить, что устройство выбрано
-   - Показать ProgressDialog "Запрос отправлен..."
-   - Отправить через WebSocket: `socket.emit("request_photo", { targetDevice: childId, requestId: UUID })`
-3. Обработать событие `photo`:
-   - Закрыть ProgressDialog
-   - Декодировать Base64 в Bitmap
-   - Открыть PhotoPreviewActivity с изображением
-4. Обработать событие `photo_error`:
-   - Показать Toast с ошибкой
+**Что сделано:**
+1. ✅ Добавлен диалог выбора режима камеры (Video/Photo) в remoteCameraCard
+2. ✅ Реализован метод requestRemotePhoto() с ProgressDialog и 30-сек таймаутом
+3. ✅ Добавлены события `photo` и `photo_error` в WebSocketClient
+4. ✅ Создан PhotoPreviewActivity с full-screen viewer, Save, Share кнопками
+5. ✅ Обработка ошибок: timeout, camera errors, connection errors
+6. ✅ WebSocketManager: методы requestPhoto(), setPhotoReceivedCallback()
 
-**PhotoPreviewActivity:**
-- ImageView для отображения
-- Кнопки: "Сохранить", "Поделиться", "Закрыть"
-- Metadata: дата, время, deviceId
+**Коммит:** `feat(remote-photo): implement UI for photo capture in ChildWatch`
 
-**Проверка:** Нажатие кнопки → получение фото → отображение
+**Проверка:** ⏳ Требуется end-to-end тестирование
 
 ---
 
