@@ -23,6 +23,7 @@ import ru.example.parentwatch.service.LocationService
 import ru.example.parentwatch.service.ChatBackgroundService
 import ru.example.parentwatch.service.PhotoCaptureService
 import ru.example.parentwatch.location.ParentLocationTracker
+import ru.example.parentwatch.network.PhotoIntegration
 import android.view.MotionEvent
 import android.view.View
 import java.text.SimpleDateFormat
@@ -49,6 +50,9 @@ class MainActivity : AppCompatActivity() {
     
     // Parent location tracker instance
     private var parentLocationTracker: ParentLocationTracker? = null
+    
+    // Photo integration for remote photo capture
+    private var photoIntegration: ru.example.parentwatch.network.PhotoIntegration? = null
 
     // UI elements
     private lateinit var titleText: TextView
@@ -108,10 +112,30 @@ class MainActivity : AppCompatActivity() {
         loadSettings()
         updateUI()
         
+        // Initialize PhotoIntegration for remote photo capture
+        initializePhotoIntegration()
+        
         // Проверяем, нужно ли открыть чат
         if (intent.getBooleanExtra("open_chat", false)) {
             val chatIntent = Intent(this, ChatActivity::class.java)
             startActivity(chatIntent)
+        }
+    }
+    
+    private fun initializePhotoIntegration() {
+        try {
+            val deviceId = prefs.getString("device_id", null)
+            if (deviceId.isNullOrEmpty()) {
+                Log.w("MainActivity", "Cannot initialize PhotoIntegration: device_id not set")
+                return
+            }
+            
+            photoIntegration = ru.example.parentwatch.network.PhotoIntegration(this, deviceId)
+            photoIntegration?.register()
+            
+            Log.d("MainActivity", "PhotoIntegration initialized successfully")
+        } catch (e: Exception) {
+            Log.e("MainActivity", "Failed to initialize PhotoIntegration", e)
         }
     }
 
@@ -530,5 +554,11 @@ class MainActivity : AppCompatActivity() {
                 .apply()
         }
         return deviceId!!
+    }
+    
+    override fun onDestroy() {
+        super.onDestroy()
+        photoIntegration?.unregister()
+        photoIntegration = null
     }
 }

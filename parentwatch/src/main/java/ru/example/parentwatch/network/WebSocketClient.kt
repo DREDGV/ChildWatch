@@ -306,6 +306,24 @@ class WebSocketClient(
         }
     }
 
+    private val onRequestPhoto = Emitter.Listener { args ->
+        try {
+            val data = args.getOrNull(0) as? JSONObject
+            val requestId = data?.optString("requestId") ?: ""
+            val targetDevice = data?.optString("targetDevice") ?: ""
+
+            Log.d(TAG, "📸 Received photo request: requestId=$requestId, targetDevice=$targetDevice")
+
+            // Forward to PhotoIntegration via callback
+            onRequestPhotoCallback?.invoke(requestId, targetDevice)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error handling photo request", e)
+        }
+    }
+
+    // Callback for photo request
+    var onRequestPhotoCallback: ((requestId: String, targetDevice: String) -> Unit)? = null
+
     /**
      * Connect to WebSocket server
      */
@@ -346,6 +364,7 @@ class WebSocketClient(
             socket?.on("chat_message_sent", onChatMessageSent)
             socket?.on("chat_message_status", onChatMessageStatus)
             socket?.on("chat_message_error", onChatMessageError)
+            socket?.on("request_photo", onRequestPhoto)
 
             socket?.connect()
 
@@ -627,6 +646,20 @@ class WebSocketClient(
             Log.e(TAG, "Error sending audio chunk", e)
             onError(e.message ?: "Unknown error")
         }
+    }
+
+    /**
+     * Public emit method for external modules to send WebSocket events
+     */
+    fun emit(event: String, data: JSONObject) {
+        socket?.emit(event, data)
+    }
+
+    /**
+     * Public emit method with byte array (for binary data like photos)
+     */
+    fun emit(event: String, metadata: JSONObject, binaryData: ByteArray) {
+        socket?.emit(event, metadata, binaryData)
     }
 
     /**
