@@ -440,9 +440,60 @@ class ChatActivity : AppCompatActivity() {
         }
         WebSocketManager.addChatMessageListener(activityChatListener!!)
 
-        // Check if already connected
+        // Check if already connected and update status
         if (WebSocketManager.isConnected()) {
-            Toast.makeText(this, "✅ Подключено к серверу", Toast.LENGTH_SHORT).show()
+            updateConnectionStatus(ConnectionStatus.CONNECTED)
+        } else {
+            updateConnectionStatus(ConnectionStatus.CONNECTING)
+            // Attempt to connect
+            WebSocketManager.connect(
+                onConnected = {
+                    runOnUiThread {
+                        updateConnectionStatus(ConnectionStatus.CONNECTED)
+                    }
+                },
+                onError = { error ->
+                    runOnUiThread {
+                        updateConnectionStatus(ConnectionStatus.DISCONNECTED)
+                        Log.e(TAG, "WebSocket connection error: $error")
+                    }
+                }
+            )
+        }
+    }
+
+    /**
+     * Connection status enum
+     */
+    private enum class ConnectionStatus {
+        CONNECTED,      // 🟢 Green
+        CONNECTING,     // 🟡 Yellow
+        DISCONNECTED    // 🔴 Red
+    }
+
+    /**
+     * Update connection status indicator
+     */
+    private fun updateConnectionStatus(status: ConnectionStatus) {
+        when (status) {
+            ConnectionStatus.CONNECTED -> {
+                binding.connectionStatusCard.visibility = View.GONE
+                binding.connectionStatusIcon.setBackgroundResource(R.drawable.status_connected)
+                binding.connectionStatusText.text = "Подключено"
+                binding.connectionStatusText.setTextColor(getColor(android.R.color.holo_green_dark))
+            }
+            ConnectionStatus.CONNECTING -> {
+                binding.connectionStatusCard.visibility = View.VISIBLE
+                binding.connectionStatusIcon.setBackgroundResource(R.drawable.status_connecting)
+                binding.connectionStatusText.text = "Подключение..."
+                binding.connectionStatusText.setTextColor(getColor(android.R.color.holo_orange_dark))
+            }
+            ConnectionStatus.DISCONNECTED -> {
+                binding.connectionStatusCard.visibility = View.VISIBLE
+                binding.connectionStatusIcon.setBackgroundResource(R.drawable.status_disconnected)
+                binding.connectionStatusText.text = "Офлайн"
+                binding.connectionStatusText.setTextColor(getColor(android.R.color.holo_red_dark))
+            }
         }
     }
 
