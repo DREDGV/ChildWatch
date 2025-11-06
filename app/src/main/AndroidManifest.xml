@@ -118,6 +118,12 @@
             android:exported="false"
             android:theme="@style/Theme.ChildWatch" />
             
+        <!-- Photo Preview Activity (Remote Photos) -->
+        <activity
+            android:name=".PhotoPreviewActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ChildWatch.NoActionBar" />
+            
         <!-- Chat Activity -->
         <activity
             android:name=".ChatActivity"

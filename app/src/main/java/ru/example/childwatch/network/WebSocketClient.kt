@@ -41,6 +41,8 @@ class WebSocketClient(
     private var onChatMessageCallback: ((String, String, String, Long) -> Unit)? = null
     private var onChatMessageSentCallback: ((String, Boolean, Long) -> Unit)? = null
     private var onChatStatusCallback: ((String, String, Long) -> Unit)? = null
+    var onPhotoReceived: ((photoBase64: String, requestId: String, timestamp: Long) -> Unit)? = null
+    var onPhotoError: ((requestId: String, error: String) -> Unit)? = null
     
     // Track last processed sequence to prevent duplicates
     private var lastProcessedSequence = -1
@@ -286,6 +288,36 @@ class WebSocketClient(
         }
     }
 
+    private val onPhoto = Emitter.Listener { args ->
+        try {
+            val data = args.getOrNull(0) as? JSONObject
+            val photoBase64 = data?.optString("photo") ?: ""
+            val requestId = data?.optString("requestId") ?: ""
+            val timestamp = data?.optLong("timestamp") ?: System.currentTimeMillis()
+
+            Log.d(TAG, "📸 Photo received: requestId=$requestId, size=${photoBase64.length} bytes")
+            
+            if (photoBase64.isNotEmpty()) {
+                onPhotoReceived?.invoke(photoBase64, requestId, timestamp)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error handling photo", e)
+        }
+    }
+
+    private val onPhotoErrorEvent = Emitter.Listener { args ->
+        try {
+            val data = args.getOrNull(0) as? JSONObject
+            val requestId = data?.optString("requestId") ?: ""
+            val error = data?.optString("error") ?: "Unknown error"
+
+            Log.e(TAG, "❌ Photo error: requestId=$requestId, error=$error")
+            onPhotoError?.invoke(requestId, error)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error handling photo error", e)
+        }
+    }
+
     /**
      * Connect to WebSocket server
      */
@@ -325,6 +357,8 @@ class WebSocketClient(
             socket?.on("chat_message_sent", onChatMessageSent)
             socket?.on("chat_message_status", onChatMessageStatus)
             socket?.on("chat_message_error", onChatMessageError)
+            socket?.on("photo", onPhoto)
+            socket?.on("photo_error", onPhotoErrorEvent)
 
             socket?.connect()
 
@@ -556,6 +590,13 @@ class WebSocketClient(
     }
 
     /**
+     * Emit WebSocket event (for external use)
+     */
+    fun emit(event: String, data: JSONObject) {
+        socket?.emit(event, data)
+    }
+
+    /**
      * Cleanup resources
      */
     fun cleanup() {
@@ -570,5 +611,7 @@ class WebSocketClient(
         onChatMessageCallback = null
         onChatMessageSentCallback = null
         onChatStatusCallback = null
+        onPhotoReceived = null
+        onPhotoError = null
     }
 }

@@ -1057,7 +1057,110 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        // Get child name from database if available
+        // Show dialog with options: Video Stream or Photo Capture
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Remote Camera")
+            .setMessage("Choose camera mode:")
+            .setPositiveButton("📸 Capture Photo") { _, _ ->
+                requestRemotePhoto(childId)
+            }
+            .setNegativeButton("🎥 Video Stream") { _, _ ->
+                openVideoStream(childId)
+            }
+            .setNeutralButton("Cancel", null)
+            .show()
+    }
+
+    /**
+     * Request remote photo capture
+     */
+    private fun requestRemotePhoto(childId: String) {
+        if (!WebSocketManager.isConnected()) {
+            Toast.makeText(this, "Not connected to server", Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val progressDialog = MaterialAlertDialogBuilder(this)
+            .setTitle("Requesting Photo")
+            .setMessage("Please wait...")
+            .setCancelable(false)
+            .create()
+
+        progressDialog.show()
+
+        // Set timeout
+        val timeoutHandler = android.os.Handler(mainLooper)
+        val timeoutRunnable = Runnable {
+            progressDialog.dismiss()
+            Toast.makeText(this, "Photo request timeout", Toast.LENGTH_LONG).show()
+        }
+        timeoutHandler.postDelayed(timeoutRunnable, 30000) // 30 second timeout
+
+        // Request photo
+        WebSocketManager.requestPhoto(
+            targetDevice = childId,
+            onSuccess = {
+                Log.d(TAG, "Photo request sent successfully")
+            },
+            onError = { error ->
+                timeoutHandler.removeCallbacks(timeoutRunnable)
+                progressDialog.dismiss()
+                Toast.makeText(this, "Error: $error", Toast.LENGTH_LONG).show()
+            }
+        )
+
+        // Set one-time callback for photo response
+        var photoReceived = false
+        WebSocketManager.setPhotoReceivedCallback { photoBase64, requestId, timestamp ->
+            if (!photoReceived) {
+                photoReceived = true
+                timeoutHandler.removeCallbacks(timeoutRunnable)
+                runOnUiThread {
+                    progressDialog.dismiss()
+                    openPhotoPreview(photoBase64, timestamp, childId)
+                }
+            }
+        }
+
+        WebSocketManager.setPhotoErrorCallback { requestId, error ->
+            if (!photoReceived) {
+                photoReceived = true
+                timeoutHandler.removeCallbacks(timeoutRunnable)
+                runOnUiThread {
+                    progressDialog.dismiss()
+                    Toast.makeText(this, "Camera error: $error", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+    }
+
+    /**
+     * Open photo preview activity
+     */
+    private fun openPhotoPreview(photoBase64: String, timestamp: Long, deviceId: String) {
+        lifecycleScope.launch {
+            var deviceName = deviceId
+            try {
+                val database = ChildWatchDatabase.getInstance(this@MainActivity)
+                val child = database.childDao().getByDeviceId(deviceId)
+                deviceName = child?.name ?: deviceId
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting device name", e)
+            }
+
+            val intent = Intent(this@MainActivity, PhotoPreviewActivity::class.java).apply {
+                putExtra(PhotoPreviewActivity.EXTRA_PHOTO_BASE64, photoBase64)
+                putExtra(PhotoPreviewActivity.EXTRA_PHOTO_TIMESTAMP, timestamp)
+                putExtra(PhotoPreviewActivity.EXTRA_DEVICE_NAME, deviceName)
+            }
+            startActivity(intent)
+        }
+    }
+
+    /**
+     * Open video stream activity
+     */
+    private fun openVideoStream(childId: String) {
         lifecycleScope.launch {
             var childName: String? = null
             try {
@@ -1068,7 +1171,6 @@ class MainActivity : AppCompatActivity() {
                 Log.e(TAG, "Error getting child name", e)
             }
 
-            // Switch to main thread for startActivity
             withContext(Dispatchers.Main) {
                 try {
                     val intent = Intent(this@MainActivity, RemoteCameraActivity::class.java).apply {

@@ -7,36 +7,22 @@
 ### Фаза 1: Завершить удалённое фото (P0) — **СЕЙЧАС**
 **Время:** 2-3 часа | **Приоритет:** 🔥 КРИТИЧНО
 
-#### Задача 1.1: Интеграция RemotePhotoService с WebSocket (ParentWatch)
-**Файлы:** `parentwatch/src/main/java/ru/example/parentwatch/network/WebSocketManager.kt`
+#### ✅ Задача 1.1: Интеграция RemotePhotoService с WebSocket (ParentWatch) — **ЗАВЕРШЕНО**
+**Файлы:** 
+- `parentwatch/src/main/java/ru/example/parentwatch/network/PhotoIntegration.kt` ✅
+- `parentwatch/src/main/java/ru/example/parentwatch/network/WebSocketClient.kt` ✅
+- `parentwatch/src/main/java/ru/example/parentwatch/MainActivity.kt` ✅
 
-**Шаги:**
-1. Добавить BroadcastReceiver для прослушивания `PHOTO_CAPTURED`
-2. В обработчике события `request_photo`:
-   - Запустить RemotePhotoService через Intent
-   - Передать requestId и from_parent
-3. При получении broadcast `PHOTO_CAPTURED`:
-   - Конвертировать ByteArray в Base64 (или использовать binary)
-   - Отправить через `socket.emit("photo", data)`
-4. Обработать broadcast `PHOTO_ERROR` и отправить на сервер
+**Что сделано:**
+1. ✅ Создан класс PhotoIntegration с BroadcastReceiver для PHOTO_CAPTURED/PHOTO_ERROR
+2. ✅ Добавлены публичные методы emit() в WebSocketClient
+3. ✅ Добавлен обработчик события request_photo в WebSocketClient
+4. ✅ PhotoIntegration инициализируется в MainActivity onCreate
+5. ✅ Cleanup в MainActivity onDestroy
 
-**Код-каркас:**
-```kotlin
-// В WebSocketManager.kt
-private val photoCaptureReceiver = object : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        when (intent.action) {
-            "ru.example.parentwatch.PHOTO_CAPTURED" -> {
-                val requestId = intent.getStringExtra("request_id")
-                val imageData = intent.getByteArrayExtra("image_data")
-                // ... отправка через socket
-            }
-        }
-    }
-}
-```
+**Коммит:** `feat(remote-photo): integrate PhotoIntegration with WebSocketClient`
 
-**Проверка:** Логи показывают отправку фото на сервер
+**Проверка:** ⏳ Требуется тестирование с ChildWatch UI
 
 ---
 

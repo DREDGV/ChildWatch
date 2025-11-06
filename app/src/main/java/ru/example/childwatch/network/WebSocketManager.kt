@@ -197,6 +197,55 @@ object WebSocketManager {
         return webSocketClient
     }
 
+    // Photo capture callbacks
+    private var photoReceivedCallback: ((photoBase64: String, requestId: String, timestamp: Long) -> Unit)? = null
+    private var photoErrorCallback: ((requestId: String, error: String) -> Unit)? = null
+
+    /**
+     * Request remote photo capture
+     */
+    fun requestPhoto(
+        targetDevice: String,
+        requestId: String = java.util.UUID.randomUUID().toString(),
+        onSuccess: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        if (!isConnected()) {
+            onError("Not connected to server")
+            return
+        }
+
+        try {
+            val data = JSONObject().apply {
+                put("targetDevice", targetDevice)
+                put("requestId", requestId)
+            }
+
+            webSocketClient?.emit("request_photo", data)
+            onSuccess()
+            Log.d(TAG, "Photo request sent: requestId=$requestId, target=$targetDevice")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error requesting photo", e)
+            onError(e.message ?: "Unknown error")
+        }
+    }
+
+    /**
+     * Set photo received callback
+     */
+    fun setPhotoReceivedCallback(callback: (photoBase64: String, requestId: String, timestamp: Long) -> Unit) {
+        photoReceivedCallback = callback
+        webSocketClient?.onPhotoReceived = callback
+    }
+
+    /**
+     * Set photo error callback
+     */
+    fun setPhotoErrorCallback(callback: (requestId: String, error: String) -> Unit) {
+        photoErrorCallback = callback
+        webSocketClient?.onPhotoError = callback
+    }
+
     /**
      * Cleanup resources
      */
@@ -207,5 +256,7 @@ object WebSocketManager {
         chatMessageCallback = null
         chatMessageSentCallback = null
         chatStatusCallback = null
+        photoReceivedCallback = null
+        photoErrorCallback = null
     }
 }
