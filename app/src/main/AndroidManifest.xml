@@ -246,6 +246,12 @@
             </intent-filter>
         </receiver>
 
+        <!-- Geofence Broadcast Receiver -->
+        <receiver
+            android:name=".geofence.GeofenceBroadcastReceiver"
+            android:enabled="true"
+            android:exported="false" />
+
         <activity
             android:name=".recordings.RecordingsLibraryActivity"
             android:exported="false"

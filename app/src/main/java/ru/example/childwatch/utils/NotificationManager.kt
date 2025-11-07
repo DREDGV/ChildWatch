@@ -1,12 +1,15 @@
 package ru.example.childwatch.utils
 
+import android.Manifest
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.util.Log
+import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
@@ -25,8 +28,13 @@ object NotificationManager {
     private const val CHAT_CHANNEL_NAME = "Сообщения чата"
     private const val CHAT_CHANNEL_DESCRIPTION = "Уведомления о новых сообщениях от ребенка"
 
+    private const val GEOFENCE_CHANNEL_ID = "geofence_notifications"
+    private const val GEOFENCE_CHANNEL_NAME = "Геозоны"
+    private const val GEOFENCE_CHANNEL_DESCRIPTION = "Уведомления о входе/выходе из геозон"
+
     private const val CHAT_NOTIFICATION_ID = 4001
     private const val CHAT_GROUP_KEY = "ru.example.childwatch.CHAT_GROUP"
+    private const val GEOFENCE_NOTIFICATION_ID_BASE = 5000
 
     // Counter for unread messages
     private var unreadMessageCount = 0
@@ -61,6 +69,21 @@ object NotificationManager {
             }
 
             notificationManager.createNotificationChannel(chatChannel)
+            
+            // Geofence notifications channel
+            val geofenceChannel = NotificationChannel(
+                GEOFENCE_CHANNEL_ID,
+                GEOFENCE_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = GEOFENCE_CHANNEL_DESCRIPTION
+                enableLights(true)
+                lightColor = android.graphics.Color.RED
+                enableVibration(true)
+                setShowBadge(true)
+            }
+
+            notificationManager.createNotificationChannel(geofenceChannel)
         }
     }
 
@@ -227,5 +250,51 @@ object NotificationManager {
      */
     fun areNotificationsEnabled(context: Context): Boolean {
         return NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+
+    /**
+     * Show geofence notification
+     */
+    fun showGeofenceNotification(
+        context: Context,
+        title: String,
+        message: String,
+        isExit: Boolean
+    ) {
+        val intent = Intent(context, ru.example.childwatch.MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        val builder = NotificationCompat.Builder(context, GEOFENCE_CHANNEL_ID)
+            .setSmallIcon(if (isExit) android.R.drawable.ic_dialog_alert else android.R.drawable.ic_dialog_info)
+            .setContentTitle(title)
+            .setContentText(message)
+            .setPriority(if (isExit) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+        
+        if (isExit) {
+            builder.setVibrate(longArrayOf(0, 500, 200, 500))
+                .setColor(android.graphics.Color.RED)
+        }
+        
+        val notificationManager = NotificationManagerCompat.from(context)
+        val notificationId = GEOFENCE_NOTIFICATION_ID_BASE + title.hashCode()
+        
+        if (ActivityCompat.checkSelfPermission(
+                context,
+                Manifest.permission.POST_NOTIFICATIONS
+            ) == PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationManager.notify(notificationId, builder.build())
+        }
     }
 }

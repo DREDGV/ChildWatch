@@ -24,6 +24,9 @@ import ru.example.childwatch.database.entity.*
  *
  * Version 2: Added ParentLocation for "Where are parents?" feature
  * - Parent locations table with battery level, speed, bearing
+ *
+ * Version 3: Added Geofences for zone monitoring
+ * - Geofences table with radius, notifications
  */
 @Database(
     entities = [
@@ -32,9 +35,10 @@ import ru.example.childwatch.database.entity.*
         ChatMessageEntity::class,
         AudioRecording::class,
         LocationPoint::class,
-        ParentLocation::class
+        ParentLocation::class,
+        Geofence::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class ChildWatchDatabase : RoomDatabase() {
@@ -68,6 +72,11 @@ abstract class ChildWatchDatabase : RoomDatabase() {
      * Get ParentLocationDao instance
      */
     abstract fun parentLocationDao(): ParentLocationDao
+
+    /**
+     * Get GeofenceDao instance
+     */
+    abstract fun geofenceDao(): GeofenceDao
 
     companion object {
         /**
@@ -110,6 +119,34 @@ abstract class ChildWatchDatabase : RoomDatabase() {
         }
 
         /**
+         * Migration from version 2 to 3
+         * Adds geofences table for zone monitoring
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Create geofences table
+                database.execSQL("""
+                    CREATE TABLE IF NOT EXISTS geofences (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        name TEXT NOT NULL,
+                        latitude REAL NOT NULL,
+                        longitude REAL NOT NULL,
+                        radius REAL NOT NULL,
+                        device_id TEXT NOT NULL,
+                        is_active INTEGER NOT NULL DEFAULT 1,
+                        created_at INTEGER NOT NULL,
+                        notification_on_enter INTEGER NOT NULL DEFAULT 0,
+                        notification_on_exit INTEGER NOT NULL DEFAULT 1
+                    )
+                """.trimIndent())
+                
+                // Create indices for performance
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_geofences_device_id ON geofences(device_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_geofences_is_active ON geofences(is_active)")
+            }
+        }
+
+        /**
          * Get database instance (Singleton pattern)
          *
          * @param context Application context
@@ -122,7 +159,7 @@ abstract class ChildWatchDatabase : RoomDatabase() {
                     ChildWatchDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     // Fallback only in debug builds or for future migrations
                     .fallbackToDestructiveMigration()
                     .build()
