@@ -13,8 +13,8 @@ android {
         applicationId "ru.example.childwatch"
         minSdk 26
         targetSdk 34
-    versionCode 40
-    versionName "6.4.1"
+        versionCode 41
+        versionName "7.0.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
