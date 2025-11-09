@@ -4,17 +4,78 @@ All notable changes to ChildWatch will be documented in this file.
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [6.4.0 / 5.4.0] - 2025-11-01
+## [7.1.0] - 2025-11-09
+
+### Added
+
+- **Реальная удалённая фотосъёмка** через Camera2 API
+  - Замена placeholder (синий квадрат) на настоящую камеру
+  - Фоновая съёмка через dummy SurfaceTexture (совместимость с Android 9+)
+  - Автоматическая загрузка фото на сервер через `NetworkClient.uploadPhoto()`
+  - Таймаут захвата 10 секунд с корректной очисткой ресурсов
+  - JPEG качество 85%, разрешение 1920x1080
+- **Разрешения для камеры**
+  - `FOREGROUND_SERVICE_CAMERA` permission для Android 14+
+  - MonitorService теперь поддерживает `foregroundServiceType="location|microphone|camera"`
+
+### Changed
+
+- `PhotoCapture.takePhoto()` — переведён на suspend функцию с `Dispatchers.IO`
+- `PhotoCapture.captureRealPhoto()` — новая приватная функция с Camera2 API
+- Удалены неиспользуемые методы `createPlaceholderPhoto()`, `processImage()`, `rotateBitmap()`
+
+### Technical
+
+- `app/build.gradle`: versionCode 44, versionName "7.1.0"
+- `parentwatch/build.gradle`: versionCode 31, versionName "7.1.0" (синхронизация)
+- Добавлены импорты: `ImageFormat`, `SurfaceTexture`, `ImageReader`, `Surface`, `CountDownLatch`, `TimeUnit`
+- Серверный эндпоинт `/api/photo` уже был реализован (проверено)
+
+### Known Issues
+
+- ⚠️ **Privacy Indicators**: На Android 12+ появляется зелёный индикатор 🟢 при съёмке (системное ограничение)
+- ⚠️ **Юридические риски**: Скрытая съёмка может быть незаконна в некоторых юрисдикциях
+
+---
+
+## [7.0.2] - 2025-11-08
+
+### Fixed
+
+- Room migration crash: `Migration didn't properly handle geofences` (удалены DEFAULT для булевых колонок в миграции 2→3)
+- Неправильный бейдж чата на главном экране (теперь корректно скрывается после открытия чата)
+- Потенциальная рассинхронизация прочитанных сообщений между legacy и Room хранилищами
+
+### Changed
+
+- При открытии чата все сообщения автоматически помечаются прочитанными (Room + SecurePreferences)
+- Обновлена логика вычисления непрочитанных сообщений (корутина IO + обновление на Main потоке)
+
+### Removed
+
+- Кнопка "Очистить" из интерфейса чата (устранение риска случайной потери истории)
+
+### Technical
+
+- `ChildWatchDatabase.MIGRATION_2_3` — убраны DEFAULT значения для `is_active`, `notification_on_enter`, `notification_on_exit`
+- `ChatActivity` — добавлена синхронизация `markAllAsRead()` c legacy `ChatManager`
+- `MainActivity.updateChatBadge()` — переработано с использованием `Dispatchers.IO`
+
+### Notes
+
+- Версия повышена как PATCH (7.0.1 → 7.0.2), так как изменения не меняют публичный функционал, но устраняют сбои и улучшают UX.
 
 ### MAJOR: Application Renaming for Clarity
 
 **BREAKING CHANGE:** Applications have been renamed to eliminate confusion:
+
 - **ParentWatch** → **ChildDevice** (телефон ребенка)
 - **ChildWatch** → **ParentMonitor** (телефон родителя)
 
 This change makes it crystal clear which app goes on which device. Previous naming was counterintuitive.
 
 ### Added
+
 - **Remote Camera Feature** - Parents can now remotely take photos from child's device
   - Front and back camera support
   - Silent photo capture via WebSocket commands
@@ -46,6 +107,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Full profile editing capabilities
 
 ### Changed
+
 - Settings screen: all buttons now use unified outlined style with green borders
 - All section titles in Settings are now centered
 - "О приложении" and "Статистика" buttons are now equal size (64dp height)
@@ -53,11 +115,13 @@ This change makes it crystal clear which app goes on which device. Previous nami
 - Toolbar titles centered with emerald green background
 
 ### Fixed
+
 - Chat message delivery - messages no longer lost when connection drops
 - Chat titles now show actual names instead of generic labels
 - Message queue ensures delivery even after app closes
 
 ### Technical
+
 - Added `RemoteCameraActivity.kt` with WebSocket command sending
 - Created `activity_remote_camera.xml` layout with camera controls
 - Added `bg_menu_card_orange.xml` drawable for camera menu card
@@ -70,12 +134,14 @@ This change makes it crystal clear which app goes on which device. Previous nami
 - Modified `ChildSelectionActivity.kt` and `ChildrenAdapter.kt`
 
 ### Documentation
+
 - Updated `.github/copilot-instructions.md` with clear warnings about app naming
 - Added prominent section explaining the counterintuitive naming
 
 ## [6.2.0 / 5.4.0] - 2025-10-25
 
 ### Added
+
 - **Emoji System** in chat
   - Emoji button in chat interface
   - Popup with 40 popular emojis in 5x5 grid
@@ -87,6 +153,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Single checkmark (sent), double checkmark (delivered/read)
 
 ### Changed
+
 - **Modern Chat UI**
   - Beautiful gradient message bubbles (#5E72E4 → #4361EE)
   - Improved incoming message design (light gray background #F5F7FA with soft border)
@@ -109,11 +176,13 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Added 35+ string resources for AudioStreamingActivity
 
 ### Fixed
+
 - Removed test button from chat interface
 - Fixed extra closing bracket in ParentWatch ChatActivity
 - All texts properly use UTF-8 encoding
 
 ### Technical
+
 - ChatMessage already supports extended statuses (SENDING, SENT, DELIVERED, READ, FAILED)
 - Support for `client_message_id` for message tracking
 - Foundation laid for improved MessagingStyle notifications
@@ -123,20 +192,24 @@ This change makes it crystal clear which app goes on which device. Previous nami
 ## [6.1.0 / 5.3.0] - 2025-10-22
 
 ### Added
+
 - Three-level volume modes (Quiet, Normal, Loud) with dedicated toggle button and persistent preferences
 - Enhanced heads-up display showing connection status with session timer, network type, data rate, ping, battery level, audio state, queue health, total data transferred and sample rate
 - Battery indicator on listening screen for parent device monitoring during streaming
 
 ### Improved
+
 - Audio capture and playback run at 22.05 kHz with 20 ms frames, increasing voice clarity without sacrificing latency
 - Jitter buffer management drops excess frames aggressively when queue grows beyond optimal window, keeping latency under control
 - Audio focus handling pauses or ducks playback automatically during calls or system notifications and restores volume afterwards
 
 ### Fixed
+
 - Streaming service now holds partial WakeLock to prevent child device from suspending CPU during long sessions
 - System audio filter updates broadcast from ChildWatch are applied immediately on ParentWatch with additional diagnostics
 
 ### Technical
+
 - Added `AudioEnhancer.VolumeMode` on ChildWatch with efficient PCM amplification and clipping protection
 - ParentWatch logs availability/status of Android audio effects and responds to `UPDATE_FILTER_MODE` broadcasts
 - HUD layout updated to two rows with improved typography for readability in daylight
@@ -144,6 +217,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 ## [6.0.0] - 2025-10-30
 
 ### Added
+
 - **"Где родители?" Feature** - Parent location sharing with real-time tracking
   - Parents can share their location in real-time
   - Children see parents on map with distance and ETA
@@ -180,6 +254,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Proper handling of permission denial
 
 ### Technical
+
 - Client integration: `getLatestParentLocation()` with fallback to local DB
 - `NetworkClient` method `uploadParentLocation()`
 - Layout `activity_parent_location_map.xml` with stats card and floating refresh button
@@ -188,6 +263,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 ## [5.7.0] - 2025-10-28
 
 ### Added
+
 - **OpenStreetMap Integration** - Complete migration from Google Maps
   - Works without VPN in Russia
   - Uses open OpenStreetMap (Mapnik tiles)
@@ -196,6 +272,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Dependency: `androidx.preference:preference-ktx:1.2.1`
 
 ### Changed
+
 - **Audio Quality Improvements for Unstable Internet**
   - Minimum jitter buffer increased from 160ms to 240ms
   - Maximum buffer increased from 1000ms to 1200ms
@@ -214,10 +291,12 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Reverse geocoding (Geocoder) preserved
 
 ### Removed
+
 - Google Maps dependency: `com.google.android.gms:play-services-maps:18.2.0`
 - Kept: `play-services-location:21.0.1` (for location determination)
 
 ### Technical
+
 - AudioPlaybackService.kt: Updated jitter buffer constants
 - WebSocketClient.kt: Updated connection timing constants
 - AndroidManifest.xml: Added `ACCESS_WIFI_STATE` permission
@@ -226,6 +305,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 ## [5.5.0] - 2025-10-25
 
 ### Added
+
 - Device editing capability with edit button on each device card
 - Long press on card as alternative way to open editing
 - Convenient editing dialog with three buttons: Save, Cancel, Delete
@@ -233,10 +313,12 @@ This change makes it crystal clear which app goes on which device. Previous nami
 - Visual edit button (pencil icon) on each device card
 
 ### Changed
+
 - Device ID now read-only during edit (protection from errors)
 - Improved element layout on device card
 
 ### Fixed
+
 - **CRITICAL**: Crash when opening ChildSelectionActivity due to ActionBar conflict
   - Created special theme `Theme.ChildWatch.NoActionBar`
   - Activity now opens without errors
@@ -246,6 +328,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Added `background` with `selectableItemBackground` to container
 
 ### Technical
+
 - `item_child.xml` - added edit button
 - `ChildrenAdapter.kt` - added callback for editing and long press
 - `ChildSelectionActivity.kt` - added editing and deletion functions
@@ -258,6 +341,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 ## [5.2.0 / 4.4.0] - 2025-10-13
 
 ### Added
+
 - ParentWatch now collects battery, charging, temperature, voltage and device details from child device and sends with every location update
 - Server persists latest child status in new device_status table and exposes via GET /api/device/status/{deviceId}
 - ChildWatch shows dedicated "Child Device Status" card with live battery/charging stats and caches last snapshot locally
@@ -267,6 +351,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 - Cached latest device status locally so it survives activity restarts and shows immediately while fresh data loads
 
 ### Changed
+
 - ParentWatch location uploads use `uploadLocationWithDeviceInfo` and foreground notification shows current battery state
 - Both Android apps send their `BuildConfig` version in User-Agent header and bumped to ParentWatch v5.2.0 / ChildWatch v4.4.0
 - Fetches device status from new /api/device/status/{deviceId} endpoint and stores snapshot together with fetched timestamp
@@ -274,9 +359,11 @@ This change makes it crystal clear which app goes on which device. Previous nami
 - All network requests include current BuildConfig version in User-Agent header
 
 ### Fixed
+
 - Ensured device registration reports correct app version
 
 ### Technical
+
 - Added Gson dependency in ChildWatch for parsing status payload
 - Created device_status table to persist latest snapshot reported by child device
 - Location uploads save supplied device info and expose through GET /api/device/status/{deviceId}
@@ -285,6 +372,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 ## [5.1.0 / 4.3.0] - 2025-10-12
 
 ### Added
+
 - **Fully Updated Main Menu Interface** (ParentWatch)
   - Modern design with cards using Material Design 3
   - Convenient navigation with four main sections:
@@ -318,6 +406,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Settings saving - validation and saving with confirmation
 
 ### Technical
+
 - New classes and components:
   - `ChatMessage.kt` - Chat message data model
   - `ChatManager.kt` - Manager for saving and loading messages (JSON + SharedPreferences)
@@ -338,6 +427,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 ## [5.0.0 / 6.0.0] - 2025-10-22
 
 ### Added
+
 - **Comprehensive Diagnostics System** - "See the problem before complaint"
   - Complete monitoring and diagnostics of audio streaming in real-time
   - All key metrics visible directly in interface
@@ -362,6 +452,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Version synchronization for compatibility with ChildWatch v5.0.0
 
 ### Changed
+
 - AudioPlaybackService integration with MetricsManager
   - WebSocket status updates on connect/disconnect
   - Audio status updates (BUFFERING → PLAYING)
@@ -370,12 +461,14 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Automatic cleanup on destroy
 
 ### Fixed
+
 - All conflicts with `FilterMode` enum resolved
 - Created single enum in separate file for each module
 - All `AudioEnhancer.FilterMode` references replaced with `FilterMode`
 - Successful compilation without errors
 
 ### Technical
+
 - Semi-transparent HUD (#1A000000) for minimal visual noise
 - Emoji icons for quick status recognition
 - Ping color indication for instant quality assessment
@@ -386,9 +479,11 @@ This change makes it crystal clear which app goes on which device. Previous nami
 ## [4.10.0 / 5.7.0] - 2025-10-21
 
 ### Added
+
 - Unified audio filter system using AudioEnhancer.FilterMode
 
 ### Changed
+
 - All components migrated to AudioEnhancer.FilterMode
 - AudioStreamingActivity completely reworked
 - Simplified filter architecture
@@ -398,12 +493,14 @@ This change makes it crystal clear which app goes on which device. Previous nami
 - Simplified service synchronization
 
 ### Removed
+
 - Old AudioQualityMode system
 - `audio/AudioQualityModes.kt` - old filter system
 - Deprecated methods `updateAudioEnhancerConfig()` and `updateAudioEnhancer()` from AudioPlaybackService
 - Only `setFilterMode(mode)` kept for filter changes
 
 ### Fixed
+
 - **CRITICAL**: Filters displayed as old text strings issue
   - In layout file `activity_audio_streaming.xml` old Chip elements were hardcoded instead of RecyclerView with filter cards
   - Replaced "Audio Quality Modes" section with "Audio Filter Modes"
@@ -411,6 +508,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Filters now display as Material Design 3 cards with icons, titles and descriptions
 
 ### Technical
+
 - Updated files: `AudioStreamingActivity.kt`, `service/AudioPlaybackService.kt`
 - Cleaner architecture
 - 5 filter cards display: 📡 Original, 🎤 Voice, 🔇 Quiet Sounds, 🎵 Music, 🌳 Outdoor
@@ -418,6 +516,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 ## [4.9.0 / 5.6.0] - 2025-10-21
 
 ### Fixed
+
 - **Audio Streaming** (ChildWatch)
   - Fixed type errors `AudioQualityMode` → `AudioEnhancer.FilterMode`
   - Restored `getModeName()` method for filter name display
@@ -436,11 +535,13 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Fixed `ChatMessage` import
 
 ### Technical
+
 - Files: AudioActivity.kt, AudioFilterItem.kt, AudioFilterAdapter.kt, ChatActivity.kt, WebSocketClient.kt, WebSocketManager.kt
 
 ## [4.8.0 / 5.5.0] - 2025-10-19
 
 ### Added
+
 - **Remote Camera Control** (Task #9 - completed)
   - Send remote photo command via WebSocket
   - Camera selection (front/back)
@@ -462,6 +563,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Command distribution between services
 
 ### Technical
+
 - New files: `service/PhotoCaptureService.kt`, `service/CameraService.kt`
 - Updated files: `PhotoActivity.kt`, `WebSocketClient.kt`, `WebSocketManager.kt`, `NetworkHelper.kt`, `MainActivity.kt`
 - Command flow: ChildWatch → WebSocket Server → ParentWatch → PhotoCaptureService → CameraService → Capture → Upload
@@ -469,6 +571,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 ## [4.7.0 / 5.4.0] - 2025-10-19
 
 ### Added
+
 - **Geolocation with Map** (Task #8)
   - Movement history on Google Maps
   - Routes (Polyline) showing child's path
@@ -488,6 +591,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - API for uploading photos to server
 
 ### Changed
+
 - **Audio Filter Improvements**
   - Added "📡 Original" mode - no filters (default)
   - Reduced gain in all filter modes
@@ -495,17 +599,20 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Smoother soft limiting
 
 ### Fixed
+
 - Chat message sending from child to parent (sender: "child")
 - All кракозябры fixed in dialog boxes
 - Correct Russian text display
 
 ### Technical
+
 - Files: `LocationMapActivity.kt`, `NetworkClient.kt`, `AudioEnhancer.kt`, `ChatActivity.kt`
 - New files: `service/CameraService.kt`, `service/PhotoCaptureService.kt`, `network/NetworkHelper.kt`
 
 ## [4.6.0] - 2025-10-19
 
 ### Added
+
 - **Audio Filter System** (Task #7)
   - 4 specialized modes with distinct parameters
   - 🎤 Voice - Optimized for conversations
@@ -527,6 +634,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
     - Strong compression (4:1)
 
 ### Changed
+
 - New filter selection interface with RadioGroup
 - Each mode has description and icon (emoji)
 - Material Design 3 cards
@@ -534,6 +642,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 - Improved AudioActivity with "Filter Mode" card
 
 ### Technical
+
 - `AudioEnhancer.kt` - New code: 196 lines (was: 151)
   - `enum class FilterMode` with 4 modes
   - `processVoiceMode()`, `processQuietSoundsMode()`, `processMusicMode()`, `processOutdoorMode()`
@@ -545,6 +654,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 ## [4.5.0 / 5.3.0] - 2025-10-19
 
 ### Added
+
 - **Current App Tracking** (Task #2)
   - Display of currently open app on child's device
   - UsageStatsManager API for accurate tracking
@@ -565,6 +675,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - All marked as read when opening chat
 
 ### Changed
+
 - **Simplified Device Status** (Task #1)
   - Removed technical fields: Voltage, Battery Health, Android Version/SDK
   - Kept only useful data: Battery level (%), Charging status, Temperature, Device model, Current app (new!), Update time
@@ -599,6 +710,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
   - Material Design UI with sliders and radio buttons
 
 ### Technical
+
 - Files added/modified: 15+ (ChildWatch), 8+ (ParentWatch)
 - Database: Added `chat_messages` table, added columns `current_app_name`, `current_app_package` in `device_status`
 - API Endpoints: GET `/api/chat/history/:deviceId`, POST `/api/chat/mark-read/:deviceId`
@@ -609,6 +721,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 ## [2.0.0] - 2025-01-05
 
 ### Added
+
 - **ParentWatch модуль** - приложение для ребёнка с отслеживанием местоположения
 - **QR-код генерация** для передачи ID устройства между приложениями
 - **Короткий формат ID** (4 символа: A1B2) для удобства
@@ -617,6 +730,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 - **Graceful degradation** при сетевых ошибках
 
 ### Changed
+
 - **Стабильность приложений** - исправлены краши и зависания
 - **Обработка разрешений** - улучшен ConsentActivity без зависаний
 - **Сетевые запросы** - добавлена обработка ошибок без крашей
@@ -624,6 +738,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 - **NetworkClient** - возвращает ошибки вместо крашей
 
 ### Fixed
+
 - **Зависание на разрешениях** - исправлен ConsentActivity
 - **Краши при сетевых ошибках** - добавлена обработка исключений
 - **Toast в фоновом потоке** - исправлен ErrorHandler
@@ -631,6 +746,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 - **Аутентификация настроек** - временно отключена для тестирования
 
 ### Security
+
 - **Улучшенная обработка ошибок** без утечки информации
 - **Graceful degradation** при сбоях сервера
 - **Безопасные сетевые запросы** с обработкой исключений
@@ -638,6 +754,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 ## [1.0.0] - 2025-01-04
 
 ### Added
+
 - **ChildWatch приложение** - родительское приложение для мониторинга
 - **Основные функции мониторинга**:
   - Геолокация с картой
@@ -656,6 +773,7 @@ This change makes it crystal clear which app goes on which device. Previous nami
 - **Foreground сервисы** для фоновой работы
 
 ### Technical
+
 - **Android SDK 26+** поддержка
 - **Kotlin** язык программирования
 - **Material Design 3** интерфейс

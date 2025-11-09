@@ -115,6 +115,22 @@ abstract class ChildWatchDatabase : RoomDatabase() {
                 // Create indices for performance
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_parent_locations_parent_id ON parent_locations(parent_id)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_parent_locations_timestamp ON parent_locations(timestamp)")
+                
+                // Backfill changes in existing tables introduced in v2/v3 schema
+                // 1) chat_messages: add created_at (NOT NULL), set from timestamp for existing rows
+                database.execSQL("ALTER TABLE chat_messages ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("UPDATE chat_messages SET created_at = timestamp WHERE created_at = 0")
+
+                // Ensure indices exist (idempotent)
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_chat_messages_message_id ON chat_messages(message_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_child_id ON chat_messages(child_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_sender ON chat_messages(sender)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_timestamp ON chat_messages(timestamp)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_is_read ON chat_messages(is_read)")
+
+                // 2) audio_recordings: add created_at (NOT NULL) if missing, set from timestamp
+                database.execSQL("ALTER TABLE audio_recordings ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("UPDATE audio_recordings SET created_at = timestamp WHERE created_at = 0")
             }
         }
 
@@ -125,7 +141,9 @@ abstract class ChildWatchDatabase : RoomDatabase() {
         val MIGRATION_2_3 = object : Migration(2, 3) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 // Create geofences table
-                database.execSQL("""
+                // ВАЖНО: не задаем DEFAULT для булевых значений, чтобы схема соответствовала Entity (Room ожидает defaultValue='undefined')
+                database.execSQL(
+                    """
                     CREATE TABLE IF NOT EXISTS geofences (
                         id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
                         name TEXT NOT NULL,
@@ -133,16 +151,40 @@ abstract class ChildWatchDatabase : RoomDatabase() {
                         longitude REAL NOT NULL,
                         radius REAL NOT NULL,
                         device_id TEXT NOT NULL,
-                        is_active INTEGER NOT NULL DEFAULT 1,
+                        is_active INTEGER NOT NULL,
                         created_at INTEGER NOT NULL,
-                        notification_on_enter INTEGER NOT NULL DEFAULT 0,
-                        notification_on_exit INTEGER NOT NULL DEFAULT 1
+                        notification_on_enter INTEGER NOT NULL,
+                        notification_on_exit INTEGER NOT NULL
                     )
-                """.trimIndent())
-                
+                    """.trimIndent()
+                )
+
                 // Create indices for performance
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_geofences_device_id ON geofences(device_id)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_geofences_is_active ON geofences(is_active)")
+                
+                // Ensure chat_messages has created_at column (if upgrading from v1 directly to v3)
+                try {
+                    database.execSQL("ALTER TABLE chat_messages ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")
+                    database.execSQL("UPDATE chat_messages SET created_at = timestamp WHERE created_at = 0")
+                } catch (e: Exception) {
+                    // Column may already exist from MIGRATION_1_2 — ignore
+                }
+                
+                // Ensure chat_messages indices exist
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_chat_messages_message_id ON chat_messages(message_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_child_id ON chat_messages(child_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_sender ON chat_messages(sender)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_timestamp ON chat_messages(timestamp)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_is_read ON chat_messages(is_read)")
+
+                // Ensure audio_recordings has created_at column
+                try {
+                    database.execSQL("ALTER TABLE audio_recordings ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")
+                    database.execSQL("UPDATE audio_recordings SET created_at = timestamp WHERE created_at = 0")
+                } catch (e: Exception) {
+                    // Column may already exist — ignore
+                }
             }
         }
 

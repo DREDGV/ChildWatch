@@ -1,0 +1,728 @@
+{
+  "formatVersion": 1,
+  "database": {
+    "version": 3,
+    "identityHash": "f6618f370cce6c7955bcb2b9e00030b1",
+    "entities": [
+      {
+        "tableName": "children",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `device_id` TEXT NOT NULL, `name` TEXT NOT NULL, `age` INTEGER, `avatar_url` TEXT, `phone_number` TEXT, `last_seen_at` INTEGER, `is_active` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "deviceId",
+            "columnName": "device_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "age",
+            "columnName": "age",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "avatarUrl",
+            "columnName": "avatar_url",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "phoneNumber",
+            "columnName": "phone_number",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "lastSeenAt",
+            "columnName": "last_seen_at",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "isActive",
+            "columnName": "is_active",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_children_device_id",
+            "unique": true,
+            "columnNames": [
+              "device_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_children_device_id` ON `${TABLE_NAME}` (`device_id`)"
+          },
+          {
+            "name": "index_children_created_at",
+            "unique": false,
+            "columnNames": [
+              "created_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_children_created_at` ON `${TABLE_NAME}` (`created_at`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "parents",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `account_id` TEXT NOT NULL, `name` TEXT NOT NULL, `email` TEXT NOT NULL, `phone_number` TEXT, `avatar_url` TEXT, `password_hash` TEXT, `is_verified` INTEGER NOT NULL, `created_at` INTEGER NOT NULL, `updated_at` INTEGER NOT NULL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accountId",
+            "columnName": "account_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "name",
+            "columnName": "name",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "email",
+            "columnName": "email",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "phoneNumber",
+            "columnName": "phone_number",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "avatarUrl",
+            "columnName": "avatar_url",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "passwordHash",
+            "columnName": "password_hash",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "isVerified",
+            "columnName": "is_verified",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "updatedAt",
+            "columnName": "updated_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_parents_account_id",
+            "unique": true,
+            "columnNames": [
+              "account_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_parents_account_id` ON `${TABLE_NAME}` (`account_id`)"
+          },
+          {
+            "name": "index_parents_email",
+            "unique": true,
+            "columnNames": [
+              "email"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_parents_email` ON `${TABLE_NAME}` (`email`)"
+          },
+          {
+            "name": "index_parents_created_at",
+            "unique": false,
+            "columnNames": [
+              "created_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_parents_created_at` ON `${TABLE_NAME}` (`created_at`)"
+          }
+        ],
+        "foreignKeys": []
+      },
+      {
+        "tableName": "chat_messages",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `message_id` TEXT NOT NULL, `child_id` INTEGER NOT NULL, `text` TEXT NOT NULL, `sender` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, `is_read` INTEGER NOT NULL, `status` TEXT NOT NULL, `created_at` INTEGER NOT NULL, FOREIGN KEY(`child_id`) REFERENCES `children`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "messageId",
+            "columnName": "message_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "childId",
+            "columnName": "child_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "text",
+            "columnName": "text",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sender",
+            "columnName": "sender",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isRead",
+            "columnName": "is_read",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "status",
+            "columnName": "status",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_chat_messages_message_id",
+            "unique": true,
+            "columnNames": [
+              "message_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_chat_messages_message_id` ON `${TABLE_NAME}` (`message_id`)"
+          },
+          {
+            "name": "index_chat_messages_child_id",
+            "unique": false,
+            "columnNames": [
+              "child_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_chat_messages_child_id` ON `${TABLE_NAME}` (`child_id`)"
+          },
+          {
+            "name": "index_chat_messages_sender",
+            "unique": false,
+            "columnNames": [
+              "sender"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_chat_messages_sender` ON `${TABLE_NAME}` (`sender`)"
+          },
+          {
+            "name": "index_chat_messages_timestamp",
+            "unique": false,
+            "columnNames": [
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_chat_messages_timestamp` ON `${TABLE_NAME}` (`timestamp`)"
+          },
+          {
+            "name": "index_chat_messages_is_read",
+            "unique": false,
+            "columnNames": [
+              "is_read"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_chat_messages_is_read` ON `${TABLE_NAME}` (`is_read`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "children",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "child_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "audio_recordings",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `recording_id` TEXT NOT NULL, `child_id` INTEGER NOT NULL, `file_path` TEXT NOT NULL, `file_url` TEXT, `duration` INTEGER NOT NULL, `file_size` INTEGER NOT NULL, `format` TEXT NOT NULL, `sample_rate` INTEGER NOT NULL, `bit_rate` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL, `is_downloaded` INTEGER NOT NULL, `is_played` INTEGER NOT NULL, `volume_mode` TEXT, `created_at` INTEGER NOT NULL, FOREIGN KEY(`child_id`) REFERENCES `children`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "recordingId",
+            "columnName": "recording_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "childId",
+            "columnName": "child_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "filePath",
+            "columnName": "file_path",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileUrl",
+            "columnName": "file_url",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "duration",
+            "columnName": "duration",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "fileSize",
+            "columnName": "file_size",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "format",
+            "columnName": "format",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "sampleRate",
+            "columnName": "sample_rate",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "bitRate",
+            "columnName": "bit_rate",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isDownloaded",
+            "columnName": "is_downloaded",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "isPlayed",
+            "columnName": "is_played",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "volumeMode",
+            "columnName": "volume_mode",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_audio_recordings_recording_id",
+            "unique": true,
+            "columnNames": [
+              "recording_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_audio_recordings_recording_id` ON `${TABLE_NAME}` (`recording_id`)"
+          },
+          {
+            "name": "index_audio_recordings_child_id",
+            "unique": false,
+            "columnNames": [
+              "child_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_audio_recordings_child_id` ON `${TABLE_NAME}` (`child_id`)"
+          },
+          {
+            "name": "index_audio_recordings_timestamp",
+            "unique": false,
+            "columnNames": [
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_audio_recordings_timestamp` ON `${TABLE_NAME}` (`timestamp`)"
+          },
+          {
+            "name": "index_audio_recordings_created_at",
+            "unique": false,
+            "columnNames": [
+              "created_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_audio_recordings_created_at` ON `${TABLE_NAME}` (`created_at`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "children",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "child_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "location_points",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `point_id` TEXT NOT NULL, `child_id` INTEGER NOT NULL, `latitude` REAL NOT NULL, `longitude` REAL NOT NULL, `accuracy` REAL, `altitude` REAL, `speed` REAL, `bearing` REAL, `address` TEXT, `timestamp` INTEGER NOT NULL, `provider` TEXT, `battery_level` INTEGER, `created_at` INTEGER NOT NULL, FOREIGN KEY(`child_id`) REFERENCES `children`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "pointId",
+            "columnName": "point_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "childId",
+            "columnName": "child_id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "latitude",
+            "columnName": "latitude",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "longitude",
+            "columnName": "longitude",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accuracy",
+            "columnName": "accuracy",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "altitude",
+            "columnName": "altitude",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "speed",
+            "columnName": "speed",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "bearing",
+            "columnName": "bearing",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "address",
+            "columnName": "address",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": false
+          },
+          {
+            "fieldPath": "batteryLevel",
+            "columnName": "battery_level",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "createdAt",
+            "columnName": "created_at",
+            "affinity": "INTEGER",
+            "notNull": true
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_location_points_point_id",
+            "unique": true,
+            "columnNames": [
+              "point_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE UNIQUE INDEX IF NOT EXISTS `index_location_points_point_id` ON `${TABLE_NAME}` (`point_id`)"
+          },
+          {
+            "name": "index_location_points_child_id",
+            "unique": false,
+            "columnNames": [
+              "child_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_location_points_child_id` ON `${TABLE_NAME}` (`child_id`)"
+          },
+          {
+            "name": "index_location_points_timestamp",
+            "unique": false,
+            "columnNames": [
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_location_points_timestamp` ON `${TABLE_NAME}` (`timestamp`)"
+          },
+          {
+            "name": "index_location_points_created_at",
+            "unique": false,
+            "columnNames": [
+              "created_at"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_location_points_created_at` ON `${TABLE_NAME}` (`created_at`)"
+          }
+        ],
+        "foreignKeys": [
+          {
+            "table": "children",
+            "onDelete": "CASCADE",
+            "onUpdate": "NO ACTION",
+            "columns": [
+              "child_id"
+            ],
+            "referencedColumns": [
+              "id"
+            ]
+          }
+        ]
+      },
+      {
+        "tableName": "parent_locations",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `parent_id` TEXT NOT NULL, `latitude` REAL NOT NULL, `longitude` REAL NOT NULL, `accuracy` REAL NOT NULL, `timestamp` INTEGER NOT NULL, `provider` TEXT NOT NULL, `battery_level` INTEGER, `speed` REAL, `bearing` REAL)",
+        "fields": [
+          {
+            "fieldPath": "id",
+            "columnName": "id",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "parentId",
+            "columnName": "parent_id",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "latitude",
+            "columnName": "latitude",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "longitude",
+            "columnName": "longitude",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "accuracy",
+            "columnName": "accuracy",
+            "affinity": "REAL",
+            "notNull": true
+          },
+          {
+            "fieldPath": "timestamp",
+            "columnName": "timestamp",
+            "affinity": "INTEGER",
+            "notNull": true
+          },
+          {
+            "fieldPath": "provider",
+            "columnName": "provider",
+            "affinity": "TEXT",
+            "notNull": true
+          },
+          {
+            "fieldPath": "batteryLevel",
+            "columnName": "battery_level",
+            "affinity": "INTEGER",
+            "notNull": false
+          },
+          {
+            "fieldPath": "speed",
+            "columnName": "speed",
+            "affinity": "REAL",
+            "notNull": false
+          },
+          {
+            "fieldPath": "bearing",
+            "columnName": "bearing",
+            "affinity": "REAL",
+            "notNull": false
+          }
+        ],
+        "primaryKey": {
+          "autoGenerate": true,
+          "columnNames": [
+            "id"
+          ]
+        },
+        "indices": [
+          {
+            "name": "index_parent_locations_parent_id",
+            "unique": false,
+            "columnNames": [
+              "parent_id"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_parent_locations_parent_id` ON `${TABLE_NAME}` (`parent_id`)"
+          },
+          {
+            "name": "index_parent_locations_timestamp",
+            "unique": false,
+            "columnNames": [
+              "timestamp"
+            ],
+            "orders": [],
+            "createSql": "CREATE INDEX IF NOT EXISTS `index_parent_locations_timestamp` ON `${TABLE_NAME}` (`timestamp`)"
+          }
+        ],
+        "foreignKeys": []
+      }
+    ],
+    "views": [],
+    "setupQueries": [
+      "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f6618f370cce6c7955bcb2b9e00030b1')"
+    ]
+  }
+}

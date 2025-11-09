@@ -12,11 +12,12 @@ android {
         applicationId "ru.example.parentwatch"
         minSdk 26
         targetSdk 34
-        versionCode 28
-        versionName "7.0.0"
+    // Align child device module version for consistency (no code changes but keep in sync)
+    versionCode 31
+    versionName "7.1.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
-        setProperty("archivesBaseName", "ChildDevice-v$versionName")
+    setProperty("archivesBaseName", "ChildDevice-v$versionName")
     }
 
     buildTypes {

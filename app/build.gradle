@@ -13,14 +13,15 @@ android {
         applicationId "ru.example.childwatch"
         minSdk 26
         targetSdk 34
-        versionCode 41
-        versionName "7.0.0"
+    // v7.1.0: Minor release (real Camera2 photo capture implementation)
+    versionCode 44
+    versionName "7.1.0"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary true
         }
-        setProperty("archivesBaseName", "ParentMonitor-v$versionName")
+    setProperty("archivesBaseName", "ParentMonitor-v$versionName")
     }
 
     buildTypes {

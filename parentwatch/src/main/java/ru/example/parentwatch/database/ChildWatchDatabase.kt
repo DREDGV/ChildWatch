@@ -34,7 +34,7 @@ import ru.example.parentwatch.database.entity.*
         LocationPoint::class,
         ParentLocation::class
     ],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class ParentWatchDatabase : RoomDatabase() {
@@ -106,6 +106,45 @@ abstract class ParentWatchDatabase : RoomDatabase() {
                 // Create indices for performance
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_parent_locations_parent_id ON parent_locations(parent_id)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_parent_locations_timestamp ON parent_locations(timestamp)")
+
+                // Backfill changes in existing tables introduced in v2 schema
+                // 1) chat_messages: add created_at (NOT NULL), set from timestamp for existing rows
+                database.execSQL("ALTER TABLE chat_messages ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("UPDATE chat_messages SET created_at = timestamp WHERE created_at = 0")
+
+                // Ensure indices exist (idempotent)
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_chat_messages_message_id ON chat_messages(message_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_child_id ON chat_messages(child_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_sender ON chat_messages(sender)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_timestamp ON chat_messages(timestamp)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_is_read ON chat_messages(is_read)")
+
+                // 2) audio_recordings: add created_at (NOT NULL) if missing, set from timestamp
+                database.execSQL("ALTER TABLE audio_recordings ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("UPDATE audio_recordings SET created_at = timestamp WHERE created_at = 0")
+            }
+        }
+
+        /**
+         * Migration from version 2 to 3
+         * Align schema hashes by ensuring indices/columns exist as per entities
+         */
+        val MIGRATION_2_3 = object : Migration(2, 3) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                // Ensure chat_messages indices exist
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_chat_messages_message_id ON chat_messages(message_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_child_id ON chat_messages(child_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_sender ON chat_messages(sender)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_timestamp ON chat_messages(timestamp)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_is_read ON chat_messages(is_read)")
+
+                // Ensure audio_recordings has created_at column
+                try {
+                    database.execSQL("ALTER TABLE audio_recordings ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")
+                    database.execSQL("UPDATE audio_recordings SET created_at = timestamp WHERE created_at = 0")
+                } catch (e: Exception) {
+                    // Column may already exist — ignore
+                }
             }
         }
 
@@ -122,7 +161,7 @@ abstract class ParentWatchDatabase : RoomDatabase() {
                     ParentWatchDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
                     // Fallback only in debug builds or for future migrations
                     .fallbackToDestructiveMigration()
                     .build()
