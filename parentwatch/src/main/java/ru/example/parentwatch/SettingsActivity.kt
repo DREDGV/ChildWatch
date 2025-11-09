@@ -1,4 +1,4 @@
-package ru.example.parentwatch
+п»їpackage ru.example.parentwatch
 
 import android.content.Intent
 import android.os.Bundle
@@ -42,7 +42,7 @@ class SettingsActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK) {
             val scannedCode = result.data?.getStringExtra("SCANNED_QR_CODE")
             if (scannedCode != null) {
-                saveChildDeviceId(scannedCode)
+                saveParentDeviceId(scannedCode)
             }
         }
     }
@@ -339,7 +339,7 @@ class SettingsActivity : AppCompatActivity() {
         startActivity(intent)
     }
     
-        private fun saveChildDeviceId(childId: String) {
+        private fun saveParentDeviceId(childId: String) {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         prefs.edit()
             .putString("child_device_id", childId)
@@ -348,7 +348,7 @@ class SettingsActivity : AppCompatActivity() {
         val compat = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         compat.edit().putString("child_device_id", childId).apply()
 
-        Toast.makeText(this, "OK: ID ребёнка сохранён", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "OK: ID пїЅпїЅпїЅпїЅпїЅпїЅ пїЅпїЅпїЅпїЅпїЅпїЅпїЅ", Toast.LENGTH_LONG).show()
         updateParentConnectionStatus()
     }
     private fun updateParentConnectionStatus() {
@@ -357,10 +357,10 @@ class SettingsActivity : AppCompatActivity() {
             ?: getSharedPreferences("childwatch_prefs", MODE_PRIVATE).getString("child_device_id", null)
 
         if (!childId.isNullOrEmpty()) {
-            binding.parentIdStatus.text = "Сопряжено (${childId.take(8)}...)"
+            binding.parentIdStatus.text = "пїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅпїЅ (${childId.take(8)}...)"
             binding.parentIdStatus.setTextColor(getColor(android.R.color.holo_green_dark))
         } else {
-            binding.parentIdStatus.text = "Нет ID ребёнка"
+            binding.parentIdStatus.text = "пїЅпїЅпїЅ ID пїЅпїЅпїЅпїЅпїЅпїЅ"
             binding.parentIdStatus.setTextColor(getColor(android.R.color.holo_red_dark))
         }
     }

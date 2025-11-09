@@ -23,6 +23,8 @@ import kotlinx.coroutines.*
 import java.io.IOException
 import java.text.SimpleDateFormat
 import java.util.*
+import java.util.Date
+import java.util.Locale
 import android.graphics.Color
 
 /**
@@ -456,30 +458,34 @@ class LocationMapActivity : AppCompatActivity() {
                 val endTime = System.currentTimeMillis()
                 val startTime = endTime - (hours * 60 * 60 * 1000L)
 
-                val response = withContext(Dispatchers.IO) {
+                val historyData = withContext(Dispatchers.IO) {
                     networkClient.getLocationHistory(
-                        childDeviceId = childDeviceId!!,
-                        startTime = startTime,
-                        endTime = endTime,
+                        deviceId = childDeviceId!!,
+                        fromTimestamp = startTime,
+                        toTimestamp = endTime,
                         limit = 200
                     )
                 }
 
                 binding.loadingProgress.hide()
 
-                if (response.isSuccessful && response.body() != null) {
-                    val historyData = response.body()!!
-
-                    if (historyData.success && historyData.locations.isNotEmpty()) {
-                        displayHistoryOnMap(historyData.locations)
-                        isHistoryVisible = true
-                        binding.viewHistoryButton.text = "Скрыть историю"
-                        Toast.makeText(this@LocationMapActivity, "Показано ${historyData.locations.size} точек", Toast.LENGTH_SHORT).show()
-                    } else {
-                        Toast.makeText(this@LocationMapActivity, "История перемещений пуста", Toast.LENGTH_SHORT).show()
+                if (historyData != null && historyData.isNotEmpty()) {
+                    // Convert ParentLocationData to LocationData
+                    val locations = historyData.map { parentLoc ->
+                        ru.example.childwatch.network.LocationData(
+                            latitude = parentLoc.latitude,
+                            longitude = parentLoc.longitude,
+                            accuracy = parentLoc.accuracy,
+                            timestamp = parentLoc.timestamp,
+                            recordedAt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date(parentLoc.timestamp))
+                        )
                     }
+                    displayHistoryOnMap(locations)
+                    isHistoryVisible = true
+                    binding.viewHistoryButton.text = "Скрыть историю"
+                    Toast.makeText(this@LocationMapActivity, "Показано ${locations.size} точек", Toast.LENGTH_SHORT).show()
                 } else {
-                    Toast.makeText(this@LocationMapActivity, "Не удалось загрузить историю", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this@LocationMapActivity, "История перемещений пуста", Toast.LENGTH_SHORT).show()
                 }
 
             } catch (e: Exception) {

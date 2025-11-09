@@ -213,12 +213,35 @@ class DualLocationMapActivity : AppCompatActivity() {
                     Log.w(TAG, "My location not available")
                 }
                 
-                // Получить локацию другого устройства с сервера (если доступно)
-                // Используем единый endpoint для всех устройств для совместимости
+                // Получить локацию другого устройства
+                // Для ребенка (ROLE_CHILD): сначала проверяем локальную БД для parent_location через WebSocket
                 val otherLocation = if (limitedMode) {
                     null
                 } else withContext(Dispatchers.IO) {
-                    networkClient.getLatestLocation(otherId)
+                    if (myRole == ROLE_CHILD && otherId.isNotEmpty()) {
+                        // Try local DB first for parent location
+                        val database = ParentWatchDatabase.getInstance(this@DualLocationMapActivity)
+                        val parentLoc = database.parentLocationDao().getLatestLocation(otherId)
+                        if (parentLoc != null) {
+                            Log.d(TAG, "✅ Parent location from local DB: ${parentLoc.latitude}, ${parentLoc.longitude}")
+                            ru.example.parentwatch.network.ParentLocationData(
+                                parentId = parentLoc.parentId,
+                                latitude = parentLoc.latitude,
+                                longitude = parentLoc.longitude,
+                                accuracy = parentLoc.accuracy,
+                                timestamp = parentLoc.timestamp,
+                                battery = null,
+                                speed = parentLoc.speed,
+                                bearing = parentLoc.bearing
+                            )
+                        } else {
+                            Log.w(TAG, "No parent location in local DB, trying server...")
+                            networkClient.getLatestLocation(otherId)
+                        }
+                    } else {
+                        // Parent getting child location from server
+                        networkClient.getLatestLocation(otherId)
+                    }
                 }
                 
                 if (otherLocation != null && myLatitude != null && myLongitude != null) {

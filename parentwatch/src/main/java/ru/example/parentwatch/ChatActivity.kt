@@ -14,6 +14,7 @@ import ru.example.parentwatch.databinding.ActivityChatBinding
 import ru.example.parentwatch.chat.ChatAdapter
 import ru.example.parentwatch.chat.ChatMessage
 import ru.example.parentwatch.chat.ChatManager
+import ru.example.parentwatch.chat.withStatus
 import ru.example.parentwatch.network.WebSocketManager
 import ru.example.parentwatch.utils.NotificationManager
 

@@ -945,7 +945,7 @@ class NetworkClient(private val context: Context) {
     /**
      * Get child location history from server using Retrofit
      */
-    suspend fun getLocationHistory(
+    suspend fun getLocationHistoryRetrofit(
         childDeviceId: String,
         startTime: Long? = null,
         endTime: Long? = null,

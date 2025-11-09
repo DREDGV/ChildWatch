@@ -98,6 +98,12 @@ class PhotoCaptureService : Service() {
                     }
                 }
             }
+            
+            // Add photo request listener (for request_photo event)
+            WebSocketManager.setPhotoRequestCallback { requestId, targetDevice ->
+                Log.d(TAG, "📸 Received photo request: requestId=$requestId, target=$targetDevice")
+                handlePhotoRequest(requestId, targetDevice)
+            }
 
             Log.d(TAG, "Photo capture service ready - listening for commands")
             updateNotification("Готов к захвату фото")
@@ -130,7 +136,92 @@ class PhotoCaptureService : Service() {
     }
 
     /**
-     * Upload photo to server
+     * Handle photo request from parent via WebSocket
+     */
+    private fun handlePhotoRequest(requestId: String, targetDevice: String) {
+        Log.d(TAG, "Handling photo request: $requestId for device: $targetDevice")
+        
+        // Check if this request is for us
+        val myDeviceId = deviceId ?: ""
+        if (targetDevice.isNotEmpty() && targetDevice != myDeviceId) {
+            Log.d(TAG, "Photo request not for this device (target=$targetDevice, me=$myDeviceId)")
+            return
+        }
+        
+        updateNotification("Захват фото по запросу...")
+        
+        // Capture with front camera (default for child device)
+        cameraService?.capturePhoto(CameraService.CameraFacing.FRONT) { photoFile ->
+            if (photoFile != null) {
+                Log.d(TAG, "Photo captured for request: $requestId")
+                // Convert to base64 and send via WebSocket
+                sendPhotoViaWebSocket(photoFile, requestId)
+            } else {
+                Log.e(TAG, "Photo capture failed for request: $requestId")
+                sendPhotoError(requestId, "Failed to capture photo")
+                updateNotification("Ошибка захвата")
+            }
+        }
+    }
+    
+    /**
+     * Send photo via WebSocket as base64
+     */
+    private fun sendPhotoViaWebSocket(photoFile: File, requestId: String) {
+        serviceScope.launch(Dispatchers.IO) {
+            try {
+                val bytes = photoFile.readBytes()
+                val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                
+                val data = org.json.JSONObject().apply {
+                    put("photo", base64)
+                    put("requestId", requestId)
+                    put("timestamp", System.currentTimeMillis())
+                    put("deviceId", deviceId)
+                }
+                
+                WebSocketManager.getClient()?.emit("photo", data)
+                Log.d(TAG, "✅ Photo sent via WebSocket: ${bytes.size} bytes, requestId=$requestId")
+                
+                withContext(Dispatchers.Main) {
+                    updateNotification("Фото отправлено")
+                }
+                
+                // Clean up
+                photoFile.delete()
+                delay(2000)
+                updateNotification("Готов к захвату фото")
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "Error sending photo via WebSocket", e)
+                sendPhotoError(requestId, e.message ?: "Unknown error")
+                withContext(Dispatchers.Main) {
+                    updateNotification("Ошибка отправки")
+                }
+            }
+        }
+    }
+    
+    /**
+     * Send photo error via WebSocket
+     */
+    private fun sendPhotoError(requestId: String, error: String) {
+        try {
+            val data = org.json.JSONObject().apply {
+                put("requestId", requestId)
+                put("error", error)
+                put("deviceId", deviceId)
+            }
+            
+            WebSocketManager.getClient()?.emit("photo_error", data)
+            Log.d(TAG, "Photo error sent: $error")
+        } catch (e: Exception) {
+            Log.e(TAG, "Error sending photo error", e)
+        }
+    }
+
+    /**
+     * Upload photo to server (HTTP)
      */
     private fun uploadPhoto(photoFile: File) {
         serviceScope.launch {

@@ -19,7 +19,7 @@
             "label": "Install ChildWatch",
             "type": "shell",
             "command": "adb",
-            "args": ["install", "-r", "app/build/outputs/apk/debug/app-debug.apk"],
+            "args": ["install", "-r", "app/build/outputs/apk/debug/ParentMonitor-v7.0.1-debug.apk"],
             "group": "build"
         },
         {
@@ -51,7 +51,7 @@
         {
             "label": "⚡ Quick Install + Restart",
             "type": "shell",
-            "command": "adb install -r app/build/outputs/apk/debug/ChildWatch-*.apk; adb shell am force-stop ru.example.childwatch; adb shell monkey -p ru.example.childwatch -c android.intent.category.LAUNCHER 1",
+            "command": "adb install -r app/build/outputs/apk/debug/ParentMonitor-*-debug.apk; if ($?) { adb shell am force-stop ru.example.childwatch; adb shell monkey -p ru.example.childwatch -c android.intent.category.LAUNCHER 1 }",
             "presentation": {
                 "reveal": "always",
                 "panel": "shared",
@@ -137,9 +137,19 @@
             "problemMatcher": []
         },
         {
+            "label": "🚀 Quick Deploy: ChildWatch to Real Device (Nokia)",
+            "type": "shell",
+            "command": "adb -s PT19655KA1280800674 install -r app/build/outputs/apk/debug/ParentMonitor-*-debug.apk; if ($?) { adb -s PT19655KA1280800674 shell am force-stop ru.example.childwatch; adb -s PT19655KA1280800674 shell monkey -p ru.example.childwatch -c android.intent.category.LAUNCHER 1 }",
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared"
+            },
+            "problemMatcher": []
+        },
+        {
             "label": "🚀 Quick Deploy: ChildWatch to Emulator",
             "type": "shell",
-            "command": "adb -s emulator-5554 install -r app/build/outputs/apk/debug/ChildWatch-*.apk; if ($?) { adb -s emulator-5554 shell am force-stop ru.example.childwatch; adb -s emulator-5554 shell monkey -p ru.example.childwatch -c android.intent.category.LAUNCHER 1 }",
+            "command": "adb -s emulator-5554 install -r app/build/outputs/apk/debug/ParentMonitor-*-debug.apk; if ($?) { adb -s emulator-5554 shell am force-stop ru.example.childwatch; adb -s emulator-5554 shell monkey -p ru.example.childwatch -c android.intent.category.LAUNCHER 1 }",
             "presentation": {
                 "reveal": "always",
                 "panel": "shared"

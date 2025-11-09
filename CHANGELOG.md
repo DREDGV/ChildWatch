@@ -17,12 +17,29 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - **Разрешения для камеры**
   - `FOREGROUND_SERVICE_CAMERA` permission для Android 14+
   - MonitorService теперь поддерживает `foregroundServiceType="location|microphone|camera"`
+- **Документация**
+  - `docs/features/REMOTE_PHOTO_CAPTURE.md` — полное описание функции с предупреждениями о приватности
+  - `REMOTE_PHOTO_VERIFICATION.md` — отчёт проверки всей цепочки работы функции
+  - `.github/copilot-instructions.md` — инструкции для ИИ агентов (предотвращение путаницы app/parentwatch)
 
 ### Changed
 
+- **UI родительского приложения (RemoteCameraActivity)**
+  - Упрощённое меню: одна кнопка "📸 Сделать фото" вместо двух (фронтальная/основная)
+  - Увеличена высота кнопки до 64dp для удобства
+  - Добавлена иконка камеры 32dp
+  - Добавлено пояснение "Фото будет сделано основной камерой"
+  - По умолчанию используется задняя камера (`camera: "back"`)
 - `PhotoCapture.takePhoto()` — переведён на suspend функцию с `Dispatchers.IO`
 - `PhotoCapture.captureRealPhoto()` — новая приватная функция с Camera2 API
 - Удалены неиспользуемые методы `createPlaceholderPhoto()`, `processImage()`, `rotateBitmap()`
+
+### Fixed
+
+- Room migration crash в ОБОИХ модулях (app + parentwatch):
+  - `Migration didn't properly handle ChatMessageEntity (created_at column missing)`
+  - MIGRATION_1_2: добавлены колонки `created_at` в `chat_messages` и `audio_recordings`
+  - MIGRATION_2_3: исправлена схема с try-catch для идемпотентности (поддержка прямого upgrade v1→v3)
 
 ### Technical
 
@@ -30,6 +47,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - `parentwatch/build.gradle`: versionCode 31, versionName "7.1.0" (синхронизация)
 - Добавлены импорты: `ImageFormat`, `SurfaceTexture`, `ImageReader`, `Surface`, `CountDownLatch`, `TimeUnit`
 - Серверный эндпоинт `/api/photo` уже был реализован (проверено)
+- Проверена полная цепочка: RemoteCameraActivity → WebSocket → CommandManager → PhotoCaptureService → CameraService → NetworkHelper
 
 ### Known Issues
 

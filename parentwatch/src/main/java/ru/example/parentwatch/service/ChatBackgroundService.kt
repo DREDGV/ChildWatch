@@ -13,8 +13,10 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ru.example.parentwatch.MainActivity
 import ru.example.parentwatch.R
 import ru.example.parentwatch.chat.ChatManager
@@ -140,11 +142,46 @@ class ChatBackgroundService : LifecycleService() {
                     WebSocketManager.initialize(this@ChatBackgroundService, serverUrl, deviceId)
                     WebSocketManager.addChatMessageListener(backgroundListener)
 
+                    // Регистрируем callback запроса фото ДО connect
+                    WebSocketManager.setPhotoRequestCallback { requestId, targetDevice ->
+                        Log.d(TAG, "📸 Photo request received (req=$requestId, target=$targetDevice)")
+                        // Запускаем сервис захвата фото если не запущен
+                        ensurePhotoCaptureService(serverUrl, deviceId)
+                        // Сервис сам обработает через PhotoCaptureService.setPhotoRequestCallback
+                    }
+                    
+                    // Setup parent location listener to save to DB
+                    WebSocketManager.setParentLocationCallback { parentId, lat, lon, accuracy, timestamp, speed, bearing ->
+                        lifecycleScope.launch(Dispatchers.IO) {
+                            try {
+                                val database = ru.example.parentwatch.database.ParentWatchDatabase.getInstance(this@ChatBackgroundService)
+                                val location = ru.example.parentwatch.database.entity.ParentLocation(
+                                    parentId = parentId,
+                                    latitude = lat,
+                                    longitude = lon,
+                                    accuracy = accuracy,
+                                    timestamp = timestamp,
+                                    provider = "websocket",
+                                    speed = speed,
+                                    bearing = bearing
+                                )
+                                database.parentLocationDao().insertLocation(location)
+                                Log.d(TAG, "✅ Parent location saved to DB: $lat, $lon")
+                            } catch (e: Exception) {
+                                Log.e(TAG, "❌ Error saving parent location to DB", e)
+                            }
+                        }
+                    }
+
                     // Connect WebSocket
                     WebSocketManager.connect(
                         onConnected = {
                             Log.d(TAG, "✅ WebSocket connected successfully on attempt $attempt")
                             updateNotification("Чат активен")
+                            // Heartbeat для устойчивости
+                            try { WebSocketManager.getClient()?.startHeartbeat() } catch (_: Exception) {}
+                            // Автостарт сервиса фото (если разрешено)
+                            ensurePhotoCaptureService(serverUrl, deviceId)
                             connected = true
                         },
                         onError = { error ->
@@ -264,6 +301,22 @@ class ChatBackgroundService : LifecycleService() {
     private fun updateNotification(contentText: String) {
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.notify(NOTIFICATION_ID, createNotification(contentText))
+    }
+
+    private fun ensurePhotoCaptureService(serverUrl: String, deviceId: String) {
+        try {
+            val prefs = getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
+            val enabled = prefs.getBoolean("allow_remote_photo", true)
+            if (!enabled) {
+                Log.d(TAG, "Remote photo disabled (allow_remote_photo=false)")
+                return
+            }
+            // Простой признак: запущена ли нотификация сервиса (можно отслеживать глобальный static в PhotoCaptureService при расширении)
+            PhotoCaptureService.start(this, serverUrl, deviceId)
+            Log.d(TAG, "PhotoCaptureService ensure start invoked")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start PhotoCaptureService", e)
+        }
     }
 
     override fun onBind(intent: Intent): IBinder? {

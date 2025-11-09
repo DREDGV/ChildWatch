@@ -179,5 +179,19 @@ object WebSocketManager {
         commandCallback = null
         Log.d(TAG, "Command listener removed")
     }
+    
+    /**
+     * Set callback for parent location updates
+     */
+    fun setParentLocationCallback(callback: (parentId: String, lat: Double, lon: Double, accuracy: Float, timestamp: Long, speed: Float, bearing: Float) -> Unit) {
+        webSocketClient?.onParentLocationCallback = callback
+    }
+    
+    /**
+     * Set callback for photo requests
+     */
+    fun setPhotoRequestCallback(callback: (requestId: String, targetDevice: String) -> Unit) {
+        webSocketClient?.onRequestPhotoCallback = callback
+    }
 }
 

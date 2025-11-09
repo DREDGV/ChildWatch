@@ -112,30 +112,13 @@ class MainActivity : AppCompatActivity() {
         loadSettings()
         updateUI()
         
-        // Initialize PhotoIntegration for remote photo capture
-        initializePhotoIntegration()
+        // PhotoIntegration is deprecated - RemotePhotoService now handles this via WebSocketManager
+        // initializePhotoIntegration()
         
         // Проверяем, нужно ли открыть чат
         if (intent.getBooleanExtra("open_chat", false)) {
             val chatIntent = Intent(this, ChatActivity::class.java)
             startActivity(chatIntent)
-        }
-    }
-    
-    private fun initializePhotoIntegration() {
-        try {
-            val deviceId = prefs.getString("device_id", null)
-            if (deviceId.isNullOrEmpty()) {
-                Log.w("MainActivity", "Cannot initialize PhotoIntegration: device_id not set")
-                return
-            }
-            
-            photoIntegration = ru.example.parentwatch.network.PhotoIntegration(this, deviceId)
-            photoIntegration?.register()
-            
-            Log.d("MainActivity", "PhotoIntegration initialized successfully")
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Failed to initialize PhotoIntegration", e)
         }
     }
 

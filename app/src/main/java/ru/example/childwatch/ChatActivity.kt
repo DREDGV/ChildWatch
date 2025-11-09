@@ -22,10 +22,14 @@ import ru.example.childwatch.chat.ChatAdapter
 import ru.example.childwatch.chat.ChatMessage
 import ru.example.childwatch.chat.ChatManager
 import ru.example.childwatch.chat.ChatManagerAdapter
+import ru.example.childwatch.chat.withStatus
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.utils.SecurePreferences
 import ru.example.childwatch.viewmodel.ChatViewModel
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -40,35 +44,7 @@ import java.util.*
  * - Message status indicators
  */
 class ChatActivity : AppCompatActivity() {
-    // Пометить сообщения как прочитанные на сервере
-    private fun markMessagesAsReadOnServer(messageIds: List<String>) {
-        if (messageIds.isEmpty()) return
-        lifecycleScope.launch {
-            withContext(Dispatchers.IO) {
-                val client = okhttp3.OkHttpClient()
-                for (id in messageIds) {
-                    try {
-                        val url = "${getServerUrl()}/api/chat/messages/$id/read"
-                        val request = okhttp3.Request.Builder()
-                            .url(url)
-                            .put(okhttp3.RequestBody.create(null, ByteArray(0)))
-                            .build()
-
-                        client.newCall(request).execute().use { response ->
-                            if (response.isSuccessful) {
-                                Log.d(TAG, "Message $id marked as read on server")
-                            } else {
-                                Log.e(TAG, "Failed to mark message $id as read: ${response.message}")
-                            }
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error marking message $id as read", e)
-                    }
-                }
-            }
-        }
-    }
-
+    
     companion object {
         private const val TAG = "ChatActivity"
     }
@@ -103,11 +79,12 @@ class ChatActivity : AppCompatActivity() {
         // Initialize chat manager (старый для совместимости)
         chatManager = ChatManager(this)
 
-        // Получаем deviceId
-        val deviceId = getChildDeviceId()
+    // Получаем deviceId (единый источник childwatch_prefs + SecurePreferences fallback)
+    val deviceId = getChildDeviceId()
+    Log.d(TAG, "Resolved childDeviceId='$deviceId' (empty=${deviceId.isEmpty()})")
 
-        // Initialize новый адаптер с Room Database и автоматической миграцией
-        chatManagerAdapter = ChatManagerAdapter(this, deviceId)
+    // Initialize новый адаптер с Room Database и автоматической миграцией (даже если ID пустой – позволит показать локальные сообщения)
+    chatManagerAdapter = ChatManagerAdapter(this, deviceId)
 
         // Инициализация ViewModel
         viewModel.initialize(deviceId)
@@ -129,9 +106,15 @@ class ChatActivity : AppCompatActivity() {
         setupViewModelObservers()
         loadMessages()
 
-        // Mark all messages as read (используем новый адаптер)
+        // Mark all messages as read (обе подсистемы хранения: Room и legacy SecurePreferences)
         chatManagerAdapter.markAllAsRead()
         viewModel.markAllAsRead()
+        // Также синхронизируем со старым менеджером, чтобы бейдж на главной корректно обнулялся
+        try {
+            chatManager.markAllAsRead()
+        } catch (e: Exception) {
+            Log.w(TAG, "Не удалось пометить сообщения как прочитанные в legacy-хранилище", e)
+        }
 
         // Reset unread count in NotificationManager
         ru.example.childwatch.utils.NotificationManager.resetUnreadCount()
@@ -139,38 +122,14 @@ class ChatActivity : AppCompatActivity() {
         // Sync chat history from server
         syncChatHistory()
 
-        // Initialize WebSocket with missed messages callback
-        WebSocketManager.initialize(
-            this,
-            getServerUrl(),
-            getChildDeviceId(),
-            onMissedMessages = { missed ->
-                runOnUiThread {
-                    val newIds = mutableListOf<String>()
-                    for (msg in missed) {
-                        if (messages.none { it.id == msg.id }) {
-                            messages.add(msg.copy(isRead = true))
-                            chatAdapter.notifyItemInserted(messages.size - 1)
-                            chatManagerAdapter.saveMessage(msg.copy(isRead = true))
-                            newIds.add(msg.id)
-                            // Показываем уведомление для каждого нового сообщения
-                            ru.example.childwatch.utils.NotificationManager.showChatNotification(
-                                this,
-                                msg.getSenderName(),
-                                msg.text,
-                                msg.timestamp
-                            )
-                        }
-                    }
-                    if (newIds.isNotEmpty()) {
-                        markMessagesAsReadOnServer(newIds)
-                        binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
-                        Toast.makeText(this, "📥 Догружено сообщений: ${newIds.size}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        )
-        initializeWebSocket()
+        // Откладываем инициализацию WebSocket до проверки корректности deviceId
+        if (deviceId.isEmpty()) {
+            Log.w(TAG, "DeviceId пустой – WebSocket не будет инициализирован. Пользователь должен привязать устройство.")
+            Toast.makeText(this, "⚠️ Устройство не привязано. Настройте ID ребенка в настройках.", Toast.LENGTH_LONG).show()
+            updateConnectionStatus(ConnectionStatus.DISCONNECTED)
+        } else {
+            initializeWebSocket()
+        }
     }
 
     // Получить URL сервера (единый источник как в MainActivity/service)
@@ -182,8 +141,23 @@ class ChatActivity : AppCompatActivity() {
 
     // Получить deviceId (может быть из настроек/SharedPrefs)
     private fun getChildDeviceId(): String {
-        val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-        return prefs.getString("child_device_id", "") ?: ""
+        // Единый источник: сначала SecurePreferences, затем shared prefs childwatch_prefs
+        return try {
+            val secure = SecurePreferences(this, "childwatch_prefs")
+            val fromSecure = secure.getString("child_device_id", null)
+            if (!fromSecure.isNullOrEmpty()) return fromSecure
+
+            val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+            val fromPrefs = prefs.getString("child_device_id", null)
+            if (!fromPrefs.isNullOrEmpty()) return fromPrefs
+
+            // Fallback: попытка получить из legacy prefs (app_prefs)
+            val legacy = getSharedPreferences("app_prefs", Context.MODE_PRIVATE).getString("child_device_id", null)
+            legacy ?: ""
+        } catch (e: Exception) {
+            Log.e(TAG, "Ошибка получения childDeviceId", e)
+            ""
+        }
     }
 
     private fun setupUI() {
@@ -209,10 +183,8 @@ class ChatActivity : AppCompatActivity() {
             sendMessage()
         }
 
-        // Clear chat button
-        binding.clearButton.setOnClickListener {
-            clearChat()
-        }
+        // Hide clear chat button (removed feature)
+        binding.clearButton.visibility = View.GONE
 
         // Emoji button
         binding.emojiButton.setOnClickListener {
@@ -738,6 +710,37 @@ class ChatActivity : AppCompatActivity() {
                 Log.e(TAG, "Error loading child name", e)
                 runOnUiThread {
                     supportActionBar?.title = "Чат"
+                }
+            }
+        }
+    }
+
+    /**
+     * Пометить сообщения как прочитанные на сервере
+     */
+    private fun markMessagesAsReadOnServer(messageIds: List<String>) {
+        if (messageIds.isEmpty()) return
+        lifecycleScope.launch {
+            withContext(Dispatchers.IO) {
+                val client = okhttp3.OkHttpClient()
+                for (id in messageIds) {
+                    try {
+                        val url = "${getServerUrl()}/api/chat/messages/$id/read"
+                        val request = okhttp3.Request.Builder()
+                            .url(url)
+                            .put(okhttp3.RequestBody.create(null, ByteArray(0)))
+                            .build()
+
+                        client.newCall(request).execute().use { response ->
+                            if (response.isSuccessful) {
+                                Log.d(TAG, "Message $id marked as read on server")
+                            } else {
+                                Log.e(TAG, "Failed to mark message $id as read: ${response.message}")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Error marking message $id as read", e)
+                    }
                 }
             }
         }

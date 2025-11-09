@@ -10,7 +10,7 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.progressindicator.CircularProgressIndicator
+import com.google.android.material.progressindicator.LinearProgressIndicator
 import org.json.JSONObject
 import ru.example.childwatch.network.WebSocketManager
 import android.view.View
@@ -42,10 +42,9 @@ class RemoteCameraActivity : AppCompatActivity() {
     private lateinit var toolbar: MaterialToolbar
     private lateinit var statusText: TextView
     private lateinit var childNameText: TextView
-    private lateinit var frontCameraButton: MaterialButton
-    private lateinit var backCameraButton: MaterialButton
+    private lateinit var takePhotoButton: MaterialButton
     private lateinit var photosRecyclerView: RecyclerView
-    private lateinit var progressIndicator: CircularProgressIndicator
+    private lateinit var progressIndicator: LinearProgressIndicator
     private lateinit var emptyStateLayout: LinearLayout
     private lateinit var photoAdapter: RemotePhotoAdapter
 
@@ -79,8 +78,7 @@ class RemoteCameraActivity : AppCompatActivity() {
             toolbar = findViewById(R.id.toolbar)
             statusText = findViewById(R.id.statusText)
             childNameText = findViewById(R.id.childNameText)
-            frontCameraButton = findViewById(R.id.frontCameraButton)
-            backCameraButton = findViewById(R.id.backCameraButton)
+            takePhotoButton = findViewById(R.id.takePhotoButton)
             photosRecyclerView = findViewById(R.id.photosRecyclerView)
             progressIndicator = findViewById(R.id.progressIndicator)
             emptyStateLayout = findViewById(R.id.emptyStateLayout)
@@ -115,20 +113,16 @@ class RemoteCameraActivity : AppCompatActivity() {
     }
 
     private fun setupButtons() {
-        frontCameraButton.setOnClickListener {
-            takePhoto("front")
-        }
-
-        backCameraButton.setOnClickListener {
-            takePhoto("back")
+        takePhotoButton.setOnClickListener {
+            takePhoto()
         }
     }
 
     /**
-     * Send take_photo command to child device
+     * Send take_photo command to child device (uses back camera by default)
      */
-    private fun takePhoto(camera: String) {
-        Log.d(TAG, "Taking photo with $camera camera for child: $childId")
+    private fun takePhoto() {
+        Log.d(TAG, "Taking photo for child: $childId")
         
         // Check WebSocket connection
         if (!WebSocketManager.isConnected()) {
@@ -144,17 +138,17 @@ class RemoteCameraActivity : AppCompatActivity() {
         updateStatus("Отправка команды...")
         disableButtons()
 
-        // Send command via WebSocket
-        sendTakePhotoCommand(childId!!, camera)
+        // Send command via WebSocket (always use back camera)
+        sendTakePhotoCommand(childId!!)
     }
 
     /**
      * Send take_photo command via WebSocket
      */
-    private fun sendTakePhotoCommand(deviceId: String, camera: String) {
+    private fun sendTakePhotoCommand(deviceId: String) {
         try {
             val commandData = JSONObject().apply {
-                put("camera", camera)
+                put("camera", "back")  // Always use back camera
                 put("deviceId", deviceId)
             }
 
@@ -268,13 +262,11 @@ class RemoteCameraActivity : AppCompatActivity() {
     }
 
     private fun disableButtons() {
-        frontCameraButton.isEnabled = false
-        backCameraButton.isEnabled = false
+        takePhotoButton.isEnabled = false
     }
 
     private fun enableButtons() {
-        frontCameraButton.isEnabled = true
-        backCameraButton.isEnabled = true
+        takePhotoButton.isEnabled = true
     }
 
     override fun onDestroy() {

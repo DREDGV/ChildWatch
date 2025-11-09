@@ -5,13 +5,16 @@
 ## 🎯 Major Features
 
 ### 💬 **Enhanced Chat System**
+
 1. **Connection Status Indicator**
+
    - Real-time WebSocket connection status
    - Visual indicators: 🟢 Connected, 🟡 Connecting, 🔴 Offline
    - Auto-hide when connected, shows when connecting/offline
    - Improves user confidence in messaging reliability
 
 2. **Message Send Status & Retry**
+
    - Message states: 🕐 SENDING → ✓ SENT / ❌ FAILED
    - Visual feedback for each message state
    - Retry button for failed messages
@@ -26,13 +29,16 @@
    - WebSocket events: typing_start/typing_stop
 
 ### 📍 **Geofencing Infrastructure (Part 1)**
+
 1. **Database & Backend**
+
    - New Geofence entity with radius, notifications settings
    - GeofenceDao for CRUD operations
    - Database migration v2 → v3
    - Indexed queries for performance
 
 2. **Geofence Management**
+
    - Integration with Android Geofencing API
    - Add/update/delete geofences
    - Activate/deactivate individual zones
@@ -49,18 +55,21 @@
 ## 🔧 Technical Improvements
 
 ### Backend
+
 - Enhanced WebSocket event system
 - New typing events (typing_start, typing_stop)
 - Improved message queue reliability
 - Geofence event processing pipeline
 
 ### UI/UX
+
 - Consistent status indicators across chat
 - Material Design 3 components
 - Improved error handling with retry
 - Better network state visibility
 
 ### Database
+
 - Schema version 3 with geofences table
 - Proper migration path from v2
 - Indexed geofence queries
@@ -119,10 +128,10 @@ _(Screenshots will be added during testing phase)_
 
 ## 🙏 Testing Checklist
 
-- [  ] Chat connection status indicator displays correctly
-- [  ] Message retry works after network error
-- [  ] Typing indicator shows/hides properly
-- [  ] Geofence notifications trigger on zone exit
+- [ ] Chat connection status indicator displays correctly
+- [ ] Message retry works after network error
+- [ ] Typing indicator shows/hides properly
+- [ ] Geofence notifications trigger on zone exit
 - [ ] Database migration runs successfully
 - [ ] App performance remains stable
 

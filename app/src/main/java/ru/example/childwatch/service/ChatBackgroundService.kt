@@ -178,11 +178,45 @@ class ChatBackgroundService : LifecycleService() {
                         WebSocketManager.addChatMessageListener(serviceChatListener!!)
                     }
 
+                    // Подписка на получение фото и ошибок фото до подключения
+                    WebSocketManager.setPhotoReceivedCallback { photoBase64, requestId, timestamp ->
+                        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                            try {
+                                val uri = saveBase64PhotoToGallery(photoBase64, timestamp)
+                                Log.d(TAG, "✅ Photo saved: $uri")
+                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                    ru.example.childwatch.utils.NotificationManager.showChatNotification(
+                                        context = this@ChatBackgroundService,
+                                        senderName = "Удалённая камера",
+                                        messageText = "Получено фото (ID: $requestId)",
+                                        timestamp = timestamp
+                                    )
+                                }
+                            } catch (e: Exception) {
+                                Log.e(TAG, "❌ Error saving received photo", e)
+                            }
+                        }
+                    }
+
+                    WebSocketManager.setPhotoErrorCallback { requestId, error ->
+                        Log.e(TAG, "❌ Photo error (request=$requestId): $error")
+                        ru.example.childwatch.utils.NotificationManager.showChatNotification(
+                            context = this@ChatBackgroundService,
+                            senderName = "Ошибка фото",
+                            messageText = "$error (req $requestId)",
+                            timestamp = System.currentTimeMillis()
+                        )
+                    }
+
                     // Connect WebSocket
                     WebSocketManager.connect(
                         onConnected = {
                             Log.d(TAG, "✅ WebSocket connected successfully on attempt $attempt")
                             updateNotification("Чат активен")
+                            // Запускаем отправку локации родителя (если разрешено)
+                            maybeStartParentLocationService()
+                            // Запускаем heartbeat для стабильности
+                            try { WebSocketManager.getClient()?.startHeartbeat() } catch (_: Exception) {}
                             connected = true
                         },
                         onError = { error ->
@@ -311,6 +345,37 @@ class ChatBackgroundService : LifecycleService() {
     private fun updateNotification(contentText: String) {
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.notify(NOTIFICATION_ID, createNotification(contentText))
+    }
+
+    private fun maybeStartParentLocationService() {
+        try {
+            val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+            val share = prefs.getBoolean("share_parent_location", true)
+            if (share) {
+                ParentLocationService.start(this)
+                Log.d(TAG, "ParentLocationService started (share_parent_location=$share)")
+            } else {
+                Log.d(TAG, "Parent location sharing disabled in prefs")
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to start ParentLocationService", e)
+        }
+    }
+
+    private fun saveBase64PhotoToGallery(base64: String, timestamp: Long): android.net.Uri? {
+        val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
+        val resolver = contentResolver
+        val name = "childwatch_photo_${timestamp}.jpg"
+        val contentValues = android.content.ContentValues().apply {
+            put(android.provider.MediaStore.MediaColumns.DISPLAY_NAME, name)
+            put(android.provider.MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
+            put(android.provider.MediaStore.MediaColumns.RELATIVE_PATH, "Pictures/ChildWatch")
+        }
+        val uri = resolver.insert(android.provider.MediaStore.Images.Media.EXTERNAL_CONTENT_URI, contentValues)
+        if (uri != null) {
+            resolver.openOutputStream(uri)?.use { it.write(bytes) }
+        }
+        return uri
     }
 
     override fun onBind(intent: Intent): IBinder? {

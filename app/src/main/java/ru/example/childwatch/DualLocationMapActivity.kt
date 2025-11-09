@@ -188,9 +188,6 @@ class DualLocationMapActivity : AppCompatActivity() {
     private fun loadLocationHistory(fromTimestamp: Long, toTimestamp: Long) {
         lifecycleScope.launch {
             try {
-                binding.loadingCard.visibility = View.VISIBLE
-                binding.loadingText.text = "Загрузка истории..."
-                
                 val history = networkClient.getLocationHistory(
                     deviceId = otherId,
                     fromTimestamp = fromTimestamp,
@@ -204,7 +201,6 @@ class DualLocationMapActivity : AppCompatActivity() {
                         "Нет данных за выбранный период",
                         Toast.LENGTH_SHORT
                     ).show()
-                    binding.loadingCard.visibility = View.GONE
                     return@launch
                 }
                 
@@ -224,8 +220,6 @@ class DualLocationMapActivity : AppCompatActivity() {
                     "Ошибка загрузки истории: ${e.message}",
                     Toast.LENGTH_SHORT
                 ).show()
-            } finally {
-                binding.loadingCard.visibility = View.GONE
             }
         }
     }

@@ -355,6 +355,29 @@ class WebSocketClient(
         }
     }
 
+    private val onParentLocation = Emitter.Listener { args ->
+        try {
+            val data = args.getOrNull(0) as? JSONObject ?: return@Listener
+            val parentId = data.optString("parentId")
+            val latitude = data.optDouble("latitude")
+            val longitude = data.optDouble("longitude")
+            val accuracy = data.optDouble("accuracy", 0.0).toFloat()
+            val timestamp = data.optLong("timestamp", System.currentTimeMillis())
+            val speed = data.optDouble("speed", 0.0).toFloat()
+            val bearing = data.optDouble("bearing", 0.0).toFloat()
+            
+            Log.d(TAG, "📍 Received parent location: $latitude, $longitude")
+            
+            // Save to local database
+            onParentLocationCallback?.invoke(parentId, latitude, longitude, accuracy, timestamp, speed, bearing)
+        } catch (e: Exception) {
+            Log.e(TAG, "❌ Error handling parent_location", e)
+        }
+    }
+
+    // Callback for parent location
+    var onParentLocationCallback: ((parentId: String, lat: Double, lon: Double, accuracy: Float, timestamp: Long, speed: Float, bearing: Float) -> Unit)? = null
+
     /**
      * Connect to WebSocket server
      */
@@ -398,6 +421,7 @@ class WebSocketClient(
             socket?.on("request_photo", onRequestPhoto)
             socket?.on("typing_start", onTypingStart)
             socket?.on("typing_stop", onTypingStop)
+            socket?.on("parent_location", onParentLocation)
 
             socket?.connect()
 
