@@ -13,9 +13,9 @@ android {
         applicationId "ru.example.childwatch"
         minSdk 26
         targetSdk 34
-    // v7.1.0: Minor release (real Camera2 photo capture implementation)
-    versionCode 44
-    versionName "7.1.0"
+    // v7.1.1: Bugfix release (Room migrations, chat message delivery)
+    versionCode 45
+    versionName "7.1.1"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

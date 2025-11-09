@@ -108,9 +108,13 @@ abstract class ParentWatchDatabase : RoomDatabase() {
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_parent_locations_timestamp ON parent_locations(timestamp)")
 
                 // Backfill changes in existing tables introduced in v2 schema
-                // 1) chat_messages: add created_at (NOT NULL), set from timestamp for existing rows
-                database.execSQL("ALTER TABLE chat_messages ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("UPDATE chat_messages SET created_at = timestamp WHERE created_at = 0")
+                // 1) chat_messages: add created_at column (if missing), initialize from timestamp
+                try {
+                    database.execSQL("ALTER TABLE chat_messages ADD COLUMN created_at INTEGER")
+                } catch (e: Exception) {
+                    // Колонка уже существует — пропускаем
+                }
+                database.execSQL("UPDATE chat_messages SET created_at = timestamp WHERE created_at IS NULL")
 
                 // Ensure indices exist (idempotent)
                 database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_chat_messages_message_id ON chat_messages(message_id)")
@@ -119,9 +123,13 @@ abstract class ParentWatchDatabase : RoomDatabase() {
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_timestamp ON chat_messages(timestamp)")
                 database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_messages_is_read ON chat_messages(is_read)")
 
-                // 2) audio_recordings: add created_at (NOT NULL) if missing, set from timestamp
-                database.execSQL("ALTER TABLE audio_recordings ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")
-                database.execSQL("UPDATE audio_recordings SET created_at = timestamp WHERE created_at = 0")
+                // 2) audio_recordings: add created_at column (if missing), initialize from timestamp
+                try {
+                    database.execSQL("ALTER TABLE audio_recordings ADD COLUMN created_at INTEGER")
+                } catch (e: Exception) {
+                    // Колонка уже существует — пропускаем
+                }
+                database.execSQL("UPDATE audio_recordings SET created_at = timestamp WHERE created_at IS NULL")
             }
         }
 
@@ -140,11 +148,11 @@ abstract class ParentWatchDatabase : RoomDatabase() {
 
                 // Ensure audio_recordings has created_at column
                 try {
-                    database.execSQL("ALTER TABLE audio_recordings ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0")
-                    database.execSQL("UPDATE audio_recordings SET created_at = timestamp WHERE created_at = 0")
+                    database.execSQL("ALTER TABLE audio_recordings ADD COLUMN created_at INTEGER")
                 } catch (e: Exception) {
                     // Column may already exist — ignore
                 }
+                database.execSQL("UPDATE audio_recordings SET created_at = timestamp WHERE created_at IS NULL")
             }
         }
 

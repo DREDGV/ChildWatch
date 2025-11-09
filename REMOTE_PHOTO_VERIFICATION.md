@@ -1,6 +1,7 @@
 # ✅ Проверка функции удалённого фото
 
 ## 📋 Статус проверки
+
 **Дата**: 2025-11-06  
 **Версия**: 7.1.0  
 **Результат**: ✅ **ВСЕ КОМПОНЕНТЫ РАБОТАЮТ КОРРЕКТНО**
@@ -10,6 +11,7 @@
 ## 🔄 Полная цепочка работы
 
 ### 1️⃣ Родительское приложение (app/)
+
 **Файл**: `RemoteCameraActivity.kt`
 
 ```kotlin
@@ -24,7 +26,7 @@ private fun takePhoto() {
         Toast: "Нет связи с устройством ребенка"
         return
     }
-    
+
     // Отправка команды через WebSocket
     sendTakePhotoCommand(childId!!)
 }
@@ -34,7 +36,7 @@ private fun sendTakePhotoCommand(deviceId: String) {
         put("camera", "back")  // ВСЕГДА основная камера
         put("deviceId", deviceId)
     }
-    
+
     WebSocketManager.sendCommand(
         "take_photo",      // ← тип команды
         commandData,       // ← данные
@@ -49,6 +51,7 @@ private fun sendTakePhotoCommand(deviceId: String) {
 ---
 
 ### 2️⃣ Сервер (server/)
+
 **Файл**: `managers/WebSocketManager.js`
 
 ```javascript
@@ -61,17 +64,17 @@ handleCommand(socket, data) {
     const rawType = data.type;              // "take_photo"
     const payload = data.data || {};         // { camera: "back" }
     const targetDeviceId = data.deviceId;    // ID детского устройства
-    
+
     const commandEnvelope = {
         type: rawType,
         data: payload,
         timestamp: Date.now(),
         origin: socket.deviceType || "unknown"
     };
-    
+
     // Отправить команду детскому устройству через WebSocket
     const sent = this.sendCommandToChild(targetDeviceId, commandEnvelope);
-    
+
     if (!sent && this.commandManager) {
         // Если устройство оффлайн — сохранить в очередь
         this.commandManager.addCommand(targetDeviceId, rawType, payload);
@@ -80,6 +83,7 @@ handleCommand(socket, data) {
 ```
 
 **Файл**: `managers/CommandManager.js`
+
 ```javascript
 COMMANDS = {
     TAKE_PHOTO: 'take_photo'  // ← поддерживаемая команда
@@ -93,7 +97,7 @@ addCommand(deviceId, command, data = {}) {
         timestamp: Date.now(),
         status: 'pending'
     };
-    
+
     this.commandQueue.get(deviceId).push(commandObj);
 }
 ```
@@ -103,6 +107,7 @@ addCommand(deviceId, command, data = {}) {
 ---
 
 ### 3️⃣ Детское приложение (parentwatch/)
+
 **Файл**: `service/PhotoCaptureService.kt`
 
 ```kotlin
@@ -121,12 +126,12 @@ private fun setupWebSocketListener() {
 
 fun handleTakePhotoCommand(cameraFacing: String = "front") {
     updateNotification("Захват фото...")
-    
+
     val facing = when (cameraFacing.lowercase()) {
         "back" -> CameraService.CameraFacing.BACK   // ← основная камера
         else -> CameraService.CameraFacing.FRONT
     }
-    
+
     // Захват фото через CameraService
     cameraService?.capturePhoto(facing) { photoFile ->
         if (photoFile != null) {
@@ -143,7 +148,7 @@ fun handleTakePhotoCommand(cameraFacing: String = "front") {
 private fun uploadPhoto(photoFile: File) {
     serviceScope.launch {
         updateNotification("Загрузка фото...")
-        
+
         val success = withContext(Dispatchers.IO) {
             networkHelper?.uploadPhoto(
                 serverUrl!!,     // https://childwatch-production.up.railway.app
@@ -151,7 +156,7 @@ private fun uploadPhoto(photoFile: File) {
                 photoFile        // JPEG файл
             ) ?: false
         }
-        
+
         if (success) {
             Log.d(TAG, "Photo uploaded successfully")
             updateNotification("Фото отправлено")
@@ -159,7 +164,7 @@ private fun uploadPhoto(photoFile: File) {
             Log.e(TAG, "Photo upload failed")
             updateNotification("Ошибка загрузки")
         }
-        
+
         delay(3000)
         updateNotification("Готов к захвату фото")
     }
@@ -173,6 +178,7 @@ private fun uploadPhoto(photoFile: File) {
 ## 🎯 Упрощения UI родительского приложения
 
 ### До изменений:
+
 ```xml
 <com.google.android.material.button.MaterialButton
     android:id="@+id/frontCameraButton"
@@ -184,6 +190,7 @@ private fun uploadPhoto(photoFile: File) {
 ```
 
 ### После изменений:
+
 ```xml
 <com.google.android.material.button.MaterialButton
     android:id="@+id/takePhotoButton"
@@ -203,6 +210,7 @@ private fun uploadPhoto(photoFile: File) {
 ```
 
 **Изменения**:
+
 - ✅ Убраны 2 кнопки (фронтальная/основная)
 - ✅ Добавлена 1 большая кнопка "📸 Сделать фото"
 - ✅ Увеличена высота кнопки до 64dp
@@ -215,17 +223,18 @@ private fun uploadPhoto(photoFile: File) {
 
 ### ✅ Проверенные компоненты
 
-| Компонент | Статус | Описание |
-|-----------|--------|----------|
-| **RemoteCameraActivity.kt** | ✅ | Отправляет команду `take_photo` через WebSocket |
-| **WebSocketManager (app)** | ✅ | Корректно формирует пакет команды |
-| **server/WebSocketManager.js** | ✅ | Принимает команду от родителя |
-| **server/CommandManager.js** | ✅ | Поддерживает `TAKE_PHOTO` команду |
-| **PhotoCaptureService.kt** | ✅ | Слушает команду `take_photo` |
-| **CameraService** | ✅ | Захватывает фото (BACK/FRONT) |
-| **NetworkHelper** | ✅ | Загружает фото на сервер `/api/photo` |
+| Компонент                      | Статус | Описание                                        |
+| ------------------------------ | ------ | ----------------------------------------------- |
+| **RemoteCameraActivity.kt**    | ✅     | Отправляет команду `take_photo` через WebSocket |
+| **WebSocketManager (app)**     | ✅     | Корректно формирует пакет команды               |
+| **server/WebSocketManager.js** | ✅     | Принимает команду от родителя                   |
+| **server/CommandManager.js**   | ✅     | Поддерживает `TAKE_PHOTO` команду               |
+| **PhotoCaptureService.kt**     | ✅     | Слушает команду `take_photo`                    |
+| **CameraService**              | ✅     | Захватывает фото (BACK/FRONT)                   |
+| **NetworkHelper**              | ✅     | Загружает фото на сервер `/api/photo`           |
 
 ### 🔗 Полный цепочка данных
+
 ```
 [PARENT APP]
 RemoteCameraActivity → takePhotoButton.click()
@@ -258,18 +267,22 @@ RecyclerView displays photo gallery
 ## 🎨 Улучшения UI
 
 ### 1. Размер кнопки
+
 - **До**: Стандартная высота (wrap_content ≈ 48dp)
 - **После**: 64dp — удобнее нажимать
 
 ### 2. Текст
+
 - **До**: "Сделать фото (фронтальная)" / "Сделать фото (основная)"
 - **После**: "📸 Сделать фото" + пояснение снизу
 
 ### 3. Иконка
+
 - **До**: Маленькая иконка (default)
 - **После**: 32dp иконка камеры
 
 ### 4. Визуал
+
 - **До**: 2 кнопки в столбик
 - **После**: 1 большая кнопка с центральным выравниванием
 
@@ -278,11 +291,13 @@ RecyclerView displays photo gallery
 ## 🚀 Следующие шаги
 
 1. **Собрать APK**:
+
    ```powershell
    ./gradlew :app:assembleDebug
    ```
 
 2. **Установить на устройство родителя** (Nokia G21):
+
    ```powershell
    adb -s PT19655KA1280800674 install -r app/build/outputs/apk/debug/ParentMonitor-v7.1.0-debug.apk
    ```

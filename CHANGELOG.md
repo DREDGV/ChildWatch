@@ -4,6 +4,34 @@ All notable changes to ChildWatch will be documented in this file.
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [7.1.1] - 2025-11-10
+
+### Fixed
+
+- **Критический баг: Room миграции** — удалены `DEFAULT` значения из `ALTER TABLE` команд
+  - Проблема: Room v3 ожидает `defaultValue='undefined'` для NOT NULL колонок, но миграции использовали `DEFAULT 0`
+  - Решение: изменён паттерн на nullable колонки → UPDATE для заполнения → Room enforces NOT NULL через Entity
+  - Затронуто: `MIGRATION_1_2` и `MIGRATION_2_3` в обоих модулях (app + parentwatch)
+  - Симптомы: "Migration didn't properly handle: geofences... defaultValue='undefined'" → теперь исправлено
+  
+- **Критический баг: доставка сообщений ребёнок→родитель**
+  - Проблема: в `parentwatch/WebSocketManager.kt` callback перезаписывался при повторной регистрации
+  - Когда `ChatBackgroundService` и `ChatActivity` регистрировали listeners — второй вызов затирал первый
+  - Решение: добавлена поддержка множественных слушателей (синхронизация с app/)
+    - Добавлен `chatMessageListeners: MutableSet<>` с синхронизацией
+    - Добавлена функция `dispatchChatMessage()` для рассылки всем слушателям
+    - Обновлены методы `addChatMessageListener()`, `removeChatMessageListener()`, `clearChatMessageListeners()`
+  - Теперь оба компонента (Activity + Service) могут одновременно получать сообщения
+  
+- **Дубликаты методов в parentwatch** — удалены legacy версии `addChatMessageListener()` и `removeChatMessageListener()`, которые конфликтовали с новыми реализациями
+
+### Technical
+
+- `app/build.gradle`: versionCode 45, versionName "7.1.1"
+- `parentwatch/build.gradle`: versionCode 32, versionName "7.1.1"
+- Архитектура `WebSocketManager` синхронизирована между app/ и parentwatch/
+- Добавлено логирование количества активных listeners для отладки
+
 ## [7.1.0] - 2025-11-09
 
 ### Added
