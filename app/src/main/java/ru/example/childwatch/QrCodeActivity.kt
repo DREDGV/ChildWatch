@@ -10,6 +10,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
+import ru.example.childwatch.utils.SecureSettingsManager
 
 /**
  * Activity для отображения QR-кода родительского устройства
@@ -26,8 +27,8 @@ class QrCodeActivity : AppCompatActivity() {
             setDisplayHomeAsUpEnabled(true)
         }
 
-        // Получаем device_id
-        val deviceId = getMyDeviceId()
+        // Получаем собственный device_id (безопасно, с резервными вариантами)
+        val deviceId = getOwnDeviceId()
         
         if (deviceId.isEmpty()) {
             Toast.makeText(this, "Device ID не найден", Toast.LENGTH_LONG).show()
@@ -55,11 +56,42 @@ class QrCodeActivity : AppCompatActivity() {
     }
 
     /**
-     * Получение device_id из SharedPreferences
+     * Получение собственного device_id с учётом возможных мест хранения.
+     * Порядок: SecureSettingsManager → childwatch_tokens → childwatch_prefs → генерация.
      */
-    private fun getMyDeviceId(): String {
-        val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-        return prefs.getString("device_id", "") ?: ""
+    private fun getOwnDeviceId(): String {
+        // 1) Безопасное хранилище
+        val secure = SecureSettingsManager(this)
+        secure.getDeviceId()?.let { if (it.isNotBlank()) return it }
+
+        // 2) Токены (используются TokenManager)
+        val tokens = getSharedPreferences("childwatch_tokens", Context.MODE_PRIVATE)
+        tokens.getString("device_id", null)?.let { idFromTokens ->
+            if (idFromTokens.isNotBlank()) {
+                // синхронизируем в secure для будущего
+                secure.setDeviceId(idFromTokens)
+                return idFromTokens
+            }
+        }
+
+        // 3) Обычные prefs (наследие)
+        val legacy = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+            .getString("device_id", null)
+        if (!legacy.isNullOrBlank()) {
+            secure.setDeviceId(legacy)
+            return legacy
+        }
+
+        // 4) Генерация на основе ANDROID_ID и сохранение
+        val androidId = android.provider.Settings.Secure.getString(
+            contentResolver,
+            android.provider.Settings.Secure.ANDROID_ID
+        )
+        val generated = "device_${androidId}"
+        secure.setDeviceId(generated)
+        getSharedPreferences("childwatch_tokens", Context.MODE_PRIVATE)
+            .edit().putString("device_id", generated).apply()
+        return generated
     }
 
     /**

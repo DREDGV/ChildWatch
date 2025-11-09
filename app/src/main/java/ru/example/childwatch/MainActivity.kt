@@ -28,6 +28,7 @@ import ru.example.childwatch.utils.PermissionHelper
 import ru.example.childwatch.utils.SecurityChecker
 import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.chat.ChatManager
+import ru.example.childwatch.network.WebSocketManager
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -130,6 +131,8 @@ class MainActivity : AppCompatActivity() {
                 ru.example.childwatch.network.WebSocketManager.connect(
                     onConnected = {
                         Log.d(TAG, "✅ WebSocket connected for commands")
+                        // Start parent location sharing service
+                        ru.example.childwatch.service.ParentLocationService.start(this)
                     },
                     onError = { error ->
                         Log.e(TAG, "❌ WebSocket connection error: $error")
@@ -214,15 +217,17 @@ class MainActivity : AppCompatActivity() {
         // Location map card - show parent+child on map
         findViewById<View>(R.id.parentLocationCard)?.setOnClickListener {
             val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-            val parentId = prefs.getString("device_id", "unknown") ?: "unknown"
+            val parentId = prefs.getString("parent_device_id", null)
+                ?: prefs.getString("device_id", null) // legacy fallback
+                ?: "unknown"
             val childId = prefs.getString("child_device_id", null)
             
             if (childId != null) {
                 val intent = DualLocationMapActivity.createIntent(
                     context = this,
-                    myRole = DualLocationMapActivity.ROLE_PARENT,
-                    myId = parentId,
-                    otherId = childId
+                    myRole = DualLocationMapActivity.ROLE_CHILD,
+                    myId = childId,
+                    otherId = parentId
                 )
                 startActivity(intent)
             } else {
@@ -900,16 +905,18 @@ class MainActivity : AppCompatActivity() {
      * Update chat badge with unread message count
      */
     private fun updateChatBadge() {
-        val unreadCount = chatManager.getUnreadCount()
-
-        if (unreadCount > 0) {
-            binding.chatBadge.visibility = View.VISIBLE
-            binding.chatBadge.text = if (unreadCount > 99) "99+" else unreadCount.toString()
-        } else {
-            binding.chatBadge.visibility = View.GONE
+        lifecycleScope.launch(Dispatchers.IO) {
+            val unread = try { chatManager.getUnreadCount() } catch (e: Exception) { 0 }
+            withContext(Dispatchers.Main) {
+                if (unread > 0) {
+                    binding.chatBadge.visibility = View.VISIBLE
+                    binding.chatBadge.text = if (unread > 99) "99+" else unread.toString()
+                } else {
+                    binding.chatBadge.visibility = View.GONE
+                }
+                Log.d("MainActivity", "Chat badge updated: $unread unread messages")
+            }
         }
-
-        Log.d("MainActivity", "Chat badge updated: $unreadCount unread messages")
     }
 
     private fun showDeviceIdOptions(serverUrl: String) {

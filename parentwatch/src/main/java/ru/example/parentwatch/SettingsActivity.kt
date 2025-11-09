@@ -42,7 +42,7 @@ class SettingsActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK) {
             val scannedCode = result.data?.getStringExtra("SCANNED_QR_CODE")
             if (scannedCode != null) {
-                saveParentDeviceId(scannedCode)
+                saveChildDeviceId(scannedCode)
             }
         }
     }
@@ -339,32 +339,36 @@ class SettingsActivity : AppCompatActivity() {
         startActivity(intent)
     }
     
-    private fun saveParentDeviceId(parentId: String) {
+        private fun saveChildDeviceId(childId: String) {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         prefs.edit()
-            .putString("parent_device_id", parentId)
+            .putString("child_device_id", childId)
             .apply()
-        
-        Toast.makeText(this, "вњ… Р РѕРґРёС‚РµР»СЊСЃРєРѕРµ СѓСЃС‚СЂРѕР№СЃС‚РІРѕ РїРѕРґРєР»СЋС‡РµРЅРѕ!", Toast.LENGTH_LONG).show()
+
+        val compat = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+        compat.edit().putString("child_device_id", childId).apply()
+
+        Toast.makeText(this, "OK: ID ребёнка сохранён", Toast.LENGTH_LONG).show()
         updateParentConnectionStatus()
     }
-    
     private fun updateParentConnectionStatus() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val parentId = prefs.getString("parent_device_id", null)
-        
-        if (parentId != null) {
-            binding.parentIdStatus.text = "вњ… РџРѕРґРєР»СЋС‡РµРЅРѕ (${parentId.take(8)}...)"
+        val childId = prefs.getString("child_device_id", null)
+            ?: getSharedPreferences("childwatch_prefs", MODE_PRIVATE).getString("child_device_id", null)
+
+        if (!childId.isNullOrEmpty()) {
+            binding.parentIdStatus.text = "Сопряжено (${childId.take(8)}...)"
             binding.parentIdStatus.setTextColor(getColor(android.R.color.holo_green_dark))
         } else {
-            binding.parentIdStatus.text = "вќЊ РќРµ РїРѕРґРєР»СЋС‡РµРЅРѕ"
+            binding.parentIdStatus.text = "Нет ID ребёнка"
             binding.parentIdStatus.setTextColor(getColor(android.R.color.holo_red_dark))
         }
     }
-    
-    override fun onSupportNavigateUp(): Boolean {
+override fun onSupportNavigateUp(): Boolean {
         onBackPressed()
         return true
     }
 }
+
+
 
