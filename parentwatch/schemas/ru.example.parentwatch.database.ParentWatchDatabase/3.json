@@ -2,7 +2,7 @@
   "formatVersion": 1,
   "database": {
     "version": 3,
-    "identityHash": "f6618f370cce6c7955bcb2b9e00030b1",
+    "identityHash": "149cd5e1af8e2c00d1eda5f663009f4a",
     "entities": [
       {
         "tableName": "children",
@@ -201,7 +201,7 @@
       },
       {
         "tableName": "chat_messages",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `message_id` TEXT NOT NULL, `child_id` INTEGER NOT NULL, `text` TEXT NOT NULL, `sender` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, `is_read` INTEGER NOT NULL, `status` TEXT NOT NULL, `created_at` INTEGER NOT NULL, FOREIGN KEY(`child_id`) REFERENCES `children`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `message_id` TEXT NOT NULL, `child_id` INTEGER NOT NULL, `text` TEXT NOT NULL, `sender` TEXT NOT NULL, `timestamp` INTEGER NOT NULL, `is_read` INTEGER NOT NULL, `status` TEXT NOT NULL, `created_at` INTEGER, FOREIGN KEY(`child_id`) REFERENCES `children`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -255,7 +255,7 @@
             "fieldPath": "createdAt",
             "columnName": "created_at",
             "affinity": "INTEGER",
-            "notNull": true
+            "notNull": false
           }
         ],
         "primaryKey": {
@@ -327,7 +327,7 @@
       },
       {
         "tableName": "audio_recordings",
-        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `recording_id` TEXT NOT NULL, `child_id` INTEGER NOT NULL, `file_path` TEXT NOT NULL, `file_url` TEXT, `duration` INTEGER NOT NULL, `file_size` INTEGER NOT NULL, `format` TEXT NOT NULL, `sample_rate` INTEGER NOT NULL, `bit_rate` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL, `is_downloaded` INTEGER NOT NULL, `is_played` INTEGER NOT NULL, `volume_mode` TEXT, `created_at` INTEGER NOT NULL, FOREIGN KEY(`child_id`) REFERENCES `children`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
+        "createSql": "CREATE TABLE IF NOT EXISTS `${TABLE_NAME}` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `recording_id` TEXT NOT NULL, `child_id` INTEGER NOT NULL, `file_path` TEXT NOT NULL, `file_url` TEXT, `duration` INTEGER NOT NULL, `file_size` INTEGER NOT NULL, `format` TEXT NOT NULL, `sample_rate` INTEGER NOT NULL, `bit_rate` INTEGER NOT NULL, `timestamp` INTEGER NOT NULL, `is_downloaded` INTEGER NOT NULL, `is_played` INTEGER NOT NULL, `volume_mode` TEXT, `created_at` INTEGER, FOREIGN KEY(`child_id`) REFERENCES `children`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )",
         "fields": [
           {
             "fieldPath": "id",
@@ -417,7 +417,7 @@
             "fieldPath": "createdAt",
             "columnName": "created_at",
             "affinity": "INTEGER",
-            "notNull": true
+            "notNull": false
           }
         ],
         "primaryKey": {
@@ -722,7 +722,7 @@
     "views": [],
     "setupQueries": [
       "CREATE TABLE IF NOT EXISTS room_master_table (id INTEGER PRIMARY KEY,identity_hash TEXT)",
-      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, 'f6618f370cce6c7955bcb2b9e00030b1')"
+      "INSERT OR REPLACE INTO room_master_table (id,identity_hash) VALUES(42, '149cd5e1af8e2c00d1eda5f663009f4a')"
     ]
   }
 }

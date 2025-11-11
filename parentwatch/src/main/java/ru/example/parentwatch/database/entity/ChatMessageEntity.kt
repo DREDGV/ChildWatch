@@ -58,7 +58,7 @@ data class ChatMessageEntity(
     val status: String = "sent", // sending, sent, delivered, read, failed
 
     @ColumnInfo(name = "created_at")
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long? = null // Nullable для совместимости с миграциями v1→v2→v3
 ) {
     /**
      * Convert to ChatMessage domain model
@@ -86,7 +86,8 @@ data class ChatMessageEntity(
                 sender = message.sender,
                 timestamp = message.timestamp,
                 isRead = message.isRead,
-                status = message.statusToServerValue()
+                status = message.statusToServerValue(),
+                createdAt = System.currentTimeMillis() // Устанавливаем текущее время для новых записей
             )
         }
     }

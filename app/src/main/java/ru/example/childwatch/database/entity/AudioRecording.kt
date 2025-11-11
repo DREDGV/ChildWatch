@@ -74,5 +74,5 @@ data class AudioRecording(
     val volumeMode: String? = null, // normal, loud, silent, etc.
 
     @ColumnInfo(name = "created_at")
-    val createdAt: Long = System.currentTimeMillis()
+    val createdAt: Long? = null // Nullable для совместимости с миграциями v1→v2→v3
 )

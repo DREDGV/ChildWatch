@@ -4,16 +4,24 @@ All notable changes to ChildWatch will be documented in this file.
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [7.1.1] - 2025-11-10
+## [7.1.1] - 2025-11-11
 
 ### Fixed
+
+- **КРИТИЧЕСКИЙ: Entity schema несоответствие → потеря всех сообщений при обновлении**
+  - Проблема: Room использует `.fallbackToDestructiveMigration()` — при несоответствии схемы **удаляет всю БД**
+  - Корневая причина: `created_at` в Entity был `Long` (NOT NULL), но миграции добавляли как `INTEGER` (nullable)
+  - После миграции 1→2→3 колонка оставалась nullable, но Entity требовал NOT NULL → schema mismatch → **потеря всех данных**
+  - Решение: изменён тип `created_at` на `Long?` (nullable) в Entity для совместимости
+  - Затронуто: `ChatMessageEntity` и `AudioRecording` в обоих модулях
+  - При создании новых записей `createdAt` устанавливается явно через `System.currentTimeMillis()`
 
 - **Критический баг: Room миграции** — удалены `DEFAULT` значения из `ALTER TABLE` команд
   - Проблема: Room v3 ожидает `defaultValue='undefined'` для NOT NULL колонок, но миграции использовали `DEFAULT 0`
   - Решение: изменён паттерн на nullable колонки → UPDATE для заполнения → Room enforces NOT NULL через Entity
   - Затронуто: `MIGRATION_1_2` и `MIGRATION_2_3` в обоих модулях (app + parentwatch)
   - Симптомы: "Migration didn't properly handle: geofences... defaultValue='undefined'" → теперь исправлено
-  
+
 - **Критический баг: доставка сообщений ребёнок→родитель**
   - Проблема: в `parentwatch/WebSocketManager.kt` callback перезаписывался при повторной регистрации
   - Когда `ChatBackgroundService` и `ChatActivity` регистрировали listeners — второй вызов затирал первый
@@ -22,8 +30,15 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
     - Добавлена функция `dispatchChatMessage()` для рассылки всем слушателям
     - Обновлены методы `addChatMessageListener()`, `removeChatMessageListener()`, `clearChatMessageListeners()`
   - Теперь оба компонента (Activity + Service) могут одновременно получать сообщения
-  
+
 - **Дубликаты методов в parentwatch** — удалены legacy версии `addChatMessageListener()` и `removeChatMessageListener()`, которые конфликтовали с новыми реализациями
+
+### Added
+
+- **ChatManagerV2 и ChatManagerAdapter в parentwatch**
+  - Добавлена инфраструктура для миграции на Room Database (из SharedPreferences)
+  - Пока не используется в ChatActivity, но готова к интеграции
+  - Позволит хранить неограниченное количество сообщений (сейчас лимит 100 в JSON)
 
 ### Technical
 
@@ -31,6 +46,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 - `parentwatch/build.gradle`: versionCode 32, versionName "7.1.1"
 - Архитектура `WebSocketManager` синхронизирована между app/ и parentwatch/
 - Добавлено логирование количества активных listeners для отладки
+- Room schemas обновлены автоматически (v3.json)
 
 ## [7.1.0] - 2025-11-09
 
