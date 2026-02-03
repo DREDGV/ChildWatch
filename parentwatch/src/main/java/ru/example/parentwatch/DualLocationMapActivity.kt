@@ -22,10 +22,12 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import ru.example.parentwatch.database.ParentWatchDatabase
+import ru.example.parentwatch.database.entity.ParentLocation
 import ru.example.parentwatch.database.repository.ParentLocationRepository
 import ru.example.parentwatch.databinding.ActivityDualLocationMapBinding
 import ru.example.parentwatch.location.LocationManager
 import ru.example.parentwatch.network.NetworkClient
+import ru.example.parentwatch.network.ParentLocationData
 import kotlin.math.*
 
 /**
@@ -219,24 +221,10 @@ class DualLocationMapActivity : AppCompatActivity() {
                     null
                 } else withContext(Dispatchers.IO) {
                     if (myRole == ROLE_CHILD && otherId.isNotEmpty()) {
-                        // Try local DB first for parent location
-                        val database = ParentWatchDatabase.getInstance(this@DualLocationMapActivity)
-                        val parentLoc = database.parentLocationDao().getLatestLocation(otherId)
-                        if (parentLoc != null) {
-                            Log.d(TAG, "✅ Parent location from local DB: ${parentLoc.latitude}, ${parentLoc.longitude}")
-                            ru.example.parentwatch.network.ParentLocationData(
-                                parentId = parentLoc.parentId,
-                                latitude = parentLoc.latitude,
-                                longitude = parentLoc.longitude,
-                                accuracy = parentLoc.accuracy,
-                                timestamp = parentLoc.timestamp,
-                                battery = null,
-                                speed = parentLoc.speed,
-                                bearing = parentLoc.bearing
-                            )
-                        } else {
+                        val cachedParent = parentLocationRepository.getLatestLocation(otherId)
+                        cachedParent?.toNetworkModel() ?: run {
                             Log.w(TAG, "No parent location in local DB, trying server...")
-                            networkClient.getLatestLocation(otherId)
+                            networkClient.getLatestParentLocation(otherId)
                         }
                     } else {
                         // Parent getting child location from server
@@ -481,4 +469,18 @@ class DualLocationMapActivity : AppCompatActivity() {
         finish()
         return true
     }
+
+    private fun ParentLocation.toNetworkModel(): ParentLocationData {
+        return ParentLocationData(
+            parentId = parentId,
+            latitude = latitude,
+            longitude = longitude,
+            accuracy = accuracy,
+            timestamp = timestamp,
+            battery = batteryLevel,
+            speed = speed,
+            bearing = bearing
+        )
+    }
+
 }

@@ -22,6 +22,8 @@ object WebSocketManager {
     )
     private var chatMessageSentCallback: ((String, Boolean, Long) -> Unit)? = null
     private var chatStatusCallback: ((String, String, Long) -> Unit)? = null
+    private var childConnectedCallback: (() -> Unit)? = null
+    private var childDisconnectedCallback: (() -> Unit)? = null
 
     /**
      * Initialize WebSocket client
@@ -43,6 +45,8 @@ object WebSocketManager {
         }
         chatMessageSentCallback?.let { webSocketClient?.setChatMessageSentCallback(it) }
         chatStatusCallback?.let { webSocketClient?.setChatStatusCallback(it) }
+        childConnectedCallback?.let { webSocketClient?.setChildConnectedCallback(it) }
+        childDisconnectedCallback?.let { webSocketClient?.setChildDisconnectedCallback(it) }
         isInitialized = true
     }
 
@@ -63,6 +67,8 @@ object WebSocketManager {
             }
             chatMessageSentCallback?.let { setChatMessageSentCallback(it) }
             chatStatusCallback?.let { setChatStatusCallback(it) }
+            childConnectedCallback?.let { setChildConnectedCallback(it) }
+            childDisconnectedCallback?.let { setChildDisconnectedCallback(it) }
             connect(onConnected, onError)
         }
     }
@@ -185,6 +191,26 @@ object WebSocketManager {
         webSocketClient?.sendChatStatus(messageId, status, actor)
     }
 
+    fun setChildConnectedCallback(callback: () -> Unit) {
+        childConnectedCallback = callback
+        webSocketClient?.setChildConnectedCallback(callback)
+    }
+
+    fun setChildDisconnectedCallback(callback: () -> Unit) {
+        childDisconnectedCallback = callback
+        webSocketClient?.setChildDisconnectedCallback(callback)
+    }
+
+    fun clearChildConnectedCallback() {
+        childConnectedCallback = null
+        webSocketClient?.setChildConnectedCallback { }
+    }
+
+    fun clearChildDisconnectedCallback() {
+        childDisconnectedCallback = null
+        webSocketClient?.setChildDisconnectedCallback { }
+    }
+
     /**
      * Send command to child device
      */
@@ -270,6 +296,8 @@ object WebSocketManager {
         chatMessageCallback = null
         chatMessageSentCallback = null
         chatStatusCallback = null
+        childConnectedCallback = null
+        childDisconnectedCallback = null
         photoReceivedCallback = null
         photoErrorCallback = null
     }

@@ -6,42 +6,91 @@
     android:orientation="vertical"
     android:background="#ECF0F1">
 
-    <!-- Connection Status Indicator -->
+    <!-- Conversation header -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/connectionStatusCard"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_margin="8dp"
-        app:cardCornerRadius="16dp"
-        app:cardElevation="2dp"
-        android:visibility="gone">
+        android:layout_margin="12dp"
+        android:visibility="visible"
+        app:cardCornerRadius="20dp"
+        app:cardElevation="3dp">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:gravity="center_vertical"
             android:orientation="horizontal"
-            android:padding="8dp"
-            android:gravity="center_vertical">
+            android:padding="12dp">
 
-            <TextView
-                android:id="@+id/connectionStatusIcon"
-                android:layout_width="12dp"
-                android:layout_height="12dp"
-                android:layout_marginEnd="8dp"
-                android:background="@drawable/status_indicator_circle" />
+            <ImageView
+                android:id="@+id/chatAvatar"
+                android:layout_width="48dp"
+                android:layout_height="48dp"
+                android:background="@android:color/transparent"
+                android:padding="10dp"
+                android:src="@drawable/ic_launcher_foreground" />
 
-            <TextView
-                android:id="@+id/connectionStatusText"
+            <LinearLayout
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
+                android:layout_marginStart="12dp"
+                android:layout_marginEnd="8dp"
                 android:layout_weight="1"
-                android:text="Подключение..."
-                android:textSize="12sp"
-                android:textColor="@android:color/darker_gray" />
+                android:orientation="vertical">
 
+                <TextView
+                    android:id="@+id/chatPartnerName"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/chat_partner_child"
+                    android:textColor="#212121"
+                    android:textSize="18sp"
+                    android:textStyle="bold" />
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingTop="4dp">
+
+                    <View
+                        android:id="@+id/connectionStatusIcon"
+                        android:layout_width="12dp"
+                        android:layout_height="12dp"
+                        android:layout_marginEnd="6dp"
+                        android:background="@drawable/status_indicator_circle" />
+
+                    <TextView
+                        android:id="@+id/connectionStatusText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Подключение..."
+                        android:textColor="@android:color/darker_gray"
+                        android:textSize="13sp" />
+
+                    <TextView
+                        android:id="@+id/chatPartnerMeta"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:text="@string/chat_partner_unknown_id"
+                        android:textColor="@android:color/darker_gray"
+                        android:textSize="12sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/chatInfoButton"
+                style="@style/Widget.Material3.Button.IconButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:contentDescription="@string/chat_info_button_desc"
+                app:icon="@android:drawable/ic_menu_info_details" />
         </LinearLayout>
-
     </com.google.android.material.card.MaterialCardView>
+
 
     <!-- Typing Indicator -->
     <TextView

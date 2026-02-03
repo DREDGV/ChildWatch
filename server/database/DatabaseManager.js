@@ -20,7 +20,8 @@ class DatabaseManager {
     const numericId = Number.parseInt(messageId, 10);
     const sql = `
             UPDATE chat_messages
-            SET is_read = 1
+            SET is_read = 1,
+                read_at = COALESCE(read_at, strftime('%s','now'))
             WHERE client_message_id = ? OR id = ?
         `;
     return this.run(sql, [messageId, Number.isNaN(numericId) ? -1 : numericId]);
@@ -195,6 +196,21 @@ class DatabaseManager {
       "chat_messages",
       "client_message_id",
       "TEXT"
+    );
+    await this.addColumnIfNotExists(
+      "chat_messages",
+      "delivered",
+      "INTEGER DEFAULT 0"
+    );
+    await this.addColumnIfNotExists(
+      "chat_messages",
+      "delivered_at",
+      "INTEGER"
+    );
+    await this.addColumnIfNotExists(
+      "chat_messages",
+      "read_at",
+      "INTEGER"
     );
     await this.run(
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_client_id ON chat_messages (client_message_id)"
@@ -642,16 +658,27 @@ class DatabaseManager {
    * Save chat message
    */
   async saveChatMessage(deviceId, messageData) {
-    const { sender, message, timestamp, id } = messageData;
+    const {
+      sender,
+      message,
+      timestamp,
+      id,
+      delivered = 0,
+      deliveredAt = null,
+      readAt = null,
+    } = messageData;
     const clientMessageId = id || `${deviceId}_${Date.now()}`;
 
     const sql = `
-            INSERT INTO chat_messages (device_id, sender, message, timestamp, client_message_id)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO chat_messages (device_id, sender, message, timestamp, client_message_id, delivered, delivered_at, read_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(client_message_id) DO UPDATE SET
                 sender = excluded.sender,
                 message = excluded.message,
-                timestamp = excluded.timestamp
+                timestamp = excluded.timestamp,
+                delivered = excluded.delivered,
+                delivered_at = COALESCE(chat_messages.delivered_at, excluded.delivered_at),
+                read_at = COALESCE(chat_messages.read_at, excluded.read_at)
         `;
 
     return this.run(sql, [
@@ -660,6 +687,78 @@ class DatabaseManager {
       message,
       timestamp || Date.now(),
       clientMessageId,
+      delivered ? 1 : 0,
+      deliveredAt,
+      readAt,
+    ]);
+  }
+
+  async getUndeliveredMessages(deviceId, targetRole) {
+    const expectedSender = targetRole === "parent" ? "child" : "parent";
+    const sql = `
+            SELECT *, COALESCE(client_message_id, id) AS client_id
+            FROM chat_messages
+            WHERE device_id = ?
+              AND sender = ?
+              AND delivered = 0
+            ORDER BY timestamp ASC
+            LIMIT 200
+        `;
+
+    return this.all(sql, [deviceId, expectedSender]);
+  }
+
+  async markMessagesDeliveredByClientIds(clientIds = []) {
+    if (!clientIds.length) {
+      return { changes: 0 };
+    }
+
+    const placeholders = clientIds.map(() => "?").join(",");
+    const sql = `
+            UPDATE chat_messages
+            SET delivered = 1,
+                delivered_at = COALESCE(delivered_at, strftime('%s','now'))
+            WHERE client_message_id IN (${placeholders})
+        `;
+
+    return this.run(sql, clientIds);
+  }
+
+  async markMessageDelivered(clientMessageId) {
+    if (!clientMessageId) {
+      return { changes: 0 };
+    }
+
+    const numericId = Number.parseInt(clientMessageId, 10);
+    const sql = `
+            UPDATE chat_messages
+            SET delivered = 1,
+                delivered_at = COALESCE(delivered_at, strftime('%s','now'))
+            WHERE client_message_id = ? OR id = ?
+        `;
+
+    return this.run(sql, [
+      clientMessageId,
+      Number.isNaN(numericId) ? -1 : numericId,
+    ]);
+  }
+
+  async markMessageAsReadByClientId(clientMessageId) {
+    if (!clientMessageId) {
+      return { changes: 0 };
+    }
+
+    const numericId = Number.parseInt(clientMessageId, 10);
+    const sql = `
+            UPDATE chat_messages
+            SET is_read = 1,
+                read_at = COALESCE(read_at, strftime('%s','now'))
+            WHERE client_message_id = ? OR id = ?
+        `;
+
+    return this.run(sql, [
+      clientMessageId,
+      Number.isNaN(numericId) ? -1 : numericId,
     ]);
   }
 
@@ -684,7 +783,8 @@ class DatabaseManager {
   async markMessagesAsRead(deviceId) {
     const sql = `
             UPDATE chat_messages
-            SET is_read = 1
+            SET is_read = 1,
+                read_at = COALESCE(read_at, strftime('%s','now'))
             WHERE device_id = ? AND is_read = 0
         `;
 

@@ -26,6 +26,7 @@ import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
+import org.json.JSONObject
 import ru.example.childwatch.MainActivity
 import ru.example.childwatch.R
 import ru.example.childwatch.audio.AudioEnhancer
@@ -208,6 +209,10 @@ class AudioPlaybackService : LifecycleService() {
 
     // Waveform callback
     private var waveformCallback: ((ByteArray) -> Unit)? = null
+
+    // Reliability helpers
+    private var startCommandJob: Job? = null
+    private var streamWatchdogJob: Job? = null
 
     // Binder for Activity communication
     private val binder = LocalBinder()
@@ -418,6 +423,7 @@ class AudioPlaybackService : LifecycleService() {
                     currentStatus = getString(R.string.audio_monitor_status_active)
                     AudioPlaybackService.currentStatus = currentStatus
                     Log.d(TAG, "✅ Direct WebSocket streaming started at $streamingStartTime")
+                    startStreamWatchdog()
 
                 } catch (e: Exception) {
                     Log.e(TAG, "Error starting playback", e)
@@ -486,6 +492,10 @@ class AudioPlaybackService : LifecycleService() {
         isPlaying = false
         AudioPlaybackService.isPlaying = false
         stopLocalRecording(save = localRecordingActive)
+        startCommandJob?.cancel()
+        streamWatchdogJob?.cancel()
+        startCommandJob = null
+        streamWatchdogJob = null
 
         Log.d(TAG, "✅ isPlaying set to false")
 
@@ -561,6 +571,7 @@ class AudioPlaybackService : LifecycleService() {
             try {
                 deviceId?.let { id ->
                     serverUrl?.let { url ->
+                        sendStopCommand()
                         networkClient?.stopAudioStreaming(url, id)
                         Log.d(TAG, "✅ Server notified to stop streaming")
                     }
@@ -749,6 +760,10 @@ class AudioPlaybackService : LifecycleService() {
                 AudioPlaybackService.chunksReceived = chunksReceived
                 lastChunkTimestamp = timestamp
                 AudioPlaybackService.lastChunkTimestamp = timestamp
+                if (chunksReceived == 1) {
+                    startCommandJob?.cancel()
+                    startCommandJob = null
+                }
 
                 // Этап A & D: Calculate and log metrics every ~2 seconds
                 val now = System.currentTimeMillis()
@@ -785,6 +800,11 @@ class AudioPlaybackService : LifecycleService() {
                 updateNotification("Устройство отключилось")
             }
 
+            webSocketClient?.setChildConnectedCallback {
+                // Child acknowledged socket registration; ensure streaming command delivered
+                lifecycleScope.launch { sendStartCommand("child_connected") }
+            }
+
             // Connect
             webSocketClient?.connect(
                 onConnected = {
@@ -795,6 +815,7 @@ class AudioPlaybackService : LifecycleService() {
 
                     webSocketClient?.startHeartbeat()
                     startPlaybackJob()
+                    startStartCommandRepeater()
                 },
                 onError = { error ->
                     Log.e(TAG, "❌ WebSocket error: $error")
@@ -886,6 +907,74 @@ class AudioPlaybackService : LifecycleService() {
         }
     }
 
+    /**
+     * Re-send start command until the first audio chunk is received.
+     * Helps when the initial HTTP trigger is missed after reboot/network change.
+     */
+    private fun startStartCommandRepeater() {
+        startCommandJob?.cancel()
+        startCommandJob = lifecycleScope.launch(Dispatchers.IO) {
+            var attempt = 0
+            while (isActive && isPlaying && chunksReceived == 0) {
+                attempt++
+                sendStartCommand("retry_$attempt")
+                val delayMs = (3000L * attempt).coerceAtMost(12_000L)
+                delay(delayMs)
+            }
+        }
+    }
+
+    /**
+     * Send start command via both HTTP (polling compatibility) and WebSocket (real-time).
+     */
+    private suspend fun sendStartCommand(reason: String) {
+        val id = deviceId
+        val url = serverUrl
+        if (id.isNullOrBlank() || url.isNullOrBlank()) return
+
+        Log.d(TAG, "Sending start command to child (reason=$reason)")
+
+        runCatching {
+            networkClient?.startAudioStreaming(url, id, isRecording)
+        }.onFailure { Log.w(TAG, "HTTP start command failed: ${it.message}") }
+
+        if (webSocketClient?.isConnected() == true) {
+            val data = JSONObject().apply { put("recording", isRecording) }
+            runCatching {
+                webSocketClient?.sendCommand("start_audio_stream", data)
+            }.onFailure { Log.w(TAG, "WS start command failed: ${it.message}") }
+        }
+    }
+
+    /**
+     * Watchdog to revive audio stream if chunks stop arriving.
+     */
+    private fun startStreamWatchdog() {
+        streamWatchdogJob?.cancel()
+        streamWatchdogJob = lifecycleScope.launch(Dispatchers.IO) {
+            while (isActive && isPlaying) {
+                val last = if (lastChunkTimestamp > 0) lastChunkTimestamp else streamingStartTime
+                val silenceFor = System.currentTimeMillis() - last
+                if (silenceFor > 10_000) {
+                    Log.w(TAG, "No audio for ${silenceFor}ms, re-sending start command")
+                    sendStartCommand("watchdog_${silenceFor}ms")
+                }
+                delay(5_000)
+            }
+        }
+    }
+
+    /**
+     * Best-effort stop signal to child over WebSocket.
+     */
+    private suspend fun sendStopCommand() {
+        if (webSocketClient?.isConnected() == true) {
+            runCatching {
+                webSocketClient?.sendCommand("stop_audio_stream", null)
+            }.onFailure { Log.w(TAG, "WS stop command failed: ${it.message}") }
+        }
+    }
+
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
@@ -944,6 +1033,8 @@ class AudioPlaybackService : LifecycleService() {
             Log.e(TAG, "Error unregistering filter mode receiver", e)
         }
 
+        startCommandJob?.cancel()
+        streamWatchdogJob?.cancel()
         playbackJob?.cancel()
         audioTrack?.stop()
         audioTrack?.release()

@@ -13,7 +13,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import ru.example.parentwatch.databinding.ActivityChatBinding
 import ru.example.parentwatch.chat.ChatAdapter
 import ru.example.parentwatch.chat.ChatMessage
-import ru.example.parentwatch.chat.ChatManager
+import ru.example.parentwatch.chat.ChatManagerAdapter
 import ru.example.parentwatch.chat.withStatus
 import ru.example.parentwatch.network.WebSocketManager
 import ru.example.parentwatch.utils.NotificationManager
@@ -36,7 +36,7 @@ class ChatActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityChatBinding
     private lateinit var chatAdapter: ChatAdapter
-    private lateinit var chatManager: ChatManager
+    private lateinit var chatManagerAdapter: ChatManagerAdapter
     private lateinit var messageQueue: ru.example.parentwatch.chat.MessageQueue
     private val messages = mutableListOf<ChatMessage>()
     private val currentUser = "child"
@@ -58,8 +58,29 @@ class ChatActivity : AppCompatActivity() {
         binding = ActivityChatBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Initialize chat manager
-        chatManager = ChatManager(this)
+        // Get device ID for ChatManagerAdapter initialization
+        val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+        val deviceId = prefs.getString("device_id", "") ?: ""
+        val partnerId = if (deviceId.isBlank()) {
+            getString(R.string.chat_partner_unknown_id)
+        } else {
+            deviceId
+        }
+        binding.chatPartnerName.text = getString(R.string.chat_partner_parent)
+        binding.chatPartnerMeta.text = getString(R.string.chat_partner_device_id, partnerId)
+        binding.chatInfoButton.setOnClickListener {
+            Toast.makeText(this, binding.chatPartnerMeta.text, Toast.LENGTH_SHORT).show()
+        }
+        
+        if (deviceId.isEmpty()) {
+            Log.e(TAG, "Device ID not set - cannot initialize chat")
+            Toast.makeText(this, "⚠️ Устройство не зарегистрировано. Настройте ID в настройках", Toast.LENGTH_LONG).show()
+            finish()
+            return
+        }
+
+        // Initialize chat manager (Room-based, replaces old JSON ChatManager)
+        chatManagerAdapter = ChatManagerAdapter(this, deviceId)
 
         // Initialize message queue
         messageQueue = ru.example.parentwatch.chat.MessageQueue(this)
@@ -209,8 +230,8 @@ class ChatActivity : AppCompatActivity() {
         // Clear input field
         binding.messageInput.text?.clear()
 
-        // Save message locally
-        chatManager.saveMessage(message)
+        // Save message locally to Room Database
+        chatManagerAdapter.saveMessage(message)
 
         // Add to queue for reliable delivery
         messageQueue.enqueue(message)
@@ -219,15 +240,25 @@ class ChatActivity : AppCompatActivity() {
     }
 
 
+
+    private fun sendReadReceiptsFor(messageList: List<ChatMessage>) {
+        messageList
+            .filter { it.sender != currentUser && it.status != ChatMessage.MessageStatus.READ }
+            .forEach { message ->
+                chatManagerAdapter.updateMessageStatus(message.id, ChatMessage.MessageStatus.READ)
+                WebSocketManager.sendChatStatus(message.id, "read", "child")
+            }
+    }
+
     private fun clearChat() {
         messages.clear()
         chatAdapter.notifyDataSetChanged()
-        chatManager.clearAllMessages()
+        chatManagerAdapter.clearAllMessages()
         Toast.makeText(this, "Чат очищен", Toast.LENGTH_SHORT).show()
     }
 
     private fun loadMessages() {
-        val savedMessages = chatManager.getAllMessages()
+        val savedMessages = chatManagerAdapter.getAllMessages()
         messages.clear()
         messages.addAll(savedMessages)
         chatAdapter.notifyDataSetChanged()
@@ -235,6 +266,8 @@ class ChatActivity : AppCompatActivity() {
         if (messages.isNotEmpty()) {
             binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
         }
+
+        sendReadReceiptsFor(savedMessages)
 
         Log.d(TAG, "Loaded ${messages.size} messages")
     }
@@ -261,10 +294,52 @@ class ChatActivity : AppCompatActivity() {
 
         // Set up message callback for this activity
         WebSocketManager.addChatMessageListener(chatListener)
+        WebSocketManager.setParentConnectedCallback {
+            runOnUiThread { updateConnectionStatus(ConnectionStatus.CONNECTED) }
+        }
+        WebSocketManager.setParentDisconnectedCallback {
+            runOnUiThread { updateConnectionStatus(ConnectionStatus.DISCONNECTED) }
+        }
 
         // Check if already connected
         if (WebSocketManager.isConnected()) {
-            Toast.makeText(this, "✅ Подключено к серверу", Toast.LENGTH_SHORT).show()
+            updateConnectionStatus(ConnectionStatus.CONNECTED)
+        } else {
+            updateConnectionStatus(ConnectionStatus.CONNECTING)
+        }
+    }
+
+    /**
+     * Connection status indicator for parent device
+     */
+    private enum class ConnectionStatus {
+        CONNECTED,
+        CONNECTING,
+        DISCONNECTED
+    }
+
+    private fun updateConnectionStatus(status: ConnectionStatus) {
+        when (status) {
+            ConnectionStatus.CONNECTED -> {
+                binding.connectionStatusCard.visibility = View.GONE
+                binding.connectionStatusIcon.setBackgroundResource(R.drawable.status_connected)
+                binding.connectionStatusText.text = getString(R.string.chat_presence_online)
+                binding.connectionStatusText.setTextColor(getColor(android.R.color.holo_green_dark))
+            }
+
+            ConnectionStatus.CONNECTING -> {
+                binding.connectionStatusCard.visibility = View.VISIBLE
+                binding.connectionStatusIcon.setBackgroundResource(R.drawable.status_connecting)
+                binding.connectionStatusText.text = getString(R.string.chat_presence_connecting)
+                binding.connectionStatusText.setTextColor(getColor(android.R.color.holo_orange_dark))
+            }
+
+            ConnectionStatus.DISCONNECTED -> {
+                binding.connectionStatusCard.visibility = View.VISIBLE
+                binding.connectionStatusIcon.setBackgroundResource(R.drawable.status_disconnected)
+                binding.connectionStatusText.text = getString(R.string.chat_presence_offline)
+                binding.connectionStatusText.setTextColor(getColor(android.R.color.holo_red_dark))
+            }
         }
     }
 
@@ -312,7 +387,8 @@ class ChatActivity : AppCompatActivity() {
             text = text,
             sender = sender,
             timestamp = timestamp,
-            isRead = true
+            isRead = true,
+            status = ChatMessage.MessageStatus.READ
         )
 
         // Add to list
@@ -322,8 +398,9 @@ class ChatActivity : AppCompatActivity() {
         // Scroll to last message
         binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
 
-        // Save message
-        chatManager.saveMessage(message)
+        // Save message to Room Database
+        chatManagerAdapter.saveMessage(message)
+        sendReadReceiptsFor(listOf(message))
 
         Log.d(TAG, "Received message from $sender: $text")
         Toast.makeText(this, "💬 Новое сообщение от ${message.getSenderName()}", Toast.LENGTH_SHORT).show()
@@ -449,7 +526,7 @@ class ChatActivity : AppCompatActivity() {
         if (index != -1) {
             messages[index] = messages[index].withStatus(status)
             chatAdapter.notifyItemChanged(index)
-            chatManager.saveMessage(messages[index])
+            chatManagerAdapter.saveMessage(messages[index])
         }
     }
 
@@ -480,8 +557,10 @@ class ChatActivity : AppCompatActivity() {
         }
         typingRunnable?.let { typingHandler.removeCallbacks(it) }
         
-        chatManager.cleanup()
+        chatManagerAdapter.cleanup()
         messageQueue.release()
         WebSocketManager.removeChatMessageListener(chatListener)
+        WebSocketManager.clearParentConnectedCallback()
+        WebSocketManager.clearParentDisconnectedCallback()
     }
 }

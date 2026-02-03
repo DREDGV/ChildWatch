@@ -169,17 +169,20 @@ class ParentLocationTracker(
                 return
             }
             
-            // Используем стандартный location endpoint вместо специального parent endpoint
-            val success = networkClient.uploadLocation(
-                serverUrl = serverUrl,
+            // Отправляем в parent endpoint, чтобы ребенок видел координаты родителя
+            val success = networkClient.uploadParentLocation(
+                parentId = parentId,
                 latitude = location.latitude,
                 longitude = location.longitude,
                 accuracy = location.accuracy,
-                timestamp = location.timestamp
+                timestamp = location.timestamp,
+                speed = location.speed,
+                bearing = location.bearing,
+                batteryLevel = location.batteryLevel
             )
             
             if (success) {
-                Log.d(TAG, "Parent location uploaded to server successfully (via /api/loc)")
+                Log.d(TAG, "Parent location uploaded to server successfully (via /api/location/parent)")
             } else {
                 Log.w(TAG, "Failed to upload parent location to server")
             }

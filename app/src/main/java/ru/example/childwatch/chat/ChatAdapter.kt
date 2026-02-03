@@ -59,28 +59,30 @@ class ChatAdapter(
             statusText?.let { view ->
                 if (isOutgoing) {
                     view.visibility = View.VISIBLE
-                    // Показываем статус в зависимости от состояния сообщения
-                    view.text = when (message.status) {
-                        ChatMessage.MessageStatus.SENDING -> "🕐"
-                        ChatMessage.MessageStatus.SENT -> "✓"
-                        ChatMessage.MessageStatus.DELIVERED -> "✓✓"
-                        ChatMessage.MessageStatus.READ -> "✓✓"
-                        ChatMessage.MessageStatus.FAILED -> "❌"
+                    val statusLabel = when (message.status) {
+                        ChatMessage.MessageStatus.SENDING ->
+                            itemView.context.getString(R.string.chat_status_sending)
+                        ChatMessage.MessageStatus.SENT ->
+                            itemView.context.getString(R.string.chat_status_sent)
+                        ChatMessage.MessageStatus.DELIVERED ->
+                            itemView.context.getString(R.string.chat_status_delivered)
+                        ChatMessage.MessageStatus.READ ->
+                            itemView.context.getString(R.string.chat_status_read)
+                        ChatMessage.MessageStatus.FAILED ->
+                            itemView.context.getString(R.string.chat_status_failed)
                     }
-                    // Меняем цвет для прочитанных сообщений
-                    view.setTextColor(
-                        if (message.status == ChatMessage.MessageStatus.READ) {
-                            0xFF4CAF50.toInt() // Зелёный для прочитанных
-                        } else {
-                            0xFFB3B3B3.toInt() // Серый для остальных
-                        }
-                    )
+                    view.text = statusLabel
+                    val statusColor = if (message.status == ChatMessage.MessageStatus.READ) {
+                        0xFF4CAF50.toInt()
+                    } else {
+                        0xFFB3B3B3.toInt()
+                    }
+                    view.setTextColor(statusColor)
                 } else {
                     view.visibility = View.GONE
                 }
             }
 
-            // Показываем кнопку retry только для неотправленных сообщений
             retryButton?.let { button ->
                 if (isOutgoing && message.status == ChatMessage.MessageStatus.FAILED) {
                     button.visibility = View.VISIBLE
@@ -93,6 +95,7 @@ class ChatAdapter(
                 }
             }
         }
+
     }
 
     companion object {

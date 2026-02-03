@@ -212,8 +212,9 @@ abstract class ChildWatchDatabase : RoomDatabase() {
                     DATABASE_NAME
                 )
                     .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
-                    // Fallback only in debug builds or for future migrations
-                    .fallbackToDestructiveMigration()
+                    // Only allow destructive migration on DOWNGRADE (not upgrade)
+                    // This preserves data on upgrades while allowing clean reinstalls
+                    .fallbackToDestructiveMigrationOnDowngrade()
                     .build()
 
                 INSTANCE = instance

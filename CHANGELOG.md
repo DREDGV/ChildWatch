@@ -6,9 +6,32 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [7.1.1] - 2025-11-11
 
+## [7.1.2] - 2025-11-13
+
+### Changed
+
+- parentwatch: интегрирован Room‑чат в UI/сервисы — ChatActivity и ChatBackgroundService переведены на ChatManagerV2 через адаптер (отказ от JSON‑хранилища на 100 сообщений)
+- Удалён destructive fallback на апгрейд БД; допускается только при даунгрейде — исключает потерю данных при будущих миграциях
+
+### Fixed
+
+- Сборочные/импортные огрехи после интеграции чата (импорты, сборка parentwatch после рефакторинга)
+- Доп. защита от перезаписи WebSocket‑listeners в parentwatch (использование многослушательной архитектуры повсеместно)
+
+### Technical
+
+- app/build.gradle → versionCode 46, versionName "7.1.2"
+- parentwatch/build.gradle → versionCode 33, versionName "7.1.2"
+- Обновлены схемы Room (v3), синхронизированы миграции
+
+### Notes
+
+- Dev workflow: задача быстрого деплоя на реальное устройство может потребовать маску `ChildDevice-*-debug.apk` для parentwatch (в проекте архивное имя = `ChildDevice-v<ver>-debug.apk`)
+
 ### Fixed
 
 - **КРИТИЧЕСКИЙ: Entity schema несоответствие → потеря всех сообщений при обновлении**
+
   - Проблема: Room использует `.fallbackToDestructiveMigration()` — при несоответствии схемы **удаляет всю БД**
   - Корневая причина: `created_at` в Entity был `Long` (NOT NULL), но миграции добавляли как `INTEGER` (nullable)
   - После миграции 1→2→3 колонка оставалась nullable, но Entity требовал NOT NULL → schema mismatch → **потеря всех данных**
@@ -17,12 +40,14 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
   - При создании новых записей `createdAt` устанавливается явно через `System.currentTimeMillis()`
 
 - **Критический баг: Room миграции** — удалены `DEFAULT` значения из `ALTER TABLE` команд
+
   - Проблема: Room v3 ожидает `defaultValue='undefined'` для NOT NULL колонок, но миграции использовали `DEFAULT 0`
   - Решение: изменён паттерн на nullable колонки → UPDATE для заполнения → Room enforces NOT NULL через Entity
   - Затронуто: `MIGRATION_1_2` и `MIGRATION_2_3` в обоих модулях (app + parentwatch)
   - Симптомы: "Migration didn't properly handle: geofences... defaultValue='undefined'" → теперь исправлено
 
 - **Критический баг: доставка сообщений ребёнок→родитель**
+
   - Проблема: в `parentwatch/WebSocketManager.kt` callback перезаписывался при повторной регистрации
   - Когда `ChatBackgroundService` и `ChatActivity` регистрировали listeners — второй вызов затирал первый
   - Решение: добавлена поддержка множественных слушателей (синхронизация с app/)

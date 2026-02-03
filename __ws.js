@@ -21,6 +21,9 @@ class WebSocketManager {
     // Map: parentSocketId → deviceId (child being monitored)
     this.parentSockets = new Map();
 
+    // Map: requestId -> { parentSocketId, childDeviceId, createdAt }
+    this.photoRequests = new Map();
+
     console.log("🔌 WebSocketManager initialized");
   }
 
@@ -122,6 +125,9 @@ class WebSocketManager {
         // Handle photo response from child
         socket.on("photo", (data) => {
           this.handlePhotoResponse(socket, data);
+        });        // Handle photo errors from child
+        socket.on("photo_error", (data) => {
+          this.handlePhotoError(socket, data);
         });
 
       // Handle disconnection
@@ -204,9 +210,174 @@ class WebSocketManager {
   }
 
   /**
+   * Handle remote photo request coming from a parent socket
+   */
+  handlePhotoRequest(socket, data) {
+    try {
+      const payload = data && typeof data === "object" ? data : {};
+      const requestId =
+        payload.requestId ||
+        `photo_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+
+      let targetDeviceId = payload.targetDevice;
+      if (!targetDeviceId) {
+        targetDeviceId = this.parentSockets.get(socket.id);
+      }
+
+      if (!targetDeviceId) {
+        console.warn(
+          `?? Photo request missing targetDevice (requestId=${requestId})`
+        );
+        socket.emit("photo_error", {
+          requestId,
+          error: "Target device not specified",
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
+      const childSocketId = this.childSockets.get(targetDeviceId);
+      if (!childSocketId) {
+        console.warn(
+          `?? Photo request rejected: child ${targetDeviceId} not connected`
+        );
+        socket.emit("photo_error", {
+          requestId,
+          error: "Child device is offline",
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
+      const childSocket = this.io.sockets.sockets.get(childSocketId);
+      if (!childSocket || !childSocket.connected) {
+        console.warn(
+          `?? Photo request rejected: socket ${childSocketId} not available`
+        );
+        this.childSockets.delete(targetDeviceId);
+        socket.emit("photo_error", {
+          requestId,
+          error: "Child device connection lost",
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
+      this.photoRequests.set(requestId, {
+        parentSocketId: socket.id,
+        childDeviceId: targetDeviceId,
+        createdAt: Date.now(),
+      });
+
+      childSocket.emit("request_photo", {
+        requestId,
+        targetDevice: targetDeviceId,
+        timestamp: Date.now(),
+      });
+
+      socket.emit("photo_request_ack", {
+        success: true,
+        requestId,
+        targetDevice: targetDeviceId,
+        timestamp: Date.now(),
+      });
+
+      console.log(
+        `?? Photo request forwarded to child ${targetDeviceId} (requestId=${requestId})`
+      );
+    } catch (error) {
+      console.error("?? Error handling photo request:", error);
+      socket.emit("photo_error", {
+        requestId: data?.requestId,
+        error: error?.message || "Server error",
+        timestamp: Date.now(),
+      });
+    }
+  }
+
+  /**
+   * Forward captured photo from child to parent
+   */
+  handlePhotoResponse(socket, data) {
+    try {
+      const payload = data && typeof data === "object" ? data : {};
+      const requestId = payload.requestId;
+      if (!requestId) {
+        console.warn("?? Photo response missing requestId");
+        return;
+      }
+
+      const tracking = this.photoRequests.get(requestId);
+      if (!tracking) {
+        console.warn(
+          `?? Photo response received for unknown request: ${requestId}`
+        );
+        return;
+      }
+
+      const parentSocket = this.io.sockets.sockets.get(
+        tracking.parentSocketId
+      );
+      if (parentSocket && parentSocket.connected) {
+        parentSocket.emit("photo", payload);
+        console.log(
+          `?? Photo delivered to parent (requestId=${requestId}, size=${(payload.photo || "").length} chars)`
+        );
+      } else {
+        console.warn(
+          `?? Parent socket missing for photo response (requestId=${requestId})`
+        );
+      }
+
+      this.photoRequests.delete(requestId);
+    } catch (error) {
+      console.error("?? Error handling photo response:", error);
+    }
+  }
+
+  /**
+   * Forward photo errors back to requesting parent
+   */
+  handlePhotoError(socket, data) {
+    try {
+      const payload = data && typeof data === "object" ? data : {};
+      const requestId = payload.requestId;
+      const errorMessage = payload.error || "Unknown camera error";
+
+      if (!requestId) {
+        console.warn("?? Photo error event missing requestId");
+        return;
+      }
+
+      const tracking = this.photoRequests.get(requestId);
+      if (!tracking) {
+        console.warn(
+          `?? Photo error received for unknown request: ${requestId}`
+        );
+        return;
+      }
+
+      const parentSocket = this.io.sockets.sockets.get(
+        tracking.parentSocketId
+      );
+      if (parentSocket && parentSocket.connected) {
+        parentSocket.emit("photo_error", {
+          requestId,
+          error: errorMessage,
+          timestamp: Date.now(),
+        });
+      }
+
+      this.photoRequests.delete(requestId);
+    } catch (error) {
+      console.error("?? Error handling photo error:", error);
+    }
+  }
+
+  /**
    * Register child device (ParentWatch)
    */
-  async handleChildRegistration(socket, data) {
+  handleChildRegistration(socket, data) {
     const { deviceId } = data;
 
     if (!deviceId) {
@@ -233,24 +404,6 @@ class WebSocketManager {
 
     // Notify child that server is ready to receive audio
     console.log(`✅ Child ${deviceId} is now ready to send audio chunks`);
-    const parentSocketEntry = Array.from(this.parentSockets.entries()).find(
-      ([, childDeviceId]) => childDeviceId === deviceId
-    );
-    const parentSocketId = parentSocketEntry?.[0];
-
-    if (parentSocketId) {
-      const parentSocket = this.io.sockets.sockets.get(parentSocketId);
-      if (parentSocket) {
-        parentSocket.emit("child_connected", {
-          deviceId,
-          timestamp: Date.now(),
-        });
-        socket.emit("parent_connected", { deviceId, timestamp: Date.now() });
-      }
-    } else {
-      socket.emit("parent_disconnected", { deviceId, timestamp: Date.now() });
-    }
-
     if (this.commandManager && this.commandManager.isStreaming(deviceId)) {
       try {
         const sessionInfo = this.commandManager.getSessionInfo(deviceId);
@@ -273,14 +426,12 @@ class WebSocketManager {
         console.error(`Error replaying start command for ${deviceId}:`, error);
       }
     }
-
-    await this.deliverPendingMessages(deviceId, "child", socket);
   }
 
   /**
    * Register parent device (ChildWatch)
    */
-  async handleParentRegistration(socket, data) {
+  handleParentRegistration(socket, data) {
     const { deviceId } = data;
 
     if (!deviceId) {
@@ -309,79 +460,14 @@ class WebSocketManager {
     if (childSocketId) {
       const childSocket = this.io.sockets.sockets.get(childSocketId);
       if (childSocket) {
-        childSocket.emit("parent_connected", { deviceId, timestamp: Date.now() });
-        console.log(`Parent connected notification sent to child: ${deviceId}`);
-      }
-      socket.emit("child_connected", { deviceId, timestamp: Date.now() });
-    } else {
-      socket.emit("child_disconnected", { deviceId, timestamp: Date.now() });
-    }
-    await this.deliverPendingMessages(deviceId, "parent", socket);
-  }
-
-
-  async deliverPendingMessages(deviceId, targetRole, socket) {
-    if (!this.dbManager || !this.dbManager.getUndeliveredMessages) {
-      return;
-    }
-
-    try {
-      const pending = await this.dbManager.getUndeliveredMessages(
-        deviceId,
-        targetRole
-      );
-      if (!pending || !pending.length || !socket) {
-        return;
-      }
-
-      const deliveredIds = [];
-      for (const message of pending) {
-        if (!socket.connected) {
-          break;
-        }
-
-        const clientId =
-          message.client_id ||
-          message.client_message_id ||
-          message.clientMessageId ||
-          message.id;
-
-        const payload = {
-          deviceId,
-          text: message.message,
-          sender: message.sender,
-          timestamp: message.timestamp,
-          id: clientId,
-          offline: true,
-        };
-
-        socket.emit("chat_message", payload);
-        if (clientId) {
-          deliveredIds.push(clientId);
-        }
-      }
-
-      if (deliveredIds.length) {
-        if (this.dbManager.markMessagesDeliveredByClientIds) {
-          await this.dbManager.markMessagesDeliveredByClientIds(deliveredIds);
-        } else if (this.dbManager.markMessageDelivered) {
-          await Promise.all(
-            deliveredIds.map((msgId) =>
-              this.dbManager.markMessageDelivered(msgId)
-            )
-          );
-        }
-      }
-
-      if (deliveredIds.length) {
+        childSocket.emit("parent_connected");
         console.log(
-          `Delivered ${deliveredIds.length} pending messages to ${targetRole} for device ${deviceId}`
+          `🔔 Parent connected notification sent to child: ${deviceId}`
         );
       }
-    } catch (error) {
-      console.error("Error delivering pending messages:", error);
     }
   }
+
   /**
    * Handle audio chunk from child device
    */
@@ -426,129 +512,125 @@ class WebSocketManager {
     }
   }
 
-
   /**
    * Handle chat message (bidirectional)
    */
   async handleChatMessage(socket, data) {
     try {
-      const { deviceId, text: messageText, sender } = data || {};
+      const { deviceId, text, sender, timestamp, id } = data;
 
-      if (!deviceId || !messageText || !sender) {
-        console.error("Chat message missing required fields");
+      if (!deviceId || !text || !sender) {
+        console.error("❌ Chat message missing required fields");
         socket.emit("chat_message_error", { error: "Missing required fields" });
         return;
       }
 
-      const messageTimestamp = data?.timestamp || Date.now();
-      const messageId =
-        data?.id ||
-        `${deviceId}_${messageTimestamp}_${Math.floor(Math.random() * 1000)}`;
-
-      const outboundPayload = {
-        deviceId,
-        text: messageText,
-        sender,
-        timestamp: messageTimestamp,
-        id: messageId,
-      };
-
-      if (this.dbManager?.saveChatMessage) {
-        try {
-          await this.dbManager.saveChatMessage(deviceId, {
-            sender,
-            message: messageText,
-            timestamp: messageTimestamp,
-            id: messageId,
-          });
-          console.log(`Chat message saved to database for ${deviceId}`);
-        } catch (dbError) {
-          console.error("Failed to save chat message to database:", dbError);
-        }
+      // Save message to database
+      try {
+        await this.dbManager.saveChatMessage(deviceId, {
+          sender,
+          message: text,
+          timestamp: timestamp || Date.now(),
+          id: id,
+        });
+        console.log(
+          `💾 Chat message saved to database: ${deviceId} from ${sender}`
+        );
+      } catch (dbError) {
+        console.error("❌ Failed to save chat message to database:", dbError);
+        // Continue forwarding even if DB save fails
       }
 
+      // Determine direction based on sender
       let delivered = false;
-      let targetSocket = null;
 
       if (sender === "child") {
+        // Message FROM child → Forward TO parent
         const parentSocketId = Array.from(this.parentSockets.entries()).find(
-          ([, childDeviceId]) => childDeviceId === deviceId
+          ([socketId, childDeviceId]) => childDeviceId === deviceId
         )?.[0];
+
         if (parentSocketId) {
-          targetSocket = this.io.sockets.sockets.get(parentSocketId);
+          const parentSocket = this.io.sockets.sockets.get(parentSocketId);
+          if (parentSocket) {
+            parentSocket.emit("chat_message", data);
+            delivered = true;
+            console.log(
+              `💬 Chat message forwarded to parent for device: ${deviceId}`
+            );
+          } else {
+            console.log(`⚠️ Parent socket not found for device: ${deviceId}`);
+          }
+        } else {
+          console.log(
+            `📭 No parent connected for device: ${deviceId} (message saved for later)`
+          );
         }
       } else if (sender === "parent") {
+        // Message FROM parent → Forward TO child
         const childSocketId = this.childSockets.get(deviceId);
+
         if (childSocketId) {
-          targetSocket = this.io.sockets.sockets.get(childSocketId);
+          const childSocket = this.io.sockets.sockets.get(childSocketId);
+          if (childSocket) {
+            childSocket.emit("chat_message", data);
+            delivered = true;
+            console.log(
+              `💬 Chat message forwarded to child device: ${deviceId}`
+            );
+          } else {
+            console.log(`⚠️ Child socket not found for device: ${deviceId}`);
+            this.childSockets.delete(deviceId);
+          }
+        } else {
+          console.log(
+            `📭 No child connected with device ID: ${deviceId} (message saved for later)`
+          );
         }
       } else {
-        console.error(`Invalid sender: ${sender}`);
+        console.error(
+          `❌ Invalid sender: ${sender}. Must be 'parent' or 'child'`
+        );
         socket.emit("chat_message_error", { error: "Invalid sender" });
         return;
       }
 
-      if (targetSocket && targetSocket.connected) {
-        targetSocket.emit("chat_message", outboundPayload);
-        delivered = true;
-        console.log(`Chat message forwarded for device ${deviceId}`);
-      } else if (sender === "child") {
-        console.log(`No parent online for ${deviceId}; message stored`);
-      } else {
-        console.log(`No child online for ${deviceId}; message stored`);
-      }
-
-      if (delivered && this.dbManager?.markMessageDelivered) {
-        try {
-          await this.dbManager.markMessageDelivered(messageId);
-        } catch (dbError) {
-          console.error("Failed to mark message delivered:", dbError);
-        }
-      }
-
+      // Confirm message sent back to sender
       socket.emit("chat_message_sent", {
-        id: messageId,
+        id: id || data.id,
         timestamp: Date.now(),
-        delivered,
+        delivered: delivered,
       });
     } catch (error) {
-      console.error("Error handling chat message:", error);
+      console.error("❌ Error handling chat message:", error);
       socket.emit("chat_message_error", { error: error.message });
     }
   }
-
 
   async handleChatMessageStatus(socket, data) {
     try {
       const { deviceId, id, status, actor } = data || {};
       if (!deviceId || !id || !status || !actor) {
-        console.warn("chat_message_status missing required fields", data);
+        console.warn("⚠️ chat_message_status missing required fields", data);
         return;
       }
 
-      if (this.dbManager) {
+      if (status === "read") {
         try {
-          if (status === "delivered" && this.dbManager.markMessageDelivered) {
-            await this.dbManager.markMessageDelivered(id);
-          }
-          if (status === "read") {
-            if (this.dbManager.markMessageAsReadByClientId) {
-              await this.dbManager.markMessageAsReadByClientId(id);
-            } else if (this.dbManager.markMessageAsRead) {
-              await this.dbManager.markMessageAsRead(id);
-            }
-          }
-        } catch (dbError) {
-          console.error("Failed to update message status:", dbError);
+          await this.dbManager.markMessageAsRead(id);
+        } catch (error) {
+          console.error("❌ Failed to mark message as read:", error);
         }
       }
 
       let targetSocketId = null;
       if (actor === "child") {
+        // Child reports status (message from parent)
         targetSocketId = Array.from(this.parentSockets.entries()).find(
           ([socketId, childDeviceId]) => childDeviceId === deviceId
         )?.[0];
       } else if (actor === "parent") {
+        // Parent reports status (message from child)
         targetSocketId = this.childSockets.get(deviceId);
       }
 
@@ -569,7 +651,7 @@ class WebSocketManager {
         timestamp: Date.now(),
       });
     } catch (error) {
-      console.error("Error handling chat message status:", error);
+      console.error("❌ Error handling chat message status:", error);
     }
   }
 
@@ -588,6 +670,11 @@ class WebSocketManager {
         this.childSockets.delete(deviceId);
         console.log(`📱 Child device removed: ${deviceId}`);
 
+        this.failPendingPhotoRequestsForChild(
+          deviceId,
+          "Child device disconnected"
+        );
+
         // Notify parent that child disconnected
         const parentSocketId = Array.from(this.parentSockets.entries()).find(
           ([id, childDeviceId]) => childDeviceId === deviceId
@@ -596,7 +683,7 @@ class WebSocketManager {
         if (parentSocketId) {
           const parentSocket = this.io.sockets.sockets.get(parentSocketId);
           if (parentSocket) {
-            parentSocket.emit("child_disconnected", { deviceId, timestamp: Date.now() });
+            parentSocket.emit("child_disconnected");
           }
           this.parentSockets.delete(parentSocketId);
         }
@@ -607,20 +694,48 @@ class WebSocketManager {
       if (deviceId) {
         this.parentSockets.delete(socket.id);
         this.removePhotoRequestsForParent(socket.id);
-        console.log(`Parent device removed for child: ${deviceId}`);
-
-        const childSocketId = this.childSockets.get(deviceId);
-        if (childSocketId) {
-          const childSocket = this.io.sockets.sockets.get(childSocketId);
-          if (childSocket) {
-            childSocket.emit("parent_disconnected", { deviceId, timestamp: Date.now() });
-          }
-        }
+        console.log(`👨‍👩‍👧 Parent device removed for child: ${deviceId}`);
       }
     }
-
   }
 
+  /**
+   * Notify parents waiting for a photo from a disconnected child
+   */
+  failPendingPhotoRequestsForChild(childDeviceId, reason) {
+    if (!childDeviceId) {
+      return;
+    }
+
+    for (const [requestId, meta] of this.photoRequests.entries()) {
+      if (meta.childDeviceId === childDeviceId) {
+        const parentSocket = this.io.sockets.sockets.get(meta.parentSocketId);
+        if (parentSocket && parentSocket.connected) {
+          parentSocket.emit("photo_error", {
+            requestId,
+            error: reason || "Child device disconnected",
+            timestamp: Date.now(),
+          });
+        }
+        this.photoRequests.delete(requestId);
+      }
+    }
+  }
+
+  /**
+   * Drop pending photo requests if parent disconnects
+   */
+  removePhotoRequestsForParent(parentSocketId) {
+    if (!parentSocketId) {
+      return;
+    }
+
+    for (const [requestId, meta] of this.photoRequests.entries()) {
+      if (meta.parentSocketId === parentSocketId) {
+        this.photoRequests.delete(requestId);
+      }
+    }
+  }
 
   /**
    * Send command to child device via WebSocket
@@ -677,3 +792,8 @@ class WebSocketManager {
 }
 
 module.exports = WebSocketManager;
+
+
+
+
+

@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -16,8 +17,10 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import ru.example.childwatch.databinding.ActivityLocationMapNewBinding
+import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.LocationData
+import ru.example.childwatch.network.ParentLocationData
 import ru.example.childwatch.utils.PermissionHelper
 import kotlinx.coroutines.*
 import java.io.IOException
@@ -48,8 +51,10 @@ class LocationMapActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityLocationMapNewBinding
     private lateinit var networkClient: NetworkClient
+    private val database by lazy { ChildWatchDatabase.getInstance(this) }
     private var osmMapView: MapView? = null
     private var currentMarker: Marker? = null
+    private var parentMarker: Marker? = null
     private val historyMarkers = mutableListOf<Marker>()
     private var historyPolyline: Polyline? = null
     private var isHistoryVisible = false
@@ -59,6 +64,7 @@ class LocationMapActivity : AppCompatActivity() {
 
     // Child device ID (should be configured in settings or obtained from server)
     private var childDeviceId: String? = null
+    private var parentId: String? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -76,6 +82,10 @@ class LocationMapActivity : AppCompatActivity() {
         // Load child device ID from preferences
         val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         childDeviceId = prefs.getString("child_device_id", null)
+        parentId = prefs.getString(
+            "parent_id",
+            Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        )
 
         // Setup UI
         setupUI()
@@ -164,6 +174,7 @@ class LocationMapActivity : AppCompatActivity() {
                 val response = withContext(Dispatchers.IO) {
                     networkClient.getChildLocation(childDeviceId!!)
                 }
+                val parentLocation = fetchParentLocation()
 
                 binding.loadingProgress.hide()
 
@@ -176,15 +187,17 @@ class LocationMapActivity : AppCompatActivity() {
                             latitude = location.latitude,
                             longitude = location.longitude,
                             accuracy = location.accuracy,
-                            timestamp = location.timestamp
+                            timestamp = location.timestamp,
+                            parentLocation = parentLocation
                         )
 
                         updateLocationInfo(
                             buildLocationInfoText(location),
-                            location.timestamp
+                            location.timestamp,
+                            parentLocation
                         )
                     } else {
-                        updateLocationInfo("❌ Данные о местоположении недоступны", null)
+                        updateLocationInfo("❌ Данные о местоположении недоступны", null, parentLocation)
                     }
                 } else {
                     val errorMsg = if (response.code() == 404) {
@@ -192,7 +205,7 @@ class LocationMapActivity : AppCompatActivity() {
                     } else {
                         "Ошибка загрузки: ${response.code()}"
                     }
-                    updateLocationInfo("❌ $errorMsg", null)
+                    updateLocationInfo("❌ $errorMsg", null, parentLocation)
                     Toast.makeText(this@LocationMapActivity, errorMsg, Toast.LENGTH_SHORT).show()
                 }
 
@@ -205,12 +218,19 @@ class LocationMapActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateMapLocation(latitude: Double, longitude: Double, accuracy: Float, timestamp: Long) {
+    private fun updateMapLocation(
+        latitude: Double,
+        longitude: Double,
+        accuracy: Float,
+        timestamp: Long,
+        parentLocation: ParentLocationData?
+    ) {
         val position = GeoPoint(latitude, longitude)
 
         osmMapView?.apply {
             // Remove old marker
             currentMarker?.let { overlays.remove(it) }
+            parentMarker?.let { overlays.remove(it) }
 
             // Get address asynchronously
             serviceScope.launch {
@@ -236,11 +256,43 @@ class LocationMapActivity : AppCompatActivity() {
 
                 // Add marker to map
                 currentMarker?.let { overlays.add(it) }
+                parentLocation?.let { parent ->
+                    val parentPoint = GeoPoint(parent.latitude, parent.longitude)
+                    val parentSnippet = buildString {
+                        appendLine("Точность: ${parent.accuracy.toInt()} м")
+                        append("Время: ${formatTime(parent.timestamp)}")
+                    }
+                    parentMarker = Marker(this@apply).apply {
+                        setPosition(parentPoint)
+                        setTitle("Ваше местоположение")
+                        setSnippet(parentSnippet)
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    }
+                    parentMarker?.let { overlays.add(it) }
+                }
                 invalidate()
 
-                // Move camera
-                controller.animateTo(position)
-                controller.setZoom(DEFAULT_ZOOM)
+                // Move camera (center between parent and child if оба есть)
+                val target = parentLocation?.let { parent ->
+                    GeoPoint(
+                        (latitude + parent.latitude) / 2,
+                        (longitude + parent.longitude) / 2
+                    )
+                } ?: position
+                controller.animateTo(target)
+                controller.setZoom(
+                    parentLocation?.let { parent ->
+                        val distance = calculateDistance(latitude, longitude, parent.latitude, parent.longitude)
+                        when {
+                            distance < 100 -> 18.0
+                            distance < 500 -> 16.0
+                            distance < 1000 -> 15.0
+                            distance < 5000 -> 13.0
+                            distance < 10000 -> 12.0
+                            else -> 11.0
+                        }
+                    } ?: DEFAULT_ZOOM
+                )
             }
         }
     }
@@ -280,6 +332,40 @@ class LocationMapActivity : AppCompatActivity() {
         }
     }
 
+    private suspend fun fetchParentLocation(): ParentLocationData? {
+        val id = parentId ?: return null
+        return withContext(Dispatchers.IO) {
+            val dao = database.parentLocationDao()
+            val local = runCatching { dao.getLatestLocation(id) }.getOrNull()
+            local?.let {
+                ParentLocationData(
+                    parentId = it.parentId,
+                    latitude = it.latitude,
+                    longitude = it.longitude,
+                    accuracy = it.accuracy,
+                    timestamp = it.timestamp,
+                    battery = it.batteryLevel,
+                    speed = it.speed,
+                    bearing = it.bearing
+                )
+            } ?: networkClient.getLatestParentLocation(id)
+        }
+    }
+
+    private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
+        val earthRadius = 6371000.0
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+
+        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2)
+
+        val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+
+        return (earthRadius * c).toFloat()
+    }
+
     private fun centerMapOnChild() {
         currentMarker?.let { marker ->
             osmMapView?.controller?.animateTo(marker.position)
@@ -289,7 +375,7 @@ class LocationMapActivity : AppCompatActivity() {
         }
     }
 
-    private fun updateLocationInfo(text: String, timestamp: Long?) {
+    private fun updateLocationInfo(text: String, timestamp: Long?, parentLocation: ParentLocationData? = null) {
         val timeInfo = if (timestamp != null) {
             val timeAgo = getTimeAgo(timestamp)
             "\nОбновлено: $timeAgo назад"
@@ -297,7 +383,12 @@ class LocationMapActivity : AppCompatActivity() {
             ""
         }
 
-        binding.locationInfoText.text = text + timeInfo
+        val parentInfo = parentLocation?.let {
+            "\n\n👤 Родитель: ${String.format("%.5f", it.latitude)}, ${String.format("%.5f", it.longitude)}" +
+                "\n🕐 Время: ${formatTime(it.timestamp)}"
+        } ?: "\n\n👤 Родитель: нет данных"
+
+        binding.locationInfoText.text = text + timeInfo + parentInfo
     }
 
     private fun buildLocationInfoText(location: LocationData): String {

@@ -147,16 +147,17 @@ class RemoteCameraActivity : AppCompatActivity() {
      */
     private fun sendTakePhotoCommand(deviceId: String) {
         try {
-            val commandData = JSONObject().apply {
+            // Build command payload (camera facing and deviceId)
+            val payload = JSONObject().apply {
                 put("camera", "back")  // Always use back camera
-                put("deviceId", deviceId)
             }
 
+            // Send command with proper structure: type + data + deviceId
             WebSocketManager.sendCommand(
-                "take_photo",
-                commandData,
+                commandType = "take_photo",
+                data = payload,
                 onSuccess = {
-                    Log.d(TAG, "✅ take_photo command sent successfully")
+                    Log.d(TAG, "✅ take_photo command sent successfully to device: $deviceId")
                     runOnUiThread {
                         updateStatus("Команда отправлена")
                         Toast.makeText(this, "Команда отправлена устройству", Toast.LENGTH_SHORT).show()
@@ -169,7 +170,7 @@ class RemoteCameraActivity : AppCompatActivity() {
                     }
                 },
                 onError = { error ->
-                    Log.e(TAG, "❌ Failed to send command: $error")
+                    Log.e(TAG, "❌ Failed to send take_photo command: $error")
                     runOnUiThread {
                         updateStatus("Ошибка отправки")
                         Toast.makeText(this, "Ошибка: $error", Toast.LENGTH_SHORT).show()
@@ -178,7 +179,7 @@ class RemoteCameraActivity : AppCompatActivity() {
                 }
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Exception sending command", e)
+            Log.e(TAG, "Exception sending take_photo command", e)
             runOnUiThread {
                 updateStatus("Ошибка")
                 Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_SHORT).show()

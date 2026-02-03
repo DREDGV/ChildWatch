@@ -22,6 +22,8 @@ object WebSocketManager {
     )
     private var chatMessageSentCallback: ((String, Boolean, Long) -> Unit)? = null
     private var chatStatusCallback: ((String, String, Long) -> Unit)? = null
+    private var parentConnectedCallback: (() -> Unit)? = null
+    private var parentDisconnectedCallback: (() -> Unit)? = null
 
     /**
      * Initialize WebSocket client
@@ -45,6 +47,8 @@ object WebSocketManager {
         chatStatusCallback?.let { webSocketClient?.setChatStatusCallback(it) }
         // Ensure previously registered command listener is also applied after initialization
         commandCallback?.let { webSocketClient?.setCommandCallback(it) }
+        parentConnectedCallback?.let { webSocketClient?.setParentConnectedCallback(it) }
+        parentDisconnectedCallback?.let { webSocketClient?.setParentDisconnectedCallback(it) }
         isInitialized = true
     }
 
@@ -65,6 +69,8 @@ object WebSocketManager {
             }
             chatMessageSentCallback?.let { setChatMessageSentCallback(it) }
             chatStatusCallback?.let { setChatStatusCallback(it) }
+            parentConnectedCallback?.let { setParentConnectedCallback(it) }
+            parentDisconnectedCallback?.let { setParentDisconnectedCallback(it) }
             connect(onConnected, onError)
         }
     }
@@ -180,6 +186,26 @@ object WebSocketManager {
         webSocketClient?.sendChatStatus(messageId, status, actor)
     }
 
+    fun setParentConnectedCallback(callback: () -> Unit) {
+        parentConnectedCallback = callback
+        webSocketClient?.setParentConnectedCallback(callback)
+    }
+
+    fun setParentDisconnectedCallback(callback: () -> Unit) {
+        parentDisconnectedCallback = callback
+        webSocketClient?.setParentDisconnectedCallback(callback)
+    }
+
+    fun clearParentConnectedCallback() {
+        parentConnectedCallback = null
+        webSocketClient?.setParentConnectedCallback { }
+    }
+
+    fun clearParentDisconnectedCallback() {
+        parentDisconnectedCallback = null
+        webSocketClient?.setParentDisconnectedCallback { }
+    }
+
     /**
      * Set typing indicator callback
      */
@@ -218,6 +244,8 @@ object WebSocketManager {
         chatMessageCallback = null
         chatMessageSentCallback = null
         chatStatusCallback = null
+        parentConnectedCallback = null
+        parentDisconnectedCallback = null
         chatMessageListeners.clear()
     }
     

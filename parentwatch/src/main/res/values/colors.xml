@@ -32,4 +32,7 @@
     <color name="divider">#BDBDBD</color> <!-- Light Gray -->
     <color name="error">#D32F2F</color> <!-- Red -->
     <color name="error_background">#FFEBEE</color> <!-- Light Red -->
+    <color name="chat_status_online_color">#2ECC71</color>
+    <color name="chat_status_connecting_color">#FFC107</color>
+    <color name="chat_status_offline_color">#E53935</color>
 </resources>

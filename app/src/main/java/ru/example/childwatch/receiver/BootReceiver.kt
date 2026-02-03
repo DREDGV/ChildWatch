@@ -33,8 +33,14 @@ class BootReceiver : BroadcastReceiver() {
         val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
         val hasConsent = prefs.getBoolean("consent_given", false)
         val wasMonitoring = prefs.getBoolean("was_monitoring", false)
+        val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
+            ?: "https://childwatch-production.up.railway.app"
+        val childDeviceId = prefs.getString("child_device_id", null)
         
-        Log.d(TAG, "Boot completed - consent: $hasConsent, was monitoring: $wasMonitoring")
+        Log.d(
+            TAG,
+            "Boot completed - consent=$hasConsent, wasMonitoring=$wasMonitoring, deviceId=${childDeviceId?.take(6)}..."
+        )
         
         if (hasConsent && wasMonitoring) {
             // Restart monitoring service
@@ -45,19 +51,21 @@ class BootReceiver : BroadcastReceiver() {
             try {
                 context.startForegroundService(serviceIntent)
                 Log.d(TAG, "Restarted monitoring service after boot")
-
-                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
-                    ?: "https://childwatch-production.up.railway.app"
-                val childDeviceId = prefs.getString("child_device_id", null)
-                if (!childDeviceId.isNullOrEmpty()) {
-                    ChatBackgroundService.start(context, serverUrl, childDeviceId)
-                    Log.d(TAG, "ChatBackgroundService restarted after boot")
-                } else {
-                    Log.w(TAG, "Cannot restart chat service after boot - child_device_id missing")
-                }
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to restart monitoring service after boot", e)
             }
+        }
+
+        // Чат и связи должны подниматься даже если мониторинг не был активен
+        if (hasConsent && !childDeviceId.isNullOrEmpty()) {
+            try {
+                ChatBackgroundService.start(context, serverUrl, childDeviceId)
+                Log.d(TAG, "ChatBackgroundService restarted after boot with deviceId=$childDeviceId")
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to restart chat service after boot", e)
+            }
+        } else if (childDeviceId.isNullOrEmpty()) {
+            Log.w(TAG, "Cannot restart chat service after boot - child_device_id missing")
         }
     }
 }

@@ -107,14 +107,19 @@ class DataMigrationManager(private val context: Context) {
         try {
             // Читаем старые сообщения из SecurePreferences
             val securePrefs = SecurePreferences(context, CHAT_PREFS)
-            val messagesJson = securePrefs.getString(MESSAGES_KEY, "[]") ?: "[]"
+            val messagesJson = securePrefs.getString(MESSAGES_KEY, "[]")
 
-            if (messagesJson.isEmpty() || messagesJson == "[]") {
+            if (messagesJson.isBlank() || messagesJson == "[]") {
                 Log.d(TAG, "Нет сообщений для миграции")
                 return@withContext 0
             }
 
-            val jsonArray = JSONArray(messagesJson)
+            val jsonArray = try {
+                JSONArray(messagesJson)
+            } catch (jsonError: Exception) {
+                Log.e(TAG, "Некорректный JSON истории чата, пропускаем миграцию", jsonError)
+                return@withContext 0
+            }
             val messages = mutableListOf<ChatMessage>()
 
             // Парсим JSON

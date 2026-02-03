@@ -12,9 +12,9 @@ android {
         applicationId "ru.example.parentwatch"
         minSdk 26
         targetSdk 34
-    // v7.1.1: Bugfix release (Room migrations, chat message delivery)
-    versionCode 32
-    versionName "7.1.1"
+    // v7.1.2: Room chat integration (ChatManagerV2), multi-listener WS, migration safety
+    versionCode 34
+    versionName "7.1.3"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     setProperty("archivesBaseName", "ChildDevice-v$versionName")
@@ -36,12 +36,12 @@ android {
     }
 
     compileOptions {
-        sourceCompatibility JavaVersion.VERSION_1_8
-        targetCompatibility JavaVersion.VERSION_1_8
+        sourceCompatibility JavaVersion.VERSION_21
+        targetCompatibility JavaVersion.VERSION_21
     }
 
     kotlinOptions {
-        jvmTarget = '1.8'
+        jvmTarget = '21'
     }
 
     buildFeatures {

@@ -19,6 +19,7 @@ import ru.example.childwatch.R
 import ru.example.childwatch.chat.ChatManager
 import ru.example.childwatch.chat.ChatMessage
 import ru.example.childwatch.network.WebSocketManager
+import java.util.Locale
 
 /**
  * Background Foreground Service for receiving chat messages
@@ -75,6 +76,21 @@ class ChatBackgroundService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
 
         Log.d(TAG, "onStartCommand: action=${intent?.action}")
+
+        // Service may be relaunched by the system with null intent; recover configuration from prefs
+        if (intent == null) {
+            val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+            val serverUrl = prefs.getString("server_url", null)
+            val childDeviceId = prefs.getString("child_device_id", null)
+            if (!serverUrl.isNullOrEmpty() && !childDeviceId.isNullOrEmpty()) {
+                Log.d(TAG, "Restarting ChatBackgroundService after kill (from prefs)")
+                startForegroundService(serverUrl, childDeviceId)
+                return START_STICKY
+            }
+            Log.w(TAG, "Cannot restart ChatBackgroundService after kill: missing prefs")
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         when (intent?.action) {
             ACTION_START_SERVICE -> {
@@ -169,6 +185,10 @@ class ChatBackgroundService : LifecycleService() {
                             }
                         }
                     )
+
+                    WebSocketManager.setChatStatusCallback { messageId, status, _ ->
+                        handleStatusUpdate(messageId, status)
+                    }
 
                     // Set up message listener (do not override others)
                     if (serviceChatListener == null) {
@@ -289,8 +309,13 @@ class ChatBackgroundService : LifecycleService() {
             Log.e(TAG, "Error saving message to DB", e)
         }
 
-        // Persist to legacy storage (for badge compatibility in MainActivity)
         chatManager.saveMessage(message)
+        chatManagerAdapter?.updateMessageStatus(messageId, ChatMessage.MessageStatus.DELIVERED)
+        chatManager.updateMessageStatus(messageId, ChatMessage.MessageStatus.DELIVERED)
+
+        if (sender == "child" && messageId.isNotEmpty()) {
+            WebSocketManager.sendChatStatus(messageId, "delivered", "parent")
+        }
 
         // Show notification
         val senderName = if (sender == "child") "Ребенок" else "Родитель"
@@ -300,6 +325,23 @@ class ChatBackgroundService : LifecycleService() {
             messageText = text,
             timestamp = timestamp
         )
+    }
+
+    private fun handleStatusUpdate(messageId: String, status: String) {
+        if (messageId.isEmpty()) return
+        val mapped = when (status.lowercase(Locale.ROOT)) {
+            "delivered" -> ChatMessage.MessageStatus.DELIVERED
+            "read" -> ChatMessage.MessageStatus.READ
+            "sent" -> ChatMessage.MessageStatus.SENT
+            else -> null
+        } ?: return
+
+        chatManagerAdapter?.updateMessageStatus(messageId, mapped)
+        try {
+            chatManager.updateMessageStatus(messageId, mapped)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating legacy chat status", e)
+        }
     }
 
     private fun createNotificationChannel() {

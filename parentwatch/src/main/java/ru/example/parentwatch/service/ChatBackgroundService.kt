@@ -22,6 +22,7 @@ import ru.example.parentwatch.R
 import ru.example.parentwatch.chat.ChatManager
 import ru.example.parentwatch.chat.ChatMessage
 import ru.example.parentwatch.network.WebSocketManager
+import java.util.Locale
 
 /**
  * Background Foreground Service for receiving chat messages
@@ -62,7 +63,7 @@ class ChatBackgroundService : LifecycleService() {
         }
     }
 
-    private lateinit var chatManager: ChatManager
+    private lateinit var chatManagerAdapter: ru.example.parentwatch.chat.ChatManagerAdapter
     private val backgroundListener: (String, String, String, Long) -> Unit = { messageId, text, sender, timestamp ->
         handleIncomingMessage(messageId, text, sender, timestamp)
     }
@@ -72,7 +73,7 @@ class ChatBackgroundService : LifecycleService() {
         super.onCreate()
         Log.d(TAG, "ChatBackgroundService created")
 
-        chatManager = ChatManager(this)
+        // Initialize ChatManagerAdapter - will be fully initialized in onStartCommand with deviceId
         createNotificationChannel()
     }
 
@@ -90,6 +91,12 @@ class ChatBackgroundService : LifecycleService() {
                     Log.e(TAG, "Missing required parameters")
                     stopSelf()
                     return START_NOT_STICKY
+                }
+
+                // Initialize ChatManagerAdapter with deviceId
+                if (!::chatManagerAdapter.isInitialized) {
+                    chatManagerAdapter = ru.example.parentwatch.chat.ChatManagerAdapter(this, deviceId)
+                    Log.d(TAG, "ChatManagerAdapter initialized with deviceId: $deviceId")
                 }
 
                 startForegroundService(serverUrl, deviceId)
@@ -139,7 +146,28 @@ class ChatBackgroundService : LifecycleService() {
                 delay(delayMs)
 
                 try {
-                    WebSocketManager.initialize(this@ChatBackgroundService, serverUrl, deviceId)
+                    WebSocketManager.initialize(
+                        this@ChatBackgroundService,
+                        serverUrl,
+                        deviceId,
+                        onMissedMessages = { missed ->
+                            missed.forEach { msg ->
+                                if (::chatManagerAdapter.isInitialized) {
+                                    chatManagerAdapter.saveMessage(msg)
+                                }
+                                val senderName = if (msg.sender == "parent") "Родители" else "Ребенок"
+                                ru.example.parentwatch.utils.NotificationManager.showChatNotification(
+                                    context = this@ChatBackgroundService,
+                                    senderName = senderName,
+                                    messageText = msg.text,
+                                    timestamp = msg.timestamp
+                                )
+                            }
+                        }
+                    )
+                    WebSocketManager.setChatStatusCallback { messageId, status, _ ->
+                        handleStatusUpdate(messageId, status)
+                    }
                     WebSocketManager.addChatMessageListener(backgroundListener)
 
                     // Регистрируем callback запроса фото ДО connect
@@ -238,7 +266,7 @@ class ChatBackgroundService : LifecycleService() {
     private fun handleIncomingMessage(messageId: String, text: String, sender: String, timestamp: Long) {
         Log.d(TAG, "Received message: $text from $sender")
 
-        // Save message to local storage
+        // Save message to Room Database
         val message = ChatMessage(
             id = messageId,
             text = text,
@@ -246,7 +274,16 @@ class ChatBackgroundService : LifecycleService() {
             timestamp = timestamp,
             isRead = false // Mark as unread
         )
-        chatManager.saveMessage(message)
+        if (::chatManagerAdapter.isInitialized) {
+            chatManagerAdapter.saveMessage(message)
+            chatManagerAdapter.updateMessageStatus(messageId, ChatMessage.MessageStatus.DELIVERED)
+        } else {
+            Log.e(TAG, "ChatManagerAdapter not initialized, message not saved")
+        }
+
+        if (sender == "parent" && messageId.isNotEmpty()) {
+            WebSocketManager.sendChatStatus(messageId, "delivered", "child")
+        }
 
         // Show notification
         val senderName = if (sender == "parent") "Родители" else "Ребенок"
@@ -256,6 +293,20 @@ class ChatBackgroundService : LifecycleService() {
             messageText = text,
             timestamp = timestamp
         )
+    }
+
+    private fun handleStatusUpdate(messageId: String, status: String) {
+        if (messageId.isEmpty()) return
+        val mapped = when (status.lowercase(Locale.ROOT)) {
+            "delivered" -> ChatMessage.MessageStatus.DELIVERED
+            "read" -> ChatMessage.MessageStatus.READ
+            "sent" -> ChatMessage.MessageStatus.SENT
+            else -> null
+        } ?: return
+
+        if (::chatManagerAdapter.isInitialized) {
+            chatManagerAdapter.updateMessageStatus(messageId, mapped)
+        }
     }
 
     private fun createNotificationChannel() {

@@ -10,5 +10,17 @@
     <string name="server_url_hint">https://childwatch-production.up.railway.app</string>
     <string name="notification_channel_name">Отслеживание местоположения</string>
     <string name="notification_channel_description">Уведомления о работе службы отслеживания</string>
+    <string name="chat_status_sending">Отправляется…</string>
+    <string name="chat_status_sent">Отправлено</string>
+    <string name="chat_status_delivered">Доставлено</string>
+    <string name="chat_status_read">Прочитано</string>
+    <string name="chat_status_failed">Не отправлено</string>
+    <string name="chat_partner_parent">Родитель</string>
+    <string name="chat_partner_device_id">ID: %1$s</string>
+    <string name="chat_partner_unknown_id">не привязан</string>
+    <string name="chat_info_button_desc">Информация о собеседнике</string>
+    <string name="chat_presence_online">В сети</string>
+    <string name="chat_presence_connecting">Подключение…</string>
+    <string name="chat_presence_offline">Офлайн</string>
 </resources>
 

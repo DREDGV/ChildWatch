@@ -5,8 +5,6 @@ import io.socket.client.IO
 import io.socket.client.Socket
 import io.socket.emitter.Emitter
 import kotlinx.coroutines.*
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import org.json.JSONObject
 import ru.example.childwatch.chat.ChatMessage
 
@@ -34,6 +32,7 @@ class WebSocketClient(
     )
 
     private var onAudioChunkReceived: ((ByteArray, Int, Long) -> Unit)? = null
+    private var onChildConnected: (() -> Unit)? = null
     private var onChildDisconnected: (() -> Unit)? = null
     private var onCriticalAlertCallback: ((CriticalAlertMessage) -> Unit)? = null
     private var onConnectedCallback: (() -> Unit)? = null
@@ -93,66 +92,14 @@ class WebSocketClient(
         val deviceId = data?.optString("deviceId")
         
         if (success && deviceId == childDeviceId) {
-            Log.d(TAG, "✅ Parent registered for device: $childDeviceId")
-                // После регистрации — авто-догрузка недоставленных сообщений
-                scope.launch {
-                    try {
-                        val missed = fetchMissedMessages()
-                        if (missed.isNotEmpty()) {
-                            Log.d(TAG, "📥 Получено недоставленных сообщений: ${missed.size}")
-                            onMissedMessages?.invoke(missed)
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Ошибка авто-догрузки сообщений", e)
-                    }
-                }
+            Log.d(TAG, "Parent registered for device: $childDeviceId")
+            requestMissedMessagesViaSocket()
         } else {
             Log.e(TAG, "❌ Parent registration failed for device: $childDeviceId")
         }
     }
 
-        // Запрос недоставленных сообщений через REST
-        private suspend fun fetchMissedMessages(): List<ChatMessage> = withContext(Dispatchers.IO) {
-            val url = "$serverUrl/api/chat/messages/$childDeviceId?limit=100"
-            try {
-                val client = OkHttpClient()
-                val request = Request.Builder().url(url).build()
 
-                client.newCall(request).execute().use { response ->
-                    if (response.isSuccessful) {
-                        val responseBody = response.body?.string() ?: return@withContext emptyList()
-                        val json = org.json.JSONObject(responseBody)
-                        if (json.optBoolean("success")) {
-                            val arr = json.optJSONArray("messages") ?: return@withContext emptyList()
-                            val list = mutableListOf<ChatMessage>()
-                            for (i in 0 until arr.length()) {
-                                val obj = arr.getJSONObject(i)
-                                if (!obj.optBoolean("isRead", false)) {
-                                    list.add(
-                                        ChatMessage(
-                                            id = obj.optString("clientMessageId", obj.optString("client_id", obj.optString("id"))),
-                                            text = obj.optString("message"),
-                                            sender = obj.optString("sender"),
-                                            timestamp = obj.optLong("timestamp"),
-                                            isRead = obj.optBoolean("isRead", false),
-                                            status = if (obj.optBoolean("isRead", false)) {
-                                                ChatMessage.MessageStatus.READ
-                                            } else {
-                                                ChatMessage.MessageStatus.DELIVERED
-                                            }
-                                        )
-                                    )
-                                }
-                            }
-                            return@withContext list
-                        }
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Ошибка запроса missed messages", e)
-            }
-            emptyList()
-        }
 
     private val onAudioChunk = Emitter.Listener { args ->
         try {
@@ -216,11 +163,75 @@ class WebSocketClient(
         }
     }
 
-    private val onChildDisconnectedEvent = Emitter.Listener {
-        Log.d(TAG, "👶 Child device disconnected")
+    private val onChildConnectedEvent = Emitter.Listener { args ->
+        val data = args.getOrNull(0) as? JSONObject
+        val deviceId = data?.optString("deviceId", childDeviceId) ?: childDeviceId
+        if (deviceId != childDeviceId) return@Listener
+        Log.d(TAG, "Child device connected")
+        scope.launch {
+            onChildConnected?.invoke()
+        }
+    }
+
+    private val onChildDisconnectedEvent = Emitter.Listener { args ->
+        val data = args.getOrNull(0) as? JSONObject
+        val deviceId = data?.optString("deviceId", childDeviceId) ?: childDeviceId
+        if (deviceId != childDeviceId) return@Listener
+        Log.d(TAG, "Child device disconnected")
         lastProcessedSequence = -1
         scope.launch {
             onChildDisconnected?.invoke()
+        }
+    }
+
+    private val onMissedMessagesEvent = Emitter.Listener { args ->
+        try {
+            val payload = args.getOrNull(0) as? JSONObject ?: return@Listener
+            if (!payload.optBoolean("success", false)) return@Listener
+            val items = payload.optJSONArray("messages") ?: return@Listener
+            val restored = mutableListOf<ChatMessage>()
+            for (i in 0 until items.length()) {
+                val obj = items.optJSONObject(i) ?: continue
+                mapJsonToChatMessage(obj)?.let(restored::add)
+            }
+            if (restored.isNotEmpty()) {
+                scope.launch {
+                    onMissedMessages?.invoke(restored)
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "? Error handling missed_messages event", e)
+        }
+    }
+
+    private fun mapJsonToChatMessage(obj: JSONObject): ChatMessage? {
+        val messageId = obj.optString("id", obj.optString("client_id", obj.optString("clientMessageId", "")))
+        if (messageId.isEmpty()) return null
+        val text = obj.optString("message", obj.optString("text", ""))
+        if (text.isEmpty()) return null
+        val sender = obj.optString("sender", "")
+        val timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+        val isRead = obj.optBoolean("isRead", false)
+        val status = if (isRead) ChatMessage.MessageStatus.READ else ChatMessage.MessageStatus.DELIVERED
+        return ChatMessage(
+            id = messageId,
+            text = text,
+            sender = sender,
+            timestamp = timestamp,
+            isRead = isRead,
+            status = status
+        )
+    }
+
+    private fun requestMissedMessagesViaSocket() {
+        try {
+            val payload = JSONObject().apply {
+                put("deviceId", childDeviceId)
+            }
+            socket?.emit("get_missed_messages", payload)
+            Log.d(TAG, "Requested missed messages via WebSocket")
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to request missed messages", e)
         }
     }
 
@@ -382,6 +393,7 @@ class WebSocketClient(
             socket?.on("registered", onRegistered)
             socket?.on("audio_chunk", onAudioChunk)
             socket?.on("critical_alert", onCriticalAlert)
+            socket?.on("child_connected", onChildConnectedEvent)
             socket?.on("child_disconnected", onChildDisconnectedEvent)
             socket?.on("pong", onPong)
             socket?.on("chat_message", onChatMessage)
@@ -390,6 +402,7 @@ class WebSocketClient(
             socket?.on("chat_message_error", onChatMessageError)
             socket?.on("photo", onPhoto)
             socket?.on("photo_error", onPhotoErrorEvent)
+            socket?.on("missed_messages", onMissedMessagesEvent)
             socket?.on("typing_start", onTypingStart)
             socket?.on("typing_stop", onTypingStop)
 
@@ -425,6 +438,13 @@ class WebSocketClient(
         onAudioChunkReceived = callback
     }
 
+    /**
+     * Set callback for child connect event
+     */
+    fun setChildConnectedCallback(callback: () -> Unit) {
+        onChildConnected = callback
+    }
+    
     /**
      * Set callback for child disconnect event
      */

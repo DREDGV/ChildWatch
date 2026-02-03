@@ -81,6 +81,16 @@ class ChatActivity : AppCompatActivity() {
 
     // Получаем deviceId (единый источник childwatch_prefs + SecurePreferences fallback)
     val deviceId = getChildDeviceId()
+    val partnerId = if (deviceId.isBlank()) {
+        getString(R.string.chat_partner_unknown_id)
+    } else {
+        deviceId
+    }
+    binding.chatPartnerName.text = getString(R.string.chat_partner_child)
+    binding.chatPartnerMeta.text = getString(R.string.chat_partner_device_id, partnerId)
+    binding.chatInfoButton.setOnClickListener {
+        Toast.makeText(this, binding.chatPartnerMeta.text, Toast.LENGTH_SHORT).show()
+    }
     Log.d(TAG, "Resolved childDeviceId='$deviceId' (empty=${deviceId.isEmpty()})")
 
     // Initialize новый адаптер с Room Database и автоматической миграцией (даже если ID пустой – позволит показать локальные сообщения)
@@ -263,16 +273,14 @@ class ChatActivity : AppCompatActivity() {
     private fun setupViewModelObservers() {
         // Наблюдение за списком сообщений
         viewModel.messages.observe(this) { messagesList ->
-            if (messagesList.isNotEmpty()) {
-                Log.d(TAG, "ViewModel: получено ${messagesList.size} сообщений")
-                // Обновляем список если он отличается
-                if (messages != messagesList) {
-                    messages.clear()
-                    messages.addAll(messagesList)
-                    chatAdapter.notifyDataSetChanged()
-                    binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
-                }
+            Log.d(TAG, "ViewModel: получено ${messagesList.size} сообщений")
+            messages.clear()
+            messages.addAll(messagesList)
+            chatAdapter.notifyDataSetChanged()
+            if (messages.isNotEmpty()) {
+                binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
             }
+            sendReadReceiptsFor(messagesList)
         }
 
         // Наблюдение за непрочитанными сообщениями
@@ -341,6 +349,17 @@ class ChatActivity : AppCompatActivity() {
         Log.d(TAG, "Message queued: $messageText, pending: ${messageQueue.size()}")
     }
 
+
+    private fun sendReadReceiptsFor(messageList: List<ChatMessage>) {
+        messageList
+            .filter { it.sender != currentUser && it.status != ChatMessage.MessageStatus.READ }
+            .forEach { message ->
+                viewModel.updateMessageStatus(message.id, ChatMessage.MessageStatus.READ)
+                chatManagerAdapter.updateMessageStatus(message.id, ChatMessage.MessageStatus.READ)
+                WebSocketManager.sendChatStatus(message.id, "read", "parent")
+            }
+    }
+
     private fun sendTestMessage() {
         val testMessages = listOf(
             "Привет! Как дела?",
@@ -372,6 +391,8 @@ class ChatActivity : AppCompatActivity() {
         if (messages.isNotEmpty()) {
             binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
         }
+
+        sendReadReceiptsFor(savedMessages)
 
         Log.d(TAG, "Loaded ${messages.size} messages from local storage")
     }
@@ -485,6 +506,12 @@ class ChatActivity : AppCompatActivity() {
             runOnUiThread { receiveMessage(messageId, text, sender, timestamp) }
         }
         WebSocketManager.addChatMessageListener(activityChatListener!!)
+        WebSocketManager.setChildConnectedCallback {
+            runOnUiThread { updateConnectionStatus(ConnectionStatus.CONNECTED) }
+        }
+        WebSocketManager.setChildDisconnectedCallback {
+            runOnUiThread { updateConnectionStatus(ConnectionStatus.DISCONNECTED) }
+        }
 
         // Check if already connected and update status
         if (WebSocketManager.isConnected()) {
@@ -601,7 +628,8 @@ class ChatActivity : AppCompatActivity() {
             text = text,
             sender = sender,
             timestamp = timestamp,
-            isRead = true
+            isRead = true,
+            status = ChatMessage.MessageStatus.READ
         )
 
         // Add to list
@@ -613,6 +641,7 @@ class ChatActivity : AppCompatActivity() {
 
         // Save message (используем новый адаптер)
         chatManagerAdapter.saveMessage(message)
+        sendReadReceiptsFor(listOf(message))
 
         Log.d(TAG, "Received message from $sender: $text")
         Toast.makeText(this, "💬 Новое сообщение от ${message.getSenderName()}", Toast.LENGTH_SHORT).show()
@@ -779,5 +808,7 @@ class ChatActivity : AppCompatActivity() {
         // Remove only this activity's listener to keep background service receiving
         activityChatListener?.let { WebSocketManager.removeChatMessageListener(it) }
         activityChatListener = null
+        WebSocketManager.clearChildConnectedCallback()
+        WebSocketManager.clearChildDisconnectedCallback()
     }
 }

@@ -42,7 +42,7 @@ data class CriticalAlert(
 )
 
 class NetworkClient(private val context: Context) {
-    
+
     companion object {
         private const val TAG = "NetworkClient"
         private const val CONNECT_TIMEOUT = 30L
@@ -50,12 +50,17 @@ class NetworkClient(private val context: Context) {
         private const val WRITE_TIMEOUT = 60L
         private const val MAX_RETRIES = 3
         private const val RETRY_DELAY_MS = 1000L
+        private const val PREFS_PARENT = "parentwatch_prefs"
+        private const val PREFS_LEGACY = "childwatch_prefs"
+        private const val DEFAULT_SERVER_URL = "https://childwatch-production.up.railway.app"
     }
-    
+
     private var authToken: String? = null
     private val offlineQueue = mutableListOf<OfflineRequest>()
     private val tokenManager = TokenManager(context)
-    
+    private val parentPrefs = context.getSharedPreferences(PREFS_PARENT, Context.MODE_PRIVATE)
+    private val legacyPrefs = context.getSharedPreferences(PREFS_LEGACY, Context.MODE_PRIVATE)
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
         .readTimeout(READ_TIMEOUT, TimeUnit.SECONDS)
@@ -273,9 +278,8 @@ class NetworkClient(private val context: Context) {
             val secureUrl = ensureHttpsUrl(serverUrl)
             val url = "${secureUrl.trimEnd('/')}/api/loc"
             
-            // Get child_device_id from preferences
-            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-            val childDeviceId = prefs.getString("child_device_id", null) ?: getDeviceId()
+            // Resolve the ID that pairs this device with the parent app
+            val childDeviceId = resolveChildDeviceId()
 
             val jsonData = JSONObject().apply {
                 put("latitude", latitude)
@@ -340,10 +344,9 @@ class NetworkClient(private val context: Context) {
         batteryLevel: Int? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-            val serverUrl = prefs.getString("server_url", null)
+            val serverUrl = getConfiguredServerUrl()
             
-            if (serverUrl.isNullOrEmpty()) {
+            if (serverUrl.isNullOrBlank()) {
                 Log.w(TAG, "Server URL not configured, skipping parent location upload")
                 return@withContext false
             }
@@ -398,10 +401,9 @@ class NetworkClient(private val context: Context) {
      */
     suspend fun getLatestParentLocation(parentId: String): ParentLocationData? = withContext(Dispatchers.IO) {
         try {
-            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-            val serverUrl = prefs.getString("server_url", null)
+            val serverUrl = getConfiguredServerUrl()
             
-            if (serverUrl.isNullOrEmpty()) {
+            if (serverUrl.isNullOrBlank()) {
                 Log.w(TAG, "Server URL not configured")
                 return@withContext null
             }
@@ -467,10 +469,9 @@ class NetworkClient(private val context: Context) {
      */
     suspend fun getLatestLocation(deviceId: String): ParentLocationData? = withContext(Dispatchers.IO) {
         try {
-            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-            val serverUrl = prefs.getString("server_url", null)
+            val serverUrl = getConfiguredServerUrl()
             
-            if (serverUrl.isNullOrEmpty()) {
+            if (serverUrl.isNullOrBlank()) {
                 Log.w(TAG, "Server URL not configured")
                 return@withContext null
             }
@@ -554,7 +555,7 @@ class NetworkClient(private val context: Context) {
                     audioFile.name,
                     audioFile.asRequestBody("audio/mp4".toMediaType())
                 )
-                .addFormDataPart("deviceId", getDeviceId())
+                .addFormDataPart("deviceId", resolveChildDeviceId())
                 .addFormDataPart("timestamp", System.currentTimeMillis().toString())
                 .addFormDataPart("duration", "unknown") // Could calculate from file
                 .build()
@@ -641,7 +642,7 @@ class NetworkClient(private val context: Context) {
                     photoFile.name,
                     photoFile.asRequestBody("image/jpeg".toMediaType())
                 )
-                .addFormDataPart("deviceId", getDeviceId())
+                .addFormDataPart("deviceId", resolveChildDeviceId())
                 .addFormDataPart("timestamp", System.currentTimeMillis().toString())
                 .build()
             
@@ -688,6 +689,28 @@ class NetworkClient(private val context: Context) {
             "device_${System.currentTimeMillis() % 10000}"
         }
     }
+
+    private fun resolveChildDeviceId(): String {
+        val candidates = listOf(
+            parentPrefs.getString("child_device_id", null),
+            parentPrefs.getString("device_id", null),
+            legacyPrefs.getString("child_device_id", null),
+            legacyPrefs.getString("device_id", null)
+        )
+        return candidates.firstOrNull { !it.isNullOrBlank() } ?: getDeviceId()
+    }
+
+    private fun getConfiguredServerUrl(): String? {
+        val primary = parentPrefs.getString("server_url", null)
+        if (!primary.isNullOrBlank()) {
+            return primary
+        }
+        val legacy = legacyPrefs.getString("server_url", null)
+        if (!legacy.isNullOrBlank()) {
+            return legacy
+        }
+        return null
+    }
     
     /**
      * Send emergency alert to server
@@ -706,7 +729,7 @@ class NetworkClient(private val context: Context) {
                 .url(url)
                 .post(requestBody)
                 .addHeader("Content-Type", "application/json")
-                .addHeader("Device-ID", getDeviceId())
+                .addHeader("Device-ID", resolveChildDeviceId())
                 .build()
             
             val response = client.newCall(request).execute()
@@ -828,8 +851,7 @@ class NetworkClient(private val context: Context) {
     suspend fun getChildLocation(childDeviceId: String): retrofit2.Response<LocationResponse> {
         return withContext(Dispatchers.IO) {
             try {
-                val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app") ?: "https://childwatch-production.up.railway.app"
+                val serverUrl = getConfiguredServerUrl() ?: DEFAULT_SERVER_URL
 
                 val retrofit = createRetrofitClient(serverUrl)
                 val api = retrofit.create(ChildWatchApi::class.java)
@@ -857,8 +879,7 @@ class NetworkClient(private val context: Context) {
     ): retrofit2.Response<LocationHistoryResponse> {
         return withContext(Dispatchers.IO) {
             try {
-                val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app") ?: "https://childwatch-production.up.railway.app"
+                val serverUrl = getConfiguredServerUrl() ?: DEFAULT_SERVER_URL
 
                 val retrofit = createRetrofitClient(serverUrl)
                 val api = retrofit.create(ChildWatchApi::class.java)
@@ -881,9 +902,7 @@ class NetworkClient(private val context: Context) {
     suspend fun getChildDeviceStatus(childDeviceId: String): retrofit2.Response<DeviceStatusResponse> {
         return withContext(Dispatchers.IO) {
             try {
-                val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
-                    ?: "https://childwatch-production.up.railway.app"
+                val serverUrl = getConfiguredServerUrl() ?: DEFAULT_SERVER_URL
 
                 val retrofit = createRetrofitClient(serverUrl)
                 val api = retrofit.create(ChildWatchApi::class.java)

@@ -22,10 +22,12 @@ import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
 import ru.example.childwatch.database.ChildWatchDatabase
+import ru.example.childwatch.database.entity.ParentLocation
 import ru.example.childwatch.database.repository.ParentLocationRepository
 import ru.example.childwatch.databinding.ActivityDualLocationMapBinding
 import ru.example.childwatch.location.LocationManager
 import ru.example.childwatch.network.NetworkClient
+import ru.example.childwatch.network.ParentLocationData
 import kotlin.math.*
 
 /**
@@ -358,7 +360,12 @@ class DualLocationMapActivity : AppCompatActivity() {
                 // Получить локацию другого устройства с сервера
                 // Используем один endpoint для всех устройств для совместимости
                 val otherLocation = withContext(Dispatchers.IO) {
-                    networkClient.getLatestLocation(otherId)
+                    if (myRole == ROLE_CHILD) {
+                        val cachedParent = parentLocationRepository.getLatestLocation(otherId)
+                        cachedParent?.toNetworkModel() ?: networkClient.getLatestParentLocation(otherId)
+                    } else {
+                        networkClient.getLatestLocation(otherId)
+                    }
                 }
                 
                 if (otherLocation != null && myLatitude != null && myLongitude != null) {
@@ -596,4 +603,18 @@ class DualLocationMapActivity : AppCompatActivity() {
         finish()
         return true
     }
+
+    private fun ParentLocation.toNetworkModel(): ParentLocationData {
+        return ParentLocationData(
+            parentId = parentId,
+            latitude = latitude,
+            longitude = longitude,
+            accuracy = accuracy,
+            timestamp = timestamp,
+            battery = batteryLevel,
+            speed = speed,
+            bearing = bearing
+        )
+    }
+
 }

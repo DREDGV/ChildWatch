@@ -45,4 +45,7 @@
     <color name="divider">#E0E0E0</color>
     <color name="error">#BA1A1A</color>
     <color name="error_background">#FFDAD6</color>
+    <color name="chat_status_online_color">#2ECC71</color>
+    <color name="chat_status_connecting_color">#FFC107</color>
+    <color name="chat_status_offline_color">#E53935</color>
 </resources>
