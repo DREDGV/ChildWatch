@@ -7,6 +7,7 @@ import android.os.Build
 import android.util.Log
 import ru.example.parentwatch.service.LocationService
 import ru.example.parentwatch.service.ChatBackgroundService
+import ru.example.parentwatch.service.PhotoCaptureService
 
 /**
  * Boot receiver to auto-start location service
@@ -18,17 +19,42 @@ class BootReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
-        if (intent.action == Intent.ACTION_BOOT_COMPLETED) {
-            Log.d(TAG, "Boot completed")
+        when (intent.action) {
+            Intent.ACTION_BOOT_COMPLETED,
+            Intent.ACTION_LOCKED_BOOT_COMPLETED,
+            "android.intent.action.QUICKBOOT_POWERON",
+            Intent.ACTION_REBOOT,
+            Intent.ACTION_MY_PACKAGE_REPLACED -> {
+                Log.d(TAG, "Boot-related action received: ${intent.action}")
 
-            val prefs = context.getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
-            val wasRunning = prefs.getBoolean("service_running", false)
+                val prefs = context.getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
+                val wasRunning = prefs.getBoolean("service_running", false)
+                val autoStart = prefs.getBoolean("auto_start_on_boot", true)
+                var deviceId = prefs.getString("device_id", null)
+                val childDeviceId = prefs.getString("child_device_id", null)
 
-            if (wasRunning) {
-                Log.d(TAG, "Restarting location service")
+                if (deviceId.isNullOrEmpty() && !childDeviceId.isNullOrEmpty()) {
+                    deviceId = childDeviceId
+                    prefs.edit()
+                        .putString("device_id", childDeviceId)
+                        .putBoolean("device_id_permanent", true)
+                        .apply()
+                }
 
+                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
+                    ?: "https://childwatch-production.up.railway.app"
+
+                val shouldStart = (wasRunning || autoStart) && !deviceId.isNullOrEmpty()
+                if (!shouldStart) {
+                    Log.w(TAG, "Skipping auto-start: wasRunning=$wasRunning autoStart=$autoStart deviceId=$deviceId")
+                    return
+                }
+
+                Log.d(TAG, "Restarting LocationService after boot")
                 val serviceIntent = Intent(context, LocationService::class.java).apply {
                     action = LocationService.ACTION_START
+                    putExtra("server_url", serverUrl)
+                    putExtra("device_id", deviceId)
                 }
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -37,15 +63,9 @@ class BootReceiver : BroadcastReceiver() {
                     context.startService(serviceIntent)
                 }
 
-                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
-                    ?: "https://childwatch-production.up.railway.app"
-                val deviceId = prefs.getString("device_id", null)
-                if (!deviceId.isNullOrEmpty()) {
-                    ChatBackgroundService.start(context, serverUrl, deviceId)
-                    Log.d(TAG, "ChatBackgroundService restarted after boot")
-                } else {
-                    Log.w(TAG, "Cannot restart chat service after boot - device_id missing")
-                }
+                ChatBackgroundService.start(context, serverUrl, deviceId!!)
+                PhotoCaptureService.start(context, serverUrl, deviceId)
+                Log.d(TAG, "Background services restarted after boot")
             }
         }
     }

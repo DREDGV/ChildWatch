@@ -19,7 +19,8 @@ import java.util.Locale
 
 class RecordingsAdapter(
     private val onPlayClicked: (RecordingMetadata) -> Unit,
-    private val onDeleteClicked: (RecordingMetadata) -> Unit
+    private val onDeleteClicked: (RecordingMetadata) -> Unit,
+    private val onSaveClicked: (RecordingMetadata) -> Unit
 ) : ListAdapter<RecordingMetadata, RecordingsAdapter.ViewHolder>(DiffCallback) {
 
     private var playingId: String? = null
@@ -63,6 +64,12 @@ class RecordingsAdapter(
             binding.deleteButton.apply {
                 icon = ContextCompat.getDrawable(context, android.R.drawable.ic_menu_delete)
                 setOnClickListener { onDeleteClicked(item) }
+            }
+
+            binding.saveButton.apply {
+                icon = ContextCompat.getDrawable(context, android.R.drawable.ic_menu_save)
+                isEnabled = fileExists
+                setOnClickListener { onSaveClicked(item) }
             }
 
             val strokeColor = MaterialColors.getColor(binding.root, com.google.android.material.R.attr.colorPrimary)

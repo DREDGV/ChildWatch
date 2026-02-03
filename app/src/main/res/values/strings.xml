@@ -58,7 +58,7 @@
     <string name="last_update_never">Последнее обновление: никогда</string>
     <string name="home">Главная</string>
     <string name="location">Где мой ребенок</string>
-    <string name="audio">Прослушка</string>
+    <string name="audio">Аудио</string>
     <string name="chat">Связь с ребенком</string>
     <string name="photo">Камера ребенка</string>
     <string name="quick_actions">Быстрые действия</string>
@@ -189,12 +189,16 @@
     <string name="notification_status_battery_optimization">Отключите оптимизацию батареи для стабильной работы</string>
     <string name="notification_status_power_save">Экономия энергии включена — сервис может остановиться</string>
     <string name="notification_last_update">Последнее обновление: %1$s</string>
-    <string name="title_recordings_library">Записи прослушки</string>
+    <string name="title_recordings_library">Аудиозаписи</string>
     <string name="recording_play">Слушать</string>
     <string name="recording_stop">Остановить</string>
     <string name="recording_deleted">Запись удалена</string>
     <string name="recording_delete_failed">Не удалось удалить запись</string>
     <string name="recording_play_failed">Не удалось воспроизвести запись</string>
+    <string name="recording_save">Сохранить</string>
+    <string name="recording_saved">Файл сохранён</string>
+    <string name="recording_save_failed">Не удалось сохранить файл</string>
+    <string name="recording_missing_file">Файл записи не найден</string>
     <string name="alert_channel_name">Критические уведомления</string>
     <string name="alert_channel_description">Важные события и ошибки ChildWatch</string>
     <string name="critical_alert_title">ChildWatch: требуется внимание</string>
@@ -236,7 +240,7 @@
     <string name="audio_monitor_label_connection_quality">Качество соединения:</string>
 
     <!-- Missing Audio Monitor Strings -->
-    <string name="audio_monitor_title">Прослушка</string>
+    <string name="audio_monitor_title">Аудио</string>
     <string name="audio_monitor_device_unknown">Неизвестно</string>
     <string name="audio_monitor_section_status">Статус</string>
     <string name="audio_monitor_label_state">Состояние:</string>
@@ -288,4 +292,16 @@
     <string name="audio_monitor_notification_channel_description">Уведомления о аудио мониторинге</string>
     <string name="audio_monitor_notification_title">ChildWatch - Аудио мониторинг</string>
     <string name="remote_photo_preview">Миниатюра фотографии</string>
+    <string name="chat_partner_child">Ребенок</string>
+    <string name="chat_partner_device_id">ID: %1$s</string>
+    <string name="chat_partner_unknown_id">не привязан</string>
+    <string name="chat_info_button_desc">Информация о собеседнике</string>
+    <string name="chat_presence_online">В сети</string>
+    <string name="chat_presence_connecting">Подключение…</string>
+    <string name="chat_presence_offline">Офлайн</string>
+    <string name="chat_status_sending">Отправляется…</string>
+    <string name="chat_status_sent">Отправлено</string>
+    <string name="chat_status_delivered">Доставлено</string>
+    <string name="chat_status_read">Прочитано</string>
+    <string name="chat_status_failed">Не отправлено</string>
 </resources>

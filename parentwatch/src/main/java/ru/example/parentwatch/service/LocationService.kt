@@ -54,6 +54,8 @@ class LocationService : Service() {
     private var deviceId: String? = null
     private var serverUrl: String? = null
     private var commandCheckJob: Job? = null
+    private var registrationJob: Job? = null
+    private var locationUpdatesStarted = false
 
     override fun onCreate() {
         super.onCreate()
@@ -76,14 +78,14 @@ class LocationService : Service() {
         Log.d(TAG, "onStartCommand: ${intent?.action}")
 
         when (intent?.action) {
-            ACTION_START -> startTracking()
+            ACTION_START -> startTracking(intent)
             ACTION_STOP -> stopTracking()
             ACTION_EMERGENCY_STOP -> emergencyStopAll()
             null -> {
                 // Service restarted by system, resume tracking if it was running
                 Log.d(TAG, "Service restarted by system, resuming tracking")
                 if (!isTracking) {
-                    startTracking()
+                    startTracking(null)
                 }
             }
         }
@@ -91,7 +93,7 @@ class LocationService : Service() {
         return START_STICKY
     }
 
-    private fun startTracking() {
+    private fun startTracking(startIntent: Intent?) {
         if (isTracking) {
             Log.d(TAG, "Already tracking")
             return
@@ -100,40 +102,44 @@ class LocationService : Service() {
         // Start foreground service FIRST to avoid crash
         startForeground(NOTIFICATION_ID, createNotification())
 
-        // Load settings
-        deviceId = prefs.getString("device_id", null)
-        serverUrl = prefs.getString("server_url", MainActivity.DEFAULT_SERVER_URL)
+        // Load settings (prefer intent extras to avoid async prefs race)
+        val intentDeviceId = startIntent?.getStringExtra("device_id")?.takeIf { it.isNotBlank() }
+        val intentServerUrl = startIntent?.getStringExtra("server_url")?.takeIf { it.isNotBlank() }
+
+        if (intentDeviceId != null) {
+            deviceId = intentDeviceId
+            // Commit synchronously to ensure immediately readable by service/restarts
+            prefs.edit()
+                .putString("device_id", intentDeviceId)
+                .putString("child_device_id", intentDeviceId)
+                .putBoolean("device_id_permanent", true)
+                .commit()
+        } else {
+            deviceId = prefs.getString("device_id", null)
+        }
+
+        if (intentServerUrl != null) {
+            serverUrl = intentServerUrl
+            prefs.edit().putString("server_url", intentServerUrl).commit()
+        } else {
+            serverUrl = prefs.getString("server_url", MainActivity.DEFAULT_SERVER_URL)
+        }
 
         if (deviceId == null) {
             Log.e(TAG, "Device ID not set")
             stopSelf()
             return
         }
-
-        // Register device
-        serviceScope.launch {
-            try {
-                val registered = networkHelper.registerDevice(serverUrl!!, deviceId!!)
-                if (registered) {
-                    Log.d(TAG, "Device registered")
-                    startLocationUpdates()
-                } else {
-                    Log.e(TAG, "Failed to register device")
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@LocationService, "Ошибка регистрации устройства", Toast.LENGTH_LONG).show()
-                        stopSelf()
-                    }
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Registration error", e)
-                withContext(Dispatchers.Main) {
-                    Toast.makeText(this@LocationService, "Ошибка подключения к серверу", Toast.LENGTH_LONG).show()
-                    stopSelf()
-                }
-            }
+        if (serverUrl.isNullOrBlank()) {
+            Log.e(TAG, "Server URL not set")
+            stopSelf()
+            return
         }
 
         isTracking = true
+        locationUpdatesStarted = false
+        // Register device with retries (network may be unavailable right after boot)
+        startRegistrationLoop()
         prefs.edit().putBoolean("service_running", true).apply()
 
         // AUTO-START AUDIO STREAMING - Simplified architecture
@@ -145,14 +151,46 @@ class LocationService : Service() {
         }
     }
 
+    private fun startRegistrationLoop() {
+        registrationJob?.cancel()
+        registrationJob = serviceScope.launch {
+            var attempt = 0
+            while (isActive && isTracking && !locationUpdatesStarted) {
+                try {
+                    val ok = networkHelper.registerDevice(serverUrl!!, deviceId!!)
+                    if (ok) {
+                        Log.d(TAG, "Device registered")
+                        withContext(Dispatchers.Main) {
+                            Toast.makeText(this@LocationService, "Мониторинг активен", Toast.LENGTH_SHORT).show()
+                        }
+                        startLocationUpdates()
+                        locationUpdatesStarted = true
+                        return@launch
+                    }
+                    Log.e(TAG, "Failed to register device (attempt ${attempt + 1})")
+                } catch (e: Exception) {
+                    Log.e(TAG, "Registration error", e)
+                }
+
+                val delayMs = (1_000L * (1 shl attempt.coerceAtMost(5))).coerceAtMost(60_000L)
+                delay(delayMs)
+                attempt++
+            }
+        }
+    }
+
     private fun stopTracking() {
         if (!isTracking) return
+
+        registrationJob?.cancel()
+        registrationJob = null
 
         fusedLocationClient.removeLocationUpdates(locationCallback)
         stopForeground(true)
         stopSelf()
 
         isTracking = false
+        locationUpdatesStarted = false
         prefs.edit().putBoolean("service_running", false).apply()
 
         Log.d(TAG, "Tracking stopped")
