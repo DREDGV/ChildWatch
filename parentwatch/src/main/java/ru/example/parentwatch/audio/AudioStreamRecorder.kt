@@ -178,6 +178,8 @@ class AudioStreamRecorder(
                 )
                 webSocketClient?.startHeartbeat()
                 webSocketConnected = true
+                // Start immediately after connection to reduce delays
+                startActualRecording()
             },
             onError = { error ->
                 Log.e(TAG, "WebSocket connection failed: $error")
@@ -291,6 +293,8 @@ class AudioStreamRecorder(
 
         Log.d(TAG, "✅ Recording job launched successfully")
     }
+
+    fun isActive(): Boolean = isRecording || webSocketConnected
 
     /**
      * Stop audio streaming (Этап A - idempotent with proper cleanup)

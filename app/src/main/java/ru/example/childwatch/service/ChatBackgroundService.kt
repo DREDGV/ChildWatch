@@ -19,6 +19,7 @@ import ru.example.childwatch.R
 import ru.example.childwatch.chat.ChatManager
 import ru.example.childwatch.chat.ChatMessage
 import ru.example.childwatch.network.WebSocketManager
+import ru.example.childwatch.utils.SecureSettingsManager
 import java.util.Locale
 
 /**
@@ -80,14 +81,14 @@ class ChatBackgroundService : LifecycleService() {
         // Service may be relaunched by the system with null intent; recover configuration from prefs
         if (intent == null) {
             val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-            val serverUrl = prefs.getString("server_url", null)
+            val serverUrl = SecureSettingsManager(this).getServerUrl().trim()
             val childDeviceId = prefs.getString("child_device_id", null)
-            if (!serverUrl.isNullOrEmpty() && !childDeviceId.isNullOrEmpty()) {
+            if (serverUrl.isNotBlank() && !childDeviceId.isNullOrEmpty()) {
                 Log.d(TAG, "Restarting ChatBackgroundService after kill (from prefs)")
                 startForegroundService(serverUrl, childDeviceId)
                 return START_STICKY
             }
-            Log.w(TAG, "Cannot restart ChatBackgroundService after kill: missing prefs")
+            Log.w(TAG, "Cannot restart ChatBackgroundService after kill: missing prefs (serverUrl=$serverUrl, childDeviceId=$childDeviceId)")
             stopSelf()
             return START_NOT_STICKY
         }
@@ -103,6 +104,7 @@ class ChatBackgroundService : LifecycleService() {
                     return START_NOT_STICKY
                 }
 
+                SecureSettingsManager(this).setServerUrl(serverUrl)
                 startForegroundService(serverUrl, childDeviceId)
             }
             ACTION_STOP_SERVICE -> {

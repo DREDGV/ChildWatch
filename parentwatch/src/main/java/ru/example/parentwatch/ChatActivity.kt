@@ -17,6 +17,7 @@ import ru.example.parentwatch.chat.ChatManagerAdapter
 import ru.example.parentwatch.chat.withStatus
 import ru.example.parentwatch.network.WebSocketManager
 import ru.example.parentwatch.utils.NotificationManager
+import ru.example.parentwatch.utils.ServerUrlResolver
 
 /**
  * Chat Activity for ParentWatch (ChildDevice)
@@ -277,8 +278,14 @@ class ChatActivity : AppCompatActivity() {
      */
     private fun initializeWebSocket() {
         val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
-        val serverUrl = prefs.getString("server_url", MainActivity.DEFAULT_SERVER_URL) ?: MainActivity.DEFAULT_SERVER_URL
+        val serverUrl = ServerUrlResolver.getServerUrl(this)
         val deviceId = prefs.getString("device_id", "") ?: ""
+
+        if (serverUrl.isNullOrBlank()) {
+            Log.w(TAG, "Server URL not configured, cannot initialize WebSocket")
+            Toast.makeText(this, getString(R.string.server_url_not_configured), Toast.LENGTH_SHORT).show()
+            return
+        }
 
         if (deviceId.isEmpty()) {
             Log.w(TAG, "Device ID not set, cannot initialize WebSocket")

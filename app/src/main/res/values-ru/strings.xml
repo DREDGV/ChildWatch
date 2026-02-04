@@ -56,5 +56,5 @@
     <string name="device_info_charging_yes">Заряжается</string>
     <string name="device_info_charging_no">Не заряжается</string>
     <string name="device_info_loading">Обновление…</string>
+    <string name="server_url_missing">URL сервера не настроен. Откройте настройки.</string>
 </resources>
-

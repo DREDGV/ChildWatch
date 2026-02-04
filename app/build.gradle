@@ -13,9 +13,9 @@ android {
         applicationId "ru.example.childwatch"
         minSdk 26
         targetSdk 34
-    // v7.1.2: Integrate parentwatch Room chat, stabilize migrations, build fixes
-    versionCode 47
-    versionName "7.1.3"
+    // v7.1.5: telemetry + streaming start tweaks
+    versionCode 50
+    versionName "7.1.6"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {

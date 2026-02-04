@@ -12,6 +12,7 @@ import ru.example.childwatch.audio.AudioRecorder
 import ru.example.childwatch.audio.FilterMode
 import ru.example.childwatch.databinding.ActivityAudioBinding
 import ru.example.childwatch.utils.PermissionHelper
+import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.ui.AudioVisualizer
 import java.io.File
 
@@ -183,9 +184,13 @@ class AudioActivity : AppCompatActivity() {
 
             // Получаем настройки
             val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-            val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
-                ?: "https://childwatch-production.up.railway.app"
+            val serverUrl = SecureSettingsManager(this).getServerUrl().trim()
             val childDeviceId = prefs.getString("child_device_id", "")
+
+            if (serverUrl.isBlank()) {
+                Toast.makeText(this, getString(R.string.server_url_missing), Toast.LENGTH_LONG).show()
+                return
+            }
 
             if (childDeviceId.isNullOrEmpty()) {
                 Toast.makeText(this, "⚠️ Сначала настройте ID телефона ребёнка", Toast.LENGTH_LONG).show()

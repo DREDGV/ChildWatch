@@ -3,6 +3,7 @@ package ru.example.childwatch.network
 import android.content.Context
 import android.util.Log
 import ru.example.childwatch.BuildConfig
+import ru.example.childwatch.utils.SecureSettingsManager
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.*
@@ -55,6 +56,7 @@ class NetworkClient(private val context: Context) {
     private var authToken: String? = null
     private val offlineQueue = mutableListOf<OfflineRequest>()
     private val tokenManager = TokenManager(context)
+    private val secureSettings by lazy { SecureSettingsManager(context) }
     
     private val client = OkHttpClient.Builder()
         .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
@@ -257,6 +259,11 @@ class NetworkClient(private val context: Context) {
         val headers: Map<String, String>,
         val timestamp: Long
     )
+
+    private fun getConfiguredServerUrl(): String? {
+        val url = secureSettings.getServerUrl().trim()
+        return url.takeIf { it.isNotBlank() }
+    }
     
     /**
      * Upload location data to server
@@ -340,8 +347,7 @@ class NetworkClient(private val context: Context) {
         batteryLevel: Int? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
-            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-            val serverUrl = prefs.getString("server_url", null)
+            val serverUrl = getConfiguredServerUrl()
             
             if (serverUrl.isNullOrEmpty()) {
                 Log.w(TAG, "Server URL not configured, skipping parent location upload")
@@ -398,8 +404,7 @@ class NetworkClient(private val context: Context) {
      */
     suspend fun getLatestParentLocation(parentId: String): ParentLocationData? = withContext(Dispatchers.IO) {
         try {
-            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-            val serverUrl = prefs.getString("server_url", null)
+            val serverUrl = getConfiguredServerUrl()
             
             if (serverUrl.isNullOrEmpty()) {
                 Log.w(TAG, "Server URL not configured")
@@ -467,8 +472,7 @@ class NetworkClient(private val context: Context) {
      */
     suspend fun getLatestLocation(deviceId: String): ParentLocationData? = withContext(Dispatchers.IO) {
         try {
-            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-            val serverUrl = prefs.getString("server_url", null)
+            val serverUrl = getConfiguredServerUrl()
             
             if (serverUrl.isNullOrEmpty()) {
                 Log.w(TAG, "Server URL not configured")
@@ -546,8 +550,7 @@ class NetworkClient(private val context: Context) {
         limit: Int = 1000
     ): List<ParentLocationData>? = withContext(Dispatchers.IO) {
         try {
-            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-            val serverUrl = prefs.getString("server_url", null)
+            val serverUrl = getConfiguredServerUrl()
             
             if (serverUrl.isNullOrEmpty()) {
                 Log.w(TAG, "Server URL not configured")
@@ -924,8 +927,14 @@ class NetworkClient(private val context: Context) {
     suspend fun getChildLocation(childDeviceId: String): retrofit2.Response<LocationResponse> {
         return withContext(Dispatchers.IO) {
             try {
-                val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app") ?: "https://childwatch-production.up.railway.app"
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot get child location")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
 
                 val retrofit = createRetrofitClient(serverUrl)
                 val api = retrofit.create(ChildWatchApi::class.java)
@@ -953,8 +962,14 @@ class NetworkClient(private val context: Context) {
     ): retrofit2.Response<LocationHistoryResponse> {
         return withContext(Dispatchers.IO) {
             try {
-                val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app") ?: "https://childwatch-production.up.railway.app"
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot get location history")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
 
                 val retrofit = createRetrofitClient(serverUrl)
                 val api = retrofit.create(ChildWatchApi::class.java)
@@ -977,9 +992,14 @@ class NetworkClient(private val context: Context) {
     suspend fun getChildDeviceStatus(childDeviceId: String): retrofit2.Response<DeviceStatusResponse> {
         return withContext(Dispatchers.IO) {
             try {
-                val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
-                    ?: "https://childwatch-production.up.railway.app"
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot get device status")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
 
                 val retrofit = createRetrofitClient(serverUrl)
                 val api = retrofit.create(ChildWatchApi::class.java)
@@ -1005,9 +1025,14 @@ class NetworkClient(private val context: Context) {
     ): retrofit2.Response<PhotoGalleryResponse> {
         return withContext(Dispatchers.IO) {
             try {
-                val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
-                    ?: "https://childwatch-production.up.railway.app"
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot get remote photos")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
 
                 val retrofit = createRetrofitClient(serverUrl)
                 val api = retrofit.create(ChildWatchApi::class.java)

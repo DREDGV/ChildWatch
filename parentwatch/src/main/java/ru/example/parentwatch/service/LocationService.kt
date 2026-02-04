@@ -22,6 +22,7 @@ import ru.example.parentwatch.network.NetworkHelper
 import ru.example.parentwatch.audio.AudioStreamRecorder
 import ru.example.parentwatch.utils.DeviceInfoCollector
 import ru.example.parentwatch.utils.RemoteLogger
+import ru.example.parentwatch.utils.ServerUrlResolver
 
 /**
  * Foreground service for continuous location tracking and audio streaming
@@ -122,7 +123,7 @@ class LocationService : Service() {
             serverUrl = intentServerUrl
             prefs.edit().putString("server_url", intentServerUrl).commit()
         } else {
-            serverUrl = prefs.getString("server_url", MainActivity.DEFAULT_SERVER_URL)
+            serverUrl = ServerUrlResolver.getServerUrl(this)
         }
 
         if (deviceId == null) {
@@ -145,7 +146,7 @@ class LocationService : Service() {
         // AUTO-START AUDIO STREAMING - Simplified architecture
         // Start audio streaming automatically when service starts
         serviceScope.launch {
-            delay(5000) // Wait 5 seconds for WebSocket to connect and stabilize
+            delay(1000) // Faster start to reduce perceived delay
             startAudioStreaming(recording = false)
             Log.d(TAG, "🎙️ Auto-started audio streaming (simplified architecture)")
         }
@@ -382,14 +383,24 @@ class LocationService : Service() {
      */
     private fun startAudioStreaming(recording: Boolean) {
         if (isStreamingAudio) {
-            Log.w(TAG, "Already streaming audio")
-            RemoteLogger.warn(
-                serverUrl = serverUrl,
-                deviceId = deviceId,
-                source = TAG,
-                message = "startAudioStreaming called while already active"
-            )
-            return
+            if (!audioRecorder.isActive()) {
+                Log.w(TAG, "Streaming flag set but recorder inactive - restarting")
+                try {
+                    audioRecorder.stopStreaming()
+                } catch (e: Exception) {
+                    Log.w(TAG, "Failed to stop stale audio recorder", e)
+                }
+                isStreamingAudio = false
+            } else {
+                Log.w(TAG, "Already streaming audio")
+                RemoteLogger.warn(
+                    serverUrl = serverUrl,
+                    deviceId = deviceId,
+                    source = TAG,
+                    message = "startAudioStreaming called while already active"
+                )
+                return
+            }
         }
 
         if (ActivityCompat.checkSelfPermission(

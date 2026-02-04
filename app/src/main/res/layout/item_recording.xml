@@ -43,8 +43,12 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="8dp"
-            android:text="▶"
+            android:text=""
+            android:minWidth="48dp"
+            android:minHeight="48dp"
             app:icon="@android:drawable/ic_media_play"
+            app:iconSize="24dp"
+            app:iconPadding="0dp"
             style="@style/Widget.Material3.Button.IconButton" />
 
         <com.google.android.material.button.MaterialButton
@@ -52,16 +56,24 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginEnd="8dp"
-            android:text="💾"
+            android:text=""
+            android:minWidth="48dp"
+            android:minHeight="48dp"
             app:icon="@android:drawable/ic_menu_save"
+            app:iconSize="24dp"
+            app:iconPadding="0dp"
             style="@style/Widget.Material3.Button.IconButton" />
 
         <com.google.android.material.button.MaterialButton
             android:id="@+id/deleteButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="🗑"
+            android:text=""
+            android:minWidth="48dp"
+            android:minHeight="48dp"
             app:icon="@android:drawable/ic_menu_delete"
+            app:iconSize="24dp"
+            app:iconPadding="0dp"
             style="@style/Widget.Material3.Button.IconButton" />
 
     </LinearLayout>

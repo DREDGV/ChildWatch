@@ -162,14 +162,19 @@ class AudioStreamingActivity : AppCompatActivity() {
                 return
             }
 
-        serverUrl = intent.getStringExtra(EXTRA_SERVER_URL)
-            ?: secureSettings.getServerUrl().also {
-                Toast.makeText(
-                    this,
-                    getString(R.string.audio_monitor_error_missing_server),
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
+        val resolvedServerUrl = intent.getStringExtra(EXTRA_SERVER_URL)
+            ?: secureSettings.getServerUrl().trim()
+        if (resolvedServerUrl.isBlank()) {
+            Toast.makeText(
+                this,
+                getString(R.string.audio_monitor_error_missing_server),
+                Toast.LENGTH_SHORT
+            ).show()
+            finish()
+            return
+        }
+        serverUrl = resolvedServerUrl
+        secureSettings.setServerUrl(serverUrl)
 
         loadAudioSettings()
         loadCachedStatus()
@@ -247,8 +252,8 @@ class AudioStreamingActivity : AppCompatActivity() {
         hudModeButton.setOnClickListener { toggleHudMode() }
         applyHudMode()
 
-        // Setup quality mode chips
-        setupQualityModeChips()
+        // Audio filters are disabled for now
+        binding.filterCard.isVisible = false
         
         // Setup visualization mode button
         setupVisualizationModeButton()
@@ -412,6 +417,10 @@ class AudioStreamingActivity : AppCompatActivity() {
 
     private suspend fun fetchChildStatus() {
         try {
+            if (serverUrl.isBlank()) {
+                Log.w(TAG, "Skipping child status fetch: server URL not configured")
+                return
+            }
             val response = networkClient.getChildDeviceStatus(deviceId)
             if (response.isSuccessful) {
                 val status = response.body()?.status
@@ -419,7 +428,8 @@ class AudioStreamingActivity : AppCompatActivity() {
                     childBatteryLevel = status.batteryLevel
                     childCharging = status.isCharging
                     secureSettings.setLastDeviceStatus(gson.toJson(status))
-                    secureSettings.setLastDeviceStatusTimestamp(System.currentTimeMillis())
+                    val timestamp = status.timestamp ?: System.currentTimeMillis()
+                    secureSettings.setLastDeviceStatusTimestamp(timestamp)
                     updateBatteryHud()
                 }
             } else {
@@ -769,16 +779,21 @@ class AudioStreamingActivity : AppCompatActivity() {
         binding.hudPing.text = pingText
         binding.hudPing.setTextColor(getPingColor(metrics.pingStatus))
 
-        // Battery with icon from metrics
-        val batteryDisplay = if (metrics.batteryLevel > 0) metrics.batteryLevel else getLocalBatteryLevel()
-        val batteryIcon = when {
-            metrics.batteryCharging -> "⚡"
-            batteryDisplay >= 80 -> "🔋"
-            batteryDisplay >= 50 -> "🔋"
-            batteryDisplay >= 20 -> "🪫"
-            else -> "🪫"
+        // Battery (child device)
+        val batteryDisplay = childBatteryLevel?.takeIf { it in 0..100 }
+        val charging = childCharging == true
+        if (batteryDisplay == null) {
+            binding.hudBattery.text = "—"
+        } else {
+            val batteryIcon = when {
+                charging -> "⚡"
+                batteryDisplay >= 80 -> "🔋"
+                batteryDisplay >= 50 -> "🔋"
+                batteryDisplay >= 20 -> "🪫"
+                else -> "🪫"
+            }
+            binding.hudBattery.text = "$batteryIcon $batteryDisplay%"
         }
-        binding.hudBattery.text = "$batteryIcon $batteryDisplay%"
 
         // === ROW 2: Audio & Quality ===
 
@@ -827,16 +842,20 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun updateBatteryHud() {
-        val batteryDisplay = childBatteryLevel?.coerceIn(0, 100) ?: getLocalBatteryLevel()
+        val batteryDisplay = childBatteryLevel?.takeIf { it in 0..100 }
         val charging = childCharging == true
-        val batteryIcon = when {
-            charging -> "⚡"
-            batteryDisplay >= 80 -> "🔋"
-            batteryDisplay >= 50 -> "🔋"
-            batteryDisplay >= 20 -> "🪫"
-            else -> "🪫"
+        if (batteryDisplay == null) {
+            binding.hudBattery.text = "—"
+        } else {
+            val batteryIcon = when {
+                charging -> "⚡"
+                batteryDisplay >= 80 -> "🔋"
+                batteryDisplay >= 50 -> "🔋"
+                batteryDisplay >= 20 -> "🪫"
+                else -> "🪫"
+            }
+            binding.hudBattery.text = "$batteryIcon $batteryDisplay%"
         }
-        binding.hudBattery.text = "$batteryIcon $batteryDisplay%"
     }
 
 

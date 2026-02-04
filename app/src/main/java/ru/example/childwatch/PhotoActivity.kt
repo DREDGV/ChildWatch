@@ -17,6 +17,7 @@ import org.json.JSONObject
 import ru.example.childwatch.databinding.ActivityPhotoBinding
 import ru.example.childwatch.network.WebSocketClient
 import ru.example.childwatch.utils.PermissionHelper
+import ru.example.childwatch.utils.SecureSettingsManager
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -52,10 +53,14 @@ class PhotoActivity : AppCompatActivity() {
         binding = ActivityPhotoBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Get device info from SharedPreferences
-        val prefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-        childDeviceId = prefs.getString("child_device_id", null)
-        serverUrl = prefs.getString("server_url", null)
+        val secureSettings = SecureSettingsManager(this)
+        childDeviceId = secureSettings.getChildDeviceId()
+        serverUrl = secureSettings.getServerUrl().trim().ifEmpty { null }
+
+        if (childDeviceId.isNullOrBlank()) {
+            val legacyPrefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            childDeviceId = legacyPrefs.getString("child_device_id", null)
+        }
 
         // Setup UI
         setupUI()

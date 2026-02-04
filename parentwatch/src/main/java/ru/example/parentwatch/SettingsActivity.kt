@@ -8,6 +8,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import ru.example.parentwatch.databinding.ActivitySettingsBinding
 import ru.example.parentwatch.service.AppUsageTracker
+import ru.example.parentwatch.utils.ServerUrlResolver
 
 /**
  * Settings Activity for ParentWatch
@@ -23,9 +24,6 @@ class SettingsActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "SettingsActivity"
         private const val PREFS_NAME = "parentwatch_prefs"
-
-        // Default values
-        private const val DEFAULT_SERVER_URL = "http://31.28.27.96:3000"
 
         // Server URL presets
         private const val LOCALHOST_URL = "http://10.0.2.2:3000"
@@ -66,7 +64,7 @@ class SettingsActivity : AppCompatActivity() {
         val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
 
         // Load current settings
-        val serverUrl = prefs.getString("server_url", DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
+        val serverUrl = ServerUrlResolver.getServerUrl(this) ?: ""
         
         // Generate device_id if not exists
         var deviceId = prefs.getString("device_id", null)
@@ -246,8 +244,12 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun startMonitoring() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val serverUrl = prefs.getString("server_url", DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
+        val serverUrl = ServerUrlResolver.getServerUrl(this)
         val deviceId = prefs.getString("device_id", null)
+        if (serverUrl.isNullOrBlank()) {
+            Toast.makeText(this, "Введите URL сервера в настройках", Toast.LENGTH_SHORT).show()
+            return
+        }
         if (deviceId.isNullOrEmpty()) {
             Toast.makeText(this, "Device ID не настроен", Toast.LENGTH_SHORT).show()
             return

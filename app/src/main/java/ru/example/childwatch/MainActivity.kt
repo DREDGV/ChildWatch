@@ -118,11 +118,10 @@ class MainActivity : AppCompatActivity() {
      */
     private fun initializeWebSocket() {
         try {
-            val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app") 
-                ?: "https://childwatch-production.up.railway.app"
+            val serverUrl = getConfiguredServerUrl()
             val deviceId = prefs.getString("device_id", "") ?: ""
             
-            if (deviceId.isNotEmpty()) {
+            if (deviceId.isNotEmpty() && !serverUrl.isNullOrBlank()) {
                 ru.example.childwatch.network.WebSocketManager.initialize(
                     this,
                     serverUrl,
@@ -138,6 +137,9 @@ class MainActivity : AppCompatActivity() {
                         Log.e(TAG, "❌ WebSocket connection error: $error")
                     }
                 )
+            }
+            if (serverUrl.isNullOrBlank()) {
+                Log.w(TAG, "WebSocket init skipped: server URL not configured")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing WebSocket", e)
@@ -189,9 +191,13 @@ class MainActivity : AppCompatActivity() {
         // locationCard hidden; using parentLocationCard (DualLocationMapActivity) only
 
         binding.audioStreamingCard.setOnClickListener {
-            val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-            val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app") ?: "https://childwatch-production.up.railway.app"
+            val serverUrl = getConfiguredServerUrl()
             val childDeviceId = prefs.getString("child_device_id", "")
+
+            if (serverUrl.isNullOrBlank()) {
+                showToast(getString(R.string.server_url_missing))
+                return@setOnClickListener
+            }
 
             if (childDeviceId.isNullOrEmpty()) {
                 showDeviceIdOptions(serverUrl)
@@ -558,8 +564,18 @@ class MainActivity : AppCompatActivity() {
         binding.deviceInfoProgress.isVisible = false
         binding.deviceInfoStatusMessage.isVisible = false
         binding.deviceInfoContent.isVisible = true
+        val statusTimestamp = (status.timestamp ?: secureSettings.getLastDeviceStatusTimestamp()).takeIf { it > 0 }
+        val isStale = statusTimestamp?.let { System.currentTimeMillis() - it > DEVICE_STATUS_STALE_MS } == true
+        if (statusTimestamp == null) {
+            Log.w(TAG, "Device status timestamp missing")
+        } else if (isStale) {
+            Log.d(TAG, "Device status is stale")
+        }
 
-        binding.deviceInfoBatteryValue.text = status.batteryLevel?.takeIf { it in 0..100 }?.let { "$it%" } ?: getString(R.string.device_info_unknown)
+        binding.deviceInfoBatteryValue.text = status.batteryLevel
+            ?.takeIf { it in 0..100 }
+            ?.let { "$it%" }
+            ?: getString(R.string.device_info_unknown)
 
         binding.deviceInfoChargingValue.text = when {
             status.isCharging == true && !status.chargingType.isNullOrBlank() ->
@@ -581,10 +597,10 @@ class MainActivity : AppCompatActivity() {
         binding.deviceInfoCurrentAppValue.text = status.currentAppName?.takeIf { it.isNotBlank() }
             ?: getString(R.string.device_info_unknown)
 
-        val statusTimestamp = (status.timestamp ?: secureSettings.getLastDeviceStatusTimestamp()).takeIf { it > 0 }
         binding.deviceInfoUpdatedValue.text = if (statusTimestamp != null) {
             val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
-            timeFormat.format(Date(statusTimestamp))
+            val base = timeFormat.format(Date(statusTimestamp))
+            if (isStale) "$base (устар.)" else base
         } else {
             getString(R.string.device_info_unknown)
         }
@@ -608,6 +624,18 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
+        val serverUrl = getConfiguredServerUrl()
+        if (serverUrl.isNullOrBlank()) {
+            Log.w(TAG, "Device status fetch skipped: server URL not configured")
+            if (latestDeviceStatus == null) {
+                showDeviceInfoMessage(getString(R.string.server_url_missing))
+            }
+            binding.deviceInfoProgress.isVisible = false
+            return
+        }
+
+        Log.d(TAG, "Fetching device status: deviceId=$childDeviceId serverUrl=$serverUrl")
+
         val now = System.currentTimeMillis()
         if (!force && now - lastStatusFetchTime < 60_000) {
             return
@@ -630,21 +658,30 @@ class MainActivity : AppCompatActivity() {
 
         deviceStatusJob = lifecycleScope.launch {
             try {
-                val response = withContext(Dispatchers.IO) {
-                    networkClient.getChildDeviceStatus(childDeviceId)
-                }
-                if (response.isSuccessful) {
-                    val status = response.body()?.status
-                    if (status != null) {
-                        val normalizedTimestamp = status.timestamp ?: System.currentTimeMillis()
-                        val normalizedStatus = status.copy(timestamp = normalizedTimestamp)
-                        secureSettings.setLastDeviceStatus(gson.toJson(normalizedStatus))
-                        secureSettings.setLastDeviceStatusTimestamp(normalizedTimestamp)
-                        applyDeviceStatus(normalizedStatus)
-                    } else {
-                        showDeviceInfoMessage(getString(R.string.device_info_not_available))
+                var attempt = 0
+                while (attempt < 3) {
+                    attempt++
+                    val response = withContext(Dispatchers.IO) {
+                        networkClient.getChildDeviceStatus(childDeviceId)
                     }
-                } else {
+                    if (response.isSuccessful) {
+                        val status = response.body()?.status
+                        if (status != null) {
+                            val normalizedTimestamp = status.timestamp ?: System.currentTimeMillis()
+                            val normalizedStatus = status.copy(timestamp = normalizedTimestamp)
+                            secureSettings.setLastDeviceStatus(gson.toJson(normalizedStatus))
+                            secureSettings.setLastDeviceStatusTimestamp(normalizedTimestamp)
+                            applyDeviceStatus(normalizedStatus)
+                            return@launch
+                        }
+                    }
+
+                    if (attempt < 3) {
+                        delay(500L * attempt)
+                    }
+                }
+
+                if (latestDeviceStatus == null) {
                     showDeviceInfoMessage(getString(R.string.device_info_not_available))
                 }
             } catch (error: CancellationException) {
@@ -652,7 +689,9 @@ class MainActivity : AppCompatActivity() {
                 Log.d(TAG, "Device status fetch cancelled")
             } catch (error: Exception) {
                 Log.e(TAG, "Failed to load device status", error)
-                showDeviceInfoMessage(getString(R.string.device_info_not_available))
+                if (latestDeviceStatus == null) {
+                    showDeviceInfoMessage(getString(R.string.device_info_not_available))
+                }
             } finally {
                 binding.deviceInfoProgress.isVisible = false
             }
@@ -851,14 +890,13 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun ensureChatBackgroundService() {
-        val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
-            ?: "https://childwatch-production.up.railway.app"
+        val serverUrl = getConfiguredServerUrl()
         val childDeviceId = prefs.getString("child_device_id", null)
 
-        if (!childDeviceId.isNullOrEmpty()) {
+        if (!childDeviceId.isNullOrEmpty() && !serverUrl.isNullOrBlank()) {
             ChatBackgroundService.start(this, serverUrl, childDeviceId)
         } else {
-            Log.w(TAG, "Cannot start chat background service: child_device_id is missing")
+            Log.w(TAG, "Cannot start chat background service: serverUrl=$serverUrl child_device_id=$childDeviceId")
         }
     }
 
@@ -885,6 +923,11 @@ class MainActivity : AppCompatActivity() {
     
     private fun showToast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun getConfiguredServerUrl(): String? {
+        val url = secureSettings.getServerUrl().trim()
+        return url.takeIf { it.isNotBlank() }
     }
     
     override fun onDestroy() {
@@ -1202,5 +1245,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val KEY_BATTERY_PROMPT_SUPPRESSED = "battery_prompt_suppressed"
+        private const val DEVICE_STATUS_STALE_MS = 10 * 60 * 1000L
     }
 }

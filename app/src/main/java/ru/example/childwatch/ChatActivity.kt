@@ -26,6 +26,7 @@ import ru.example.childwatch.chat.withStatus
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.utils.SecurePreferences
+import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.viewmodel.ChatViewModel
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -144,9 +145,7 @@ class ChatActivity : AppCompatActivity() {
 
     // Получить URL сервера (единый источник как в MainActivity/service)
     private fun getServerUrl(): String {
-        val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-        return prefs.getString("server_url", "https://childwatch-production.up.railway.app")
-            ?: "https://childwatch-production.up.railway.app"
+        return SecureSettingsManager(this).getServerUrl().trim()
     }
 
     // Получить deviceId (может быть из настроек/SharedPrefs)
@@ -400,11 +399,7 @@ class ChatActivity : AppCompatActivity() {
     /**
      * Get Retrofit API instance
      */
-    private fun getRetrofitApi(): ru.example.childwatch.network.ChildWatchApi {
-        val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-        val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
-            ?: "https://childwatch-production.up.railway.app"
-
+    private fun getRetrofitApi(serverUrl: String): ru.example.childwatch.network.ChildWatchApi {
         val retrofit = retrofit2.Retrofit.Builder()
             .baseUrl(serverUrl)
             .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
@@ -423,10 +418,17 @@ class ChatActivity : AppCompatActivity() {
             return
         }
 
+        val serverUrl = getServerUrl()
+        if (serverUrl.isBlank()) {
+            Log.w(TAG, "Server URL not configured, skipping chat sync")
+            Toast.makeText(this, getString(R.string.server_url_missing), Toast.LENGTH_SHORT).show()
+            return
+        }
+
         lifecycleScope.launch {
             try {
                 Log.d(TAG, "Syncing chat history from server...")
-                val response = getRetrofitApi().getChatHistory(childDeviceId, limit = 200)
+                val response = getRetrofitApi(serverUrl).getChatHistory(childDeviceId, limit = 200)
 
                 if (response.isSuccessful) {
                     val chatHistory = response.body()
@@ -484,10 +486,15 @@ class ChatActivity : AppCompatActivity() {
      * Initialize WebSocket connection via ChatBackgroundService
      */
     private fun initializeWebSocket() {
-        val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-        val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
-            ?: "https://childwatch-production.up.railway.app"
-        val childDeviceId = prefs.getString("child_device_id", "") ?: ""
+        val serverUrl = getServerUrl()
+        val childDeviceId = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+            .getString("child_device_id", "") ?: ""
+
+        if (serverUrl.isBlank()) {
+            Log.w(TAG, "Server URL not configured, cannot initialize WebSocket")
+            Toast.makeText(this, getString(R.string.server_url_missing), Toast.LENGTH_SHORT).show()
+            return
+        }
 
         if (childDeviceId.isEmpty()) {
             Log.w(TAG, "Child Device ID not set, cannot initialize WebSocket")
@@ -751,10 +758,15 @@ class ChatActivity : AppCompatActivity() {
         if (messageIds.isEmpty()) return
         lifecycleScope.launch {
             withContext(Dispatchers.IO) {
+                val serverUrl = getServerUrl()
+                if (serverUrl.isBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot mark messages read")
+                    return@withContext
+                }
                 val client = okhttp3.OkHttpClient()
                 for (id in messageIds) {
                     try {
-                        val url = "${getServerUrl()}/api/chat/messages/$id/read"
+                        val url = "${serverUrl}/api/chat/messages/$id/read"
                         val request = okhttp3.Request.Builder()
                             .url(url)
                             .put(okhttp3.RequestBody.create(null, ByteArray(0)))

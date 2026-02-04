@@ -22,5 +22,6 @@
     <string name="chat_presence_online">В сети</string>
     <string name="chat_presence_connecting">Подключение…</string>
     <string name="chat_presence_offline">Офлайн</string>
+    <string name="server_url_not_configured">Не настроен</string>
 </resources>
 

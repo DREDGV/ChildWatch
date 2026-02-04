@@ -24,6 +24,7 @@ import ru.example.parentwatch.service.ChatBackgroundService
 import ru.example.parentwatch.service.PhotoCaptureService
 import ru.example.parentwatch.location.ParentLocationTracker
 import ru.example.parentwatch.network.PhotoIntegration
+import ru.example.parentwatch.utils.ServerUrlResolver
 import android.view.MotionEvent
 import android.view.View
 import java.text.SimpleDateFormat
@@ -41,7 +42,6 @@ class MainActivity : AppCompatActivity() {
         const val LOCALHOST_URL = "http://10.0.2.2:3000"
         const val RAILWAY_URL = "https://childwatch-production.up.railway.app"
         const val VPS_URL = "http://31.28.27.96:3000"
-        const val DEFAULT_SERVER_URL = VPS_URL
     }
 
     private lateinit var prefs: SharedPreferences
@@ -304,18 +304,22 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun ensureChatBackgroundService() {
-        val serverUrl = prefs.getString("server_url", DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
+        val serverUrl = ServerUrlResolver.getServerUrl(this)
         val deviceId = prefs.getString("device_id", null)
-        if (!deviceId.isNullOrEmpty()) {
+        if (!deviceId.isNullOrEmpty() && !serverUrl.isNullOrBlank()) {
             ChatBackgroundService.start(this, serverUrl, deviceId)
+        } else if (serverUrl.isNullOrBlank()) {
+            Log.w("MainActivity", "ChatBackgroundService not started: server URL missing")
         }
     }
 
     private fun ensurePhotoCaptureService() {
-        val serverUrl = prefs.getString("server_url", DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
+        val serverUrl = ServerUrlResolver.getServerUrl(this)
         val deviceId = prefs.getString("device_id", null)
-        if (!deviceId.isNullOrEmpty()) {
+        if (!deviceId.isNullOrEmpty() && !serverUrl.isNullOrBlank()) {
             PhotoCaptureService.start(this, serverUrl, deviceId)
+        } else if (serverUrl.isNullOrBlank()) {
+            Log.w("MainActivity", "PhotoCaptureService not started: server URL missing")
         }
     }
 
@@ -379,9 +383,15 @@ class MainActivity : AppCompatActivity() {
     private fun startLocationService() {
         try {
             if (!isServiceRunning) {
+                val serverUrl = ServerUrlResolver.getServerUrl(this)
+                if (serverUrl.isNullOrBlank()) {
+                                        Toast.makeText(this, getString(R.string.server_url_not_configured), Toast.LENGTH_LONG).show()
+                    Log.w("MainActivity", "LocationService not started: server URL missing")
+                    return
+                }
                 val serviceIntent = Intent(this, LocationService::class.java)
                 serviceIntent.action = LocationService.ACTION_START
-                serviceIntent.putExtra("server_url", prefs.getString("server_url", DEFAULT_SERVER_URL))
+                serviceIntent.putExtra("server_url", serverUrl)
                 serviceIntent.putExtra("device_id", getUniqueDeviceId())
                 ContextCompat.startForegroundService(this, serviceIntent)
 

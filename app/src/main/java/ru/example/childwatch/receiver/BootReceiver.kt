@@ -6,6 +6,7 @@ import android.content.Intent
 import android.util.Log
 import ru.example.childwatch.service.MonitorService
 import ru.example.childwatch.service.ChatBackgroundService
+import ru.example.childwatch.utils.SecureSettingsManager
 
 /**
  * BootReceiver to restart monitoring after device reboot
@@ -33,8 +34,7 @@ class BootReceiver : BroadcastReceiver() {
         val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
         val hasConsent = prefs.getBoolean("consent_given", false)
         val wasMonitoring = prefs.getBoolean("was_monitoring", false)
-        val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
-            ?: "https://childwatch-production.up.railway.app"
+        val serverUrl = SecureSettingsManager(context).getServerUrl().trim()
         val childDeviceId = prefs.getString("child_device_id", null)
         
         Log.d(
@@ -57,13 +57,15 @@ class BootReceiver : BroadcastReceiver() {
         }
 
         // Чат и связи должны подниматься даже если мониторинг не был активен
-        if (hasConsent && !childDeviceId.isNullOrEmpty()) {
+        if (hasConsent && !childDeviceId.isNullOrEmpty() && serverUrl.isNotBlank()) {
             try {
                 ChatBackgroundService.start(context, serverUrl, childDeviceId)
                 Log.d(TAG, "ChatBackgroundService restarted after boot with deviceId=$childDeviceId")
             } catch (e: Exception) {
                 Log.e(TAG, "Failed to restart chat service after boot", e)
             }
+        } else if (serverUrl.isBlank()) {
+            Log.w(TAG, "Cannot restart chat service after boot - server URL missing")
         } else if (childDeviceId.isNullOrEmpty()) {
             Log.w(TAG, "Cannot restart chat service after boot - child_device_id missing")
         }

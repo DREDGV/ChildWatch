@@ -5,6 +5,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import ru.example.parentwatch.databinding.ActivityStatsBinding
+import ru.example.parentwatch.utils.ServerUrlResolver
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -71,7 +72,8 @@ class StatsActivity : AppCompatActivity() {
                 )
 
                 // Connection status
-                val serverUrl = prefs.getString("server_url", "Не настроен") ?: "Не настроен"
+                val serverUrl = ServerUrlResolver.getServerUrl(this@StatsActivity)
+                    ?: getString(R.string.server_url_not_configured)
                 val deviceId = prefs.getString("device_id", "Не настроен") ?: "Не настроен"
                 binding.serverUrlText.text = serverUrl
                 binding.deviceIdText.text = deviceId.take(16) + "..."

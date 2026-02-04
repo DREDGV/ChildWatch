@@ -19,6 +19,7 @@ import kotlinx.coroutines.launch
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.remote.RemotePhotoAdapter
 import ru.example.childwatch.remote.RemotePhotoItem
+import ru.example.childwatch.utils.SecureSettingsManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -217,9 +218,14 @@ class RemoteCameraActivity : AppCompatActivity() {
                         photosRecyclerView.visibility = View.GONE
                         updateStatus("Фото пока нет")
                     } else {
-                        val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-                        val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
-                            ?: "https://childwatch-production.up.railway.app"
+                        val serverUrl = SecureSettingsManager(this@RemoteCameraActivity).getServerUrl().trim()
+                        if (serverUrl.isBlank()) {
+                            emptyStateLayout.visibility = View.VISIBLE
+                            photosRecyclerView.visibility = View.GONE
+                            updateStatus(getString(R.string.server_url_missing))
+                            Toast.makeText(this@RemoteCameraActivity, getString(R.string.server_url_missing), Toast.LENGTH_SHORT).show()
+                            return@launch
+                        }
 
                         val normalizedBase = normalizeBaseUrl(serverUrl)
 

@@ -16,6 +16,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import ru.example.childwatch.databinding.ActivitySettingsBinding
 import ru.example.childwatch.utils.PermissionHelper
+import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.service.MonitorService
 
 /**
@@ -56,6 +57,7 @@ class SettingsActivity : AppCompatActivity() {
     
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var prefs: SharedPreferences
+    private lateinit var secureSettings: SecureSettingsManager
 
     // QR Scanner result launcher
     private val qrScannerLauncher = registerForActivityResult(
@@ -76,6 +78,7 @@ class SettingsActivity : AppCompatActivity() {
         setContentView(binding.root)
         
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        secureSettings = SecureSettingsManager(this)
 
         setupUI()
         loadSettings()
@@ -158,7 +161,7 @@ class SettingsActivity : AppCompatActivity() {
         // Load monitoring settings
         val locationInterval = prefs.getInt(KEY_LOCATION_INTERVAL, DEFAULT_LOCATION_INTERVAL)
         val audioDuration = prefs.getInt(KEY_AUDIO_DURATION, DEFAULT_AUDIO_DURATION)
-        val serverUrl = prefs.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
+        val serverUrl = secureSettings.getServerUrl()
         val childDeviceId = prefs.getString(KEY_CHILD_DEVICE_ID, "")
 
         binding.locationIntervalInput.setText(locationInterval.toString())
@@ -261,6 +264,8 @@ class SettingsActivity : AppCompatActivity() {
                 .putBoolean("notification_vibration", notificationVibration)
                 .apply()
 
+            secureSettings.setServerUrl(serverUrl)
+
             Log.d(TAG, "Settings saved: interval=$locationInterval, audio=$audioDuration, url=$serverUrl, notif=$notificationDurationSec, size=$notificationSize, priority=$notificationPriority, sound=$notificationSound, vibration=$notificationVibration")
             Toast.makeText(this, "Настройки сохранены", Toast.LENGTH_SHORT).show()
             
@@ -342,7 +347,7 @@ class SettingsActivity : AppCompatActivity() {
         
         val savedLocationInterval = prefs.getInt(KEY_LOCATION_INTERVAL, DEFAULT_LOCATION_INTERVAL)
         val savedAudioDuration = prefs.getInt(KEY_AUDIO_DURATION, DEFAULT_AUDIO_DURATION)
-        val savedServerUrl = prefs.getString(KEY_SERVER_URL, DEFAULT_SERVER_URL) ?: DEFAULT_SERVER_URL
+        val savedServerUrl = secureSettings.getServerUrl()
         
         val settingsChanged = (currentLocationInterval != savedLocationInterval ||
                 currentAudioDuration != savedAudioDuration ||

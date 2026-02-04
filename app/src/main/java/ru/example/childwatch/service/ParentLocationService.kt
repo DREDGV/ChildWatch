@@ -15,6 +15,7 @@ import com.google.android.gms.location.*
 import kotlinx.coroutines.*
 import ru.example.childwatch.R
 import ru.example.childwatch.network.WebSocketManager
+import ru.example.childwatch.utils.SecureSettingsManager
 
 /**
  * ParentLocationService - отправляет локацию родителя ребёнку через WebSocket
@@ -97,7 +98,7 @@ class ParentLocationService : Service() {
             try {
                 val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
                 val parentId = prefs.getString("device_id", null) ?: return@launch
-                val serverUrl = prefs.getString("server_url", null)
+                val serverUrl = SecureSettingsManager(this@ParentLocationService).getServerUrl().trim()
                 
                 val locationData = org.json.JSONObject().apply {
                     put("parentId", parentId)
@@ -119,7 +120,7 @@ class ParentLocationService : Service() {
 
                 // Дополнительно отправим на сервер REST для fallback карты
                 try {
-                    if (!serverUrl.isNullOrEmpty()) {
+                    if (serverUrl.isNotBlank()) {
                         ru.example.childwatch.network.NetworkClient(this@ParentLocationService)
                             .uploadParentLocation(
                                 parentId = parentId,

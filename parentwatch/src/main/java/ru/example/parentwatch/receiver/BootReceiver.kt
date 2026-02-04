@@ -8,6 +8,7 @@ import android.util.Log
 import ru.example.parentwatch.service.LocationService
 import ru.example.parentwatch.service.ChatBackgroundService
 import ru.example.parentwatch.service.PhotoCaptureService
+import ru.example.parentwatch.utils.ServerUrlResolver
 
 /**
  * Boot receiver to auto-start location service
@@ -41,12 +42,11 @@ class BootReceiver : BroadcastReceiver() {
                         .apply()
                 }
 
-                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app")
-                    ?: "https://childwatch-production.up.railway.app"
+                val serverUrl = ServerUrlResolver.getServerUrl(context)
 
-                val shouldStart = (wasRunning || autoStart) && !deviceId.isNullOrEmpty()
+                val shouldStart = (wasRunning || autoStart) && !deviceId.isNullOrEmpty() && !serverUrl.isNullOrBlank()
                 if (!shouldStart) {
-                    Log.w(TAG, "Skipping auto-start: wasRunning=$wasRunning autoStart=$autoStart deviceId=$deviceId")
+                    Log.w(TAG, "Skipping auto-start: wasRunning=$wasRunning autoStart=$autoStart deviceId=$deviceId serverUrl=$serverUrl")
                     return
                 }
 

@@ -100,7 +100,7 @@ class MonitorService : Service() {
     // Configuration
     private var locationIntervalSeconds = 30
     private var defaultAudioDurationSeconds = 20
-    private var serverUrl = "https://your-server.com"
+    private var serverUrl = ""
     
     private fun setRecordingState(active: Boolean) {
         isRecording = active
@@ -378,7 +378,17 @@ class MonitorService : Service() {
         }
         
         loadConfiguration()
-        
+
+        if (serverUrl.isBlank()) {
+            val message = getString(R.string.server_url_missing)
+            Log.e(TAG, message)
+            setLastErrorMessage(message)
+            ensureForeground(isRecording = false, statusOverride = message)
+            stopForegroundService(true)
+            stopSelf()
+            return
+        }
+
         if (!PermissionHelper.hasAllRequiredPermissions(this)) {
             val message = "Missing required permissions for monitoring"
             Log.e(TAG, message)
@@ -447,9 +457,11 @@ class MonitorService : Service() {
     private fun startChatBackgroundService() {
         try {
             val childDeviceId = prefs.getString("child_device_id", "") ?: ""
-            if (childDeviceId.isNotEmpty()) {
+            if (childDeviceId.isNotEmpty() && serverUrl.isNotBlank()) {
                 ChatBackgroundService.start(this, serverUrl, childDeviceId)
                 Log.d(TAG, "ChatBackgroundService started for child device: $childDeviceId")
+            } else if (serverUrl.isBlank()) {
+                Log.w(TAG, "Cannot start ChatBackgroundService: server URL missing")
             } else {
                 Log.w(TAG, "Cannot start ChatBackgroundService: child_device_id not set")
             }
@@ -773,7 +785,7 @@ class MonitorService : Service() {
     private fun loadConfiguration() {
         locationIntervalSeconds = (secureSettings.getLocationInterval() / 1000L).toInt().coerceAtLeast(5)
         defaultAudioDurationSeconds = secureSettings.getAudioDuration().coerceAtLeast(5)
-        serverUrl = secureSettings.getServerUrl().ifBlank { "https://childwatch-production.up.railway.app" }
+        serverUrl = secureSettings.getServerUrl().trim()
         
         Log.d(
             TAG,

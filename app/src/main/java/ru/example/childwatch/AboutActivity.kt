@@ -13,6 +13,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import kotlinx.coroutines.*
 import ru.example.childwatch.databinding.ActivityAboutBinding
+import ru.example.childwatch.utils.SecureSettingsManager
 import java.net.HttpURLConnection
 import java.net.URL
 
@@ -39,6 +40,7 @@ class AboutActivity : AppCompatActivity() {
     
     private lateinit var binding: ActivityAboutBinding
     private lateinit var prefs: SharedPreferences
+    private val secureSettings by lazy { SecureSettingsManager(this) }
     private val aboutScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -89,12 +91,22 @@ class AboutActivity : AppCompatActivity() {
     private fun loadServerVersion() {
         aboutScope.launch {
             try {
-                val serverUrl = prefs.getString("server_url", "https://childwatch-production.up.railway.app/") ?: "https://childwatch-production.up.railway.app/"
+                val serverUrl = secureSettings.getServerUrl().trim()
+                if (serverUrl.isBlank()) {
+                    binding.serverVersionText.text = getString(
+                        R.string.server_version,
+                        getString(R.string.device_info_unknown)
+                    )
+                    return@launch
+                }
                 val version = withContext(Dispatchers.IO) {
                     getServerVersion(serverUrl)
                 }
                 
-                binding.serverVersionText.text = getString(R.string.server_version, version ?: "неизвестно")
+                binding.serverVersionText.text = getString(
+                    R.string.server_version,
+                    version ?: getString(R.string.device_info_unknown)
+                )
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading server version", e)
@@ -179,12 +191,13 @@ class AboutActivity : AppCompatActivity() {
             val deviceId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
             val versionName = "1.0.0"
             val versionCode = "1"
+            val serverUrl = secureSettings.getServerUrl().ifBlank { getString(R.string.device_info_unknown) }
             
             val appInfo = """
                 ChildWatch
                 Версия: $versionName ($versionCode)
                 ID устройства: $deviceId
-                Сервер: ${prefs.getString("server_url", "https://childwatch-production.up.railway.app")}
+                Сервер: $serverUrl
             """.trimIndent()
             
             val clip = ClipData.newPlainText("ChildWatch Info", appInfo)

@@ -278,6 +278,7 @@
     <!-- Additional Audio Monitor Strings -->
     <string name="audio_monitor_error_missing_device">Ошибка: Не указан ID устройства</string>
     <string name="audio_monitor_error_missing_server">Ошибка: Не указан адрес сервера</string>
+    <string name="server_url_missing">Server URL is not configured. Open settings.</string>
     <string name="audio_monitor_device_id">ID устройства: %1$s</string>
     <string name="audio_monitor_filter_applied">Фильтр: %1$s</string>
     <string name="audio_monitor_volume_mode_normal">Обычный (×1.5)</string>

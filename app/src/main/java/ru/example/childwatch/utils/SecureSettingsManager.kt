@@ -100,18 +100,37 @@ class SecureSettingsManager(private val context: Context) {
     
     // Server settings
     fun setServerUrl(url: String?) {
-        val sanitizedUrl = url?.trim()?.let { 
-            if (it.startsWith("http://") || it.startsWith("https://")) {
-                it
-            } else {
-                "https://$it"
+        val sanitizedUrl = url?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let {
+                if (it.startsWith("http://") || it.startsWith("https://")) {
+                    it
+                } else {
+                    "https://$it"
+                }
             }
-        }
         securePrefs.putString(KEY_SERVER_URL, sanitizedUrl)
-        Log.d(TAG, "Server URL set to: $sanitizedUrl")
+        Log.d(TAG, "Server URL set to: ${sanitizedUrl ?: "(cleared)"}")
     }
     
-    fun getServerUrl(): String = securePrefs.getString(KEY_SERVER_URL) ?: DEFAULT_SERVER_URL
+    fun getServerUrl(): String {
+        val secureUrl = securePrefs.getString(KEY_SERVER_URL)?.trim()
+        if (!secureUrl.isNullOrBlank()) {
+            return secureUrl
+        }
+
+        // Legacy fallback (childwatch_prefs) - migrate once, but do not auto-default
+        val legacyUrl = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+            .getString(KEY_SERVER_URL, null)
+            ?.trim()
+        if (!legacyUrl.isNullOrBlank()) {
+            securePrefs.putString(KEY_SERVER_URL, legacyUrl)
+            Log.d(TAG, "Server URL migrated from legacy prefs")
+            return legacyUrl
+        }
+
+        return ""
+    }
     
     // User consent
     fun setUserConsent(consent: Boolean) {
@@ -322,7 +341,7 @@ class SecureSettingsManager(private val context: Context) {
         
         // Validate server URL
         val serverUrl = getServerUrl()
-        if (!serverUrl.startsWith("https://")) {
+        if (serverUrl.isNotBlank() && !serverUrl.startsWith("https://")) {
             warnings.add("Server URL should use HTTPS for security")
         }
         

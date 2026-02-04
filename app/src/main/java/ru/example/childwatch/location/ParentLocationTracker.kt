@@ -13,6 +13,7 @@ import kotlinx.coroutines.*
 import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.database.entity.ParentLocation
 import ru.example.childwatch.network.NetworkClient
+import ru.example.childwatch.utils.SecureSettingsManager
 import java.util.concurrent.TimeUnit
 
 /**
@@ -161,10 +162,9 @@ class ParentLocationTracker(
     private suspend fun uploadLocationToServer(location: ParentLocation) {
         try {
             // Получаем URL сервера из настроек
-            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-            val serverUrl = prefs.getString("server_url", null)
+            val serverUrl = SecureSettingsManager(context).getServerUrl().trim()
             
-            if (serverUrl.isNullOrEmpty()) {
+            if (serverUrl.isEmpty()) {
                 Log.w(TAG, "Server URL not configured")
                 return
             }

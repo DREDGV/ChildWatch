@@ -12,9 +12,9 @@ android {
         applicationId "ru.example.parentwatch"
         minSdk 26
         targetSdk 34
-    // v7.1.2: Room chat integration (ChatManagerV2), multi-listener WS, migration safety
-    versionCode 34
-    versionName "7.1.3"
+    // v7.1.5: telemetry + streaming start tweaks
+    versionCode 37
+    versionName "7.1.6"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     setProperty("archivesBaseName", "ChildDevice-v$versionName")

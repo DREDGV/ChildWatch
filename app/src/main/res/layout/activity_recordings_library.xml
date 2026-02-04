@@ -93,8 +93,12 @@
                     style="@style/Widget.Material3.Button.IconButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="⏪"
-                    app:icon="@android:drawable/ic_media_rew" />
+                    android:text=""
+                    android:minWidth="56dp"
+                    android:minHeight="56dp"
+                    app:icon="@android:drawable/ic_media_rew"
+                    app:iconSize="28dp"
+                    app:iconPadding="0dp" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/playPauseButton"
@@ -102,8 +106,12 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
-                    android:text="▶"
-                    app:icon="@android:drawable/ic_media_play" />
+                    android:text=""
+                    android:minWidth="56dp"
+                    android:minHeight="56dp"
+                    app:icon="@android:drawable/ic_media_play"
+                    app:iconSize="28dp"
+                    app:iconPadding="0dp" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/forwardButton"
@@ -111,8 +119,12 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
-                    android:text="⏩"
-                    app:icon="@android:drawable/ic_media_ff" />
+                    android:text=""
+                    android:minWidth="56dp"
+                    android:minHeight="56dp"
+                    app:icon="@android:drawable/ic_media_ff"
+                    app:iconSize="28dp"
+                    app:iconPadding="0dp" />
 
                 <View
                     android:layout_width="0dp"
@@ -124,6 +136,8 @@
                     style="@style/Widget.Material3.Button.OutlinedButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:minHeight="48dp"
+                    android:textSize="14sp"
                     android:text="@string/recording_save" />
             </LinearLayout>
         </LinearLayout>
