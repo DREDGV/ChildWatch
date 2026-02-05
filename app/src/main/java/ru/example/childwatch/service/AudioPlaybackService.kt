@@ -63,6 +63,7 @@ class AudioPlaybackService : LifecycleService() {
         private const val JITTER_BUFFER_MIN_FRAMES = 12  // 240 ms (increased from 160ms)
         private const val JITTER_BUFFER_MAX_FRAMES = 60  // Max queue size (1.2 sec, increased from 1 sec)
         private const val JITTER_BUFFER_AGGRESSIVE_THRESHOLD = 20 // Trigger aggressive drop (400ms)
+        private const val STREAM_TIMEOUT_MINUTES = 30
 
         const val ACTION_START_PLAYBACK = "ru.example.childwatch.START_PLAYBACK"
         const val ACTION_STOP_PLAYBACK = "ru.example.childwatch.STOP_PLAYBACK"
@@ -396,7 +397,12 @@ class AudioPlaybackService : LifecycleService() {
                 try {
                     // Inform server that parent is listening before starting playback
                     networkClient?.let { client ->
-                        val registered = client.startAudioStreaming(serverUrl, deviceId, recording)
+                        val registered = client.startAudioStreaming(
+                            serverUrl,
+                            deviceId,
+                            recording,
+                            STREAM_TIMEOUT_MINUTES
+                        )
                         if (!registered) {
                             Log.w(TAG, "Failed to register parent listener on server for $deviceId")
                         }
@@ -415,6 +421,9 @@ class AudioPlaybackService : LifecycleService() {
 
                     // Initialize audio playback
                     initializeAudioTrack()
+
+                    // Start repeating start command until first chunk arrives
+                    startStartCommandRepeater()
 
                     // Connect to WebSocket directly
                     connectWebSocket()
@@ -815,7 +824,6 @@ class AudioPlaybackService : LifecycleService() {
 
                     webSocketClient?.startHeartbeat()
                     startPlaybackJob()
-                    startStartCommandRepeater()
                 },
                 onError = { error ->
                     Log.e(TAG, "❌ WebSocket error: $error")
@@ -935,7 +943,7 @@ class AudioPlaybackService : LifecycleService() {
         Log.d(TAG, "Sending start command to child (reason=$reason)")
 
         runCatching {
-            networkClient?.startAudioStreaming(url, id, isRecording)
+            networkClient?.startAudioStreaming(url, id, isRecording, STREAM_TIMEOUT_MINUTES)
         }.onFailure { Log.w(TAG, "HTTP start command failed: ${it.message}") }
 
         if (webSocketClient?.isConnected() == true) {

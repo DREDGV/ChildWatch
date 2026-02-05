@@ -24,8 +24,8 @@ class CommandManager {
             TAKE_PHOTO: 'take_photo'
         };
 
-        // Default timeout for streaming sessions (10 minutes)
-        this.DEFAULT_TIMEOUT = 10 * 60 * 1000;
+        // Default timeout for streaming sessions (30 minutes)
+        this.DEFAULT_TIMEOUT = 30 * 60 * 1000;
     }
 
     /**
@@ -73,9 +73,9 @@ class CommandManager {
      * Start audio streaming session
      * @param {string} deviceId - Device ID
      * @param {string} parentId - Parent device ID
-     * @param {number} timeoutMinutes - Timeout in minutes (default: 10 minutes)
+     * @param {number} timeoutMinutes - Timeout in minutes (default: 30 minutes)
      */
-    startStreaming(deviceId, parentId, timeoutMinutes = 10) {
+    startStreaming(deviceId, parentId, timeoutMinutes = 30) {
         const timeout = timeoutMinutes * 60 * 1000; // Convert minutes to milliseconds
 
         this.streamingSessions.set(deviceId, {

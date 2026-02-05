@@ -1094,13 +1094,19 @@ class NetworkClient(private val context: Context) {
     /**
      * Start audio streaming from child device
      */
-    suspend fun startAudioStreaming(serverUrl: String, deviceId: String, recordingMode: Boolean = false): Boolean {
+    suspend fun startAudioStreaming(
+        serverUrl: String,
+        deviceId: String,
+        recordingMode: Boolean = false,
+        timeoutMinutes: Int = 30
+    ): Boolean {
         return withContext(Dispatchers.IO) {
             try {
                 val url = "${serverUrl.trimEnd('/')}/api/streaming/start"
                 val json = JSONObject().apply {
                     put("deviceId", deviceId)
                     put("recording", recordingMode)
+                    put("timeoutMinutes", timeoutMinutes)
                 }
 
                 val requestBody = json.toString()

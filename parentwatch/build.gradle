@@ -13,8 +13,8 @@ android {
         minSdk 26
         targetSdk 34
     // v7.1.5: telemetry + streaming start tweaks
-    versionCode 37
-    versionName "7.1.6"
+    versionCode 38
+    versionName "7.1.7"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     setProperty("archivesBaseName", "ChildDevice-v$versionName")

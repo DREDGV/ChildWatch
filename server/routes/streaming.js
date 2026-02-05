@@ -80,9 +80,17 @@ router.post('/start', async (req, res) => {
             });
         }
 
-        // Start streaming session with optional timeout (default 10 minutes)
-        const timeout = timeoutMinutes || 10;
-        const result = commandManager.startStreaming(deviceId, parentId || 'parent', timeout);
+        // Start streaming session with optional timeout (default 30 minutes)
+        const parsedTimeout = Number(timeoutMinutes);
+        const timeout =
+            Number.isFinite(parsedTimeout) && parsedTimeout > 0
+                ? parsedTimeout
+                : 30;
+        const result = commandManager.startStreaming(
+            deviceId,
+            parentId || 'parent',
+            timeout
+        );
 
         if (result) {
             // Check if child device is connected via WebSocket
