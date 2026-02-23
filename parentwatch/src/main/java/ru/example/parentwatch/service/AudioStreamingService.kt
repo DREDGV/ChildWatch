@@ -37,13 +37,21 @@ class AudioStreamingService : Service() {
         const val EXTRA_DEVICE_ID = "device_id"
         const val EXTRA_SERVER_URL = "server_url"
         const val EXTRA_RECORDING_MODE = "recording_mode"
+        const val EXTRA_SAMPLE_RATE = "sample_rate"
 
-        fun startStreaming(context: Context, deviceId: String, serverUrl: String, recordingMode: Boolean = false) {
+        fun startStreaming(
+            context: Context,
+            deviceId: String,
+            serverUrl: String,
+            recordingMode: Boolean = false,
+            sampleRate: Int = 24_000
+        ) {
             val intent = Intent(context, AudioStreamingService::class.java).apply {
                 action = ACTION_START_STREAMING
                 putExtra(EXTRA_DEVICE_ID, deviceId)
                 putExtra(EXTRA_SERVER_URL, serverUrl)
                 putExtra(EXTRA_RECORDING_MODE, recordingMode)
+                putExtra(EXTRA_SAMPLE_RATE, sampleRate)
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -64,6 +72,10 @@ class AudioStreamingService : Service() {
     private var audioStreamRecorder: AudioStreamRecorder? = null
     private var networkHelper: NetworkHelper? = null
     private var isStreaming = false
+    private var currentDeviceId: String? = null
+    private var currentServerUrl: String? = null
+    private var currentRecordingMode: Boolean = false
+    private var currentSampleRate: Int = 24_000
 
     // Task 6: WakeLock to prevent CPU sleep during streaming
     private var wakeLock: PowerManager.WakeLock? = null
@@ -120,8 +132,9 @@ class AudioStreamingService : Service() {
                 val deviceId = intent.getStringExtra(EXTRA_DEVICE_ID) ?: return START_NOT_STICKY
                 val serverUrl = intent.getStringExtra(EXTRA_SERVER_URL) ?: return START_NOT_STICKY
                 val recordingMode = intent.getBooleanExtra(EXTRA_RECORDING_MODE, false)
+                val sampleRate = intent.getIntExtra(EXTRA_SAMPLE_RATE, 24_000)
 
-                startStreaming(deviceId, serverUrl, recordingMode)
+                startStreaming(deviceId, serverUrl, recordingMode, sampleRate)
             }
             ACTION_STOP_STREAMING -> {
                 stopStreaming()
@@ -131,22 +144,46 @@ class AudioStreamingService : Service() {
         return START_STICKY
     }
 
-    private fun startStreaming(deviceId: String, serverUrl: String, recordingMode: Boolean) {
+    private fun normalizeSampleRate(rate: Int): Int {
+        return 24_000
+    }
+
+    private fun startStreaming(deviceId: String, serverUrl: String, recordingMode: Boolean, sampleRate: Int) {
+        val normalizedSampleRate = normalizeSampleRate(sampleRate)
+
         if (isStreaming) {
-            Log.w(TAG, "Already streaming")
+            val sameConfig =
+                currentDeviceId == deviceId &&
+                    currentServerUrl == serverUrl &&
+                    currentRecordingMode == recordingMode &&
+                    currentSampleRate == normalizedSampleRate
+
+            if (sameConfig) {
+                Log.d(TAG, "Already streaming with same config")
+                return
+            }
+
+            Log.i(
+                TAG,
+                "Reconfiguring stream: rate ${currentSampleRate} -> $normalizedSampleRate, recording $currentRecordingMode -> $recordingMode"
+            )
+            audioStreamRecorder?.updateStreamConfig(recordingMode, normalizedSampleRate)
+            currentRecordingMode = recordingMode
+            currentSampleRate = normalizedSampleRate
+            updateNotification("Audio streaming active (${normalizedSampleRate / 1000} kHz)")
             return
         }
 
         Log.d(TAG, "Starting audio streaming in foreground service")
 
-        // Этап A: MUST call startForeground BEFORE initializing AudioRecord
-        startForeground(NOTIFICATION_ID, createNotification("Отправка аудио активна"))
-        Log.d(TAG, "AUDIO startForeground ok") // Этап A: Required log
+        // ???? A: MUST call startForeground BEFORE initializing AudioRecord
+        startForeground(NOTIFICATION_ID, createNotification("Audio streaming active"))
+        Log.d(TAG, "AUDIO startForeground ok") // ???? A: Required log
 
         // Task 6: Acquire WakeLock to prevent CPU sleep (2 hours timeout)
         try {
             wakeLock?.acquire(2 * 60 * 60 * 1000L /* 2 hours */)
-            Log.d(TAG, "🔋 WakeLock acquired (2 hours)")
+            Log.d(TAG, "WakeLock acquired (2 hours)")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to acquire WakeLock", e)
         }
@@ -154,11 +191,15 @@ class AudioStreamingService : Service() {
         // Initialize audio recorder AFTER startForeground
         networkHelper?.let { helper ->
             audioStreamRecorder = AudioStreamRecorder(this, helper)
-            audioStreamRecorder?.startStreaming(deviceId, serverUrl, recordingMode)
+            audioStreamRecorder?.startStreaming(deviceId, serverUrl, recordingMode, normalizedSampleRate)
             isStreaming = true
+            currentDeviceId = deviceId
+            currentServerUrl = serverUrl
+            currentRecordingMode = recordingMode
+            currentSampleRate = normalizedSampleRate
 
             // Update notification
-            updateNotification("Отправка аудио: активна")
+            updateNotification("Audio streaming active (${normalizedSampleRate / 1000} kHz)")
         }
     }
 
@@ -178,6 +219,10 @@ class AudioStreamingService : Service() {
         audioStreamRecorder?.stopStreaming()
         audioStreamRecorder = null
         isStreaming = false
+        currentDeviceId = null
+        currentServerUrl = null
+        currentRecordingMode = false
+        currentSampleRate = 24_000
 
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -252,5 +297,9 @@ class AudioStreamingService : Service() {
         audioStreamRecorder?.stopStreaming()
         audioStreamRecorder = null
         isStreaming = false
+        currentDeviceId = null
+        currentServerUrl = null
+        currentRecordingMode = false
+        currentSampleRate = 24_000
     }
 }

@@ -1,4 +1,4 @@
-package ru.example.childwatch.service
+﻿package ru.example.childwatch.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -27,6 +27,8 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import org.json.JSONObject
+import java.nio.ByteBuffer
+import java.nio.ByteOrder
 import ru.example.childwatch.MainActivity
 import ru.example.childwatch.R
 import ru.example.childwatch.audio.AudioEnhancer
@@ -48,15 +50,19 @@ import ru.example.childwatch.utils.AlertNotifier
 class AudioPlaybackService : LifecycleService() {
 
     companion object {
-        private const val TAG = "AUDIO" // Этап A: unified tag
+        private const val TAG = "AUDIO" // Р­С‚Р°Рї A: unified tag
         private const val NOTIFICATION_ID = 3001
         private const val CHANNEL_ID = "audio_playback_channel"
 
-        // Оптимизировано для 24 кГц, кадров по 20 мс
-        private const val STREAM_SAMPLE_RATE = 24_000   // 24 kHz
+        // РћРїС‚РёРјРёР·РёСЂРѕРІР°РЅРѕ РґР»СЏ 24 РєР“С†, РєР°РґСЂРѕРІ РїРѕ 20 РјСЃ
+        private const val DEFAULT_STREAM_SAMPLE_RATE = 24_000   // 24 kHz
         private const val STREAM_CHANNEL_COUNT = 1       // MONO
         private const val FRAME_MS = 20                  // 20ms frames
-        private const val FRAME_BYTES = (STREAM_SAMPLE_RATE * FRAME_MS / 1000) * 2 // 960 bytes
+        private const val DEFAULT_FRAME_BYTES =
+            (DEFAULT_STREAM_SAMPLE_RATE * FRAME_MS / 1000) * 2 // 960 bytes
+        // Keep explicit support for all app capture rates; avoid 44.1k fallback mismatch artifacts.
+        private val PLAYBACK_SAMPLE_RATES = intArrayOf(24_000, 32_000, 48_000, 16_000)
+        private val INPUT_SAMPLE_RATES = intArrayOf(24_000, 32_000, 48_000)
 
         // Jitter buffer: Increased for poor network conditions
         // 250-400 ms = 12-20 frames of 20ms (improved for unstable connections)
@@ -72,27 +78,43 @@ class AudioPlaybackService : LifecycleService() {
         const val EXTRA_DEVICE_ID = "device_id"
         const val EXTRA_SERVER_URL = "server_url"
         const val EXTRA_RECORDING = "recording"
+        const val EXTRA_SAMPLE_RATE = "sample_rate"
 
         // Service state
         var isPlaying = false
             private set
         var chunksReceived = 0
             private set
-        var currentStatus = "Остановлено"
+        var currentStatus = "Stopped"
             private set
-        var connectionQuality = "Отлично"
+        var connectionQuality = "Excellent"
             private set
         var lastChunkTimestamp = 0L
             private set
         var streamingStartTime = 0L
             private set
+        var playbackSampleRate = DEFAULT_STREAM_SAMPLE_RATE
+            private set
+        var inputStreamSampleRate = DEFAULT_STREAM_SAMPLE_RATE
+            private set
+        var requestedStreamSampleRate = DEFAULT_STREAM_SAMPLE_RATE
+            private set
+        var audioTrackInitError: String? = null
+            private set
 
-        fun startPlayback(context: Context, deviceId: String, serverUrl: String, recording: Boolean = false) {
+        fun startPlayback(
+            context: Context,
+            deviceId: String,
+            serverUrl: String,
+            recording: Boolean = false,
+            sampleRate: Int = DEFAULT_STREAM_SAMPLE_RATE
+        ) {
             val intent = Intent(context, AudioPlaybackService::class.java).apply {
                 action = ACTION_START_PLAYBACK
                 putExtra(EXTRA_DEVICE_ID, deviceId)
                 putExtra(EXTRA_SERVER_URL, serverUrl)
                 putExtra(EXTRA_RECORDING, recording)
+                putExtra(EXTRA_SAMPLE_RATE, sampleRate)
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -127,7 +149,7 @@ class AudioPlaybackService : LifecycleService() {
     private val audioEnhancer = AudioEnhancer()
     private lateinit var recordingRepository: RecordingRepository
 
-    // Этап D: Metrics manager for diagnostics
+    // Р­С‚Р°Рї D: Metrics manager for diagnostics
     lateinit var metricsManager: MetricsManager
         private set
     private var streamRecorder: StreamRecorder? = null
@@ -136,6 +158,8 @@ class AudioPlaybackService : LifecycleService() {
     // Improvement: Audio Focus for handling calls/notifications
     private var audioManager: AudioManager? = null
     private var wasPlayingBeforeFocusLoss = false
+    private var previousAudioMode: Int = AudioManager.MODE_NORMAL
+    private var previousSpeakerphoneState: Boolean = false
 
     private val filterModeReceiver = object : BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) {
@@ -159,24 +183,24 @@ class AudioPlaybackService : LifecycleService() {
         when (focusChange) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 // Lost focus for unknown duration - stop playback
-                Log.w(TAG, "🎵 AUDIOFOCUS_LOSS - stopping playback")
+                Log.w(TAG, "рџЋµ AUDIOFOCUS_LOSS - stopping playback")
                 wasPlayingBeforeFocusLoss = isPlaying
                 stopPlayback()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 // Lost focus temporarily (e.g., incoming call)
-                Log.w(TAG, "🎵 AUDIOFOCUS_LOSS_TRANSIENT - pausing temporarily")
+                Log.w(TAG, "рџЋµ AUDIOFOCUS_LOSS_TRANSIENT - pausing temporarily")
                 wasPlayingBeforeFocusLoss = isPlaying
                 pausePlayback()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 // Lost focus but can reduce volume
-                Log.i(TAG, "🎵 AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK - reducing volume")
+                Log.i(TAG, "рџЋµ AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK - reducing volume")
                 audioTrack?.setVolume(0.3f) // Duck to 30% volume
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
                 // Regained focus
-                Log.i(TAG, "🎵 AUDIOFOCUS_GAIN - resumed")
+                Log.i(TAG, "рџЋµ AUDIOFOCUS_GAIN - resumed")
                 audioTrack?.setVolume(1.0f) // Restore volume
                 // Optionally resume if it was playing before
                 if (wasPlayingBeforeFocusLoss && !isPlaying) {
@@ -185,7 +209,7 @@ class AudioPlaybackService : LifecycleService() {
                 }
             }
             else -> {
-                Log.d(TAG, "🎵 Unknown audio focus change: $focusChange")
+                Log.d(TAG, "рџЋµ Unknown audio focus change: $focusChange")
             }
         }
     }
@@ -196,17 +220,23 @@ class AudioPlaybackService : LifecycleService() {
     private var serverUrl: String? = null
     private var isRecording = false
     private var streamingStartTime: Long = 0L
+    private var requestedSampleRate: Int = DEFAULT_STREAM_SAMPLE_RATE
+    private var inputSampleRate: Int = DEFAULT_STREAM_SAMPLE_RATE
+    private var inputFrameBytes: Int = DEFAULT_FRAME_BYTES
+    private var outputSampleRate: Int = DEFAULT_STREAM_SAMPLE_RATE
+    private var outputFrameBytes: Int = DEFAULT_FRAME_BYTES
 
-    // Jitter buffer (Этап A: ArrayBlockingQueue with 50-100 frames capacity)
+    // Jitter buffer (Р­С‚Р°Рї A: ArrayBlockingQueue with 50-100 frames capacity)
     private val chunkQueue = java.util.concurrent.ArrayBlockingQueue<ByteArray>(JITTER_BUFFER_MAX_FRAMES)
     private var isBuffering = true
     private var bufferUnderrunCount = 0
 
 
-    // Metrics (Этап A)
+    // Metrics (Р­С‚Р°Рї A)
     private var totalBytesReceived = 0L
     private var lastMetricsLogTime = 0L
     private var underrunCount = 0
+    private var lastReceivedSequence = -1
 
     // Waveform callback
     private var waveformCallback: ((ByteArray) -> Unit)? = null
@@ -234,6 +264,29 @@ class AudioPlaybackService : LifecycleService() {
         Log.d(TAG, "Volume set to: ${(volume * 100).toInt()}%")
     }
 
+    /**
+     * Request remote capture sample-rate change without full local restart.
+     * Returns true if request was accepted for dispatch.
+     */
+    fun requestStreamSampleRate(newRate: Int): Boolean {
+        if (!isPlaying) return false
+
+        val normalized = sanitizeInputSampleRate(newRate)
+        if (normalized == requestedSampleRate) return true
+
+        requestedSampleRate = normalized
+        requestedStreamSampleRate = normalized
+        metricsManager.update { metrics ->
+            metrics.copy(sampleRate = normalized, frameSize = frameBytesForRate(normalized))
+        }
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            sendStartCommand("quality_change_${normalized}")
+        }
+        Log.d(TAG, "Requested stream quality change to ${normalized}Hz")
+        return true
+    }
+
     fun setFilterMode(mode: FilterMode) {
         val currentConfig = audioEnhancer.getConfig()
         audioEnhancer.updateConfig(currentConfig.copy(mode = mode))
@@ -256,7 +309,7 @@ class AudioPlaybackService : LifecycleService() {
         super.onCreate()
         Log.d(TAG, "AudioPlaybackService created")
 
-        // Этап D: Initialize metrics manager
+        // Р­С‚Р°Рї D: Initialize metrics manager
         metricsManager = MetricsManager(applicationContext)
 
         networkClient = NetworkClient(this)
@@ -287,7 +340,7 @@ class AudioPlaybackService : LifecycleService() {
 
         // Improvement: Initialize AudioManager for audio focus handling
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        Log.d(TAG, "🎵 AudioManager initialized for audio focus handling")
+        Log.d(TAG, "рџЋµ AudioManager initialized for audio focus handling")
     }
 
     private fun loadFilterMode() {
@@ -310,16 +363,33 @@ class AudioPlaybackService : LifecycleService() {
 
         when (intent?.action) {
             ACTION_START_PLAYBACK -> {
-                val deviceId = intent.getStringExtra(EXTRA_DEVICE_ID)
+                val requestedDeviceId = intent.getStringExtra(EXTRA_DEVICE_ID)
+                val deviceId = resolvePreferredTargetDeviceId(requestedDeviceId)
                 val serverUrl = intent.getStringExtra(EXTRA_SERVER_URL)
                 val recording = intent.getBooleanExtra(EXTRA_RECORDING, false)
+                val requestedRate = intent.getIntExtra(EXTRA_SAMPLE_RATE, DEFAULT_STREAM_SAMPLE_RATE)
+                requestedSampleRate = sanitizeInputSampleRate(requestedRate)
+                inputSampleRate = requestedSampleRate
+                inputFrameBytes = frameBytesForRate(inputSampleRate)
+                requestedStreamSampleRate = requestedSampleRate
+                inputStreamSampleRate = inputSampleRate
+                metricsManager.update { metrics ->
+                    metrics.copy(
+                        sampleRate = inputSampleRate,
+                        channelCount = STREAM_CHANNEL_COUNT,
+                        frameSize = inputFrameBytes
+                    )
+                }
                 
-                Log.d(TAG, "Starting playback with deviceId: $deviceId, serverUrl: $serverUrl, recording: $recording")
+                Log.d(
+                    TAG,
+                    "Starting playback with deviceId: $deviceId (requested=$requestedDeviceId), serverUrl: $serverUrl, recording: $recording, sampleRate=$requestedSampleRate"
+                )
                 
                 if (deviceId.isNullOrEmpty() || serverUrl.isNullOrEmpty()) {
                     Log.e(TAG, "Missing required parameters - deviceId: $deviceId, serverUrl: $serverUrl")
                     // Start foreground anyway to prevent crash
-                    startForeground(NOTIFICATION_ID, createNotification("Ошибка: неверные параметры"))
+                    startForeground(NOTIFICATION_ID, createNotification("РћС€РёР±РєР°: РЅРµРІРµСЂРЅС‹Рµ РїР°СЂР°РјРµС‚СЂС‹"))
                     stopSelf()
                     return START_NOT_STICKY
                 }
@@ -338,7 +408,7 @@ class AudioPlaybackService : LifecycleService() {
             else -> {
                 Log.w(TAG, "Unknown action: ${intent?.action}")
                 // Start foreground anyway to prevent crash
-                startForeground(NOTIFICATION_ID, createNotification("Неизвестная команда"))
+                startForeground(NOTIFICATION_ID, createNotification("РќРµРёР·РІРµСЃС‚РЅР°СЏ РєРѕРјР°РЅРґР°"))
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -358,14 +428,14 @@ class AudioPlaybackService : LifecycleService() {
             this.serverUrl = serverUrl
             this.isRecording = recording
 
-            Log.d(TAG, "🎧 Starting audio playback in foreground service")
+            Log.d(TAG, "рџЋ§ Starting audio playback in foreground service")
 
-            // Этап D: Update metrics - buffering status
+            // Р­С‚Р°Рї D: Update metrics - buffering status
             metricsManager.updateAudioStatus(AudioStatus.BUFFERING)
             metricsManager.updateWsStatus(WsStatus.CONNECTING)
 
             // Start foreground with notification IMMEDIATELY (required by Android)
-            startForeground(NOTIFICATION_ID, createNotification("Подключение..."))
+            startForeground(NOTIFICATION_ID, createNotification("РџРѕРґРєР»СЋС‡РµРЅРёРµ..."))
 
             if (recording) {
                 startLocalRecording()
@@ -375,11 +445,11 @@ class AudioPlaybackService : LifecycleService() {
 
             // Acquire WakeLock (keeps CPU awake)
             wakeLock?.acquire(60*60*1000L /* 1 hour */)
-            Log.d(TAG, "🔋 WakeLock acquired")
+            Log.d(TAG, "рџ”‹ WakeLock acquired")
 
             // Acquire WiFi Lock (keeps WiFi active to prevent disconnection)
             wifiLock?.acquire()
-            Log.d(TAG, "📶 WiFi Lock acquired (FULL_HIGH_PERF mode)")
+            Log.d(TAG, "рџ“¶ WiFi Lock acquired (FULL_HIGH_PERF mode)")
 
             // Improvement: Request audio focus to handle calls/notifications
             val focusResult = audioManager?.requestAudioFocus(
@@ -388,9 +458,21 @@ class AudioPlaybackService : LifecycleService() {
                 AudioManager.AUDIOFOCUS_GAIN
             )
             if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                Log.d(TAG, "🎵 Audio focus granted")
+                Log.d(TAG, "рџЋµ Audio focus granted")
             } else {
-                Log.w(TAG, "🎵 Audio focus NOT granted (other app playing?)")
+                Log.w(TAG, "рџЋµ Audio focus NOT granted (other app playing?)")
+            }
+
+            // Force media to speaker to avoid silent routing on some devices.
+            audioManager?.let { manager ->
+                previousAudioMode = manager.mode
+                previousSpeakerphoneState = manager.isSpeakerphoneOn
+                manager.mode = AudioManager.MODE_NORMAL
+                manager.isSpeakerphoneOn = true
+                Log.d(
+                    TAG,
+                    "Audio route forced to speaker (prevMode=$previousAudioMode, prevSpeaker=$previousSpeakerphoneState)"
+                )
             }
 
             lifecycleScope.launch {
@@ -401,7 +483,8 @@ class AudioPlaybackService : LifecycleService() {
                             serverUrl,
                             deviceId,
                             recording,
-                            STREAM_TIMEOUT_MINUTES
+                            STREAM_TIMEOUT_MINUTES,
+                            requestedSampleRate
                         )
                         if (!registered) {
                             Log.w(TAG, "Failed to register parent listener on server for $deviceId")
@@ -410,7 +493,7 @@ class AudioPlaybackService : LifecycleService() {
 
                     // SIMPLIFIED ARCHITECTURE - Direct WebSocket connection
                     // No HTTP request needed - connect directly to WebSocket
-                    Log.d(TAG, "🎧 Starting direct WebSocket connection (simplified architecture)")
+                    Log.d(TAG, "рџЋ§ Starting direct WebSocket connection (simplified architecture)")
 
                     isPlaying = true
                     AudioPlaybackService.isPlaying = true
@@ -418,12 +501,17 @@ class AudioPlaybackService : LifecycleService() {
                     AudioPlaybackService.streamingStartTime = streamingStartTime
                     chunksReceived = 0
                     AudioPlaybackService.chunksReceived = 0
+                    lastReceivedSequence = -1
 
                     // Initialize audio playback
                     initializeAudioTrack()
-
-                    // Start repeating start command until first chunk arrives
-                    startStartCommandRepeater()
+                    if (audioTrack == null) {
+                        val errorText = audioTrackInitError ?: "AudioTrack init failed"
+                        updateNotification("РћС€РёР±РєР° Р°СѓРґРёРѕ: $errorText")
+                        Log.e(TAG, "Cannot start playback: $errorText")
+                        stopSelf()
+                        return@launch
+                    }
 
                     // Connect to WebSocket directly
                     connectWebSocket()
@@ -431,7 +519,7 @@ class AudioPlaybackService : LifecycleService() {
                     updateNotification(getString(R.string.audio_monitor_status_active))
                     currentStatus = getString(R.string.audio_monitor_status_active)
                     AudioPlaybackService.currentStatus = currentStatus
-                    Log.d(TAG, "✅ Direct WebSocket streaming started at $streamingStartTime")
+                    Log.d(TAG, "вњ… Direct WebSocket streaming started at $streamingStartTime")
                     startStreamWatchdog()
 
                 } catch (e: Exception) {
@@ -443,7 +531,7 @@ class AudioPlaybackService : LifecycleService() {
             Log.e(TAG, "Critical error in startPlayback", e)
             // Ensure foreground is started even if there's an error
             try {
-                startForeground(NOTIFICATION_ID, createNotification("Ошибка запуска"))
+                startForeground(NOTIFICATION_ID, createNotification("РћС€РёР±РєР° Р·Р°РїСѓСЃРєР°"))
             } catch (ex: Exception) {
                 Log.e(TAG, "Failed to start foreground after error", ex)
             }
@@ -475,7 +563,7 @@ class AudioPlaybackService : LifecycleService() {
      * Can be resumed without full reconnection
      */
     private fun pausePlayback() {
-        Log.d(TAG, "⏸️ Pausing audio playback")
+        Log.d(TAG, "вЏёпёЏ Pausing audio playback")
         isPlaying = false
 
         // Stop playback job but keep everything else
@@ -486,7 +574,7 @@ class AudioPlaybackService : LifecycleService() {
         try {
             audioTrack?.pause()
             audioTrack?.flush()
-            Log.d(TAG, "✅ AudioTrack paused")
+            Log.d(TAG, "вњ… AudioTrack paused")
         } catch (e: Exception) {
             Log.e(TAG, "Error pausing AudioTrack", e)
         }
@@ -495,23 +583,33 @@ class AudioPlaybackService : LifecycleService() {
     }
 
     private fun stopPlayback() {
-        Log.d(TAG, "🛑 Stopping audio playback")
+        Log.d(TAG, "рџ›‘ Stopping audio playback")
 
         // CRITICAL: Set flags FIRST to stop all loops
         isPlaying = false
         AudioPlaybackService.isPlaying = false
+        val stopDeviceId = deviceId
+        val stopServerUrl = serverUrl
+        val stopNetworkClient = networkClient
+
+        // Send WS stop before socket cleanup (best effort).
+        runCatching {
+            webSocketClient?.sendCommand("stop_audio_stream")
+        }.onFailure {
+            Log.w(TAG, "WS stop command failed before cleanup: ${it.message}")
+        }
         stopLocalRecording(save = localRecordingActive)
         startCommandJob?.cancel()
         streamWatchdogJob?.cancel()
         startCommandJob = null
         streamWatchdogJob = null
 
-        Log.d(TAG, "✅ isPlaying set to false")
+        Log.d(TAG, "вњ… isPlaying set to false")
 
         // Cancel playback job immediately
         playbackJob?.cancel()
         playbackJob = null
-        Log.d(TAG, "✅ Playback job cancelled")
+        Log.d(TAG, "вњ… Playback job cancelled")
 
         // Stop and release AudioTrack FIRST (force stop audio)
         try {
@@ -522,7 +620,7 @@ class AudioPlaybackService : LifecycleService() {
                 }
                 it.stop()
                 it.release()
-                Log.d(TAG, "✅ AudioTrack stopped and released")
+                Log.d(TAG, "вњ… AudioTrack stopped and released")
             }
             audioTrack = null
         } catch (e: Exception) {
@@ -531,18 +629,18 @@ class AudioPlaybackService : LifecycleService() {
 
         // Clear queue
         chunkQueue.clear()
-        Log.d(TAG, "✅ Chunk queue cleared")
+        Log.d(TAG, "вњ… Chunk queue cleared")
 
         // Disconnect WebSocket
         webSocketClient?.cleanup()
         webSocketClient = null
-        Log.d(TAG, "✅ WebSocket disconnected")
+        Log.d(TAG, "вњ… WebSocket disconnected")
 
         // Release WakeLock
         try {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
-                Log.d(TAG, "✅ WakeLock released")
+                Log.d(TAG, "вњ… WakeLock released")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing WakeLock", e)
@@ -552,7 +650,7 @@ class AudioPlaybackService : LifecycleService() {
         try {
             if (wifiLock?.isHeld == true) {
                 wifiLock?.release()
-                Log.d(TAG, "✅ WiFi Lock released")
+                Log.d(TAG, "вњ… WiFi Lock released")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing WiFi Lock", e)
@@ -561,29 +659,55 @@ class AudioPlaybackService : LifecycleService() {
         // Improvement: Release audio focus so other apps can play
         try {
             audioManager?.abandonAudioFocus(audioFocusListener)
-            Log.d(TAG, "🎵 Audio focus abandoned")
+            Log.d(TAG, "рџЋµ Audio focus abandoned")
         } catch (e: Exception) {
             Log.e(TAG, "Error abandoning audio focus", e)
+        }
+
+        // Restore original audio route settings.
+        try {
+            audioManager?.let { manager ->
+                manager.isSpeakerphoneOn = previousSpeakerphoneState
+                manager.mode = previousAudioMode
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error restoring audio route", e)
         }
 
         // Reset all state
         chunksReceived = 0
         AudioPlaybackService.chunksReceived = 0
-        currentStatus = "Остановлено"
+        lastReceivedSequence = -1
+        currentStatus = "РћСЃС‚Р°РЅРѕРІР»РµРЅРѕ"
         AudioPlaybackService.currentStatus = currentStatus
         connectionQuality = "--"
         AudioPlaybackService.connectionQuality = connectionQuality
-        Log.d(TAG, "✅ State reset")
+        requestedSampleRate = DEFAULT_STREAM_SAMPLE_RATE
+        inputSampleRate = DEFAULT_STREAM_SAMPLE_RATE
+        inputFrameBytes = DEFAULT_FRAME_BYTES
+        outputSampleRate = DEFAULT_STREAM_SAMPLE_RATE
+        outputFrameBytes = DEFAULT_FRAME_BYTES
+        playbackSampleRate = DEFAULT_STREAM_SAMPLE_RATE
+        requestedStreamSampleRate = DEFAULT_STREAM_SAMPLE_RATE
+        inputStreamSampleRate = DEFAULT_STREAM_SAMPLE_RATE
+        audioTrackInitError = null
+        metricsManager.update { metrics ->
+            metrics.copy(
+                sampleRate = DEFAULT_STREAM_SAMPLE_RATE,
+                channelCount = STREAM_CHANNEL_COUNT,
+                frameSize = DEFAULT_FRAME_BYTES
+            )
+        }
+        Log.d(TAG, "вњ… State reset")
 
-        // Stop streaming on server
-        lifecycleScope.launch {
+        // Stop streaming on server (detached scope to avoid cancellation during stopSelf)
+        CoroutineScope(Dispatchers.IO).launch {
             try {
-                deviceId?.let { id ->
-                    serverUrl?.let { url ->
-                        sendStopCommand()
-                        networkClient?.stopAudioStreaming(url, id)
-                        Log.d(TAG, "✅ Server notified to stop streaming")
-                    }
+                val id = stopDeviceId
+                val url = stopServerUrl
+                if (!id.isNullOrBlank() && !url.isNullOrBlank()) {
+                    stopNetworkClient?.stopAudioStreaming(url, id)
+                    Log.d(TAG, "Server notified to stop streaming")
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error stopping streaming on server", e)
@@ -592,7 +716,7 @@ class AudioPlaybackService : LifecycleService() {
 
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
-        Log.d(TAG, "✅ Service stopped")
+        Log.d(TAG, "вњ… Service stopped")
     }
 
     private fun toggleRecording(recording: Boolean) {
@@ -637,7 +761,7 @@ class AudioPlaybackService : LifecycleService() {
     fun setVolume(volumePercent: Int) {
         val volume = (volumePercent / 100f).coerceIn(0f, 1f)
         audioTrack?.setVolume(volume)
-        Log.d(TAG, "🔊 Volume set to $volumePercent%")
+        Log.d(TAG, "рџ”Љ Volume set to $volumePercent%")
     }
 
     /**
@@ -649,10 +773,10 @@ class AudioPlaybackService : LifecycleService() {
             val timeSinceLastChunk = currentTime - lastChunkTimestamp
 
             connectionQuality = when {
-                timeSinceLastChunk < 2500 -> "Отлично"
-                timeSinceLastChunk < 4000 -> "Хорошо"
-                timeSinceLastChunk < 6000 -> "Удовл."
-                else -> "Плохо"
+                timeSinceLastChunk < 2500 -> "Excellent"
+                timeSinceLastChunk < 4000 -> "Good"
+                timeSinceLastChunk < 6000 -> "Fair"
+                else -> "Poor"
             }
             AudioPlaybackService.connectionQuality = connectionQuality
         }
@@ -660,14 +784,55 @@ class AudioPlaybackService : LifecycleService() {
         AudioPlaybackService.lastChunkTimestamp = lastChunkTimestamp
     }
 
+    private fun sanitizeInputSampleRate(rate: Int): Int {
+        return if (INPUT_SAMPLE_RATES.contains(rate)) rate else DEFAULT_STREAM_SAMPLE_RATE
+    }
+
+    private fun frameBytesForRate(rate: Int): Int {
+        return ((rate * FRAME_MS) / 1000) * 2
+    }
+
+    private fun inferRateFromChunkSize(chunkSize: Int): Int? {
+        if (chunkSize <= 0) return null
+        return INPUT_SAMPLE_RATES.firstOrNull { frameBytesForRate(it) == chunkSize }
+    }
+
+    private fun resolveInputSampleRate(rateFromMeta: Int, chunkSize: Int): Int {
+        val normalizedMeta = sanitizeInputSampleRate(rateFromMeta)
+        val inferred = inferRateFromChunkSize(chunkSize)
+        return inferred ?: normalizedMeta
+    }
+
+    private fun normalizeIncomingFrame(data: ByteArray, expectedSize: Int): ByteArray {
+        if (expectedSize <= 0) return data
+        return when {
+            data.size == expectedSize -> data
+            data.size > expectedSize -> data.copyOf(expectedSize)
+            else -> ByteArray(expectedSize).also { out ->
+                System.arraycopy(data, 0, out, 0, data.size)
+            }
+        }
+    }
+
+    private fun offerChunkToQueue(chunk: ByteArray, logDrops: Boolean) {
+        val added = chunkQueue.offer(chunk)
+        if (!added) {
+            chunkQueue.poll()
+            chunkQueue.offer(chunk)
+            if (logDrops && chunksReceived < 20) {
+                Log.w(TAG, "AUDIO queue full, dropped head")
+            }
+        }
+    }
+
     private fun startLocalRecording() {
         if (localRecordingActive) return
         val recorder = streamRecorder ?: StreamRecorder(this).also { streamRecorder = it }
-        if (recorder.start(STREAM_SAMPLE_RATE, STREAM_CHANNEL_COUNT)) {
+        if (recorder.start(inputSampleRate, STREAM_CHANNEL_COUNT)) {
             localRecordingActive = true
-            showToast("Запись прослушки включена")
+            showToast("Р—Р°РїРёСЃСЊ РїСЂРѕСЃР»СѓС€РєРё РІРєР»СЋС‡РµРЅР°")
         } else {
-            showToast("Не удалось начать запись прослушки", Toast.LENGTH_LONG)
+            showToast("РќРµ СѓРґР°Р»РѕСЃСЊ РЅР°С‡Р°С‚СЊ Р·Р°РїРёСЃСЊ РїСЂРѕСЃР»СѓС€РєРё", Toast.LENGTH_LONG)
         }
     }
 
@@ -683,9 +848,9 @@ class AudioPlaybackService : LifecycleService() {
         localRecordingActive = false
         if (metadata != null) {
             recordingRepository.addRecording(metadata)
-            showToast("Запись сохранена: ${'$'}{metadata.fileName}")
+            showToast("Р—Р°РїРёСЃСЊ СЃРѕС…СЂР°РЅРµРЅР°: ${'$'}{metadata.fileName}")
         } else if (shouldSave) {
-            showToast("Запись не содержит данных")
+            showToast("Р—Р°РїРёСЃСЊ РЅРµ СЃРѕРґРµСЂР¶РёС‚ РґР°РЅРЅС‹С…")
         }
     }
 
@@ -694,87 +859,189 @@ class AudioPlaybackService : LifecycleService() {
             Toast.makeText(this, message, duration).show()
         }
     }
-
     private fun initializeAudioTrack() {
-        try {
-            val sampleRate = STREAM_SAMPLE_RATE
-            val channelConfig = AudioFormat.CHANNEL_OUT_MONO
-            val audioFormat = AudioFormat.ENCODING_PCM_16BIT
+        val channelConfig = AudioFormat.CHANNEL_OUT_MONO
+        val audioFormat = AudioFormat.ENCODING_PCM_16BIT
+        var lastError: String? = null
+        val playbackCandidates = linkedSetOf(
+            inputSampleRate,
+            requestedSampleRate,
+            48_000,
+            32_000,
+            24_000,
+            16_000
+        ).filter { it > 0 && PLAYBACK_SAMPLE_RATES.contains(it) }
 
-            val minBuf = AudioTrack.getMinBufferSize(sampleRate, channelConfig, audioFormat)
-            val actualBuf = minBuf * 8 // Larger buffer for smoother playback
-
-            audioTrack = AudioTrack.Builder()
-                .setAudioAttributes(
-                    AudioAttributes.Builder()
-                        .setUsage(AudioAttributes.USAGE_MEDIA)
-                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
-                        .build()
-                )
-                .setAudioFormat(
-                    AudioFormat.Builder()
-                        .setSampleRate(sampleRate)
-                        .setChannelMask(channelConfig)
-                        .setEncoding(audioFormat)
-                        .build()
-                )
-                .setBufferSizeInBytes(actualBuf)
-                .setTransferMode(AudioTrack.MODE_STREAM)
-                .build()
-
-            audioTrack?.play()
-
-            // Этап A: Required log
-            Log.d(TAG, "AUDIO player init: sr=${sampleRate}Hz, ch=MONO, minBuf=$minBuf, actualBuf=$actualBuf, jitter=${JITTER_BUFFER_MIN_FRAMES} frames")
-
-        } catch (e: Exception) {
-            Log.e(TAG, "AUDIO player init ERROR", e)
+        audioTrack?.runCatching {
+            pause()
+            flush()
+            stop()
+            release()
         }
+        audioTrack = null
+
+        for (candidateRate in playbackCandidates) {
+            try {
+                val minBuf = AudioTrack.getMinBufferSize(candidateRate, channelConfig, audioFormat)
+                if (minBuf <= 0) {
+                    lastError = "Invalid min buffer for ${candidateRate}Hz: $minBuf"
+                    continue
+                }
+                val actualBuf = minBuf * 8
+
+                val candidateTrack = AudioTrack.Builder()
+                    .setAudioAttributes(
+                        AudioAttributes.Builder()
+                            .setUsage(AudioAttributes.USAGE_MEDIA)
+                            .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                            .build()
+                    )
+                    .setAudioFormat(
+                        AudioFormat.Builder()
+                            .setSampleRate(candidateRate)
+                            .setChannelMask(channelConfig)
+                            .setEncoding(audioFormat)
+                            .build()
+                    )
+                    .setBufferSizeInBytes(actualBuf)
+                    .setTransferMode(AudioTrack.MODE_STREAM)
+                    .build()
+
+                candidateTrack.play()
+                val playState = candidateTrack.playState
+                if (playState != AudioTrack.PLAYSTATE_PLAYING) {
+                    candidateTrack.release()
+                    lastError = "AudioTrack playState=$playState for ${candidateRate}Hz"
+                    continue
+                }
+
+                audioTrack = candidateTrack
+                outputSampleRate = candidateRate
+                outputFrameBytes = ((candidateRate * FRAME_MS) / 1000) * 2
+                playbackSampleRate = candidateRate
+                audioTrackInitError = null
+                metricsManager.update { metrics ->
+                    metrics.copy(
+                        sampleRate = inputSampleRate,
+                        channelCount = STREAM_CHANNEL_COUNT,
+                        frameSize = inputFrameBytes
+                    )
+                }
+                Log.d(
+                    TAG,
+                    "AUDIO player init: in=${inputSampleRate}Hz out=${candidateRate}Hz, minBuf=$minBuf, actualBuf=$actualBuf, jitter=${JITTER_BUFFER_MIN_FRAMES} frames"
+                )
+                return
+            } catch (e: Exception) {
+                lastError = e.message ?: e.javaClass.simpleName
+                Log.w(TAG, "AudioTrack init failed for ${candidateRate}Hz: $lastError")
+            }
+        }
+
+        audioTrackInitError = lastError ?: "No supported playback sample rate"
+        metricsManager.reportError(
+            "AudioTrack init failed: ${audioTrackInitError}",
+            ErrorSeverity.ERROR
+        )
+        Log.e(TAG, "AUDIO player init ERROR: ${audioTrackInitError}")
+    }
+
+    private fun resamplePcm16Mono(input: ByteArray, inRate: Int, outRate: Int): ByteArray {
+        if (inRate <= 0 || outRate <= 0 || inRate == outRate || input.size < 4) {
+            return input
+        }
+
+        val inSamples = input.size / 2
+        if (inSamples <= 1) return input
+
+        val outSamples = ((inSamples.toLong() * outRate) / inRate).toInt().coerceAtLeast(1)
+        val inputShorts = ShortArray(inSamples)
+        ByteBuffer.wrap(input).order(ByteOrder.LITTLE_ENDIAN).asShortBuffer().get(inputShorts)
+        val outputShorts = ShortArray(outSamples)
+        val ratio = inRate.toDouble() / outRate.toDouble()
+
+        for (i in 0 until outSamples) {
+            val srcPos = i * ratio
+            val idx = srcPos.toInt().coerceIn(0, inSamples - 1)
+            val next = (idx + 1).coerceAtMost(inSamples - 1)
+            val frac = srcPos - idx
+            val s1 = inputShorts[idx].toDouble()
+            val s2 = inputShorts[next].toDouble()
+            val interpolated = s1 + (s2 - s1) * frac
+            val clamped = interpolated.toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            outputShorts[i] = clamped.toShort()
+        }
+
+        val output = ByteBuffer.allocate(outSamples * 2).order(ByteOrder.LITTLE_ENDIAN)
+        output.asShortBuffer().put(outputShorts)
+        return output.array()
     }
 
     private fun connectWebSocket() {
+
         try {
             val deviceId = this.deviceId ?: return
             val serverUrl = this.serverUrl ?: return
 
             webSocketClient = WebSocketClient(serverUrl, deviceId)
 
-            // Set callback for receiving audio chunks (Этап A - jitter buffer)
-            webSocketClient?.setAudioChunkCallback { audioData, sequence, timestamp ->
+            // Set callback for receiving audio chunks (Р­С‚Р°Рї A - jitter buffer)
+            webSocketClient?.setAudioChunkCallback { audioData, sequence, timestamp, sampleRate, channels ->
                 totalBytesReceived += audioData.size
 
-                // Task 2: Aggressive drop if queue grows too large
-                val currentQueueSize = chunkQueue.size
-                if (currentQueueSize > JITTER_BUFFER_AGGRESSIVE_THRESHOLD) {
-                    // Drop multiple frames to return to optimal size (8-11)
-                    val framesToDrop = currentQueueSize - JITTER_BUFFER_MIN_FRAMES
-                    repeat(framesToDrop) {
-                        chunkQueue.poll()
+                val resolvedRate = resolveInputSampleRate(sampleRate, audioData.size)
+                if (resolvedRate != inputSampleRate) {
+                    val previousRate = inputSampleRate
+                    inputSampleRate = resolvedRate
+                    inputFrameBytes = frameBytesForRate(inputSampleRate)
+                    inputStreamSampleRate = inputSampleRate
+                    metricsManager.update { metrics ->
+                        metrics.copy(
+                            sampleRate = inputSampleRate,
+                            channelCount = STREAM_CHANNEL_COUNT,
+                            frameSize = inputFrameBytes
+                        )
                     }
-                    Log.w(TAG, "AUDIO aggressive drop: queue was $currentQueueSize, dropped $framesToDrop frames")
-                }
+                    // Flush queued old-rate frames first, then rebuild/flush player state.
+                    isBuffering = true
+                    chunkQueue.clear()
 
-                // Этап A: offer() to queue; if full, drop oldest (head)
-                val added = chunkQueue.offer(audioData)
-                if (!added) {
-                    // Queue full - drop oldest frame to prevent latency buildup
-                    chunkQueue.poll() // Drop head (oldest)
-                    chunkQueue.offer(audioData) // Add new
-                    if (chunksReceived < 20) { // Log only first few drops
-                        Log.w(TAG, "AUDIO queue full, dropped head")
+                    // Rebuild AudioTrack on real input-rate change to avoid long-term resampling artifacts.
+                    if (outputSampleRate != inputSampleRate) {
+                        Log.i(TAG, "Input sample-rate changed ${previousRate}Hz -> ${inputSampleRate}Hz, reinitializing AudioTrack")
+                        initializeAudioTrack()
+                    } else {
+                        runCatching {
+                            audioTrack?.pause()
+                            audioTrack?.flush()
+                            audioTrack?.play()
+                        }.onFailure {
+                            Log.w(TAG, "AudioTrack flush after rate switch failed: ${it.message}")
+                        }
                     }
                 }
+                if (lastReceivedSequence >= 0 && sequence > lastReceivedSequence + 1) {
+                    val missingFrames = (sequence - lastReceivedSequence - 1).coerceAtMost(6)
+                    repeat(missingFrames) {
+                        offerChunkToQueue(ByteArray(inputFrameBytes), logDrops = false)
+                    }
+                    Log.w(TAG, "Detected audio gap: seq $lastReceivedSequence -> $sequence, inserted $missingFrames silence frame(s)")
+                }
+                lastReceivedSequence = sequence
+
+                val normalizedChunk = normalizeIncomingFrame(audioData, inputFrameBytes)
+                offerChunkToQueue(normalizedChunk, logDrops = true)
 
                 chunksReceived++
                 AudioPlaybackService.chunksReceived = chunksReceived
-                lastChunkTimestamp = timestamp
-                AudioPlaybackService.lastChunkTimestamp = timestamp
+                lastChunkTimestamp = System.currentTimeMillis()
+                AudioPlaybackService.lastChunkTimestamp = lastChunkTimestamp
                 if (chunksReceived == 1) {
                     startCommandJob?.cancel()
                     startCommandJob = null
                 }
 
-                // Этап A & D: Calculate and log metrics every ~2 seconds
+                // Р­С‚Р°Рї A & D: Calculate and log metrics every ~2 seconds
                 val now = System.currentTimeMillis()
                 if (now - lastMetricsLogTime >= 2000) {
                     val queueDepth = chunkQueue.size
@@ -789,7 +1056,7 @@ class AudioPlaybackService : LifecycleService() {
                     }
                     Log.d(TAG, "AUDIO recv queueDepth=$queueDepth [$queueStatus], bytes/s=$bytesPerSecond, total=${totalBytesReceived}B, underruns=$underrunCount")
 
-                    // Этап D: Update metrics manager
+                    // Р­С‚Р°Рї D: Update metrics manager
                     metricsManager.updateDataRate(bytesPerSecond, chunksReceived.toLong())
                     metricsManager.updateQueue(queueDepth, JITTER_BUFFER_MAX_FRAMES)
 
@@ -806,7 +1073,7 @@ class AudioPlaybackService : LifecycleService() {
 
             // Set callback for child disconnect
             webSocketClient?.setChildDisconnectedCallback {
-                updateNotification("Устройство отключилось")
+                updateNotification("РЈСЃС‚СЂРѕР№СЃС‚РІРѕ РѕС‚РєР»СЋС‡РёР»РѕСЃСЊ")
             }
 
             webSocketClient?.setChildConnectedCallback {
@@ -814,21 +1081,30 @@ class AudioPlaybackService : LifecycleService() {
                 lifecycleScope.launch { sendStartCommand("child_connected") }
             }
 
+            webSocketClient?.setRegisteredCallback {
+                lifecycleScope.launch {
+                    // Require connected + registered before issuing WS start commands
+                    sendStartCommand("registered")
+                    startStartCommandRepeater()
+                }
+            }
+
             // Connect
             webSocketClient?.connect(
                 onConnected = {
-                    Log.d(TAG, "✅ WebSocket connected")
+                    Log.d(TAG, "вњ… WebSocket connected")
 
-                    // Этап D: Update metrics - connected
+                    // Р­С‚Р°Рї D: Update metrics - connected
                     metricsManager.updateWsStatus(WsStatus.CONNECTED)
 
                     webSocketClient?.startHeartbeat()
+                    webSocketClient?.requestRegistration()
                     startPlaybackJob()
                 },
                 onError = { error ->
-                    Log.e(TAG, "❌ WebSocket error: $error")
+                    Log.e(TAG, "вќЊ WebSocket error: $error")
 
-                    // Этап D: Report error
+                    // Р­С‚Р°Рї D: Report error
                     metricsManager.updateWsStatus(WsStatus.ERROR)
                     metricsManager.reportError("WebSocket error: $error", ErrorSeverity.ERROR)
                 }
@@ -853,10 +1129,10 @@ class AudioPlaybackService : LifecycleService() {
                     if (isBuffering) {
                         if (chunkQueue.size >= JITTER_BUFFER_MIN_FRAMES) {
                             isBuffering = false
-                            updateNotification("Воспроизведение...")
+                            updateNotification("Р’РѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёРµ...")
                             Log.d(TAG, "AUDIO buffer filled (${chunkQueue.size} frames), starting playback")
 
-                            // Этап D: Update status to playing
+                            // Р­С‚Р°Рї D: Update status to playing
                             metricsManager.updateAudioStatus(AudioStatus.PLAYING)
                         } else {
                             delay(20) // Wait one frame duration
@@ -864,26 +1140,45 @@ class AudioPlaybackService : LifecycleService() {
                         }
                     }
 
-                    // Этап A: poll() with timeout
+                    // Р­С‚Р°Рї A: poll() with timeout
                     val chunk = withTimeoutOrNull(50) {
                         // Blocking poll - will wait if queue empty
                         val frame = chunkQueue.poll()
                         frame
                     }
 
-                    if (chunk != null && isPlaying && audioTrack?.playState == AudioTrack.PLAYSTATE_PLAYING) {
+                    val track = audioTrack
+                    if (track != null && isPlaying && track.playState != AudioTrack.PLAYSTATE_PLAYING) {
+                        runCatching { track.play() }
+                            .onFailure { Log.w(TAG, "AudioTrack replay failed: ${it.message}") }
+                    }
+
+            if (chunk != null && isPlaying && track?.playState == AudioTrack.PLAYSTATE_PLAYING) {
                         // Process with filter
                         val processedChunk = audioEnhancer.process(chunk)
+                        val playbackChunk = if (outputSampleRate != inputSampleRate) {
+                            resamplePcm16Mono(processedChunk, inputSampleRate, outputSampleRate)
+                        } else {
+                            processedChunk
+                        }
 
                         // Write to AudioTrack
-                        val written = audioTrack?.write(processedChunk, 0, processedChunk.size, AudioTrack.WRITE_BLOCKING) ?: 0
+                        val written = track.write(playbackChunk, 0, playbackChunk.size, AudioTrack.WRITE_BLOCKING)
+                        if (written < 0) {
+                            Log.e(TAG, "AudioTrack write error: $written")
+                            if (written == AudioTrack.ERROR_DEAD_OBJECT || written == AudioTrack.ERROR_INVALID_OPERATION) {
+                                initializeAudioTrack()
+                            }
+                            delay(20)
+                            continue
+                        }
 
-                        // Этап A & D: track underruns
-                        if (written < processedChunk.size) {
+                        // Р­С‚Р°Рї A & D: track underruns
+                        if (written < playbackChunk.size) {
                             underrunCount++
-                            metricsManager.incrementUnderrun() // Этап D
+                            metricsManager.incrementUnderrun() // Р­С‚Р°Рї D
                             if (underrunCount < 10) { // Log first few
-                                Log.w(TAG, "AUDIO write underrun: wrote $written < ${processedChunk.size}")
+                                Log.w(TAG, "AUDIO write underrun: wrote $written < ${playbackChunk.size}")
                             }
                         }
 
@@ -894,10 +1189,10 @@ class AudioPlaybackService : LifecycleService() {
                             streamRecorder?.write(processedChunk)
                         }
                     } else {
-                        // Этап A & D: Queue empty - silence, but don't block UI
+                        // Р­С‚Р°Рї A & D: Queue empty - silence, but don't block UI
                         if (chunkQueue.isEmpty()) {
                             underrunCount++
-                            metricsManager.incrementUnderrun() // Этап D
+                            metricsManager.incrementUnderrun() // Р­С‚Р°Рї D
                             if (underrunCount % 10 == 1) { // Log every 10th
                                 Log.w(TAG, "AUDIO queue empty (underrun #$underrunCount)")
                             }
@@ -913,6 +1208,32 @@ class AudioPlaybackService : LifecycleService() {
 
             Log.d(TAG, "AUDIO playback loop exited")
         }
+    }
+
+    private fun resolvePreferredTargetDeviceId(initialDeviceId: String?): String? {
+        val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+        val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        val ownId = prefs.getString("device_id", null)?.trim().orEmpty()
+        val excluded = listOf(
+            ownId,
+            prefs.getString("parent_device_id", null),
+            prefs.getString("linked_parent_device_id", null),
+            legacyPrefs.getString("parent_device_id", null),
+            legacyPrefs.getString("linked_parent_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        return listOf(
+            initialDeviceId,
+            prefs.getString("selected_device_id", null),
+            prefs.getString("child_device_id", null),
+            legacyPrefs.getString("selected_device_id", null),
+            legacyPrefs.getString("child_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .firstOrNull { it.isNotBlank() && it !in excluded }
     }
 
     /**
@@ -943,14 +1264,19 @@ class AudioPlaybackService : LifecycleService() {
         Log.d(TAG, "Sending start command to child (reason=$reason)")
 
         runCatching {
-            networkClient?.startAudioStreaming(url, id, isRecording, STREAM_TIMEOUT_MINUTES)
+            networkClient?.startAudioStreaming(url, id, isRecording, STREAM_TIMEOUT_MINUTES, requestedSampleRate)
         }.onFailure { Log.w(TAG, "HTTP start command failed: ${it.message}") }
 
-        if (webSocketClient?.isConnected() == true) {
-            val data = JSONObject().apply { put("recording", isRecording) }
+        if (webSocketClient?.isReady() == true) {
+            val data = JSONObject().apply {
+                put("recording", isRecording)
+                put("sampleRate", requestedSampleRate)
+            }
             runCatching {
                 webSocketClient?.sendCommand("start_audio_stream", data)
             }.onFailure { Log.w(TAG, "WS start command failed: ${it.message}") }
+        } else {
+            Log.d(TAG, "WS command skipped (not ready yet): reason=$reason")
         }
     }
 
@@ -1020,10 +1346,23 @@ class AudioPlaybackService : LifecycleService() {
     }
 
     private fun updateNotification(contentText: String) {
-        currentStatus = contentText
-        AudioPlaybackService.currentStatus = contentText
+        val diagnosticTail = if (isPlaying) {
+            val sr = "${playbackSampleRate / 1000.0}kHz"
+            val ageMs = if (lastChunkTimestamp > 0L) {
+                (System.currentTimeMillis() - lastChunkTimestamp).coerceAtLeast(0L)
+            } else {
+                -1L
+            }
+            val ageText = if (ageMs >= 0L) "${ageMs}ms" else "вЂ”"
+            " вЂў $sr вЂў #$chunksReceived вЂў ${ageText}"
+        } else {
+            ""
+        }
+        val fullText = contentText + diagnosticTail
+        currentStatus = fullText
+        AudioPlaybackService.currentStatus = fullText
         val notificationManager = getSystemService(NotificationManager::class.java)
-        notificationManager.notify(NOTIFICATION_ID, createNotification(contentText))
+        notificationManager.notify(NOTIFICATION_ID, createNotification(fullText))
     }
 
     override fun onDestroy() {
@@ -1031,7 +1370,7 @@ class AudioPlaybackService : LifecycleService() {
         Log.d(TAG, "AudioPlaybackService destroyed")
         stopLocalRecording(save = false)
 
-        // Этап D: Cleanup metrics manager
+        // Р­С‚Р°Рї D: Cleanup metrics manager
         metricsManager.destroy()
 
         // Unregister broadcast receiver
@@ -1056,7 +1395,21 @@ class AudioPlaybackService : LifecycleService() {
             wifiLock?.release()
         }
 
+        try {
+            audioManager?.let { manager ->
+                manager.isSpeakerphoneOn = previousSpeakerphoneState
+                manager.mode = previousAudioMode
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error restoring audio route on destroy", e)
+        }
+
         isPlaying = false
         AudioPlaybackService.isPlaying = false
+        playbackSampleRate = DEFAULT_STREAM_SAMPLE_RATE
+        requestedStreamSampleRate = DEFAULT_STREAM_SAMPLE_RATE
+        inputStreamSampleRate = DEFAULT_STREAM_SAMPLE_RATE
+        audioTrackInitError = null
     }
 }
+

@@ -1,4 +1,4 @@
-﻿package ru.example.childwatch
+package ru.example.childwatch
 
 import android.content.ComponentName
 import android.content.Context
@@ -55,6 +55,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         private const val TAG = "AudioStreamingActivity"
         const val EXTRA_DEVICE_ID = "device_id"
         const val EXTRA_SERVER_URL = "server_url"
+        private const val DEFAULT_SAMPLE_RATE = 24_000
     }
 
     private lateinit var binding: ActivityAudioStreamingBinding
@@ -69,7 +70,10 @@ class AudioStreamingActivity : AppCompatActivity() {
     private var currentFilterMode = FilterMode.ORIGINAL
 
     // Volume Mode Management
-    private var currentVolumeMode = VolumeMode.NORMAL
+    private var currentVolumeMode = VolumeMode.QUIET
+    private val availableSampleRates = listOf(DEFAULT_SAMPLE_RATE)
+    private var selectedSampleRate = DEFAULT_SAMPLE_RATE
+    private var qualitySwitchInProgress = false
 
     // Child device status cache
     private var childBatteryLevel: Int? = null
@@ -150,8 +154,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         secureSettings = SecureSettingsManager(this)
         audioPrefs = getSharedPreferences("audio_streaming", MODE_PRIVATE)
 
-        deviceId = intent.getStringExtra(EXTRA_DEVICE_ID)
-            ?: secureSettings.getChildDeviceId()
+        deviceId = resolveTargetDeviceIdForStreaming()
             ?: run {
                 Toast.makeText(
                     this,
@@ -191,6 +194,37 @@ class AudioStreamingActivity : AppCompatActivity() {
         updateUI()
     }
 
+    private fun resolveTargetDeviceIdForStreaming(): String? {
+        val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+        val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        val myDeviceId = prefs.getString("device_id", null)?.trim().orEmpty()
+        val excluded = listOf(
+            myDeviceId,
+            prefs.getString("parent_device_id", null),
+            prefs.getString("linked_parent_device_id", null),
+            legacyPrefs.getString("parent_device_id", null),
+            legacyPrefs.getString("linked_parent_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        val fromIntent = intent.getStringExtra(EXTRA_DEVICE_ID)?.trim()
+        if (!fromIntent.isNullOrBlank() && fromIntent !in excluded) {
+            return fromIntent
+        }
+
+        return listOf(
+            prefs.getString("child_device_id", null),
+            secureSettings.getChildDeviceId(),
+            legacyPrefs.getString("child_device_id", null),
+            prefs.getString("selected_device_id", null),
+            legacyPrefs.getString("selected_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .firstOrNull { it.isNotBlank() && it !in excluded }
+    }
+
     private fun loadAudioSettings() {
         val savedMode = audioPrefs.getString("filter_mode", FilterMode.ORIGINAL.name)
         currentFilterMode = try {
@@ -199,12 +233,14 @@ class AudioStreamingActivity : AppCompatActivity() {
             FilterMode.ORIGINAL
         }
 
-        val savedVolumeMode = audioPrefs.getString("volume_mode", VolumeMode.NORMAL.name)
+        val savedVolumeMode = audioPrefs.getString("volume_mode", VolumeMode.QUIET.name)
         currentVolumeMode = try {
-            VolumeMode.valueOf(savedVolumeMode ?: VolumeMode.NORMAL.name)
+            VolumeMode.valueOf(savedVolumeMode ?: VolumeMode.QUIET.name)
         } catch (e: IllegalArgumentException) {
-            VolumeMode.NORMAL
+            VolumeMode.QUIET
         }
+
+        selectedSampleRate = DEFAULT_SAMPLE_RATE
 
         val savedVisualization = audioPrefs.getString("visualization_mode", "FREQUENCY_BARS")
         currentVisualizationMode = try {
@@ -240,6 +276,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         audioPrefs.edit()
             .putString("filter_mode", currentFilterMode.name)
             .putString("volume_mode", currentVolumeMode.name)
+            .putInt("audio_quality_hz", selectedSampleRate)
             .putString("visualization_mode", currentVisualizationMode.name)
             .putString("hud_mode", hudMode.name)
             .apply()
@@ -260,6 +297,7 @@ class AudioStreamingActivity : AppCompatActivity() {
 
         // Setup volume mode button
         setupVolumeModeButton()
+        setupAudioQualitySelector()
 
         // Start/Stop streaming button
         binding.toggleStreamingBtn.setOnClickListener {
@@ -297,6 +335,89 @@ class AudioStreamingActivity : AppCompatActivity() {
         // Advanced controls removed - no custom mode in new filter system
 
         updateBatteryHud()
+    }
+
+    private fun sanitizeSampleRate(candidate: Int): Int {
+        return if (availableSampleRates.contains(candidate)) candidate else DEFAULT_SAMPLE_RATE
+    }
+
+    private fun setupAudioQualitySelector() {
+        selectedSampleRate = DEFAULT_SAMPLE_RATE
+        binding.audioQualityGroup.check(R.id.quality24Button)
+        binding.qualityContainer.isVisible = false
+    }
+
+    private fun applyQualityChangeWhilePlaying(newRate: Int) {
+        if (qualitySwitchInProgress) return
+
+        qualitySwitchInProgress = true
+        updateUI()
+        Toast.makeText(
+            this,
+            getString(R.string.audio_monitor_quality_switching, newRate / 1000),
+            Toast.LENGTH_SHORT
+        ).show()
+
+        // Use controlled restart for rate switch to avoid long-lived artifacts on some devices.
+        stopStreaming()
+        lifecycleScope.launch {
+            delay(900)
+            if (!isFinishing && !isDestroyed) {
+                startStreaming()
+            }
+            delay(2600)
+            if (!isFinishing && !isDestroyed) {
+                val actualInputRate = AudioPlaybackService.inputStreamSampleRate
+                if (actualInputRate == newRate) {
+                    Toast.makeText(
+                        this@AudioStreamingActivity,
+                        getString(R.string.audio_monitor_quality_applied, actualInputRate / 1000),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                } else {
+                    Toast.makeText(
+                        this@AudioStreamingActivity,
+                        getString(R.string.audio_monitor_quality_fallback, actualInputRate / 1000),
+                        Toast.LENGTH_LONG
+                    ).show()
+                    // Keep UI and persisted preference aligned with actual remote stream quality.
+                    selectedSampleRate = sanitizeSampleRate(actualInputRate)
+                    saveAudioSettings()
+                    binding.audioQualityGroup.check(buttonIdForRate(selectedSampleRate))
+                }
+            }
+            qualitySwitchInProgress = false
+            updateUI()
+        }
+    }
+
+    private fun buttonIdForRate(rate: Int): Int {
+        return when (sanitizeSampleRate(rate)) {
+            32_000 -> R.id.quality32Button
+            48_000 -> R.id.quality48Button
+            else -> R.id.quality24Button
+        }
+    }
+
+    private fun restartStreamingWithNewQuality() {
+        if (qualitySwitchInProgress) return
+
+        qualitySwitchInProgress = true
+        Toast.makeText(
+            this,
+            getString(R.string.audio_monitor_quality_switching, selectedSampleRate / 1000),
+            Toast.LENGTH_SHORT
+        ).show()
+
+        stopStreaming()
+        lifecycleScope.launch {
+            delay(750)
+            if (!isFinishing && !isDestroyed) {
+                startStreaming()
+            }
+            qualitySwitchInProgress = false
+            updateUI()
+        }
     }
 
     private fun setupQualityModeChips() {
@@ -445,7 +566,8 @@ class AudioStreamingActivity : AppCompatActivity() {
             VolumeMode.QUIET -> VolumeMode.NORMAL
             VolumeMode.NORMAL -> VolumeMode.LOUD
             VolumeMode.LOUD -> VolumeMode.BOOST
-            VolumeMode.BOOST -> VolumeMode.QUIET
+            VolumeMode.BOOST -> VolumeMode.MAX
+            VolumeMode.MAX -> VolumeMode.QUIET
         }
 
         audioService?.let { service ->
@@ -466,6 +588,7 @@ class AudioStreamingActivity : AppCompatActivity() {
             VolumeMode.NORMAL -> "🔊" to R.string.audio_monitor_volume_mode_normal
             VolumeMode.LOUD -> "📣" to R.string.audio_monitor_volume_mode_loud
             VolumeMode.BOOST -> "🚀" to R.string.audio_monitor_volume_mode_boost
+            VolumeMode.MAX -> "⚡" to R.string.audio_monitor_volume_mode_max
         }
         binding.volumeModeBtn.text = getString(labelRes).let { "$icon $it" }
     }
@@ -593,6 +716,7 @@ class AudioStreamingActivity : AppCompatActivity() {
             putExtra(AudioPlaybackService.EXTRA_DEVICE_ID, deviceId)
             putExtra(AudioPlaybackService.EXTRA_SERVER_URL, serverUrl)
             putExtra(AudioPlaybackService.EXTRA_RECORDING, binding.recordingSwitch.isChecked)
+            putExtra(AudioPlaybackService.EXTRA_SAMPLE_RATE, selectedSampleRate)
         }
 
         startForegroundService(intent)
@@ -670,11 +794,39 @@ class AudioStreamingActivity : AppCompatActivity() {
         // Update recording switch
         binding.recordingSwitch.isEnabled = isPlaying
 
+        val qualityEnabled = !qualitySwitchInProgress
+        binding.audioQualityGroup.isEnabled = qualityEnabled
+        binding.quality24Button.isEnabled = qualityEnabled
+        binding.quality32Button.isEnabled = qualityEnabled
+        binding.quality48Button.isEnabled = qualityEnabled
+
         // Update connection quality from service
         binding.connectionQualityText.text = if (isPlaying) {
-            AudioPlaybackService.connectionQuality
+            val lastChunkAgeMs = if (AudioPlaybackService.lastChunkTimestamp > 0L) {
+                (System.currentTimeMillis() - AudioPlaybackService.lastChunkTimestamp).coerceAtLeast(0L)
+            } else {
+                -1L
+            }
+            val ageText = if (lastChunkAgeMs >= 0L) "${lastChunkAgeMs}ms" else "—"
+            val sampleRateText = getString(
+                R.string.audio_monitor_quality_current,
+                AudioPlaybackService.requestedStreamSampleRate / 1000.0,
+                AudioPlaybackService.inputStreamSampleRate / 1000.0,
+                AudioPlaybackService.playbackSampleRate / 1000.0
+            )
+            val initError = AudioPlaybackService.audioTrackInitError
+            if (!initError.isNullOrBlank()) {
+                "Ошибка аудио: $initError"
+            } else {
+                "${AudioPlaybackService.connectionQuality} • $sampleRateText • age:$ageText"
+            }
         } else {
-            getString(R.string.audio_monitor_placeholder_dash)
+            val initError = AudioPlaybackService.audioTrackInitError
+            if (!initError.isNullOrBlank()) {
+                "Ошибка аудио: $initError"
+            } else {
+                getString(R.string.audio_monitor_placeholder_dash)
+            }
         }
 
         // Update time displays with defensive checks
