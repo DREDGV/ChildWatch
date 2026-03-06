@@ -66,7 +66,7 @@
                         android:id="@+id/connectionStatusText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Подключение..."
+                        android:text="@string/chat_presence_connecting"
                         android:textColor="@android:color/darker_gray"
                         android:textSize="13sp" />
 
@@ -101,7 +101,7 @@
         android:paddingEnd="16dp"
         android:paddingTop="6dp"
         android:paddingBottom="6dp"
-        android:text="Ребёнок печатает..."
+        android:text="@string/chat_typing_child"
         android:textSize="12sp"
         android:textColor="#757575"
         android:textStyle="italic"
@@ -154,7 +154,7 @@
                     android:id="@+id/messageInput"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:hint="Введите сообщение..."
+                    android:hint="@string/chat_input_hint"
                     android:inputType="textCapSentences|textMultiLine|textNoSuggestions"
                     android:maxLines="3"
                     android:minLines="1"
@@ -194,14 +194,14 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginEnd="8dp"
-                        android:text="Очистить"
+                        android:text="@string/chat_clear"
                         style="@style/Widget.Material3.Button.OutlinedButton" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/sendButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Отправить"
+                        android:text="@string/chat_send"
                         app:icon="@android:drawable/ic_menu_send" />
 
                 </LinearLayout>

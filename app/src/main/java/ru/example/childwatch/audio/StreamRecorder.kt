@@ -1,4 +1,4 @@
-﻿package ru.example.childwatch.audio
+package ru.example.childwatch.audio
 
 import android.content.Context
 import android.os.Environment
@@ -10,6 +10,8 @@ import java.nio.ByteOrder
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import java.util.concurrent.LinkedBlockingQueue
+import java.util.concurrent.TimeUnit
 
 /**
  * Handles writing streamed PCM audio into a WAV file.
@@ -22,6 +24,11 @@ class StreamRecorder(private val context: Context) {
     private var sampleRate: Int = 44100
     private var channelCount: Int = 1
     private var startTimestamp: Long = 0L
+
+    private val writeQueue = LinkedBlockingQueue<ByteArray>(400)
+    @Volatile
+    private var writerRunning: Boolean = false
+    private var writerThread: Thread? = null
 
     fun start(sampleRate: Int, channelCount: Int): Boolean {
         stopInternal(save = false)
@@ -43,23 +50,24 @@ class StreamRecorder(private val context: Context) {
 
             targetFile = file
             randomAccessFile = raf
+            startWriterThread(raf)
             true
         } catch (e: Exception) {
             Log.e(TAG, "Failed to start stream recorder", e)
             targetFile = null
             randomAccessFile = null
+            stopWriterThread()
             false
         }
     }
 
     fun write(buffer: ByteArray) {
-        val raf = randomAccessFile ?: return
-        try {
-            raf.seek(raf.length())
-            raf.write(buffer)
-            totalBytes += buffer.size
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to write audio chunk", e)
+        if (!writerRunning || buffer.isEmpty()) return
+        val payload = buffer.copyOf()
+        if (!writeQueue.offer(payload)) {
+            // Drop oldest buffered chunk to keep playback thread non-blocking.
+            writeQueue.poll()
+            writeQueue.offer(payload)
         }
     }
 
@@ -72,10 +80,17 @@ class StreamRecorder(private val context: Context) {
     }
 
     private fun stopInternal(save: Boolean): RecordingMetadata? {
-        val raf = randomAccessFile ?: return null
+        val raf = randomAccessFile
         val file = targetFile
         randomAccessFile = null
         targetFile = null
+
+        stopWriterThread()
+
+        if (raf == null) {
+            totalBytes = 0
+            return null
+        }
 
         return try {
             raf.channel.force(true)
@@ -122,6 +137,42 @@ class StreamRecorder(private val context: Context) {
             totalBytes = 0
             metadata
         }
+    }
+
+    private fun startWriterThread(raf: RandomAccessFile) {
+        stopWriterThread()
+        writeQueue.clear()
+        writerRunning = true
+        writerThread = Thread(
+            {
+                while (writerRunning || writeQueue.isNotEmpty()) {
+                    val chunk = writeQueue.poll(100, TimeUnit.MILLISECONDS) ?: continue
+                    try {
+                        raf.write(chunk)
+                        totalBytes += chunk.size
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Failed to write queued audio chunk", e)
+                    }
+                }
+            },
+            "StreamRecorderWriter"
+        ).apply {
+            isDaemon = true
+            start()
+        }
+    }
+
+    private fun stopWriterThread() {
+        writerRunning = false
+        writerThread?.let { thread ->
+            try {
+                thread.join(2000)
+            } catch (e: InterruptedException) {
+                Thread.currentThread().interrupt()
+            }
+        }
+        writerThread = null
+        writeQueue.clear()
     }
 
     private fun resolveOutputDir(): File {

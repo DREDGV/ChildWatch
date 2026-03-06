@@ -35,8 +35,15 @@ class AudioStreamRecorder(
     companion object {
         private const val TAG = "AUDIO"
 
-        // Optimized for low-latency voice streaming (Р­С‚Р°Рї A)
+        // Optimized for low-latency voice streaming (Р В­РЎвЂљР В°Р С— A)
         private const val DEFAULT_SAMPLE_RATE = 24_000          // 24 kHz for higher fidelity
+        private val CAPTURE_SAMPLE_RATE_FALLBACKS = intArrayOf(24_000, 16_000, 48_000, 44_100, 32_000)
+        private val CAPTURE_AUDIO_SOURCE_FALLBACKS = intArrayOf(
+            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.MIC,
+            MediaRecorder.AudioSource.CAMCORDER,
+            MediaRecorder.AudioSource.DEFAULT
+        )
         private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
         private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
         private const val CHUNK_DURATION_MS = 20L       // 20ms frames (was 500ms)
@@ -55,8 +62,12 @@ class AudioStreamRecorder(
     private var sequence = 0
     private var sessionId: Int = 0 // for logging
 
-    private var sampleRate: Int = DEFAULT_SAMPLE_RATE
-    private var frameBytes: Int = frameBytesForRate(DEFAULT_SAMPLE_RATE)
+    private var sampleRate: Int = DEFAULT_SAMPLE_RATE // stream sample rate (wire)
+    private var frameBytes: Int = frameBytesForRate(DEFAULT_SAMPLE_RATE) // stream frame size
+    private var captureSampleRate: Int = DEFAULT_SAMPLE_RATE
+    private var captureFrameBytes: Int = frameBytesForRate(DEFAULT_SAMPLE_RATE)
+    private var emptyReadDiagnostics = 0
+    private var lastEmptyReadDiagnosticAt = 0L
 
     private var deviceId: String? = null
     private var serverUrl: String? = null
@@ -71,13 +82,10 @@ class AudioStreamRecorder(
     private var reconnectAttempt = 0
     private var reconnectJob: Job? = null
 
-    // Metrics for logging (Р­С‚Р°Рї A)
+    // Metrics for logging (Р В­РЎвЂљР В°Р С— A)
     private var totalBytesSent = 0L
     private var lastMetricsLogTime = 0L
 
-    // System Audio Effects (Р­С‚Р°Рї B)
-    private var systemAudioEffects: SystemAudioEffects? = null
-    private var currentFilterMode: FilterMode = FilterMode.ORIGINAL
 
     private val cacheDir: File by lazy {
         File(context.cacheDir, "audio_chunks").apply {
@@ -105,6 +113,8 @@ class AudioStreamRecorder(
         this.sampleRate = sanitizeSampleRate(sampleRate)
         this.frameBytes = frameBytesForRate(this.sampleRate)
         this.sequence = 0
+        this.emptyReadDiagnostics = 0
+        this.lastEmptyReadDiagnosticAt = 0L
         webSocketConnected = false
         hasReportedMissingWebSocket = false
 
@@ -200,7 +210,7 @@ class AudioStreamRecorder(
             }
         )
 
-        Log.d(TAG, "вњ… AudioStreamRecorder setup complete - waiting for server command or parent connection")
+        Log.d(TAG, "РІСљвЂ¦ AudioStreamRecorder setup complete - waiting for server command or parent connection")
         RemoteLogger.info(
             serverUrl = this.serverUrl,
             deviceId = this.deviceId,
@@ -217,11 +227,87 @@ class AudioStreamRecorder(
         return ((rate * CHUNK_DURATION_MS) / 1000).toInt() * 2
     }
 
+    private fun hasRecordAudioPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            context,
+            Manifest.permission.RECORD_AUDIO
+        ) == PackageManager.PERMISSION_GRANTED
+    }
+
+    private fun audioSourceName(source: Int): String {
+        return when (source) {
+            MediaRecorder.AudioSource.MIC -> "MIC"
+            MediaRecorder.AudioSource.VOICE_RECOGNITION -> "VOICE_RECOGNITION"
+            MediaRecorder.AudioSource.VOICE_COMMUNICATION -> "VOICE_COMMUNICATION"
+            MediaRecorder.AudioSource.CAMCORDER -> "CAMCORDER"
+            MediaRecorder.AudioSource.DEFAULT -> "DEFAULT"
+            else -> "UNKNOWN($source)"
+        }
+    }
+
+    private fun emitCaptureDiagnostic(reason: String, extra: Map<String, Any?> = emptyMap()) {
+        val url = serverUrl
+        val id = deviceId
+
+        runCatching {
+            val payload = org.json.JSONObject().apply {
+                put("reason", reason)
+                put("deviceId", id ?: "")
+                put("timestamp", System.currentTimeMillis())
+                if (extra.isNotEmpty()) {
+                    put("meta", org.json.JSONObject(extra))
+                }
+            }
+            webSocketClient?.emit("audio_capture_error", payload)
+        }
+
+        RemoteLogger.warn(
+            serverUrl = url,
+            deviceId = id,
+            source = TAG,
+            message = "Audio capture diagnostic: $reason",
+            meta = extra
+        )
+    }
+
+    private fun resamplePcm16Mono(input: ByteArray, inRate: Int, outRate: Int): ByteArray {
+        if (input.isEmpty() || inRate <= 0 || outRate <= 0 || inRate == outRate) return input
+
+        val inSamples = input.size / 2
+        if (inSamples <= 1) return input
+
+        val outSamples = ((inSamples.toLong() * outRate) / inRate).toInt().coerceAtLeast(1)
+        val inputShorts = ShortArray(inSamples)
+        java.nio.ByteBuffer.wrap(input)
+            .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+            .asShortBuffer()
+            .get(inputShorts)
+        val outputShorts = ShortArray(outSamples)
+        val ratio = inRate.toDouble() / outRate.toDouble()
+
+        for (i in 0 until outSamples) {
+            val srcPos = i * ratio
+            val idx = srcPos.toInt().coerceIn(0, inSamples - 1)
+            val next = (idx + 1).coerceAtMost(inSamples - 1)
+            val frac = srcPos - idx
+            val s1 = inputShorts[idx].toDouble()
+            val s2 = inputShorts[next].toDouble()
+            val interpolated = s1 + (s2 - s1) * frac
+            val clamped = interpolated.toInt().coerceIn(Short.MIN_VALUE.toInt(), Short.MAX_VALUE.toInt())
+            outputShorts[i] = clamped.toShort()
+        }
+
+        val output = java.nio.ByteBuffer.allocate(outSamples * 2)
+            .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+        output.asShortBuffer().put(outputShorts)
+        return output.array()
+    }
+
     /**
      * Actually start recording (called when command received from server)
      */
     private fun startActualRecording() {
-        Log.d(TAG, "рџЋ¤ startActualRecording() called - checking conditions...")
+        Log.d(TAG, "СЂСџР‹В¤ startActualRecording() called - checking conditions...")
         RemoteLogger.info(
             serverUrl = serverUrl,
             deviceId = deviceId,
@@ -234,7 +320,7 @@ class AudioStreamRecorder(
         )
 
         if (isRecording) {
-            Log.w(TAG, "вљ пёЏ Already recording - skipping!")
+            Log.w(TAG, "РІС™В РїС‘РЏ Already recording - skipping!")
             RemoteLogger.warn(
                 serverUrl = serverUrl,
                 deviceId = deviceId,
@@ -244,7 +330,7 @@ class AudioStreamRecorder(
             return
         }
 
-        Log.d(TAG, "рџЋ™пёЏ Starting actual audio recording...")
+        Log.d(TAG, "СЂСџР‹в„ўРїС‘РЏ Starting actual audio recording...")
         RemoteLogger.info(
             serverUrl = serverUrl,
             deviceId = deviceId,
@@ -252,11 +338,33 @@ class AudioStreamRecorder(
             message = "STARTING ACTUAL AUDIO RECORDING NOW"
         )
 
+        if (!hasRecordAudioPermission()) {
+            Log.e(TAG, "AUDIO RECORD_AUDIO permission missing - cannot capture")
+            emitCaptureDiagnostic(
+                reason = "permission_missing",
+                extra = mapOf("permission" to "RECORD_AUDIO")
+            )
+            RemoteLogger.error(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "RECORD_AUDIO permission missing; capture aborted"
+            )
+            return
+        }
+
         // Initialize AudioRecord
         initializeAudioRecord()
 
         if (audioRecord == null || audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-            Log.e(TAG, "вќЊ AudioRecord not initialized - cannot start recording!")
+            Log.e(TAG, "РІСњРЉ AudioRecord not initialized - cannot start recording!")
+            emitCaptureDiagnostic(
+                reason = "audio_record_not_initialized",
+                extra = mapOf(
+                    "sampleRate" to sampleRate,
+                    "captureSampleRate" to captureSampleRate
+                )
+            )
             RemoteLogger.error(
                 serverUrl = serverUrl,
                 deviceId = deviceId,
@@ -267,7 +375,7 @@ class AudioStreamRecorder(
         }
 
         isRecording = true
-        Log.d(TAG, "вњ… isRecording set to TRUE - launching recording coroutine...")
+        Log.d(TAG, "РІСљвЂ¦ isRecording set to TRUE - launching recording coroutine...")
         RemoteLogger.info(
             serverUrl = serverUrl,
             deviceId = deviceId,
@@ -277,13 +385,13 @@ class AudioStreamRecorder(
 
         recordingJob = streamScope.launch {
             try {
-                Log.d(TAG, "рџ“Ў Recording coroutine started - entering loop...")
+                Log.d(TAG, "СЂСџвЂњРЋ Recording coroutine started - entering loop...")
                 var chunkCount = 0
                 while (isRecording) {
                     recordAndSendChunk()
                     chunkCount++
                     if (chunkCount == 1) {
-                        Log.d(TAG, "вњ… First chunk recorded and sent!")
+                        Log.d(TAG, "РІСљвЂ¦ First chunk recorded and sent!")
                         RemoteLogger.info(
                             serverUrl = serverUrl,
                             deviceId = deviceId,
@@ -292,9 +400,9 @@ class AudioStreamRecorder(
                         )
                     }
                 }
-                Log.d(TAG, "рџ›‘ Recording loop exited - total chunks: $chunkCount")
+                Log.d(TAG, "СЂСџвЂєвЂ Recording loop exited - total chunks: $chunkCount")
             } catch (e: Exception) {
-                Log.e(TAG, "вќЊ Streaming error in coroutine", e)
+                Log.e(TAG, "РІСњРЉ Streaming error in coroutine", e)
                 RemoteLogger.error(
                     serverUrl = serverUrl,
                     deviceId = deviceId,
@@ -306,7 +414,7 @@ class AudioStreamRecorder(
             }
         }
 
-        Log.d(TAG, "вњ… Recording job launched successfully")
+        Log.d(TAG, "РІСљвЂ¦ Recording job launched successfully")
     }
 
     fun isActive(): Boolean = isRecording || webSocketConnected
@@ -323,7 +431,7 @@ class AudioStreamRecorder(
     }
 
     /**
-     * Stop audio streaming (Р­С‚Р°Рї A - idempotent with proper cleanup)
+     * Stop audio streaming (Р В­РЎвЂљР В°Р С— A - idempotent with proper cleanup)
      */
     fun stopStreaming() {
         try {
@@ -350,7 +458,7 @@ class AudioStreamRecorder(
             releaseRecorder()
             cleanupChunks()
 
-            // Р­С‚Р°Рї A: Required log
+            // Р В­РЎвЂљР В°Р С— A: Required log
             Log.d(TAG, "AUDIO stop ok")
         } catch (e: Exception) {
             Log.e(TAG, "AUDIO stop ERROR", e)
@@ -410,30 +518,7 @@ class AudioStreamRecorder(
     }
 
     /**
-     * Change filter mode (Р­С‚Р°Рї B - runtime filter switching)
-     * Note: Requires AudioRecord reinitialization to change audio source
-     */
-    fun setFilterMode(mode: FilterMode) {
-        if (currentFilterMode == mode) {
-            Log.d(TAG, "FX mode already $mode, skipping")
-            return
-        }
-
-        Log.d(TAG, "FX changing mode: $currentFilterMode в†’ $mode")
-        currentFilterMode = mode
-
-        // If recording, reinitialize AudioRecord with new source
-        if (isRecording) {
-            Log.d(TAG, "FX reinitializing AudioRecord for new mode")
-            streamScope.launch {
-                delay(100)
-                initializeAudioRecord()
-            }
-        }
-    }
-
-    /**
-     * Record one chunk and send via WebSocket (Р­С‚Р°Рї A - with metrics)
+     * Record one chunk and send via WebSocket (Р В­РЎвЂљР В°Р С— A - with metrics)
      */
     private suspend fun recordAndSendChunk() {
         try {
@@ -469,7 +554,7 @@ class AudioStreamRecorder(
                     totalBytesSent += audioData.size
                     hasReportedMissingWebSocket = false
 
-                    // Р­С‚Р°Рї A: Log bytes/s every ~1 second
+                    // Р В­РЎвЂљР В°Р С— A: Log bytes/s every ~1 second
                     val now = System.currentTimeMillis()
                     if (now - lastMetricsLogTime >= 1000) {
                         val bytesPerSec = totalBytesSent - (totalBytesSent - audioData.size)
@@ -515,80 +600,135 @@ class AudioStreamRecorder(
     }
 
     /**
-     * Initialize AudioRecord (Р­С‚Р°Рї A+B - with system effects)
+     * Initialize AudioRecord (Р В­РЎвЂљР В°Р С— A+B - with system effects)
      */
     private fun initializeAudioRecord() {
         try {
             releaseRecorder()
 
-            val minBuf = AudioRecord.getMinBufferSize(sampleRate, CHANNEL_CONFIG, AUDIO_FORMAT)
-            val actualBuf = minBuf * 2 // Р­С‚Р°Рї A: minBuf * 2
-
-            // Р­С‚Р°Рї B: Select audio source based on filter mode
-            val audioSource = SystemAudioEffects.getAudioSourceForMode(currentFilterMode)
-
-            audioRecord = AudioRecord(
-                audioSource,
-                sampleRate,
-                CHANNEL_CONFIG,
-                AUDIO_FORMAT,
-                actualBuf
-            )
-
-            if (audioRecord?.state != AudioRecord.STATE_INITIALIZED) {
-                if (sampleRate != DEFAULT_SAMPLE_RATE) {
-                    Log.w(TAG, "AUDIO record init failed at $sampleRate Hz, retrying at ${DEFAULT_SAMPLE_RATE} Hz")
-                    sampleRate = DEFAULT_SAMPLE_RATE
-                    frameBytes = frameBytesForRate(sampleRate)
-                    initializeAudioRecord()
-                    return
-                }
-                Log.e(TAG, "AUDIO record init FAILED")
+            if (!hasRecordAudioPermission()) {
+                Log.e(TAG, "AUDIO init aborted: RECORD_AUDIO permission missing")
+                emitCaptureDiagnostic(
+                    reason = "permission_missing_during_init",
+                    extra = mapOf("permission" to "RECORD_AUDIO")
+                )
                 RemoteLogger.error(
                     serverUrl = serverUrl,
                     deviceId = deviceId,
                     source = TAG,
-                    message = "AudioRecord failed to initialize"
+                    message = "AudioRecord init aborted: RECORD_AUDIO permission missing"
                 )
                 releaseRecorder()
                 return
             }
 
-            sessionId = audioRecord?.audioSessionId ?: 0
+            var initializedSource: Int? = null
+            var initializedRate: Int? = null
+            var minBuf = 0
+            var actualBuf = 0
 
-            // Р­С‚Р°Рї B: Apply system audio effects
-            systemAudioEffects = SystemAudioEffects(sessionId)
-            val availability = systemAudioEffects?.checkAvailability()
-            Log.d(TAG, "FX availability: NS=${availability?.noiseSuppressor}, AGC=${availability?.automaticGainControl}, AEC=${availability?.acousticEchoCanceler}")
+            sourceLoop@ for (candidateSource in CAPTURE_AUDIO_SOURCE_FALLBACKS) {
+                for (candidateRate in CAPTURE_SAMPLE_RATE_FALLBACKS) {
+                    val candidateMinBuf =
+                        AudioRecord.getMinBufferSize(candidateRate, CHANNEL_CONFIG, AUDIO_FORMAT)
+                    if (candidateMinBuf <= 0) {
+                        Log.w(
+                            TAG,
+                            "AUDIO min buffer invalid: src=${audioSourceName(candidateSource)} rate=${candidateRate}Hz buf=$candidateMinBuf"
+                        )
+                        continue
+                    }
 
-            systemAudioEffects?.applyMode(currentFilterMode)
+                    val candidateActualBuf = candidateMinBuf * 2
+                    val candidateRecord = AudioRecord(
+                        candidateSource,
+                        candidateRate,
+                        CHANNEL_CONFIG,
+                        AUDIO_FORMAT,
+                        candidateActualBuf
+                    )
 
-            // Verify effects are actually enabled
-            val status = systemAudioEffects?.getStatus()
-            Log.d(TAG, "FX status after apply: mode=${status?.mode}, NS=${status?.nsEnabled}, AGC=${status?.agcEnabled}, AEC=${status?.aecEnabled}")
+                    if (candidateRecord.state != AudioRecord.STATE_INITIALIZED) {
+                        runCatching { candidateRecord.release() }
+                        Log.w(
+                            TAG,
+                            "AudioRecord init failed: src=${audioSourceName(candidateSource)} rate=${candidateRate}Hz"
+                        )
+                        continue
+                    }
 
-            audioRecord?.startRecording()
-
-            // Р­С‚Р°Рї A: Required log
-            val sourceName = when (audioSource) {
-                MediaRecorder.AudioSource.MIC -> "MIC"
-                MediaRecorder.AudioSource.VOICE_COMMUNICATION -> "VOICE_COMMUNICATION"
-                else -> "UNKNOWN($audioSource)"
+                    audioRecord = candidateRecord
+                    initializedSource = candidateSource
+                    initializedRate = candidateRate
+                    minBuf = candidateMinBuf
+                    actualBuf = candidateActualBuf
+                    break@sourceLoop
+                }
             }
-            Log.d(TAG, "AUDIO record init sid=$sessionId, minBuf=$minBuf, actualBuf=$actualBuf, frame=${frameBytes}B, src=$sourceName, mode=$currentFilterMode, rate=$sampleRate")
+
+            if (audioRecord == null || initializedRate == null || initializedSource == null) {
+                Log.e(TAG, "AUDIO record init FAILED for all fallback rates")
+                emitCaptureDiagnostic(
+                    reason = "audio_record_init_failed",
+                    extra = mapOf(
+                        "streamSampleRate" to sampleRate,
+                        "sourceCandidates" to CAPTURE_AUDIO_SOURCE_FALLBACKS.joinToString(","),
+                        "rateCandidates" to CAPTURE_SAMPLE_RATE_FALLBACKS.joinToString(",")
+                    )
+                )
+                RemoteLogger.error(
+                    serverUrl = serverUrl,
+                    deviceId = deviceId,
+                    source = TAG,
+                    message = "AudioRecord failed to initialize for all capture rates"
+                )
+                releaseRecorder()
+                return
+            }
+
+            captureSampleRate = initializedRate
+            captureFrameBytes = frameBytesForRate(captureSampleRate)
+
+            sessionId = audioRecord?.audioSessionId ?: 0
+            audioRecord?.startRecording()
+            val recordingState = audioRecord?.recordingState ?: AudioRecord.RECORDSTATE_STOPPED
+            if (recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                Log.e(
+                    TAG,
+                    "AUDIO startRecording failed: state=$recordingState src=${audioSourceName(initializedSource)} rate=$captureSampleRate"
+                )
+                emitCaptureDiagnostic(
+                    reason = "audio_record_start_failed",
+                    extra = mapOf(
+                        "recordingState" to recordingState,
+                        "captureSampleRate" to captureSampleRate,
+                        "audioSource" to audioSourceName(initializedSource)
+                    )
+                )
+                releaseRecorder()
+                return
+            }
+
+            val sourceName = audioSourceName(initializedSource)
+
+            Log.d(
+                TAG,
+                "AUDIO record init sid=$sessionId, minBuf=$minBuf, actualBuf=$actualBuf, captureFrame=${captureFrameBytes}B, streamFrame=${frameBytes}B, src=$sourceName, captureRate=$captureSampleRate, streamRate=$sampleRate"
+            )
             RemoteLogger.info(
                 serverUrl = serverUrl,
                 deviceId = deviceId,
                 source = TAG,
-                message = "AudioRecord initialized with system effects",
+                message = "AudioRecord initialized",
                 meta = mapOf(
                     "sessionId" to sessionId,
                     "minBuf" to minBuf,
                     "actualBuf" to actualBuf,
                     "frameBytes" to frameBytes,
+                    "captureFrameBytes" to captureFrameBytes,
                     "sampleRate" to sampleRate,
+                    "captureSampleRate" to captureSampleRate,
                     "audioSource" to sourceName,
-                    "filterMode" to currentFilterMode.name
                 )
             )
         } catch (e: Exception) {
@@ -600,58 +740,112 @@ class AudioStreamRecorder(
                 message = "Error initializing AudioRecord",
                 throwable = e
             )
+            emitCaptureDiagnostic(
+                reason = "audio_record_init_exception",
+                extra = mapOf("error" to (e.message ?: "unknown"))
+            )
             releaseRecorder()
         }
     }
 
     /**
-     * Record a single chunk of audio (Р­С‚Р°Рї A - 20ms frames = 960 bytes)
+     * Record a single chunk of audio (Р В­РЎвЂљР В°Р С— A - 20ms frames = 960 bytes)
      */
     private fun recordChunk(): ByteArray? {
-        val buffer = ByteArray(frameBytes) // 20ms frame at active sample rate
+        val captureBuffer = ByteArray(captureFrameBytes)
 
         try {
             val read = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                audioRecord?.read(buffer, 0, frameBytes, AudioRecord.READ_BLOCKING) ?: -1
+                audioRecord?.read(captureBuffer, 0, captureFrameBytes, AudioRecord.READ_BLOCKING) ?: -1
             } else {
-                audioRecord?.read(buffer, 0, frameBytes) ?: -1
+                audioRecord?.read(captureBuffer, 0, captureFrameBytes) ?: -1
             }
 
-            // Check for critical errors
             if (read == AudioRecord.ERROR_INVALID_OPERATION || read == AudioRecord.ERROR_DEAD_OBJECT) {
                 Log.e(TAG, "AUDIO read ERROR: $read (reinit required)")
+                emitCaptureDiagnostic(
+                    reason = "audio_read_error",
+                    extra = mapOf(
+                        "code" to read,
+                        "captureSampleRate" to captureSampleRate
+                    )
+                )
                 RemoteLogger.error(
                     serverUrl = serverUrl,
                     deviceId = deviceId,
                     source = TAG,
                     message = "AudioRecord.read error: $read - will reinitialize"
                 )
-                // Р­С‚Р°Рї A: Full reinitialization on errors
                 streamScope.launch {
-                    delay(100) // Small delay before reinit
+                    delay(100)
                     initializeAudioRecord()
                 }
                 return null
             }
 
-            // Check for empty read
             if (read <= 0) {
                 Log.w(TAG, "AUDIO read returned: $read")
+                val now = System.currentTimeMillis()
+                if (emptyReadDiagnostics < 5 || now - lastEmptyReadDiagnosticAt >= 5000L) {
+                    emptyReadDiagnostics++
+                    lastEmptyReadDiagnosticAt = now
+                    emitCaptureDiagnostic(
+                        reason = "audio_read_empty",
+                        extra = mapOf(
+                            "code" to read,
+                            "recordingState" to (audioRecord?.recordingState ?: -1),
+                            "captureSampleRate" to captureSampleRate,
+                            "streamSampleRate" to sampleRate,
+                            "diagnosticCount" to emptyReadDiagnostics
+                        )
+                    )
+                }
                 return null
             }
 
-            // Check for partial frame
-            if (read < frameBytes) {
-                Log.d(TAG, "AUDIO partial frame: $read bytes (expected $frameBytes), padding silence")
-                java.util.Arrays.fill(buffer, read, frameBytes, 0.toByte())
-                return buffer
+            if (emptyReadDiagnostics > 0) {
+                emitCaptureDiagnostic(
+                    reason = "audio_read_recovered",
+                    extra = mapOf(
+                        "bytesRead" to read,
+                        "captureSampleRate" to captureSampleRate,
+                        "streamSampleRate" to sampleRate
+                    )
+                )
+                emptyReadDiagnostics = 0
+                lastEmptyReadDiagnosticAt = 0L
             }
 
-            // Full frame read successfully
-            return buffer
+            if (read < captureFrameBytes) {
+                Log.d(TAG, "AUDIO partial frame: $read bytes (expected $captureFrameBytes), padding silence")
+                java.util.Arrays.fill(captureBuffer, read, captureFrameBytes, 0.toByte())
+            }
 
+            val fullCaptureFrame = if (read == captureFrameBytes) {
+                captureBuffer
+            } else {
+                captureBuffer.copyOf(captureFrameBytes)
+            }
+
+            val streamFrame = if (captureSampleRate == sampleRate) {
+                fullCaptureFrame
+            } else {
+                resamplePcm16Mono(fullCaptureFrame, captureSampleRate, sampleRate)
+            }
+
+            return when {
+                streamFrame.size == frameBytes -> streamFrame
+                streamFrame.size > frameBytes -> streamFrame.copyOf(frameBytes)
+                else -> ByteArray(frameBytes).also { out ->
+                    System.arraycopy(streamFrame, 0, out, 0, streamFrame.size)
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "AUDIO read exception", e)
+            emitCaptureDiagnostic(
+                reason = "audio_read_exception",
+                extra = mapOf("error" to (e.message ?: "unknown"))
+            )
             RemoteLogger.error(
                 serverUrl = serverUrl,
                 deviceId = deviceId,
@@ -664,13 +858,10 @@ class AudioStreamRecorder(
     }
 
     /**
-     * Release AudioRecord resources (Р­С‚Р°Рї A+B - with effects cleanup)
+     * Release AudioRecord resources (Р В­РЎвЂљР В°Р С— A+B - with effects cleanup)
      */
     private fun releaseRecorder() {
         try {
-            // Р­С‚Р°Рї B: Release system effects first
-            systemAudioEffects?.releaseEffects()
-            systemAudioEffects = null
 
             audioRecord?.let { recorder ->
                 try {

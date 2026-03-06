@@ -25,6 +25,17 @@ class NetworkHelper(private val context: Context) {
     }
 
     private val prefs = context.getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
+    private val refreshLock = Any()
+    @Volatile private var isRefreshingToken = false
+
+    private val authClient = OkHttpClient.Builder()
+        .connectTimeout(30, TimeUnit.SECONDS)
+        .readTimeout(30, TimeUnit.SECONDS)
+        .writeTimeout(30, TimeUnit.SECONDS)
+        .addInterceptor(HttpLoggingInterceptor().apply {
+            level = HttpLoggingInterceptor.Level.BODY
+        })
+        .build()
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(30, TimeUnit.SECONDS)
@@ -60,7 +71,7 @@ class NetworkHelper(private val context: Context) {
 
             Log.d(TAG, "Registering device: $deviceId")
 
-            client.newCall(request).execute().use { response ->
+            authClient.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
                     val responseBody = response.body?.string()
                     val json = JSONObject(responseBody ?: "{}")
@@ -69,10 +80,7 @@ class NetworkHelper(private val context: Context) {
                     val refreshToken = json.optString("refreshToken")
 
                     if (authToken.isNotEmpty()) {
-                        prefs.edit()
-                            .putString("auth_token", authToken)
-                            .putString("refresh_token", refreshToken)
-                            .apply()
+                        saveTokens(authToken, refreshToken)
 
                         Log.d(TAG, "Device registered successfully")
                         return@withContext true
@@ -247,7 +255,8 @@ class NetworkHelper(private val context: Context) {
                                 StreamCommand(
                                     id = cmdObj.getString("id"),
                                     type = cmdObj.getString("type"),
-                                    timestamp = cmdObj.getLong("timestamp")
+                                    timestamp = cmdObj.getLong("timestamp"),
+                                    data = cmdObj.optJSONObject("data")
                                 )
                             )
                         }
@@ -319,21 +328,155 @@ class NetworkHelper(private val context: Context) {
     private inner class AuthInterceptor : Interceptor {
         override fun intercept(chain: Interceptor.Chain): Response {
             val original = chain.request()
-            val token = prefs.getString("auth_token", null)
+            val token = getAuthToken()
+            val requestBuilder = original.newBuilder()
+                .header("User-Agent", "ParentWatch/" + BuildConfig.VERSION_NAME)
 
-            val request = if (token != null) {
-                original.newBuilder()
-                    .header("Authorization", "Bearer $token")
-                    .header("User-Agent", "ParentWatch/" + BuildConfig.VERSION_NAME)
-                    .build()
-            } else {
-                original.newBuilder()
-                    .header("User-Agent", "ParentWatch/" + BuildConfig.VERSION_NAME)
-                    .build()
+            if (token != null) {
+                requestBuilder.header("Authorization", "Bearer $token")
             }
 
-            return chain.proceed(request)
+            val request = requestBuilder.build()
+            val response = chain.proceed(request)
+
+            if (response.code == 401 && original.header("X-Auth-Retry") == null) {
+                response.close()
+                val baseUrl = extractServerUrl(original.url.toString())
+                val refreshedToken = if (baseUrl != null) refreshAuthTokenBlocking(baseUrl) else null
+                if (!refreshedToken.isNullOrBlank()) {
+                    val retryRequest = original.newBuilder()
+                        .header("Authorization", "Bearer $refreshedToken")
+                        .header("User-Agent", "ParentWatch/" + BuildConfig.VERSION_NAME)
+                        .header("X-Auth-Retry", "1")
+                        .build()
+                    return chain.proceed(retryRequest)
+                }
+            }
+
+            return response
         }
+    }
+
+    private fun getAuthToken(): String? = prefs.getString("auth_token", null)
+
+    private fun saveTokens(authToken: String, refreshToken: String?) {
+        val editor = prefs.edit().putString("auth_token", authToken)
+        if (!refreshToken.isNullOrBlank()) {
+            editor.putString("refresh_token", refreshToken)
+        }
+        editor.apply()
+    }
+
+    private fun resolveDeviceId(): String? {
+        return prefs.getString("device_id", null)
+            ?: prefs.getString("child_device_id", null)
+    }
+
+    private fun extractServerUrl(url: String): String? {
+        return try {
+            val uri = java.net.URI(url)
+            "${uri.scheme}://${uri.host}${if (uri.port != -1) ":${uri.port}" else ""}"
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun refreshAuthTokenBlocking(serverUrl: String): String? {
+        val deviceId = resolveDeviceId()
+        if (deviceId.isNullOrBlank()) {
+            Log.w(TAG, "Cannot refresh token: deviceId missing")
+            return null
+        }
+
+        synchronized(refreshLock) {
+            if (isRefreshingToken) {
+                return getAuthToken()
+            }
+            isRefreshingToken = true
+        }
+
+        try {
+            val refreshToken = prefs.getString("refresh_token", null)
+            if (refreshToken.isNullOrBlank()) {
+                Log.w(TAG, "No refresh token, attempting re-register")
+                return registerDeviceBlocking(serverUrl, deviceId)
+            }
+
+            val url = "${serverUrl.trimEnd('/')}/api/auth/refresh"
+            val jsonData = JSONObject().apply {
+                put("refreshToken", refreshToken)
+                put("deviceId", deviceId)
+            }
+            val requestBody = jsonData.toString()
+                .toRequestBody("application/json; charset=utf-8".toMediaType())
+            val request = Request.Builder()
+                .url(url)
+                .post(requestBody)
+                .build()
+
+            authClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string()
+                    val json = JSONObject(responseBody ?: "{}")
+                    val authToken = json.optString("authToken")
+                    val newRefreshToken = json.optString("refreshToken")
+                    if (authToken.isNotEmpty()) {
+                        saveTokens(authToken, newRefreshToken)
+                        Log.d(TAG, "Token refreshed successfully")
+                        return authToken
+                    }
+                } else {
+                    Log.w(TAG, "Token refresh failed: ${response.code}")
+                    if (response.code == 401) {
+                        return registerDeviceBlocking(serverUrl, deviceId)
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Token refresh error", e)
+        } finally {
+            synchronized(refreshLock) {
+                isRefreshingToken = false
+            }
+        }
+        return null
+    }
+
+    private fun registerDeviceBlocking(serverUrl: String, deviceId: String): String? {
+        try {
+            val url = "${serverUrl.trimEnd('/')}/api/auth/register"
+            val jsonData = JSONObject().apply {
+                put("deviceId", deviceId)
+                put("deviceName", android.os.Build.MODEL)
+                put("deviceType", "android")
+                put("appVersion", BuildConfig.VERSION_NAME)
+            }
+            val requestBody = jsonData.toString()
+                .toRequestBody("application/json; charset=utf-8".toMediaType())
+            val request = Request.Builder()
+                .url(url)
+                .post(requestBody)
+                .build()
+
+            authClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string()
+                    val json = JSONObject(responseBody ?: "{}")
+                    val authToken = json.optString("authToken")
+                    val refreshToken = json.optString("refreshToken")
+                    if (authToken.isNotEmpty()) {
+                        saveTokens(authToken, refreshToken)
+                        Log.d(TAG, "Device re-registered successfully")
+                        return authToken
+                    }
+                } else {
+                    Log.e(TAG, "Re-register failed: ${response.code}")
+                }
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Re-register error", e)
+        }
+        return null
     }
 
     /**
@@ -382,7 +525,8 @@ class NetworkHelper(private val context: Context) {
 data class StreamCommand(
     val id: String,
     val type: String,
-    val timestamp: Long
+    val timestamp: Long,
+    val data: JSONObject? = null
 )
 
 

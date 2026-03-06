@@ -29,6 +29,18 @@ data class Child(
     @ColumnInfo(name = "name")
     val name: String,
 
+    @ColumnInfo(name = "role", defaultValue = "'child'")
+    val role: String = "child",
+
+    @ColumnInfo(name = "icon_id", defaultValue = "0")
+    val iconId: Int = 0,
+
+    @ColumnInfo(name = "allowed_features", defaultValue = "15")
+    val allowedFeatures: Int = 15,
+
+    @ColumnInfo(name = "alias")
+    val alias: String? = null,
+
     @ColumnInfo(name = "age")
     val age: Int? = null,
 

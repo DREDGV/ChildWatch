@@ -70,21 +70,43 @@
             android:focusable="true"
             android:foreground="?attr/selectableItemBackground">
 
-            <LinearLayout
+            <FrameLayout
                 android:layout_width="match_parent"
                 android:layout_height="88dp"
-                android:orientation="vertical"
-                android:padding="16dp"
-                android:gravity="center"
                 android:background="@drawable/bg_menu_card_cyan">
 
-                <ImageView
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:src="@android:drawable/ic_dialog_email"
-                    android:tint="@android:color/white"
-                    android:contentDescription="Открыть чат" />
-            </LinearLayout>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:orientation="vertical"
+                    android:padding="16dp"
+                    android:gravity="center">
+
+                    <ImageView
+                        android:layout_width="36dp"
+                        android:layout_height="36dp"
+                        android:src="@android:drawable/ic_dialog_email"
+                        android:tint="@android:color/white"
+                        android:contentDescription="Open chat" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/chatBadge"
+                    android:layout_width="22dp"
+                    android:layout_height="22dp"
+                    android:layout_gravity="end|top"
+                    android:layout_marginTop="10dp"
+                    android:layout_marginEnd="10dp"
+                    android:background="@drawable/badge_background"
+                    android:gravity="center"
+                    android:includeFontPadding="false"
+                    android:padding="2dp"
+                    android:textColor="@android:color/white"
+                    android:textSize="10sp"
+                    android:textStyle="bold"
+                    android:visibility="gone" />
+
+            </FrameLayout>
         </com.google.android.material.card.MaterialCardView>
 
         <!-- Parent Location Map Card -->

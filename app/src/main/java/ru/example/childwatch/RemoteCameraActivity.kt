@@ -1,6 +1,7 @@
 package ru.example.childwatch
 
 import android.os.Bundle
+import android.content.Intent
 import android.util.Log
 import android.widget.TextView
 import android.widget.Toast
@@ -10,7 +11,8 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
-import com.google.android.material.progressindicator.LinearProgressIndicator
+import com.google.android.material.button.MaterialButtonToggleGroup
+import com.google.android.material.progressindicator.CircularProgressIndicator
 import org.json.JSONObject
 import ru.example.childwatch.network.WebSocketManager
 import android.view.View
@@ -23,6 +25,8 @@ import ru.example.childwatch.utils.SecureSettingsManager
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 
 /**
  * RemoteCameraActivity - Remote photo capture for ParentMonitor
@@ -44,8 +48,11 @@ class RemoteCameraActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var childNameText: TextView
     private lateinit var takePhotoButton: MaterialButton
+    private lateinit var cameraToggleGroup: MaterialButtonToggleGroup
+    private lateinit var cameraBackButton: MaterialButton
+    private lateinit var cameraFrontButton: MaterialButton
     private lateinit var photosRecyclerView: RecyclerView
-    private lateinit var progressIndicator: LinearProgressIndicator
+    private lateinit var progressIndicator: CircularProgressIndicator
     private lateinit var emptyStateLayout: LinearLayout
     private lateinit var photoAdapter: RemotePhotoAdapter
 
@@ -53,6 +60,11 @@ class RemoteCameraActivity : AppCompatActivity() {
     private var childName: String? = null
     private val networkClient by lazy { NetworkClient(applicationContext) }
     private val dateFormatter = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
+    private var photoReceivedListener: ((String, String, Long) -> Unit)? = null
+    private var photoErrorListener: ((String, String) -> Unit)? = null
+    private var retryJob: Job? = null
+    private var pendingRequestId: String? = null
+    private var selectedCameraFacing: String = "back"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -72,6 +84,7 @@ class RemoteCameraActivity : AppCompatActivity() {
         setupToolbar()
         setupButtons()
         loadPhotos()
+        ensureWebSocketReady()
     }
 
     private fun initViews() {
@@ -80,6 +93,9 @@ class RemoteCameraActivity : AppCompatActivity() {
             statusText = findViewById(R.id.statusText)
             childNameText = findViewById(R.id.childNameText)
             takePhotoButton = findViewById(R.id.takePhotoButton)
+            cameraToggleGroup = findViewById(R.id.cameraToggleGroup)
+            cameraBackButton = findViewById(R.id.cameraBackButton)
+            cameraFrontButton = findViewById(R.id.cameraFrontButton)
             photosRecyclerView = findViewById(R.id.photosRecyclerView)
             progressIndicator = findViewById(R.id.progressIndicator)
             emptyStateLayout = findViewById(R.id.emptyStateLayout)
@@ -96,6 +112,8 @@ class RemoteCameraActivity : AppCompatActivity() {
             } else {
                 "ID: $childId"
             }
+            cameraToggleGroup.check(cameraBackButton.id)
+            selectedCameraFacing = "back"
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing views", e)
             Toast.makeText(this, "Ошибка загрузки интерфейса: ${e.message}", Toast.LENGTH_SHORT).show()
@@ -114,6 +132,15 @@ class RemoteCameraActivity : AppCompatActivity() {
     }
 
     private fun setupButtons() {
+        cameraToggleGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
+            if (!isChecked) return@addOnButtonCheckedListener
+            selectedCameraFacing = if (checkedId == cameraFrontButton.id) "front" else "back"
+            updateStatus(
+                if (selectedCameraFacing == "front") "Выбрана фронтальная камера"
+                else "Выбрана основная камера"
+            )
+        }
+
         takePhotoButton.setOnClickListener {
             takePhoto()
         }
@@ -124,23 +151,124 @@ class RemoteCameraActivity : AppCompatActivity() {
      */
     private fun takePhoto() {
         Log.d(TAG, "Taking photo for child: $childId")
-        
-        // Check WebSocket connection
-        if (!WebSocketManager.isConnected()) {
-            Toast.makeText(
-                this,
-                "Нет связи с устройством ребенка. Подключите устройство.",
-                Toast.LENGTH_SHORT
-            ).show()
+        updateStatus("Connecting...")
+        disableButtons()
+        ensureWebSocketReady {
+            sendPhotoRequestWithRetry()
+        }
+    }
+
+    private fun ensureWebSocketReady(onReady: () -> Unit = {}) {
+        val targetId = childId ?: return
+        val serverUrl = SecureSettingsManager(this).getServerUrl().trim()
+        if (serverUrl.isBlank()) {
+            updateStatus(getString(R.string.server_url_missing))
+            Toast.makeText(this, getString(R.string.server_url_missing), Toast.LENGTH_SHORT).show()
+            enableButtons()
             return
         }
 
-        // Update UI
-        updateStatus("Отправка команды...")
-        disableButtons()
+        WebSocketManager.initialize(this, serverUrl, targetId)
+        registerPhotoListeners()
 
-        // Send command via WebSocket (always use back camera)
-        sendTakePhotoCommand(childId!!)
+        WebSocketManager.ensureConnected(
+            onReady = {
+                runOnUiThread {
+                    updateStatus("Подключено")
+                    onReady()
+                }
+            },
+            onError = { error ->
+                runOnUiThread {
+                    updateStatus("Ошибка подключения")
+                    Toast.makeText(this, "Ошибка подключения: $error", Toast.LENGTH_SHORT).show()
+                    enableButtons()
+                }
+            }
+        )
+    }
+
+    private fun registerPhotoListeners() {
+        if (photoReceivedListener == null) {
+            photoReceivedListener = photoReceivedListener@{ photoBase64, requestId, timestamp ->
+                if (pendingRequestId != requestId) return@photoReceivedListener
+                pendingRequestId = null
+                retryJob?.cancel()
+                runOnUiThread {
+                    updateStatus("Фото получено")
+                    enableButtons()
+                    openPhotoPreview(photoBase64, timestamp)
+                    scheduleGalleryRefresh()
+                }
+            }
+            WebSocketManager.addPhotoReceivedListener(photoReceivedListener!!)
+        }
+
+        if (photoErrorListener == null) {
+            photoErrorListener = photoErrorListener@{ requestId, error ->
+                if (pendingRequestId != requestId) return@photoErrorListener
+                pendingRequestId = null
+                retryJob?.cancel()
+                runOnUiThread {
+                    updateStatus("Ошибка: $error")
+                    Toast.makeText(this, "Ошибка: $error", Toast.LENGTH_SHORT).show()
+                    enableButtons()
+                }
+            }
+            WebSocketManager.addPhotoErrorListener(photoErrorListener!!)
+        }
+    }
+
+    private fun sendPhotoRequestWithRetry() {
+        val targetId = childId ?: return
+        val requestId = java.util.UUID.randomUUID().toString()
+        pendingRequestId = requestId
+        val camera = selectedCameraFacing
+        updateStatus(
+            if (camera == "front") "Sending request (front camera)..."
+            else "Sending request (back camera)..."
+        )
+
+        val delays = listOf(0L, 3000L, 7000L, 12000L)
+        retryJob?.cancel()
+        retryJob = lifecycleScope.launch {
+            for ((index, delayMs) in delays.withIndex()) {
+                if (pendingRequestId == null) return@launch
+                if (delayMs > 0) {
+                    delay(delayMs)
+                }
+                if (pendingRequestId == null) return@launch
+                WebSocketManager.requestPhoto(
+                    targetDevice = targetId,
+                    cameraFacing = camera,
+                    requestId = requestId,
+                    onSuccess = {
+                        Log.d(TAG, "Photo request sent (attempt ${index + 1}, camera=$camera)")
+                    },
+                    onError = { error ->
+                        Log.e(TAG, "Photo request failed: $error")
+                    }
+                )
+            }
+            if (pendingRequestId != null) {
+                pendingRequestId = null
+                runOnUiThread {
+                    updateStatus("Request timeout")
+                    Toast.makeText(this@RemoteCameraActivity, "No response from device", Toast.LENGTH_SHORT).show()
+                    enableButtons()
+                }
+            }
+        }
+    }
+
+    private fun scheduleGalleryRefresh() {
+        lifecycleScope.launch {
+            val delays = listOf(2000L, 4000L, 8000L, 12000L, 16000L)
+            for (delayMs in delays) {
+                delay(delayMs)
+                loadPhotos()
+            }
+        }
     }
 
     /**
@@ -186,6 +314,19 @@ class RemoteCameraActivity : AppCompatActivity() {
                 Toast.makeText(this, "Ошибка: ${e.message}", Toast.LENGTH_SHORT).show()
                 enableButtons()
             }
+        }
+    }
+
+    private fun openPhotoPreview(photoBase64: String, timestamp: Long) {
+        try {
+            val intent = Intent(this, PhotoPreviewActivity::class.java).apply {
+                putExtra(PhotoPreviewActivity.EXTRA_PHOTO_BASE64, photoBase64)
+                putExtra(PhotoPreviewActivity.EXTRA_PHOTO_TIMESTAMP, timestamp)
+                putExtra(PhotoPreviewActivity.EXTRA_DEVICE_NAME, childName ?: "Child Device")
+            }
+            startActivity(intent)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error opening photo preview", e)
         }
     }
 
@@ -264,21 +405,30 @@ class RemoteCameraActivity : AppCompatActivity() {
         }
     }
 
+    override fun onDestroy() {
+        super.onDestroy()
+        retryJob?.cancel()
+        photoReceivedListener?.let { WebSocketManager.removePhotoReceivedListener(it) }
+        photoReceivedListener = null
+        photoErrorListener?.let { WebSocketManager.removePhotoErrorListener(it) }
+        photoErrorListener = null
+        Log.d(TAG, "RemoteCameraActivity destroyed")
+    }
+
     private fun updateStatus(status: String) {
         statusText.text = status
     }
 
     private fun disableButtons() {
         takePhotoButton.isEnabled = false
+        cameraBackButton.isEnabled = false
+        cameraFrontButton.isEnabled = false
     }
 
     private fun enableButtons() {
         takePhotoButton.isEnabled = true
-    }
-
-    override fun onDestroy() {
-        super.onDestroy()
-        Log.d(TAG, "RemoteCameraActivity destroyed")
+        cameraBackButton.isEnabled = true
+        cameraFrontButton.isEnabled = true
     }
 
     private fun normalizeBaseUrl(base: String): String {

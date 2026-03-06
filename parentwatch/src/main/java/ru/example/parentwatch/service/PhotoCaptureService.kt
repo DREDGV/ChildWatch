@@ -1,11 +1,14 @@
-package ru.example.parentwatch.service
+﻿package ru.example.parentwatch.service
 
 import android.app.*
+import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
 import org.json.JSONObject
@@ -55,13 +58,25 @@ class PhotoCaptureService : Service() {
     private var networkHelper: NetworkHelper? = null
     private var serverUrl: String? = null
     private var deviceId: String? = null
+    private val commandListener: (String, JSONObject?) -> Unit = { command, data ->
+        when (command) {
+            "take_photo" -> {
+                val cameraFacing = data?.optString("camera", "front") ?: "front"
+                Log.d(TAG, "Photo command received: camera=$cameraFacing")
+                handleTakePhotoCommand(cameraFacing)
+            }
+            else -> {
+                Log.d(TAG, "Ignoring command: $command")
+            }
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "PhotoCaptureService created")
 
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification("Ожидание команд..."))
+        startForeground(NOTIFICATION_ID, createNotification("РћР¶РёРґР°РЅРёРµ РєРѕРјР°РЅРґ..."))
 
         cameraService = CameraService(this)
         cameraService?.initialize()
@@ -86,27 +101,16 @@ class PhotoCaptureService : Service() {
     private fun setupWebSocketListener() {
         try {
             // Add command listener to WebSocketManager
-            WebSocketManager.addCommandListener { command, data ->
-                when (command) {
-                    "take_photo" -> {
-                        val cameraFacing = data?.optString("camera", "front") ?: "front"
-                        Log.d(TAG, "📸 Received take_photo command: camera=$cameraFacing")
-                        handleTakePhotoCommand(cameraFacing)
-                    }
-                    else -> {
-                        Log.d(TAG, "Ignoring command: $command")
-                    }
-                }
-            }
-            
+            WebSocketManager.addCommandListener(commandListener)
+
             // Add photo request listener (for request_photo event)
-            WebSocketManager.setPhotoRequestCallback { requestId, targetDevice ->
-                Log.d(TAG, "📸 Received photo request: requestId=$requestId, target=$targetDevice")
-                handlePhotoRequest(requestId, targetDevice)
+            WebSocketManager.setPhotoRequestCallback { requestId, targetDevice, cameraFacing ->
+                Log.d(TAG, "рџ“ё Received photo request: requestId=$requestId, target=$targetDevice, camera=$cameraFacing")
+                handlePhotoRequest(requestId, targetDevice, cameraFacing)
             }
 
             Log.d(TAG, "Photo capture service ready - listening for commands")
-            updateNotification("Готов к захвату фото")
+            updateNotification("Р“РѕС‚РѕРІ Рє Р·Р°С…РІР°С‚Сѓ С„РѕС‚Рѕ")
         } catch (e: Exception) {
             Log.e(TAG, "Error setting up listener", e)
         }
@@ -116,8 +120,14 @@ class PhotoCaptureService : Service() {
      * Handle take photo command
      */
     fun handleTakePhotoCommand(cameraFacing: String = "front") {
+        if (!hasCameraPermission()) {
+            Log.e(TAG, "Camera permission not granted for take_photo command")
+            updateNotification("Нет доступа к камере")
+            return
+        }
+
         Log.d(TAG, "Taking photo with $cameraFacing camera")
-        updateNotification("Захват фото...")
+        updateNotification("Р—Р°С…РІР°С‚ С„РѕС‚Рѕ...")
 
         val facing = when (cameraFacing.lowercase()) {
             "back" -> CameraService.CameraFacing.BACK
@@ -130,7 +140,7 @@ class PhotoCaptureService : Service() {
                 uploadPhoto(photoFile)
             } else {
                 Log.e(TAG, "Photo capture failed")
-                updateNotification("Ошибка захвата")
+                updateNotification("РћС€РёР±РєР° Р·Р°С…РІР°С‚Р°")
             }
         }
     }
@@ -138,23 +148,27 @@ class PhotoCaptureService : Service() {
     /**
      * Handle photo request from parent via WebSocket
      */
-    private fun handlePhotoRequest(requestId: String, targetDevice: String) {
+        private fun handlePhotoRequest(requestId: String, targetDevice: String, cameraFacing: String) {
         Log.d(TAG, "Handling photo request: $requestId for device: $targetDevice")
-        
-        // Check if this request is for us
+
         val myDeviceId = deviceId ?: ""
         if (targetDevice.isNotEmpty() && targetDevice != myDeviceId) {
             Log.d(TAG, "Photo request not for this device (target=$targetDevice, me=$myDeviceId)")
             return
         }
-        
+
+        if (!hasCameraPermission()) {
+            Log.e(TAG, "Camera permission not granted for photo request")
+            sendPhotoError(requestId, "Camera permission denied")
+            updateNotification("Нет доступа к камере")
+            return
+        }
+
         updateNotification("Захват фото по запросу...")
-        
-        // Capture with front camera (default for child device)
-        cameraService?.capturePhoto(CameraService.CameraFacing.FRONT) { photoFile ->
+
+        capturePhotoWithFallback(preferredFacing = cameraFacing) { photoFile ->
             if (photoFile != null) {
                 Log.d(TAG, "Photo captured for request: $requestId")
-                // Convert to base64 and send via WebSocket
                 sendPhotoViaWebSocket(photoFile, requestId)
             } else {
                 Log.e(TAG, "Photo capture failed for request: $requestId")
@@ -163,7 +177,43 @@ class PhotoCaptureService : Service() {
             }
         }
     }
-    
+
+    private fun capturePhotoWithFallback(preferredFacing: String = "back", onResult: (File?) -> Unit) {
+        val service = cameraService
+        if (service == null) {
+            onResult(null)
+            return
+        }
+        val preferred = if (preferredFacing.equals("front", ignoreCase = true)) {
+            CameraService.CameraFacing.FRONT
+        } else {
+            CameraService.CameraFacing.BACK
+        }
+        val fallback = if (preferred == CameraService.CameraFacing.BACK) {
+            CameraService.CameraFacing.FRONT
+        } else {
+            CameraService.CameraFacing.BACK
+        }
+
+        service.capturePhoto(preferred) { primaryPhoto ->
+            if (primaryPhoto != null) {
+                onResult(primaryPhoto)
+                return@capturePhoto
+            }
+
+            Log.w(TAG, "Primary camera capture failed ($preferred), retrying with $fallback")
+            service.capturePhoto(fallback) { secondaryPhoto ->
+                onResult(secondaryPhoto)
+            }
+        }
+    }
+
+    private fun hasCameraPermission(): Boolean {
+        return ContextCompat.checkSelfPermission(
+            this,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+    }
     /**
      * Send photo via WebSocket as base64
      */
@@ -181,22 +231,22 @@ class PhotoCaptureService : Service() {
                 }
                 
                 WebSocketManager.getClient()?.emit("photo", data)
-                Log.d(TAG, "✅ Photo sent via WebSocket: ${bytes.size} bytes, requestId=$requestId")
+                Log.d(TAG, "вњ… Photo sent via WebSocket: ${bytes.size} bytes, requestId=$requestId")
                 
                 withContext(Dispatchers.Main) {
-                    updateNotification("Фото отправлено")
+                    updateNotification("Р¤РѕС‚Рѕ РѕС‚РїСЂР°РІР»РµРЅРѕ")
                 }
                 
                 // Clean up
                 photoFile.delete()
                 delay(2000)
-                updateNotification("Готов к захвату фото")
+                updateNotification("Р“РѕС‚РѕРІ Рє Р·Р°С…РІР°С‚Сѓ С„РѕС‚Рѕ")
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending photo via WebSocket", e)
                 sendPhotoError(requestId, e.message ?: "Unknown error")
                 withContext(Dispatchers.Main) {
-                    updateNotification("Ошибка отправки")
+                    updateNotification("РћС€РёР±РєР° РѕС‚РїСЂР°РІРєРё")
                 }
             }
         }
@@ -226,7 +276,7 @@ class PhotoCaptureService : Service() {
     private fun uploadPhoto(photoFile: File) {
         serviceScope.launch {
             try {
-                updateNotification("Загрузка фото...")
+                updateNotification("Р—Р°РіСЂСѓР·РєР° С„РѕС‚Рѕ...")
 
                 val success = withContext(Dispatchers.IO) {
                     networkHelper?.uploadPhoto(
@@ -238,19 +288,19 @@ class PhotoCaptureService : Service() {
 
                 if (success) {
                     Log.d(TAG, "Photo uploaded successfully")
-                    updateNotification("Фото отправлено")
+                    updateNotification("Р¤РѕС‚Рѕ РѕС‚РїСЂР°РІР»РµРЅРѕ")
                 } else {
                     Log.e(TAG, "Photo upload failed")
-                    updateNotification("Ошибка загрузки")
+                    updateNotification("РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё")
                 }
 
                 // Return to ready state after delay
                 delay(3000)
-                updateNotification("Готов к захвату фото")
+                updateNotification("Р“РѕС‚РѕРІ Рє Р·Р°С…РІР°С‚Сѓ С„РѕС‚Рѕ")
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error uploading photo", e)
-                updateNotification("Ошибка: ${e.message}")
+                updateNotification("РћС€РёР±РєР°: ${e.message}")
             }
         }
     }
@@ -258,7 +308,7 @@ class PhotoCaptureService : Service() {
     override fun onDestroy() {
         super.onDestroy()
         Log.d(TAG, "PhotoCaptureService destroyed")
-
+        WebSocketManager.removeCommandListener(commandListener)
         cameraService?.release()
         cameraService = null
 
@@ -271,10 +321,10 @@ class PhotoCaptureService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Захват фото",
+                "Р—Р°С…РІР°С‚ С„РѕС‚Рѕ",
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Уведомления о захвате фото"
+                description = "РЈРІРµРґРѕРјР»РµРЅРёСЏ Рѕ Р·Р°С…РІР°С‚Рµ С„РѕС‚Рѕ"
                 setShowBadge(false)
             }
 
@@ -293,7 +343,7 @@ class PhotoCaptureService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("ParentWatch - Камера")
+            .setContentTitle("ParentWatch - РљР°РјРµСЂР°")
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
@@ -307,3 +357,4 @@ class PhotoCaptureService : Service() {
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
 }
+

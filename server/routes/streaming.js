@@ -71,7 +71,7 @@ router.get('/commands/:deviceId', async (req, res) => {
  */
 router.post('/start', async (req, res) => {
     try {
-        const { deviceId, parentId, timeoutMinutes, recording } = req.body;
+        const { deviceId, parentId, timeoutMinutes, recording, sampleRate } = req.body;
 
         if (!deviceId) {
             return res.status(400).json({
@@ -80,38 +80,52 @@ router.post('/start', async (req, res) => {
             });
         }
 
+        const resolvedConnectedId =
+            typeof wsManager?.resolveConnectedChildDeviceId === 'function'
+                ? wsManager.resolveConnectedChildDeviceId(deviceId)
+                : '';
+        const targetDeviceId = resolvedConnectedId || deviceId;
+
         // Start streaming session with optional timeout (default 30 minutes)
         const parsedTimeout = Number(timeoutMinutes);
         const timeout =
             Number.isFinite(parsedTimeout) && parsedTimeout > 0
                 ? parsedTimeout
                 : 30;
+        const parsedSampleRate = Number(sampleRate);
+        const normalizedSampleRate =
+            Number.isFinite(parsedSampleRate) && [24000, 32000, 48000].includes(parsedSampleRate)
+                ? parsedSampleRate
+                : null;
         const result = commandManager.startStreaming(
-            deviceId,
+            targetDeviceId,
             parentId || 'parent',
-            timeout
+            timeout,
+            { sampleRate: normalizedSampleRate }
         );
 
-        if (result) {
-            // Check if child device is connected via WebSocket
-            const childConnected = wsManager.isChildConnected(deviceId);
-
-            // **FIX: Send command to child device via WebSocket**
-            if (childConnected) {
-                const commandSent = wsManager.sendCommandToChild(deviceId, {
-                    type: 'start_audio_stream',
-                    data: { parentId: parentId || 'parent' },
-                    timestamp: Date.now()
-                });
-                console.log(`📤 start_audio_stream command sent to ${deviceId} via WebSocket: ${commandSent}`);
-            } else {
-                console.warn(`⚠️ Child ${deviceId} not connected - command queued but won't execute`);
+                if (result) {
+            // Try immediate WS delivery first. sendCommandToChild can remap target
+            // to the only connected child when legacy contact IDs drift.
+            const commandSent = wsManager.sendCommandToChild(targetDeviceId, {
+                type: 'start_audio_stream',
+                data: {
+                    parentId: parentId || 'parent',
+                    sampleRate: normalizedSampleRate
+                },
+                timestamp: Date.now()
+            });
+            const childConnected = commandSent || wsManager.isChildConnected(targetDeviceId);
+            console.log(`start_audio_stream command sent to ${targetDeviceId} via WebSocket: ${commandSent}`);
+            if (!commandSent) {
+                console.warn(`Child ${targetDeviceId} not connected - command queued and will be picked by polling`);
             }
 
             res.json({
                 success: true,
                 message: 'Audio streaming started',
-                deviceId: deviceId,
+                deviceId: targetDeviceId,
+                requestedDeviceId: deviceId,
                 sessionId: `stream_${Date.now()}`,
                 webSocketEnabled: true,
                 childConnected: childConnected,
@@ -148,25 +162,36 @@ router.post('/stop', async (req, res) => {
             });
         }
 
-        // Stop streaming session
-        const result = commandManager.stopStreaming(deviceId);
+        const resolvedConnectedId =
+            typeof wsManager?.resolveConnectedChildDeviceId === 'function'
+                ? wsManager.resolveConnectedChildDeviceId(deviceId)
+                : '';
+        const targetDeviceId = resolvedConnectedId || deviceId;
 
-        if (result) {
-            // **FIX: Send stop command to child device via WebSocket**
-            const childConnected = wsManager.isChildConnected(deviceId);
-            if (childConnected) {
-                wsManager.sendCommandToChild(deviceId, {
-                    type: 'stop_audio_stream',
-                    data: {},
-                    timestamp: Date.now()
-                });
-                console.log(`🛑 stop_audio_stream command sent to ${deviceId} via WebSocket`);
+        // Stop streaming session
+        let result = commandManager.stopStreaming(targetDeviceId);
+        if (!result && targetDeviceId !== deviceId) {
+            result = commandManager.stopStreaming(deviceId);
+        }
+
+                if (result) {
+            // Best-effort immediate WS stop. If offline, command remains queued.
+            const stopSent = wsManager.sendCommandToChild(targetDeviceId, {
+                type: 'stop_audio_stream',
+                data: {},
+                timestamp: Date.now()
+            });
+            if (stopSent) {
+                console.log(`stop_audio_stream command sent to ${targetDeviceId} via WebSocket`);
+            } else {
+                console.warn(`stop_audio_stream for ${targetDeviceId} queued - child is offline`);
             }
 
             res.json({
                 success: true,
                 message: 'Audio streaming stopped',
-                deviceId: deviceId,
+                deviceId: targetDeviceId,
+                requestedDeviceId: deviceId,
                 timestamp: Date.now()
             });
         } else{
@@ -426,3 +451,4 @@ router.get('/status/:deviceId', async (req, res) => {
 });
 
 module.exports = router;
+

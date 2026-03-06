@@ -21,7 +21,7 @@
             android:elevation="0dp"
             app:navigationIcon="@drawable/ic_arrow_back"
             app:navigationIconTint="@color/emerald_primary"
-            app:title="Чат с родителями"
+            app:title="@string/chat_title_with_parents"
             app:titleCentered="true"
             app:titleTextColor="@color/emerald_primary" />
 
@@ -87,7 +87,7 @@
                         android:id="@+id/connectionStatusText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Подключение..."
+                        android:text="@string/chat_presence_connecting"
                         android:textColor="@android:color/darker_gray"
                         android:textSize="13sp" />
 
@@ -122,7 +122,7 @@
         android:paddingEnd="16dp"
         android:paddingTop="6dp"
         android:paddingBottom="6dp"
-        android:text="Родитель печатает..."
+        android:text="@string/chat_typing_parent"
         android:textSize="12sp"
         android:textColor="#757575"
         android:textStyle="italic"
@@ -164,15 +164,15 @@
                 android:id="@+id/messageInput"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="Введите сообщение..."
+                android:hint="@string/chat_input_hint"
                 android:inputType="textCapSentences|textMultiLine|textNoSuggestions"
                 android:maxLines="4"
                 android:minHeight="48dp"
                 android:imeOptions="actionSend"
                 android:textDirection="anyRtl"
                 android:textLocale="ru_RU"
-                android:textColor="@android:color/white"
-                android:textColorHint="#B3FFFFFF" />
+                android:textColor="#212121"
+                android:textColorHint="#757575" />
 
         </com.google.android.material.textfield.TextInputLayout>
 
@@ -180,7 +180,7 @@
             android:id="@+id/sendButton"
             android:layout_width="48dp"
             android:layout_height="48dp"
-            android:contentDescription="Отправить"
+            android:contentDescription="@string/chat_send"
             android:clickable="true"
             android:stateListAnimator="@null"
             app:useCompatPadding="false"

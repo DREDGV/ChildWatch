@@ -4,6 +4,42 @@ All notable changes to ChildWatch will be documented in this file.
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - 2026-02-15
+
+### Changed
+
+- Включена единая авто-нумерация сборок для `app` и `parentwatch` через `rootProject.ext.cwVersionCode/cwVersionName`.
+- `versionCode` по умолчанию теперь берется из Unix time (секунды), чтобы каждая новая сборка получала свежий номер.
+- `versionName` по умолчанию формируется как `7.1.yyDDD.HHmmss` (можно переопределить через `-PcwVersionName`).
+- Имена APK продолжают формироваться автоматически как `ParentMonitor-v<version>-debug.apk` и `ChildDevice-v<version>-debug.apk`.
+
+### Fixed
+
+- WebSocket audio payload decoding is now compatibility-safe (`ByteArray`, `JSONArray`, `ByteBuffer`, Base64 string).
+- Audio playback now forces speaker route and auto-recovers `AudioTrack` when play/write state is broken.
+- Parent audio monitor quality selector now works during active streaming (`24/32/48 kHz`), with automatic stream restart on change.
+- Server audio routing no longer falls back to unrelated parent sockets; routing is now strict by mapping.
+- Server URL normalization now defaults bare IP/localhost to `http://` (prevents accidental `https://` mismatch).
+- Parent chat no longer force-marks all messages as `read` on open; read receipts are now only for actually received incoming messages.
+- Chat unread counters now count only incoming messages (by sender) in Room-backed storage.
+- Main-menu chat badge refresh is now periodic while screen is open; opening chat also resets notification unread counters.
+- Chat notification channels are now initialized directly in background chat services on both apps.
+- Missed-message sync now returns recent history for recovery, and pending delivery is no longer marked as delivered before recipient acknowledgement.
+- Chat read-receipt flow is now robust to duplicate delivery events: when a message already exists in chat UI, `read` is still emitted for unread incoming messages.
+- Background chat services now send `delivered` ACK for missed incoming messages and avoid push spam while chat screen is open.
+- `parentwatch` chat background service now restores itself after system kill (`null` intent restart path from prefs).
+- `parentwatch` main menu now shows unread chat badge (`chatBadge`) and clears badge on chat open.
+- Parent map auto-fit now uses safe zoom fallback to prevent startup crashes on invalid/single-point bounds.
+- Map pairing resolution is now more tolerant in both apps: fallback ID resolver from prefs + `limitedMode` only when second device ID is really missing.
+- Parent location upload now resolves parent device ID via multiple fallback keys before sending.
+
+### Notes
+
+- Для ручной фиксации версии используйте:
+  - `-PcwVersionName=<нужная_версия>`
+  - `-PcwVersionCode=<нужный_code>`
+- Журнал изменений ведется далее в этом файле, новые записи добавляются сверху.
+
 ## [7.1.1] - 2025-11-11
 
 ## [7.1.2] - 2025-11-13

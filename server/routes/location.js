@@ -185,7 +185,7 @@ router.post("/parent/:parentId", async (req, res) => {
     } = req.body;
 
     // Validate required fields
-    if (!latitude || !longitude) {
+    if (latitude === undefined || latitude === null || longitude === undefined || longitude === null) {
       return res.status(400).json({
         error: "Missing required fields: latitude, longitude",
         code: "MISSING_FIELDS",

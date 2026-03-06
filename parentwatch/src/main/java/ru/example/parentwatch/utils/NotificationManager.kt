@@ -5,6 +5,8 @@ import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.media.AudioAttributes
+import android.media.RingtoneManager
 import android.os.Build
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
@@ -46,21 +48,58 @@ object NotificationManager {
     fun createNotificationChannels(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-            
-            // Chat notifications channel
-            val chatChannel = NotificationChannel(
-                CHAT_CHANNEL_ID,
-                CHAT_CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = CHAT_CHANNEL_DESCRIPTION
-                enableLights(true)
-                enableVibration(true)
-                setShowBadge(true)
-            }
-            
-            notificationManager.createNotificationChannel(chatChannel)
+
+            val prefs = context.getSharedPreferences("notification_prefs", Context.MODE_PRIVATE)
+            val enableSound = prefs.getBoolean("notification_sound", true)
+            val enableVibration = prefs.getBoolean("notification_vibration", true)
+            ensureChatChannel(context, enableSound, enableVibration)
         }
+    }
+
+    private fun resolveChatChannelId(enableSound: Boolean, enableVibration: Boolean): String {
+        return when {
+            enableSound && enableVibration -> "${CHAT_CHANNEL_ID}_sv"
+            enableSound -> "${CHAT_CHANNEL_ID}_s"
+            enableVibration -> "${CHAT_CHANNEL_ID}_v"
+            else -> "${CHAT_CHANNEL_ID}_silent"
+        }
+    }
+
+    private fun ensureChatChannel(context: Context, enableSound: Boolean, enableVibration: Boolean): String {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return CHAT_CHANNEL_ID
+        }
+
+        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+        val channelId = resolveChatChannelId(enableSound, enableVibration)
+
+        if (notificationManager.getNotificationChannel(channelId) != null) {
+            return channelId
+        }
+
+        val channel = NotificationChannel(
+            channelId,
+            CHAT_CHANNEL_NAME,
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = CHAT_CHANNEL_DESCRIPTION
+            enableLights(true)
+            setShowBadge(true)
+            enableVibration(enableVibration)
+            vibrationPattern = if (enableVibration) longArrayOf(0, 500, 200, 500) else null
+
+            if (enableSound) {
+                val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                val audioAttributes = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .build()
+                setSound(soundUri, audioAttributes)
+            } else {
+                setSound(null, null)
+            }
+        }
+        notificationManager.createNotificationChannel(channel)
+        return channelId
     }
     
     /**
@@ -87,6 +126,7 @@ object NotificationManager {
         val durationMs = prefs.getInt("notification_duration", 10000)
         val enableSound = prefs.getBoolean("notification_sound", true)
         val enableVibration = prefs.getBoolean("notification_vibration", true)
+        val chatChannelId = ensureChatChannel(context, enableSound, enableVibration)
 
         android.util.Log.d(TAG, "Notification settings: duration=${durationMs}ms, sound=$enableSound, vibration=$enableVibration")
 
@@ -146,7 +186,7 @@ object NotificationManager {
             .build()
 
         // Build notification
-        val builder = NotificationCompat.Builder(context, CHAT_CHANNEL_ID)
+        val builder = NotificationCompat.Builder(context, chatChannelId)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentTitle("💬 Чат с родителями")
             .setContentText(messageText)
@@ -165,13 +205,13 @@ object NotificationManager {
             .addAction(replyAction) // Add quick reply action
 
         // Configure sound based on preferences
-        if (enableSound) {
-            builder.setDefaults(NotificationCompat.DEFAULT_SOUND)
-        }
-
-        // Configure vibration based on preferences
-        if (enableVibration) {
-            builder.setVibrate(longArrayOf(0, 500, 200, 500)) // Pattern: wait, vibrate, wait, vibrate
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            if (enableSound) {
+                builder.setDefaults(NotificationCompat.DEFAULT_SOUND)
+            }
+            if (enableVibration) {
+                builder.setVibrate(longArrayOf(0, 500, 200, 500))
+            }
         }
 
         // Show notification

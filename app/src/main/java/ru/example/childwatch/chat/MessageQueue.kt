@@ -24,12 +24,15 @@ class MessageQueue(private val context: Context) {
         private const val KEY_PENDING_MESSAGES = "pending_messages"
         private const val RETRY_DELAY_MS = 5000L // 5 секунд между попытками
         private const val MAX_RETRIES = 10 // Максимум 10 попыток
+        private const val READY_POLL_DELAY_MS = 1000L
+        private const val SEND_TIMEOUT_MS = 12000L
     }
 
     private val securePrefs = SecurePreferences(context, PREFS_NAME)
     private val pendingMessages = ConcurrentLinkedQueue<PendingMessage>()
     private var retryJob: Job? = null
     private val coroutineScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private var readyProvider: (() -> Boolean)? = null
 
     /**
      * Сообщение с метаданными для отправки
@@ -58,6 +61,10 @@ class MessageQueue(private val context: Context) {
      */
     fun setSendCallback(callback: SendCallback) {
         this.sendCallback = callback
+    }
+
+    fun setReadyProvider(provider: () -> Boolean) {
+        this.readyProvider = provider
     }
 
     /**
@@ -97,6 +104,10 @@ class MessageQueue(private val context: Context) {
                 val pending = pendingMessages.peek() ?: break
 
                 try {
+                    if (readyProvider?.invoke() == false) {
+                        delay(READY_POLL_DELAY_MS)
+                        continue
+                    }
                     // Проверяем количество попыток
                     if (pending.retryCount >= MAX_RETRIES) {
                         Log.e(TAG, "Message ${pending.message.id} exceeded max retries, removing")
@@ -124,9 +135,10 @@ class MessageQueue(private val context: Context) {
                         }
                     }
 
-                    val error = errorMsg.await()
+                    val error = withTimeoutOrNull(SEND_TIMEOUT_MS) { errorMsg.await() }
+                    val finalError = if (success) null else (error ?: "Send timeout")
 
-                    if (success) {
+                    if (success && finalError == null) {
                         // Успешно отправлено - удаляем из очереди
                         pendingMessages.poll()
                         savePendingMessages()
@@ -136,7 +148,7 @@ class MessageQueue(private val context: Context) {
                         pendingMessages.poll()
                         pendingMessages.offer(pending.copy(retryCount = pending.retryCount + 1))
                         savePendingMessages()
-                        Log.w(TAG, "Message ${pending.message.id} failed (attempt ${pending.retryCount + 1}/$MAX_RETRIES): $error")
+                        Log.w(TAG, "Message ${pending.message.id} failed (attempt ${pending.retryCount + 1}/$MAX_RETRIES): $finalError")
 
                         // Ждем перед следующей попыткой
                         delay(RETRY_DELAY_MS)

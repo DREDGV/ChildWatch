@@ -131,6 +131,46 @@
 
         </com.google.android.material.textfield.TextInputLayout>
 
+        <!-- Role -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/roleInputLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Роль"
+            app:helperText="Ребенок, Родитель или Родственник"
+            app:helperTextEnabled="true"
+            android:layout_marginBottom="12dp">
+
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/roleInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="none"
+                android:focusable="false"
+                android:maxLines="1" />
+
+        </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Icon -->
+        <com.google.android.material.textfield.TextInputLayout
+            android:id="@+id/iconInputLayout"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Иконка"
+            app:helperText="Выберите иконку для карты"
+            app:helperTextEnabled="true"
+            android:layout_marginBottom="12dp">
+
+            <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                android:id="@+id/iconInput"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:inputType="none"
+                android:focusable="false"
+                android:maxLines="1" />
+
+        </com.google.android.material.textfield.TextInputLayout>
+
         <!-- Phone Number with contact picker -->
         <com.google.android.material.textfield.TextInputLayout
             android:id="@+id/childPhoneInputLayout"
@@ -152,6 +192,48 @@
                 android:maxLines="1" />
 
         </com.google.android.material.textfield.TextInputLayout>
+
+        <!-- Permissions -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Разрешения"
+            android:textStyle="bold"
+            android:textSize="13sp"
+            android:textColor="?android:attr/textColorPrimary"
+            android:layout_marginTop="4dp"
+            android:layout_marginBottom="8dp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:layout_marginBottom="8dp">
+
+            <com.google.android.material.checkbox.MaterialCheckBox
+                android:id="@+id/featureChatCheck"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Чат" />
+
+            <com.google.android.material.checkbox.MaterialCheckBox
+                android:id="@+id/featureMapCheck"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Карта" />
+
+            <com.google.android.material.checkbox.MaterialCheckBox
+                android:id="@+id/featureAudioCheck"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Прослушка" />
+
+            <com.google.android.material.checkbox.MaterialCheckBox
+                android:id="@+id/featurePhotoCheck"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Фото" />
+        </LinearLayout>
 
         <!-- Info Card -->
         <com.google.android.material.card.MaterialCardView

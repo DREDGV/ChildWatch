@@ -6,6 +6,23 @@ plugins {
     id 'com.google.gms.google-services' version '4.3.15' apply false
 }
 
+def versionBase = (findProperty("cwVersionBase") ?: "7.1").toString()
+def buildMoment = new Date()
+def codeStamp = (System.currentTimeMillis() / 1000L).toLong()
+def nameStamp = buildMoment.format("yyDDD.HHmmss")
+
+ext.cwVersionCode = (findProperty("cwVersionCode") ?: codeStamp).toString().toInteger()
+ext.cwVersionName = (findProperty("cwVersionName") ?: "${versionBase}.${nameStamp}").toString()
+
+tasks.register('printVersionInfo') {
+    group = 'help'
+    description = 'Shows resolved ChildWatch versionName/versionCode for this build session.'
+    doLast {
+        println "ChildWatch versionName=${ext.cwVersionName}"
+        println "ChildWatch versionCode=${ext.cwVersionCode}"
+    }
+}
+
 // Guard against broken encodings ("кракозябры") in source/resources
 def utf8Suspicious = ["Ã", "Ð", "Ñ", "�"]
 

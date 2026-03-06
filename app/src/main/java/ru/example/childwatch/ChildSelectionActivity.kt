@@ -23,6 +23,8 @@ import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.floatingactionbutton.FloatingActionButton
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
+import com.google.android.material.textfield.MaterialAutoCompleteTextView
+import com.google.android.material.checkbox.MaterialCheckBox
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.launch
@@ -30,6 +32,9 @@ import ru.example.childwatch.adapter.ChildrenAdapter
 import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.database.entity.Child
 import ru.example.childwatch.database.repository.ChildRepository
+import ru.example.childwatch.contacts.ContactFeatures
+import ru.example.childwatch.contacts.ContactIcons
+import ru.example.childwatch.contacts.ContactRoles
 import ru.example.childwatch.databinding.ActivityChildSelectionBinding
 import android.util.Log
 
@@ -76,6 +81,12 @@ class ChildSelectionActivity : AppCompatActivity() {
     private var currentNameInput: TextInputEditText? = null
     private var currentPhoneInput: TextInputEditText? = null
     private var currentDeviceIdInput: TextInputEditText? = null
+    private var currentRoleInput: MaterialAutoCompleteTextView? = null
+    private var currentIconInput: MaterialAutoCompleteTextView? = null
+    private var currentChatCheck: MaterialCheckBox? = null
+    private var currentMapCheck: MaterialCheckBox? = null
+    private var currentAudioCheck: MaterialCheckBox? = null
+    private var currentPhotoCheck: MaterialCheckBox? = null
 
     // Launcher for contact selection
     private val pickContactLauncher = registerForActivityResult(
@@ -219,7 +230,10 @@ class ChildSelectionActivity : AppCompatActivity() {
 
         // Сохранить выбранное устройство
         val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-        prefs.edit().putString("selected_device_id", child.deviceId).apply()
+        prefs.edit()
+            .putString("selected_device_id", child.deviceId)
+            .putString("child_device_id", child.deviceId) // compat for existing flows
+            .apply()
 
         // Вернуть результат
         val resultIntent = Intent().apply {
@@ -247,6 +261,12 @@ class ChildSelectionActivity : AppCompatActivity() {
         val childAgeInput = dialogView.findViewById<TextInputEditText>(R.id.childAgeInput)
         val childPhoneInputLayout = dialogView.findViewById<TextInputLayout>(R.id.childPhoneInputLayout)
         val childPhoneInput = dialogView.findViewById<TextInputEditText>(R.id.childPhoneInput)
+        val roleInput = dialogView.findViewById<MaterialAutoCompleteTextView>(R.id.roleInput)
+        val iconInput = dialogView.findViewById<MaterialAutoCompleteTextView>(R.id.iconInput)
+        val featureChatCheck = dialogView.findViewById<MaterialCheckBox>(R.id.featureChatCheck)
+        val featureMapCheck = dialogView.findViewById<MaterialCheckBox>(R.id.featureMapCheck)
+        val featureAudioCheck = dialogView.findViewById<MaterialCheckBox>(R.id.featureAudioCheck)
+        val featurePhotoCheck = dialogView.findViewById<MaterialCheckBox>(R.id.featurePhotoCheck)
 
         // Set up avatar selection
         currentAvatarImageView = avatarImage
@@ -258,6 +278,12 @@ class ChildSelectionActivity : AppCompatActivity() {
         currentNameInput = childNameInput
         currentPhoneInput = childPhoneInput
         currentDeviceIdInput = deviceIdInput
+        currentRoleInput = roleInput
+        currentIconInput = iconInput
+        currentChatCheck = featureChatCheck
+        currentMapCheck = featureMapCheck
+        currentAudioCheck = featureAudioCheck
+        currentPhotoCheck = featurePhotoCheck
         Log.d(TAG, "Setting up contact picker button")
         selectContactButton.setOnClickListener {
             Log.d(TAG, "Contact picker button clicked!")
@@ -293,6 +319,21 @@ class ChildSelectionActivity : AppCompatActivity() {
             }
         }
 
+        // Setup role/icon dropdowns
+        val roleOptions = arrayOf("Ребенок", "Родитель", "Родственник")
+        roleInput.setSimpleItems(roleOptions)
+        roleInput.setText(ContactRoles.label(ContactRoles.CHILD), false)
+
+        val iconOptions = ContactIcons.options()
+        iconInput.setSimpleItems(iconOptions.map { it.label }.toTypedArray())
+        iconInput.setText(iconOptions.first().label, false)
+
+        // Default permissions: all enabled
+        featureChatCheck.isChecked = true
+        featureMapCheck.isChecked = true
+        featureAudioCheck.isChecked = true
+        featurePhotoCheck.isChecked = true
+
         MaterialAlertDialogBuilder(this)
             .setTitle("Добавить устройство")
             .setView(dialogView)
@@ -301,12 +342,23 @@ class ChildSelectionActivity : AppCompatActivity() {
                 val childName = childNameInput.text.toString().trim()
                 val ageText = childAgeInput.text.toString().trim()
                 val phoneNumber = childPhoneInput.text.toString().trim()
+                val roleValue = ContactRoles.fromLabel(roleInput.text?.toString().orEmpty())
+                val iconId = resolveIconId(iconInput.text?.toString().orEmpty())
+                val allowed = buildAllowedFeatures(
+                    featureChatCheck.isChecked,
+                    featureMapCheck.isChecked,
+                    featureAudioCheck.isChecked,
+                    featurePhotoCheck.isChecked
+                )
 
                 if (deviceId.isNotEmpty() && childName.isNotEmpty()) {
                     val age = ageText.toIntOrNull()
                     addChild(
                         deviceId = deviceId,
                         name = childName,
+                        role = roleValue,
+                        iconId = iconId,
+                        allowedFeatures = allowed,
                         age = age,
                         phoneNumber = phoneNumber.ifEmpty { null },
                         avatarUrl = selectedAvatarUri?.toString()
@@ -319,11 +371,23 @@ class ChildSelectionActivity : AppCompatActivity() {
                 currentAvatarImageView = null
                 currentNameInput = null
                 currentPhoneInput = null
+                currentRoleInput = null
+                currentIconInput = null
+                currentChatCheck = null
+                currentMapCheck = null
+                currentAudioCheck = null
+                currentPhotoCheck = null
             }
             .setOnDismissListener {
                 currentAvatarImageView = null
                 currentNameInput = null
                 currentPhoneInput = null
+                currentRoleInput = null
+                currentIconInput = null
+                currentChatCheck = null
+                currentMapCheck = null
+                currentAudioCheck = null
+                currentPhotoCheck = null
             }
             .show()
     }
@@ -334,6 +398,9 @@ class ChildSelectionActivity : AppCompatActivity() {
     private fun addChild(
         deviceId: String,
         name: String,
+        role: String,
+        iconId: Int,
+        allowedFeatures: Int,
         age: Int? = null,
         phoneNumber: String? = null,
         avatarUrl: String? = null
@@ -352,6 +419,9 @@ class ChildSelectionActivity : AppCompatActivity() {
                 val child = Child(
                     deviceId = deviceId,
                     name = name,
+                    role = role,
+                    iconId = iconId,
+                    allowedFeatures = allowedFeatures,
                     age = age,
                     phoneNumber = phoneNumber,
                     avatarUrl = avatarUrl,
@@ -389,6 +459,12 @@ class ChildSelectionActivity : AppCompatActivity() {
         val childAgeInput = dialogView.findViewById<TextInputEditText>(R.id.childAgeInput)
         val childPhoneInputLayout = dialogView.findViewById<TextInputLayout>(R.id.childPhoneInputLayout)
         val childPhoneInput = dialogView.findViewById<TextInputEditText>(R.id.childPhoneInput)
+        val roleInput = dialogView.findViewById<MaterialAutoCompleteTextView>(R.id.roleInput)
+        val iconInput = dialogView.findViewById<MaterialAutoCompleteTextView>(R.id.iconInput)
+        val featureChatCheck = dialogView.findViewById<MaterialCheckBox>(R.id.featureChatCheck)
+        val featureMapCheck = dialogView.findViewById<MaterialCheckBox>(R.id.featureMapCheck)
+        val featureAudioCheck = dialogView.findViewById<MaterialCheckBox>(R.id.featureAudioCheck)
+        val featurePhotoCheck = dialogView.findViewById<MaterialCheckBox>(R.id.featurePhotoCheck)
 
         // Заполнить текущие данные
         deviceIdInput.setText(child.deviceId)
@@ -397,6 +473,22 @@ class ChildSelectionActivity : AppCompatActivity() {
         childNameInput.setText(child.name)
         childAgeInput.setText(child.age?.toString() ?: "")
         childPhoneInput.setText(child.phoneNumber ?: "")
+
+        val roleOptions = arrayOf("Ребенок", "Родитель", "Родственник")
+        roleInput.setSimpleItems(roleOptions)
+        roleInput.setText(ContactRoles.label(child.role), false)
+
+        val iconOptions = ContactIcons.options()
+        iconInput.setSimpleItems(iconOptions.map { it.label }.toTypedArray())
+        iconInput.setText(
+            iconOptions.firstOrNull { it.id == child.iconId }?.label ?: iconOptions.first().label,
+            false
+        )
+
+        featureChatCheck.isChecked = ContactFeatures.isAllowed(child.allowedFeatures, ContactFeatures.CHAT)
+        featureMapCheck.isChecked = ContactFeatures.isAllowed(child.allowedFeatures, ContactFeatures.MAP)
+        featureAudioCheck.isChecked = ContactFeatures.isAllowed(child.allowedFeatures, ContactFeatures.AUDIO)
+        featurePhotoCheck.isChecked = ContactFeatures.isAllowed(child.allowedFeatures, ContactFeatures.PHOTO)
 
         // Set current avatar if exists
         if (child.avatarUrl != null) {
@@ -424,6 +516,12 @@ class ChildSelectionActivity : AppCompatActivity() {
 
         // Set up avatar selection
         currentAvatarImageView = avatarImage
+        currentRoleInput = roleInput
+        currentIconInput = iconInput
+        currentChatCheck = featureChatCheck
+        currentMapCheck = featureMapCheck
+        currentAudioCheck = featureAudioCheck
+        currentPhotoCheck = featurePhotoCheck
         changeAvatarButton.setOnClickListener {
             pickImageLauncher.launch("image/*")
         }
@@ -454,12 +552,23 @@ class ChildSelectionActivity : AppCompatActivity() {
                 val newName = childNameInput.text.toString().trim()
                 val ageText = childAgeInput.text.toString().trim()
                 val phoneNumber = childPhoneInput.text.toString().trim()
+                val roleValue = ContactRoles.fromLabel(roleInput.text?.toString().orEmpty())
+                val iconId = resolveIconId(iconInput.text?.toString().orEmpty())
+                val allowed = buildAllowedFeatures(
+                    featureChatCheck.isChecked,
+                    featureMapCheck.isChecked,
+                    featureAudioCheck.isChecked,
+                    featurePhotoCheck.isChecked
+                )
 
                 if (newName.isNotEmpty()) {
                     val age = ageText.toIntOrNull()
                     updateChild(
                         child = child,
                         newName = newName,
+                        newRole = roleValue,
+                        newIconId = iconId,
+                        newAllowedFeatures = allowed,
                         newAge = age,
                         newPhoneNumber = phoneNumber.ifEmpty { null },
                         newAvatarUrl = selectedAvatarUri?.toString()
@@ -472,17 +581,35 @@ class ChildSelectionActivity : AppCompatActivity() {
                 currentAvatarImageView = null
                 currentNameInput = null
                 currentPhoneInput = null
+                currentRoleInput = null
+                currentIconInput = null
+                currentChatCheck = null
+                currentMapCheck = null
+                currentAudioCheck = null
+                currentPhotoCheck = null
             }
             .setNeutralButton("Удалить") { _, _ ->
                 currentAvatarImageView = null
                 currentNameInput = null
                 currentPhoneInput = null
+                currentRoleInput = null
+                currentIconInput = null
+                currentChatCheck = null
+                currentMapCheck = null
+                currentAudioCheck = null
+                currentPhotoCheck = null
                 showDeleteConfirmDialog(child)
             }
             .setOnDismissListener {
                 currentAvatarImageView = null
                 currentNameInput = null
                 currentPhoneInput = null
+                currentRoleInput = null
+                currentIconInput = null
+                currentChatCheck = null
+                currentMapCheck = null
+                currentAudioCheck = null
+                currentPhotoCheck = null
             }
             .show()
     }
@@ -493,6 +620,9 @@ class ChildSelectionActivity : AppCompatActivity() {
     private fun updateChild(
         child: Child,
         newName: String,
+        newRole: String,
+        newIconId: Int,
+        newAllowedFeatures: Int,
         newAge: Int? = null,
         newPhoneNumber: String? = null,
         newAvatarUrl: String? = null
@@ -501,6 +631,9 @@ class ChildSelectionActivity : AppCompatActivity() {
             try {
                 val updatedChild = child.copy(
                     name = newName,
+                    role = newRole,
+                    iconId = newIconId,
+                    allowedFeatures = newAllowedFeatures,
                     age = newAge,
                     phoneNumber = newPhoneNumber,
                     avatarUrl = newAvatarUrl ?: child.avatarUrl,  // Keep old avatar if no new one selected
@@ -524,6 +657,19 @@ class ChildSelectionActivity : AppCompatActivity() {
                 showError("Ошибка: ${e.message}")
             }
         }
+    }
+
+    private fun buildAllowedFeatures(chat: Boolean, map: Boolean, audio: Boolean, photo: Boolean): Int {
+        var mask = 0
+        if (chat) mask = mask or ContactFeatures.CHAT
+        if (map) mask = mask or ContactFeatures.MAP
+        if (audio) mask = mask or ContactFeatures.AUDIO
+        if (photo) mask = mask or ContactFeatures.PHOTO
+        return mask
+    }
+
+    private fun resolveIconId(label: String): Int {
+        return ContactIcons.options().firstOrNull { it.label == label }?.id ?: ContactIcons.DEFAULT
     }
 
     /**

@@ -1,4 +1,4 @@
-package ru.example.parentwatch
+﻿package ru.example.parentwatch
 
 import android.os.Bundle
 import android.os.Handler
@@ -46,7 +46,10 @@ class ChatActivity : AppCompatActivity() {
             receiveMessage(messageId, text, sender, timestamp)
         }
     }
+    private var chatStatusListener: ((String, String, Long) -> Unit)? = null
+    private var chatMessageSentListener: ((String, Boolean, Long) -> Unit)? = null
     
+    private val readReceiptSentIds = java.util.Collections.synchronizedSet(mutableSetOf<String>())
     // Typing indicator
     private val typingHandler = Handler(Looper.getMainLooper())
     private var typingRunnable: Runnable? = null
@@ -75,7 +78,7 @@ class ChatActivity : AppCompatActivity() {
         
         if (deviceId.isEmpty()) {
             Log.e(TAG, "Device ID not set - cannot initialize chat")
-            Toast.makeText(this, "⚠️ Устройство не зарегистрировано. Настройте ID в настройках", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.chat_error_device_not_registered), Toast.LENGTH_LONG).show()
             finish()
             return
         }
@@ -90,11 +93,13 @@ class ChatActivity : AppCompatActivity() {
                 sendMessageViaWebSocket(message, onSuccess, onError)
             }
         })
+        messageQueue.setReadyProvider { WebSocketManager.isReady() }
 
         // Setup UI
         setupUI()
         setupRecyclerView()
         loadMessages()
+        NotificationManager.resetUnreadCount()
 
         // Initialize WebSocket if not connected
         initializeWebSocket()
@@ -160,7 +165,7 @@ class ChatActivity : AppCompatActivity() {
                     // Start typing
                     isCurrentlyTyping = true
                     WebSocketManager.sendTypingStatus(true)
-                    Log.d(TAG, "📝 Started typing")
+                    Log.d(TAG, "рџ“ќ Started typing")
                 }
                 
                 if (hasText) {
@@ -169,7 +174,7 @@ class ChatActivity : AppCompatActivity() {
                         if (isCurrentlyTyping) {
                             isCurrentlyTyping = false
                             WebSocketManager.sendTypingStatus(false)
-                            Log.d(TAG, "📝 Stopped typing (timeout)")
+                            Log.d(TAG, "рџ“ќ Stopped typing (timeout)")
                         }
                     }
                     typingHandler.postDelayed(typingRunnable!!, TYPING_TIMEOUT)
@@ -177,7 +182,7 @@ class ChatActivity : AppCompatActivity() {
                     // Stop typing if field is empty
                     isCurrentlyTyping = false
                     WebSocketManager.sendTypingStatus(false)
-                    Log.d(TAG, "📝 Stopped typing (empty)")
+                    Log.d(TAG, "рџ“ќ Stopped typing (empty)")
                 }
             }
             
@@ -200,7 +205,7 @@ class ChatActivity : AppCompatActivity() {
     private fun sendMessage() {
         val messageText = binding.messageInput.text.toString().trim()
         if (messageText.isEmpty()) {
-            Toast.makeText(this, "Введите сообщение", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.chat_enter_message), Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -244,18 +249,21 @@ class ChatActivity : AppCompatActivity() {
 
     private fun sendReadReceiptsFor(messageList: List<ChatMessage>) {
         messageList
-            .filter { it.sender != currentUser && it.status != ChatMessage.MessageStatus.READ }
+            .filter { it.sender != currentUser && !it.isRead && it.status != ChatMessage.MessageStatus.READ }
+            .filter { readReceiptSentIds.add(it.id) }
             .forEach { message ->
-                chatManagerAdapter.updateMessageStatus(message.id, ChatMessage.MessageStatus.READ)
+                updateMessageStatus(message.id, ChatMessage.MessageStatus.READ)
+                chatManagerAdapter.markAsRead(message.id)
                 WebSocketManager.sendChatStatus(message.id, "read", "child")
             }
     }
 
     private fun clearChat() {
         messages.clear()
+        readReceiptSentIds.clear()
         chatAdapter.notifyDataSetChanged()
         chatManagerAdapter.clearAllMessages()
-        Toast.makeText(this, "Чат очищен", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.chat_cleared), Toast.LENGTH_SHORT).show()
     }
 
     private fun loadMessages() {
@@ -289,7 +297,7 @@ class ChatActivity : AppCompatActivity() {
 
         if (deviceId.isEmpty()) {
             Log.w(TAG, "Device ID not set, cannot initialize WebSocket")
-            Toast.makeText(this, "⚠️ Device ID не настроен", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.chat_error_device_id_not_set), Toast.LENGTH_SHORT).show()
             return
         }
 
@@ -301,6 +309,18 @@ class ChatActivity : AppCompatActivity() {
 
         // Set up message callback for this activity
         WebSocketManager.addChatMessageListener(chatListener)
+        if (chatStatusListener == null) {
+            chatStatusListener = { messageId, status, _ ->
+                runOnUiThread { handleRemoteStatusUpdate(messageId, status) }
+            }
+            WebSocketManager.addChatStatusListener(chatStatusListener!!)
+        }
+        if (chatMessageSentListener == null) {
+            chatMessageSentListener = { messageId, delivered, _ ->
+                runOnUiThread { handleMessageSentAck(messageId, delivered) }
+            }
+            WebSocketManager.addChatMessageSentListener(chatMessageSentListener!!)
+        }
         WebSocketManager.setParentConnectedCallback {
             runOnUiThread { updateConnectionStatus(ConnectionStatus.CONNECTED) }
         }
@@ -308,11 +328,25 @@ class ChatActivity : AppCompatActivity() {
             runOnUiThread { updateConnectionStatus(ConnectionStatus.DISCONNECTED) }
         }
 
-        // Check if already connected
-        if (WebSocketManager.isConnected()) {
+        if (WebSocketManager.isReady()) {
             updateConnectionStatus(ConnectionStatus.CONNECTED)
+            messageQueue.retry()
         } else {
             updateConnectionStatus(ConnectionStatus.CONNECTING)
+            WebSocketManager.ensureConnected(
+                onReady = {
+                    runOnUiThread {
+                        updateConnectionStatus(ConnectionStatus.CONNECTED)
+                        messageQueue.retry()
+                    }
+                },
+                onError = { error ->
+                    runOnUiThread {
+                        updateConnectionStatus(ConnectionStatus.DISCONNECTED)
+                        Log.e(TAG, "WebSocket connection error: $error")
+                    }
+                }
+            )
         }
     }
 
@@ -364,14 +398,14 @@ class ChatActivity : AppCompatActivity() {
             sender = message.sender,
             onSuccess = {
                 runOnUiThread {
-                    Log.d(TAG, "✅ Message ${message.id} sent successfully")
+                    Log.d(TAG, "вњ… Message ${message.id} sent successfully")
                     updateMessageStatus(message.id, ChatMessage.MessageStatus.SENT)
                     onSuccess?.invoke()
                 }
             },
             onError = { error ->
                 runOnUiThread {
-                    Log.e(TAG, "❌ Error sending message ${message.id}: $error")
+                    Log.e(TAG, "вќЊ Error sending message ${message.id}: $error")
                     updateMessageStatus(message.id, ChatMessage.MessageStatus.FAILED)
                     onError?.invoke(error)
                 }
@@ -379,12 +413,38 @@ class ChatActivity : AppCompatActivity() {
         )
     }
 
+    private fun handleMessageSentAck(messageId: String, delivered: Boolean) {
+        val status = if (delivered) {
+            ChatMessage.MessageStatus.DELIVERED
+        } else {
+            ChatMessage.MessageStatus.SENT
+        }
+        updateMessageStatus(messageId, status)
+        chatManagerAdapter.updateMessageStatus(messageId, status)
+    }
+
+    private fun handleRemoteStatusUpdate(messageId: String, status: String) {
+        val mapped = when (status.lowercase(java.util.Locale.ROOT)) {
+            "sent" -> ChatMessage.MessageStatus.SENT
+            "delivered" -> ChatMessage.MessageStatus.DELIVERED
+            "read" -> ChatMessage.MessageStatus.READ
+            "failed" -> ChatMessage.MessageStatus.FAILED
+            else -> null
+        } ?: return
+
+        updateMessageStatus(messageId, mapped)
+        chatManagerAdapter.updateMessageStatus(messageId, mapped)
+    }
+
     /**
      * Receive message from WebSocket
      */
     private fun receiveMessage(messageId: String, text: String, sender: String, timestamp: Long) {
-        // Check if message already exists
-        if (messages.any { it.id == messageId }) {
+        val existingMessage = messages.firstOrNull { it.id == messageId }
+        if (existingMessage != null) {
+            if (existingMessage.sender != currentUser && !existingMessage.isRead) {
+                sendReadReceiptsFor(listOf(existingMessage))
+            }
             Log.d(TAG, "Message $messageId already exists, skipping")
             return
         }
@@ -394,8 +454,8 @@ class ChatActivity : AppCompatActivity() {
             text = text,
             sender = sender,
             timestamp = timestamp,
-            isRead = true,
-            status = ChatMessage.MessageStatus.READ
+            isRead = false,
+            status = ChatMessage.MessageStatus.DELIVERED
         )
 
         // Add to list
@@ -410,7 +470,7 @@ class ChatActivity : AppCompatActivity() {
         sendReadReceiptsFor(listOf(message))
 
         Log.d(TAG, "Received message from $sender: $text")
-        Toast.makeText(this, "💬 Новое сообщение от ${message.getSenderName()}", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, getString(R.string.chat_new_message_from, message.getSenderName()), Toast.LENGTH_SHORT).show()
         
         // Show notification if app is not in foreground
         if (!isAppInForeground()) {
@@ -441,14 +501,18 @@ class ChatActivity : AppCompatActivity() {
      */
     private fun showEmojiPicker() {
         val emojis = listOf(
-            "😊", "😂", "❤️", "👍", "👋", "🙏", "😍", "😢", "😭", "😡",
-            "🎉", "🎊", "🎈", "🎁", "⭐", "✨", "🔥", "💯", "✅", "❌",
-            "👶", "👦", "👧", "👨", "👩", "👪", "🏠", "🏫", "📚", "✏️",
-            "🍎", "🍕", "🍰", "🎮", "⚽", "🏀", "🎵", "📱", "💻", "🚗"
+            cp(0x1F60A), cp(0x1F602), cp(0x2764, 0xFE0F), cp(0x1F44D), cp(0x1F44B),
+            cp(0x1F64F), cp(0x1F60D), cp(0x1F622), cp(0x1F62D), cp(0x1F621),
+            cp(0x1F389), cp(0x1F38A), cp(0x1F380), cp(0x1F381), cp(0x2B50),
+            cp(0x2728), cp(0x1F525), cp(0x1F4AF), cp(0x2705), cp(0x274C),
+            cp(0x1F476), cp(0x1F466), cp(0x1F467), cp(0x1F468), cp(0x1F469),
+            cp(0x1F46A), cp(0x1F3E0), cp(0x1F3EB), cp(0x1F4DA), cp(0x270F, 0xFE0F),
+            cp(0x1F34E), cp(0x1F355), cp(0x1F370), cp(0x1F3AE), cp(0x26BD),
+            cp(0x1F3C0), cp(0x1F3B5), cp(0x1F4F1), cp(0x1F4BB), cp(0x1F697)
         )
 
         val builder = androidx.appcompat.app.AlertDialog.Builder(this)
-        builder.setTitle("Выберите emoji")
+        builder.setTitle(getString(R.string.chat_emoji_picker_title))
 
         // Create grid layout for emojis
         val gridLayout = android.widget.GridLayout(this).apply {
@@ -465,7 +529,7 @@ class ChatActivity : AppCompatActivity() {
                 com.google.android.material.R.attr.materialButtonOutlinedStyle
             ).apply {
                 text = emoji
-                textSize = 28f // Увеличен размер emoji
+                textSize = 28f // РЈРІРµР»РёС‡РµРЅ СЂР°Р·РјРµСЂ emoji
                 minWidth = 0
                 minHeight = 0
                 minimumWidth = 0
@@ -475,7 +539,7 @@ class ChatActivity : AppCompatActivity() {
                 insetBottom = 0
                 iconPadding = 0
 
-                val size = (64 * resources.displayMetrics.density).toInt() // Увеличен с 48dp до 64dp
+                val size = (64 * resources.displayMetrics.density).toInt() // РЈРІРµР»РёС‡РµРЅ СЃ 48dp РґРѕ 64dp
                 layoutParams = android.widget.GridLayout.LayoutParams().apply {
                     width = size
                     height = size
@@ -499,8 +563,12 @@ class ChatActivity : AppCompatActivity() {
         }
 
         builder.setView(gridLayout)
-        builder.setNegativeButton("Закрыть", null)
+        builder.setNegativeButton(getString(R.string.chat_close), null)
         dialogInstance = builder.show()
+    }
+
+    private fun cp(vararg codePoints: Int): String = buildString {
+        codePoints.forEach { append(String(Character.toChars(it))) }
     }
 
     /**
@@ -512,47 +580,87 @@ class ChatActivity : AppCompatActivity() {
             val parentName = prefs.getString("parent_name", null)
 
             val title = if (!parentName.isNullOrEmpty()) {
-                "Чат с $parentName"
+                getString(R.string.chat_title_with_name, parentName)
             } else {
-                "Чат с родителями"
+                getString(R.string.chat_title_with_parents)
             }
 
             supportActionBar?.title = title
             Log.d(TAG, "Chat title set to: $title")
         } catch (e: Exception) {
             Log.e(TAG, "Error loading parent name", e)
-            supportActionBar?.title = "Чат"
+            supportActionBar?.title = getString(R.string.chat_title_generic)
         }
     }
 
     /**
-     * Обновление статуса сообщения
+     * РћР±РЅРѕРІР»РµРЅРёРµ СЃС‚Р°С‚СѓСЃР° СЃРѕРѕР±С‰РµРЅРёСЏ
      */
     private fun updateMessageStatus(messageId: String, status: ChatMessage.MessageStatus) {
         val index = messages.indexOfFirst { it.id == messageId }
         if (index != -1) {
+            val currentStatus = messages[index].status
+            if (!shouldApplyStatus(currentStatus, status)) {
+                return
+            }
             messages[index] = messages[index].withStatus(status)
             chatAdapter.notifyItemChanged(index)
             chatManagerAdapter.saveMessage(messages[index])
         }
     }
 
+    private fun shouldApplyStatus(
+        currentStatus: ChatMessage.MessageStatus,
+        newStatus: ChatMessage.MessageStatus
+    ): Boolean {
+        if (newStatus == currentStatus) return false
+        if (newStatus == ChatMessage.MessageStatus.FAILED) {
+            return currentStatus == ChatMessage.MessageStatus.SENDING ||
+                currentStatus == ChatMessage.MessageStatus.SENT
+        }
+        val rank = mapOf(
+            ChatMessage.MessageStatus.FAILED to -1,
+            ChatMessage.MessageStatus.SENDING to 0,
+            ChatMessage.MessageStatus.SENT to 1,
+            ChatMessage.MessageStatus.DELIVERED to 2,
+            ChatMessage.MessageStatus.READ to 3
+        )
+        return (rank[newStatus] ?: 0) >= (rank[currentStatus] ?: 0)
+    }
+
     /**
-     * Повторная отправка неудавшегося сообщения
+     * РџРѕРІС‚РѕСЂРЅР°СЏ РѕС‚РїСЂР°РІРєР° РЅРµСѓРґР°РІС€РµРіРѕСЃСЏ СЃРѕРѕР±С‰РµРЅРёСЏ
      */
     private fun retryFailedMessage(message: ChatMessage) {
-        Log.d(TAG, "Повторная отправка сообщения: ${message.id}")
+        Log.d(TAG, "РџРѕРІС‚РѕСЂРЅР°СЏ РѕС‚РїСЂР°РІРєР° СЃРѕРѕР±С‰РµРЅРёСЏ: ${message.id}")
         
-        // Обновляем статус на "отправка"
+        // РћР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚СѓСЃ РЅР° "РѕС‚РїСЂР°РІРєР°"
         updateMessageStatus(message.id, ChatMessage.MessageStatus.SENDING)
         
-        // Повторно добавляем в очередь
+        // РџРѕРІС‚РѕСЂРЅРѕ РґРѕР±Р°РІР»СЏРµРј РІ РѕС‡РµСЂРµРґСЊ
         messageQueue.enqueue(message)
     }
 
     override fun onSupportNavigateUp(): Boolean {
         finish()
         return true
+    }
+
+    override fun onResume() {
+        super.onResume()
+        getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+            .edit()
+            .putBoolean("chat_open", true)
+            .apply()
+        NotificationManager.resetUnreadCount()
+    }
+
+    override fun onPause() {
+        getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+            .edit()
+            .putBoolean("chat_open", false)
+            .apply()
+        super.onPause()
     }
 
     override fun onDestroy() {
@@ -567,6 +675,10 @@ class ChatActivity : AppCompatActivity() {
         chatManagerAdapter.cleanup()
         messageQueue.release()
         WebSocketManager.removeChatMessageListener(chatListener)
+        chatStatusListener?.let { WebSocketManager.removeChatStatusListener(it) }
+        chatStatusListener = null
+        chatMessageSentListener?.let { WebSocketManager.removeChatMessageSentListener(it) }
+        chatMessageSentListener = null
         WebSocketManager.clearParentConnectedCallback()
         WebSocketManager.clearParentDisconnectedCallback()
     }

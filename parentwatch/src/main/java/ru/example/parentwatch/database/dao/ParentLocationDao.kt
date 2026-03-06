@@ -22,6 +22,9 @@ interface ParentLocationDao {
     @Query("SELECT * FROM parent_locations WHERE parent_id = :parentId ORDER BY timestamp DESC LIMIT 1")
     suspend fun getLatestLocation(parentId: String): ParentLocation?
 
+    @Query("SELECT * FROM parent_locations ORDER BY timestamp DESC LIMIT 1")
+    suspend fun getLatestAnyLocation(): ParentLocation?
+
     @Query("SELECT * FROM parent_locations WHERE parent_id = :parentId ORDER BY timestamp DESC")
     fun getAllLocationsFlow(parentId: String): Flow<List<ParentLocation>>
 

@@ -1,4 +1,4 @@
-package ru.example.childwatch
+﻿package ru.example.childwatch
 
 import android.Manifest
 import android.content.Intent
@@ -23,12 +23,17 @@ import ru.example.childwatch.network.DeviceStatus
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.service.MonitorService
 import ru.example.childwatch.service.ChatBackgroundService
+import ru.example.childwatch.service.ParentLocationService
 import ru.example.childwatch.utils.BatteryOptimizationHelper
 import ru.example.childwatch.utils.PermissionHelper
 import ru.example.childwatch.utils.SecurityChecker
 import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.chat.ChatManager
 import ru.example.childwatch.network.WebSocketManager
+import ru.example.childwatch.contacts.ContactIcons
+import ru.example.childwatch.contacts.ContactFeatures
+import ru.example.childwatch.contacts.ContactRoles
+import ru.example.childwatch.database.entity.Child
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -58,6 +63,8 @@ class MainActivity : AppCompatActivity() {
     private val gson by lazy { Gson() }
     private var latestDeviceStatus: DeviceStatus? = null
     private var deviceStatusJob: Job? = null
+    private var deviceStatusRefreshJob: Job? = null
+    private var badgeRefreshJob: Job? = null
     private var lastStatusFetchTime = 0L
     
     // Permission launchers for different permission groups
@@ -108,6 +115,7 @@ class MainActivity : AppCompatActivity() {
         checkBatteryOptimizationStatus()
         CriticalAlertSyncScheduler.schedule(this)
         ensureChatBackgroundService()
+        ensureParentLocationService()
         
         // Initialize WebSocket for commands (remote camera, etc.)
         initializeWebSocket()
@@ -119,27 +127,27 @@ class MainActivity : AppCompatActivity() {
     private fun initializeWebSocket() {
         try {
             val serverUrl = getConfiguredServerUrl()
-            val deviceId = prefs.getString("device_id", "") ?: ""
+            val targetDeviceId = resolveTargetDeviceId()
             
-            if (deviceId.isNotEmpty() && !serverUrl.isNullOrBlank()) {
+            if (!targetDeviceId.isNullOrBlank() && !serverUrl.isNullOrBlank()) {
                 ru.example.childwatch.network.WebSocketManager.initialize(
                     this,
                     serverUrl,
-                    deviceId
+                    targetDeviceId
                 )
                 ru.example.childwatch.network.WebSocketManager.connect(
                     onConnected = {
-                        Log.d(TAG, "✅ WebSocket connected for commands")
-                        // Start parent location sharing service
-                        ru.example.childwatch.service.ParentLocationService.start(this)
+                        Log.d(TAG, "WebSocket connected for target: $targetDeviceId")
                     },
                     onError = { error ->
-                        Log.e(TAG, "❌ WebSocket connection error: $error")
+                        Log.e(TAG, "РІСњРЉ WebSocket connection error: $error")
                     }
                 )
-            }
-            if (serverUrl.isNullOrBlank()) {
-                Log.w(TAG, "WebSocket init skipped: server URL not configured")
+            } else {
+                Log.w(
+                    TAG,
+                    "WebSocket init skipped: serverUrlPresent=${!serverUrl.isNullOrBlank()}, targetDeviceId=$targetDeviceId"
+                )
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing WebSocket", e)
@@ -192,53 +200,70 @@ class MainActivity : AppCompatActivity() {
 
         binding.audioStreamingCard.setOnClickListener {
             val serverUrl = getConfiguredServerUrl()
-            val childDeviceId = prefs.getString("child_device_id", "")
-
             if (serverUrl.isNullOrBlank()) {
                 showToast(getString(R.string.server_url_missing))
                 return@setOnClickListener
             }
-
-            if (childDeviceId.isNullOrEmpty()) {
+            val targetDeviceId = resolveTargetDeviceId()
+            if (targetDeviceId.isNullOrBlank()) {
                 showDeviceIdOptions(serverUrl)
-            } else {
-                val intent = Intent(this, AudioStreamingActivity::class.java).apply {
-                    putExtra(AudioStreamingActivity.EXTRA_DEVICE_ID, childDeviceId)
-                    putExtra(AudioStreamingActivity.EXTRA_SERVER_URL, serverUrl)
-                }
-                startActivity(intent)
+                return@setOnClickListener
             }
+            val intent = Intent(this@MainActivity, AudioStreamingActivity::class.java).apply {
+                putExtra(AudioStreamingActivity.EXTRA_DEVICE_ID, targetDeviceId)
+                putExtra(AudioStreamingActivity.EXTRA_SERVER_URL, serverUrl)
+            }
+            startActivity(intent)
         }
 
         binding.chatCard.setOnClickListener {
-            val intent = Intent(this, ChatActivity::class.java)
+            val targetDeviceId = resolveTargetDeviceId()
+            if (targetDeviceId.isNullOrBlank()) {
+                showToast(getString(R.string.main_toast_set_child_device_id))
+                return@setOnClickListener
+            }
+            ru.example.childwatch.utils.NotificationManager.resetUnreadCount()
+            try {
+                chatManager.markAllAsRead()
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to mark chat messages as read before opening chat", e)
+            }
+            updateChatBadge()
+            prefs.edit()
+                .putString("child_device_id", targetDeviceId)
+                .putString("selected_device_id", targetDeviceId)
+                .apply()
+            val intent = Intent(this@MainActivity, ChatActivity::class.java)
             startActivity(intent)
         }
         
-        // Единственная кнопка камеры - удалённая съёмка
+        // Р•РґРёРЅСЃС‚РІРµРЅРЅР°СЏ РєРЅРѕРїРєР° РєР°РјРµСЂС‹ - СѓРґР°Р»С‘РЅРЅР°СЏ СЃСЉС‘РјРєР°
         binding.remoteCameraCard.setOnClickListener {
             openRemoteCamera()
         }
         
-        // Location map card - show parent+child on map
+        // Location map card (legacy mode): parent + selected child
         findViewById<View>(R.id.parentLocationCard)?.setOnClickListener {
             val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-            val parentId = prefs.getString("parent_device_id", null)
-                ?: prefs.getString("device_id", null) // legacy fallback
-                ?: "unknown"
-            val childId = prefs.getString("child_device_id", null)
-            
-            if (childId != null) {
-                val intent = DualLocationMapActivity.createIntent(
-                    context = this,
-                    myRole = DualLocationMapActivity.ROLE_CHILD,
-                    myId = childId,
-                    otherId = parentId
-                )
-                startActivity(intent)
-            } else {
-                Toast.makeText(this, "Выберите устройство ребенка в настройках", Toast.LENGTH_SHORT).show()
+            val myId = listOf(
+                prefs.getString("device_id", null),
+                prefs.getString("parent_device_id", null)
+            )
+                .mapNotNull { it?.trim() }
+                .firstOrNull { it.isNotBlank() }
+                .orEmpty()
+            val otherId = resolveTargetDeviceId()
+            if (otherId.isNullOrBlank()) {
+                showToast(getString(R.string.main_toast_set_child_device_id))
+                return@setOnClickListener
             }
+            val intent = DualLocationMapActivity.createIntent(
+                context = this,
+                myRole = DualLocationMapActivity.ROLE_PARENT,
+                myId = myId,
+                otherId = otherId
+            )
+            startActivity(intent)
         }
         
         binding.settingsCard.setOnClickListener {
@@ -255,7 +280,7 @@ class MainActivity : AppCompatActivity() {
                     childSelectionLauncher.launch(intent)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error launching ChildSelectionActivity", e)
-                    showToast("Ошибка запуска: ${e.message}")
+                    showToast(getString(R.string.main_toast_launch_error, e.message ?: "unknown"))
                 }
             }
         } catch (e: Exception) {
@@ -268,6 +293,9 @@ class MainActivity : AppCompatActivity() {
         } catch (e: Exception) {
             Log.e(TAG, "Error loading selected child", e)
         }
+
+        // Ensure legacy single-device setups work without manual contact creation
+        ensureLegacyContact()
     }
     
     private fun setupBatteryOptimizationUi() {
@@ -434,7 +462,7 @@ class MainActivity : AppCompatActivity() {
                 val runningTime = System.currentTimeMillis() - serviceStartTime
                 val hours = runningTime / (1000 * 60 * 60)
                 val minutes = (runningTime % (1000 * 60 * 60)) / (1000 * 60)
-                val timeString = "${hours}ч ${minutes}м"
+                val timeString = getString(R.string.service_running_time_value, hours, minutes)
                 binding.serviceRunningTimeText.text = getString(R.string.service_running_time, timeString)
                 binding.serviceRunningTimeText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
             } else {
@@ -525,15 +553,10 @@ class MainActivity : AppCompatActivity() {
         binding.deviceInfoCard.isVisible = true
         binding.deviceInfoProgress.isVisible = false
 
-        val childDeviceId = secureSettings.getChildDeviceId()?.takeIf { it.isNotBlank() }
-            ?: run {
-                val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-                val storedId = prefs.getString("child_device_id", null)
-                if (!storedId.isNullOrBlank()) {
-                    secureSettings.setChildDeviceId(storedId)
-                }
-                storedId
-            }
+        val childDeviceId = resolveDeviceIdForStatus()
+        if (!childDeviceId.isNullOrBlank()) {
+            secureSettings.setChildDeviceId(childDeviceId)
+        }
 
         if (childDeviceId.isNullOrEmpty()) {
             binding.deviceInfoDeviceId.text = getString(R.string.device_info_device_id, getString(R.string.device_info_unknown))
@@ -564,7 +587,7 @@ class MainActivity : AppCompatActivity() {
         binding.deviceInfoProgress.isVisible = false
         binding.deviceInfoStatusMessage.isVisible = false
         binding.deviceInfoContent.isVisible = true
-        val statusTimestamp = (status.timestamp ?: secureSettings.getLastDeviceStatusTimestamp()).takeIf { it > 0 }
+        val statusTimestamp = normalizeEpochMillis(status.timestamp ?: secureSettings.getLastDeviceStatusTimestamp())
         val isStale = statusTimestamp?.let { System.currentTimeMillis() - it > DEVICE_STATUS_STALE_MS } == true
         if (statusTimestamp == null) {
             Log.w(TAG, "Device status timestamp missing")
@@ -600,7 +623,7 @@ class MainActivity : AppCompatActivity() {
         binding.deviceInfoUpdatedValue.text = if (statusTimestamp != null) {
             val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
             val base = timeFormat.format(Date(statusTimestamp))
-            if (isStale) "$base (устар.)" else base
+            if (isStale) "$base ${getString(R.string.device_info_stale_suffix)}" else base
         } else {
             getString(R.string.device_info_unknown)
         }
@@ -616,13 +639,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun refreshChildDeviceStatus(force: Boolean = false) {
-        val childDeviceId = secureSettings.getChildDeviceId()
+        val childDeviceId = resolveDeviceIdForStatus()
         if (childDeviceId.isNullOrEmpty()) {
             deviceStatusJob?.cancel()
             lastStatusFetchTime = 0L
             showDeviceInfoMessage(getString(R.string.device_info_needs_pairing))
             return
         }
+        secureSettings.setChildDeviceId(childDeviceId)
 
         val serverUrl = getConfiguredServerUrl()
         if (serverUrl.isNullOrBlank()) {
@@ -641,12 +665,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
         
-        // Если force=false и загрузка уже идёт, не запускаем новую
+        // Р вЂўРЎРѓР В»Р С‘ force=false Р С‘ Р В·Р В°Р С–РЎР‚РЎС“Р В·Р С”Р В° РЎС“Р В¶Р Вµ Р С‘Р Т‘РЎвЂРЎвЂљ, Р Р…Р Вµ Р В·Р В°Р С—РЎС“РЎРѓР С”Р В°Р ВµР С Р Р…Р С•Р Р†РЎС“РЎР‹
         if (!force && deviceStatusJob?.isActive == true) {
             return
         }
         
-        // Если force=true, отменяем старую загрузку и запускаем новую
+        // Р вЂўРЎРѓР В»Р С‘ force=true, Р С•РЎвЂљР СР ВµР Р…РЎРЏР ВµР С РЎРѓРЎвЂљР В°РЎР‚РЎС“РЎР‹ Р В·Р В°Р С–РЎР‚РЎС“Р В·Р С”РЎС“ Р С‘ Р В·Р В°Р С—РЎС“РЎРѓР С”Р В°Р ВµР С Р Р…Р С•Р Р†РЎС“РЎР‹
         if (force) {
             deviceStatusJob?.cancel()
         }
@@ -667,7 +691,7 @@ class MainActivity : AppCompatActivity() {
                     if (response.isSuccessful) {
                         val status = response.body()?.status
                         if (status != null) {
-                            val normalizedTimestamp = status.timestamp ?: System.currentTimeMillis()
+                            val normalizedTimestamp = normalizeEpochMillis(status.timestamp) ?: System.currentTimeMillis()
                             val normalizedStatus = status.copy(timestamp = normalizedTimestamp)
                             secureSettings.setLastDeviceStatus(gson.toJson(normalizedStatus))
                             secureSettings.setLastDeviceStatusTimestamp(normalizedTimestamp)
@@ -685,7 +709,7 @@ class MainActivity : AppCompatActivity() {
                     showDeviceInfoMessage(getString(R.string.device_info_not_available))
                 }
             } catch (error: CancellationException) {
-                // Игнорируем отмену корутины - это нормально
+                // Р ВР С–Р Р…Р С•РЎР‚Р С‘РЎР‚РЎС“Р ВµР С Р С•РЎвЂљР СР ВµР Р…РЎС“ Р С”Р С•РЎР‚РЎС“РЎвЂљР С‘Р Р…РЎвЂ№ - РЎРЊРЎвЂљР С• Р Р…Р С•РЎР‚Р СР В°Р В»РЎРЉР Р…Р С•
                 Log.d(TAG, "Device status fetch cancelled")
             } catch (error: Exception) {
                 Log.e(TAG, "Failed to load device status", error)
@@ -706,10 +730,9 @@ class MainActivity : AppCompatActivity() {
             // Security events logging is disabled in current version
             // The logging was causing encoding issues with Russian text
 
-            // Show security warnings if any (only in debug builds)
+            // Keep debug security information in logs only to avoid noisy popups and mojibake in UI.
             if (BuildConfig.DEBUG && securityWarnings.isNotEmpty()) {
-                val warningText = securityWarnings.joinToString("\n")
-                Toast.makeText(this, "Предупреждения безопасности:\n$warningText", Toast.LENGTH_LONG).show()
+                Log.w(TAG, "Security warnings: ${securityWarnings.joinToString("; ")}")
             }
 
             // Log security score
@@ -840,16 +863,16 @@ class MainActivity : AppCompatActivity() {
         val consequences = PermissionHelper.getPermissionDenialConsequences(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
 
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Разрешение на фоновое местоположение")
-            .setMessage("$explanation\n\n$consequences\n\nПредоставить?")
-            .setPositiveButton("Разрешить") { _, _ ->
+            .setTitle("Р В Р В°Р В·РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘Р Вµ Р Р…Р В° РЎвЂћР С•Р Р…Р С•Р Р†Р С•Р Вµ Р СР ВµРЎРѓРЎвЂљР С•Р С—Р С•Р В»Р С•Р В¶Р ВµР Р…Р С‘Р Вµ")
+            .setMessage("$explanation\n\n$consequences\n\nР СџРЎР‚Р ВµР Т‘Р С•РЎРѓРЎвЂљР В°Р Р†Р С‘РЎвЂљРЎРЉ?")
+            .setPositiveButton("Р В Р В°Р В·РЎР‚Р ВµРЎв‚¬Р С‘РЎвЂљРЎРЉ") { _, _ ->
                 backgroundLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             }
-            .setNegativeButton("Пропустить") { _, _ ->
-                showToast("Мониторинг будет работать только когда приложение открыто")
+            .setNegativeButton("Р СџРЎР‚Р С•Р С—РЎС“РЎРѓРЎвЂљР С‘РЎвЂљРЎРЉ") { _, _ ->
+                showToast("Р СљР С•Р Р…Р С‘РЎвЂљР С•РЎР‚Р С‘Р Р…Р С– Р В±РЎС“Р Т‘Р ВµРЎвЂљ РЎР‚Р В°Р В±Р С•РЎвЂљР В°РЎвЂљРЎРЉ РЎвЂљР С•Р В»РЎРЉР С”Р С• Р С”Р С•Р С–Р Т‘Р В° Р С—РЎР‚Р С‘Р В»Р С•Р В¶Р ВµР Р…Р С‘Р Вµ Р С•РЎвЂљР С”РЎР‚РЎвЂ№РЎвЂљР С•")
                 onAllPermissionsGranted()
             }
-            .setNeutralButton("Настройки") { _, _ ->
+            .setNeutralButton("Р СњР В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р С‘") { _, _ ->
                 PermissionHelper.openAppSettings(this)
             }
             .show()
@@ -859,12 +882,12 @@ class MainActivity : AppCompatActivity() {
         val deniedPermissions = permissions.filter { !it.value }.keys
 
         if (deniedPermissions.isEmpty()) {
-            showToast("Основные разрешения предоставлены")
+            showToast("Р С›РЎРѓР Р…Р С•Р Р†Р Р…РЎвЂ№Р Вµ РЎР‚Р В°Р В·РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘РЎРЏ Р С—РЎР‚Р ВµР Т‘Р С•РЎРѓРЎвЂљР В°Р Р†Р В»Р ВµР Р…РЎвЂ№")
             // Now request background location permission
             requestBackgroundLocationPermission()
         } else {
             val deniedList = deniedPermissions.joinToString(", ")
-            showToast("Отказано в разрешениях: $deniedList")
+            showToast("Р С›РЎвЂљР С”Р В°Р В·Р В°Р Р…Р С• Р Р† РЎР‚Р В°Р В·РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘РЎРЏРЎвЂ¦: $deniedList")
 
             // Show explanation for denied permissions
             showPermissionDeniedExplanation(deniedPermissions)
@@ -873,16 +896,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleBackgroundLocationResult(isGranted: Boolean) {
         if (isGranted) {
-            showToast("Все разрешения предоставлены")
+            showToast("Р вЂ™РЎРѓР Вµ РЎР‚Р В°Р В·РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘РЎРЏ Р С—РЎР‚Р ВµР Т‘Р С•РЎРѓРЎвЂљР В°Р Р†Р В»Р ВµР Р…РЎвЂ№")
             onAllPermissionsGranted()
         } else {
-            showToast("Фоновое местоположение отклонено. Мониторинг будет работать только когда приложение открыто")
+            showToast("Р В¤Р С•Р Р…Р С•Р Р†Р С•Р Вµ Р СР ВµРЎРѓРЎвЂљР С•Р С—Р С•Р В»Р С•Р В¶Р ВµР Р…Р С‘Р Вµ Р С•РЎвЂљР С”Р В»Р С•Р Р…Р ВµР Р…Р С•. Р СљР С•Р Р…Р С‘РЎвЂљР С•РЎР‚Р С‘Р Р…Р С– Р В±РЎС“Р Т‘Р ВµРЎвЂљ РЎР‚Р В°Р В±Р С•РЎвЂљР В°РЎвЂљРЎРЉ РЎвЂљР С•Р В»РЎРЉР С”Р С• Р С”Р С•Р С–Р Т‘Р В° Р С—РЎР‚Р С‘Р В»Р С•Р В¶Р ВµР Р…Р С‘Р Вµ Р С•РЎвЂљР С”РЎР‚РЎвЂ№РЎвЂљР С•")
             onAllPermissionsGranted() // Continue anyway
         }
     }
 
     private fun onAllPermissionsGranted() {
-        showToast("Все необходимые разрешения предоставлены")
+        showToast("Р вЂ™РЎРѓР Вµ Р Р…Р ВµР С•Р В±РЎвЂ¦Р С•Р Т‘Р С‘Р СРЎвЂ№Р Вµ РЎР‚Р В°Р В·РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘РЎРЏ Р С—РЎР‚Р ВµР Т‘Р С•РЎРѓРЎвЂљР В°Р Р†Р В»Р ВµР Р…РЎвЂ№")
         // Try to start monitoring if consent is given
         if (hasConsent) {
             startMonitoring()
@@ -891,12 +914,44 @@ class MainActivity : AppCompatActivity() {
     
     private fun ensureChatBackgroundService() {
         val serverUrl = getConfiguredServerUrl()
-        val childDeviceId = prefs.getString("child_device_id", null)
+        val childDeviceId = resolveTargetDeviceId()
 
         if (!childDeviceId.isNullOrEmpty() && !serverUrl.isNullOrBlank()) {
             ChatBackgroundService.start(this, serverUrl, childDeviceId)
         } else {
             Log.w(TAG, "Cannot start chat background service: serverUrl=$serverUrl child_device_id=$childDeviceId")
+        }
+    }
+
+    private fun ensureParentLocationService() {
+        try {
+            val shareEnabled = prefs.getBoolean("share_parent_location", true)
+            val serverUrl = getConfiguredServerUrl()
+            val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+            val ownDeviceId = listOf(
+                secureSettings.getDeviceId(),
+                prefs.getString("device_id", null),
+                prefs.getString("parent_device_id", null),
+                prefs.getString("linked_parent_device_id", null),
+                legacyPrefs.getString("device_id", null),
+                legacyPrefs.getString("parent_device_id", null),
+                legacyPrefs.getString("linked_parent_device_id", null)
+            )
+                .mapNotNull { it?.trim() }
+                .firstOrNull { it.isNotBlank() }
+
+            if (shareEnabled && !serverUrl.isNullOrBlank() && !ownDeviceId.isNullOrBlank()) {
+                ParentLocationService.start(this)
+                Log.d(TAG, "ParentLocationService ensured (independent from WS state)")
+            } else {
+                ParentLocationService.stop(this)
+                Log.d(
+                    TAG,
+                    "ParentLocationService stopped: shareEnabled=$shareEnabled serverConfigured=${!serverUrl.isNullOrBlank()} ownIdPresent=${!ownDeviceId.isNullOrBlank()}"
+                )
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to ensure ParentLocationService", e)
         }
     }
 
@@ -912,12 +967,12 @@ class MainActivity : AppCompatActivity() {
         val message = explanations.joinToString("\n\n")
 
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Необходимы разрешения")
+            .setTitle("Р СњР ВµР С•Р В±РЎвЂ¦Р С•Р Т‘Р С‘Р СРЎвЂ№ РЎР‚Р В°Р В·РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘РЎРЏ")
             .setMessage(message)
-            .setPositiveButton("Настройки") { _, _ ->
+            .setPositiveButton("Р СњР В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р С‘") { _, _ ->
                 PermissionHelper.openAppSettings(this)
             }
-            .setNegativeButton("Закрыть") { _, _ -> }
+            .setNegativeButton("Р вЂ”Р В°Р С”РЎР‚РЎвЂ№РЎвЂљРЎРЉ") { _, _ -> }
             .show()
     }
     
@@ -925,23 +980,155 @@ class MainActivity : AppCompatActivity() {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 
+    private fun resolveTargetDeviceId(): String? {
+        val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        val myDeviceId = prefs.getString("device_id", null)?.trim().orEmpty()
+        val excluded = listOf(
+            myDeviceId,
+            prefs.getString("parent_device_id", null),
+            prefs.getString("linked_parent_device_id", null),
+            legacyPrefs.getString("parent_device_id", null),
+            legacyPrefs.getString("linked_parent_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        // Keep legacy single-pair behavior stable: prefer child_device_id over selected_device_id.
+        val resolved = listOf(
+            prefs.getString("child_device_id", null),
+            secureSettings.getChildDeviceId(),
+            legacyPrefs.getString("child_device_id", null),
+            prefs.getString("selected_device_id", null),
+            legacyPrefs.getString("selected_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .firstOrNull { it.isNotBlank() && it !in excluded }
+            ?: return null
+
+        if (prefs.getString("child_device_id", null).isNullOrBlank()) {
+            prefs.edit().putString("child_device_id", resolved).apply()
+        }
+        if (prefs.getString("selected_device_id", null).isNullOrBlank()) {
+            prefs.edit().putString("selected_device_id", resolved).apply()
+        }
+        if (secureSettings.getChildDeviceId().isNullOrBlank()) {
+            secureSettings.setChildDeviceId(resolved)
+        }
+
+        return resolved
+    }
+
     private fun getConfiguredServerUrl(): String? {
-        val url = secureSettings.getServerUrl().trim()
-        return url.takeIf { it.isNotBlank() }
+        val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        val raw = listOf(
+            secureSettings.getServerUrl(),
+            prefs.getString("server_url", null),
+            legacyPrefs.getString("server_url", null)
+        )
+            .mapNotNull { it?.trim() }
+            .firstOrNull { it.isNotBlank() }
+            ?: return null
+
+        return normalizeServerUrl(raw)
+    }
+
+    private fun normalizeEpochMillis(raw: Long?): Long? {
+        if (raw == null || raw <= 0L) return null
+        return when {
+            raw < 10_000_000_000L -> raw * 1000L // seconds -> millis
+            raw > 10_000_000_000_000L -> raw / 1000L // micros -> millis
+            else -> raw
+        }
+    }
+
+    private fun resolveDeviceIdForStatus(): String? {
+        val preferred = resolveTargetDeviceId()
+        if (!preferred.isNullOrBlank()) {
+            return preferred
+        }
+
+        val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        val myDeviceId = prefs.getString("device_id", null)?.trim().orEmpty()
+        val excluded = listOf(
+            myDeviceId,
+            prefs.getString("parent_device_id", null),
+            prefs.getString("linked_parent_device_id", null),
+            legacyPrefs.getString("parent_device_id", null),
+            legacyPrefs.getString("linked_parent_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        return listOf(
+            prefs.getString("selected_device_id", null),
+            prefs.getString("child_device_id", null),
+            secureSettings.getChildDeviceId(),
+            legacyPrefs.getString("selected_device_id", null),
+            legacyPrefs.getString("child_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .firstOrNull { it.isNotBlank() && it !in excluded }
+    }
+
+    private fun normalizeServerUrl(raw: String): String {
+        val candidate = extractUrlCandidate(raw)
+        if (candidate.startsWith("http://", ignoreCase = true) || candidate.startsWith("https://", ignoreCase = true)) {
+            return candidate
+        }
+
+        val looksLikeLocalOrIp = candidate.startsWith("localhost", ignoreCase = true) ||
+            candidate.matches(Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+(:\\d+)?$"))
+        return if (looksLikeLocalOrIp) "http://$candidate" else "https://$candidate"
+    }
+
+    private fun extractUrlCandidate(raw: String): String {
+        val value = raw.trim()
+        if (value.isEmpty()) return value
+
+        // Legacy bug: two URLs could be saved in one field.
+        // Prefer the last valid URL token (most recently entered by user).
+        val regex = Regex("""https?://[^\s,;]+|(?:localhost|\d{1,3}(?:\.\d{1,3}){3}|[A-Za-z0-9.-]+\.[A-Za-z]{2,})(?::\d+)?""")
+        val matches = regex.findAll(value).map { it.value.trim() }.toList()
+        return matches.lastOrNull().orEmpty().ifBlank { value.lineSequence().lastOrNull()?.trim().orEmpty() }
+    }
+
+    private fun startDeviceStatusRefreshLoop() {
+        if (deviceStatusRefreshJob?.isActive == true) return
+        deviceStatusRefreshJob = lifecycleScope.launch {
+            while (isActive) {
+                refreshChildDeviceStatus(force = true)
+                delay(30_000)
+            }
+        }
     }
     
     override fun onDestroy() {
+        badgeRefreshJob?.cancel()
         deviceStatusJob?.cancel()
+        deviceStatusRefreshJob?.cancel()
         super.onDestroy()
     }
     
     override fun onResume() {
         super.onResume()
+        prefs.edit().putBoolean("chat_open", false).apply()
         updateUIState()
         updateChatBadge()
+        startBadgeRefreshLoop()
         refreshChildDeviceStatus(force = true)
+        startDeviceStatusRefreshLoop()
         CriticalAlertSyncScheduler.triggerImmediate(this)
         ensureChatBackgroundService()
+        ensureParentLocationService()
+        initializeWebSocket()
+    }
+
+    override fun onPause() {
+        badgeRefreshJob?.cancel()
+        deviceStatusRefreshJob?.cancel()
+        super.onPause()
     }
 
     /**
@@ -949,7 +1136,9 @@ class MainActivity : AppCompatActivity() {
      */
     private fun updateChatBadge() {
         lifecycleScope.launch(Dispatchers.IO) {
-            val unread = try { chatManager.getUnreadCount() } catch (e: Exception) { 0 }
+            val unreadFromStore = try { chatManager.getUnreadCount() } catch (_: Exception) { 0 }
+            val unreadFromNotifications = try { ru.example.childwatch.utils.NotificationManager.getUnreadCount() } catch (_: Exception) { 0 }
+            val unread = maxOf(unreadFromStore, unreadFromNotifications)
             withContext(Dispatchers.Main) {
                 if (unread > 0) {
                     binding.chatBadge.visibility = View.VISIBLE
@@ -962,31 +1151,41 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun startBadgeRefreshLoop() {
+        if (badgeRefreshJob?.isActive == true) return
+        badgeRefreshJob = lifecycleScope.launch {
+            while (isActive) {
+                updateChatBadge()
+                delay(2000)
+            }
+        }
+    }
+
     private fun showDeviceIdOptions(serverUrl: String) {
         MaterialAlertDialogBuilder(this)
-            .setTitle("Device ID не задан")
-            .setMessage("Выберите способ получения Device ID ребенка:")
-            .setPositiveButton("Тестовый режим") { _, _ ->
-                // Использовать тестовый ID для демонстрации
+            .setTitle(getString(R.string.main_dialog_device_id_missing_title))
+            .setMessage(getString(R.string.main_dialog_device_id_missing_message))
+            .setPositiveButton(getString(R.string.main_dialog_device_id_missing_test)) { _, _ ->
+                // Р ВРЎРѓР С—Р С•Р В»РЎРЉР В·Р С•Р Р†Р В°РЎвЂљРЎРЉ РЎвЂљР ВµРЎРѓРЎвЂљР С•Р Р†РЎвЂ№Р в„– ID Р Т‘Р В»РЎРЏ Р Т‘Р ВµР СР С•Р Р…РЎРѓРЎвЂљРЎР‚Р В°РЎвЂ Р С‘Р С‘
                 val testDeviceId = "test-child-device-001"
                 val intent = Intent(this, AudioStreamingActivity::class.java).apply {
                     putExtra(AudioStreamingActivity.EXTRA_DEVICE_ID, testDeviceId)
                     putExtra(AudioStreamingActivity.EXTRA_SERVER_URL, serverUrl)
                 }
                 startActivity(intent)
-                showToast("Открыто в тестовом режиме с ID: $testDeviceId")
+                showToast(getString(R.string.main_toast_started_test_mode, testDeviceId))
             }
-            .setNeutralButton("Настройки") { _, _ ->
-                // Перейти в настройки для ввода ID
+            .setNeutralButton(getString(R.string.main_dialog_device_id_missing_settings)) { _, _ ->
+                // Р СџР ВµРЎР‚Р ВµР в„–РЎвЂљР С‘ Р Р† Р Р…Р В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р С‘ Р Т‘Р В»РЎРЏ Р Р†Р Р†Р С•Р Т‘Р В° ID
                 val intent = Intent(this, SettingsActivity::class.java)
                 startActivity(intent)
             }
-            .setNegativeButton("Отмена", null)
+            .setNegativeButton(getString(R.string.common_cancel), null)
             .show()
     }
 
     /**
-     * Загрузить и отобразить выбранное устройство
+     * Р вЂ”Р В°Р С–РЎР‚РЎС“Р В·Р С‘РЎвЂљРЎРЉ Р С‘ Р С•РЎвЂљР С•Р В±РЎР‚Р В°Р В·Р С‘РЎвЂљРЎРЉ Р Р†РЎвЂ№Р В±РЎР‚Р В°Р Р…Р Р…Р С•Р Вµ РЎС“РЎРѓРЎвЂљРЎР‚Р С•Р в„–РЎРѓРЎвЂљР Р†Р С•
      */
     private fun loadSelectedChild() {
         lifecycleScope.launch {
@@ -1002,23 +1201,23 @@ class MainActivity : AppCompatActivity() {
                         binding.selectedChildName.text = child.name
                         binding.selectedChildDeviceId.text = "ID: ${child.deviceId.take(12)}..."
 
-                        // Загрузить аватар
+                        // Р вЂ”Р В°Р С–РЎР‚РЎС“Р В·Р С‘РЎвЂљРЎРЉ Р В°Р Р†Р В°РЎвЂљР В°РЎР‚
                         if (child.avatarUrl != null) {
                             try {
                                 val uri = android.net.Uri.parse(child.avatarUrl)
                                 binding.selectedChildAvatar.setImageURI(uri)
                             } catch (e: SecurityException) {
                                 Log.w(TAG, "Avatar URI no longer accessible", e)
-                                binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+                                binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
                             } catch (e: Exception) {
                                 Log.e(TAG, "Error loading avatar", e)
-                                binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+                                binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
                             }
                         } else {
-                            binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+                            binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
                         }
 
-                        Log.d(TAG, "Загружен профиль ребенка: ${child.name}")
+                        Log.d(TAG, "Р вЂ”Р В°Р С–РЎР‚РЎС“Р В¶Р ВµР Р… Р С—РЎР‚Р С•РЎвЂћР С‘Р В»РЎРЉ РЎР‚Р ВµР В±Р ВµР Р…Р С”Р В°: ${child.name}")
                     } else {
                         showDefaultChildSelection()
                     }
@@ -1026,27 +1225,75 @@ class MainActivity : AppCompatActivity() {
                     showDefaultChildSelection()
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Ошибка загрузки профиля ребенка", e)
+                Log.e(TAG, "Р С›РЎв‚¬Р С‘Р В±Р С”Р В° Р В·Р В°Р С–РЎР‚РЎС“Р В·Р С”Р С‘ Р С—РЎР‚Р С•РЎвЂћР С‘Р В»РЎРЏ РЎР‚Р ВµР В±Р ВµР Р…Р С”Р В°", e)
                 showDefaultChildSelection()
             }
         }
     }
 
     /**
-     * Показать состояние по умолчанию (устройство не выбрано)
+     * Р СџР С•Р С”Р В°Р В·Р В°РЎвЂљРЎРЉ РЎРѓР С•РЎРѓРЎвЂљР С•РЎРЏР Р…Р С‘Р Вµ Р С—Р С• РЎС“Р СР С•Р В»РЎвЂЎР В°Р Р…Р С‘РЎР‹ (РЎС“РЎРѓРЎвЂљРЎР‚Р С•Р в„–РЎРѓРЎвЂљР Р†Р С• Р Р…Р Вµ Р Р†РЎвЂ№Р В±РЎР‚Р В°Р Р…Р С•)
      */
     private fun showDefaultChildSelection() {
         try {
-            binding.selectedChildName.text = "Выберите устройство"
-            binding.selectedChildDeviceId.text = "Нажмите для выбора"
-            binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+            binding.selectedChildName.text = getString(R.string.main_select_contact_placeholder_title)
+            binding.selectedChildDeviceId.text = getString(R.string.main_select_contact_placeholder_subtitle)
+            binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(0, "child"))
         } catch (e: Exception) {
             Log.e(TAG, "Error in showDefaultChildSelection", e)
         }
     }
 
+    private suspend fun getSelectedContact(): Child? {
+        return try {
+            val selectedId = prefs.getString("selected_device_id", null)
+                ?: prefs.getString("child_device_id", null)
+            if (selectedId.isNullOrBlank()) return null
+            val database = ChildWatchDatabase.getInstance(this)
+            database.childDao().getByDeviceId(selectedId)
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to load selected contact", e)
+            withContext(Dispatchers.Main) {
+                showToast(getString(R.string.main_toast_contacts_db_error))
+            }
+            null
+        }
+    }
+
+    private fun ensureLegacyContact() {
+        val legacyId = prefs.getString("child_device_id", null)
+        if (legacyId.isNullOrBlank()) return
+
+        if (prefs.getString("selected_device_id", null).isNullOrBlank()) {
+            prefs.edit().putString("selected_device_id", legacyId).apply()
+        }
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            try {
+                val database = ChildWatchDatabase.getInstance(this@MainActivity)
+                val childDao = database.childDao()
+                val existing = childDao.getByDeviceId(legacyId)
+                if (existing == null) {
+                    val now = System.currentTimeMillis()
+                    val child = Child(
+                        deviceId = legacyId,
+                        name = "Р В Р ВµР В±Р ВµР Р…Р С•Р С”",
+                        role = ContactRoles.CHILD,
+                        iconId = ContactIcons.CHILD,
+                        allowedFeatures = ContactFeatures.ALL,
+                        createdAt = now,
+                        updatedAt = now
+                    )
+                    childDao.insert(child)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to migrate legacy contact", e)
+            }
+        }
+    }
+
     /**
-     * Обновить выбранное устройство
+     * Р С›Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ Р Р†РЎвЂ№Р В±РЎР‚Р В°Р Р…Р Р…Р С•Р Вµ РЎС“РЎРѓРЎвЂљРЎР‚Р С•Р в„–РЎРѓРЎвЂљР Р†Р С•
      */
     private fun updateSelectedChild(deviceId: String) {
         lifecycleScope.launch {
@@ -1056,38 +1303,41 @@ class MainActivity : AppCompatActivity() {
                 val child = childDao.getByDeviceId(deviceId)
 
                 if (child != null) {
-                    // Обновить UI
+                    // Р С›Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ UI
                     binding.selectedChildName.text = child.name
                     binding.selectedChildDeviceId.text = "ID: ${child.deviceId.take(12)}..."
 
-                    // Обновить аватар
+                    // Р С›Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ Р В°Р Р†Р В°РЎвЂљР В°РЎР‚
                     if (child.avatarUrl != null) {
                         try {
                             val uri = android.net.Uri.parse(child.avatarUrl)
                             binding.selectedChildAvatar.setImageURI(uri)
                         } catch (e: SecurityException) {
                             Log.w(TAG, "Avatar URI no longer accessible", e)
-                            binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+                            binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
                         } catch (e: Exception) {
                             Log.e(TAG, "Error loading avatar", e)
-                            binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+                            binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
                         }
                     } else {
-                        binding.selectedChildAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+                        binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
                     }
 
-                    // Сохранить в настройках
-                    prefs.edit().putString("selected_device_id", deviceId).apply()
+                    // Р РЋР С•РЎвЂ¦РЎР‚Р В°Р Р…Р С‘РЎвЂљРЎРЉ Р Р† Р Р…Р В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р В°РЎвЂ¦
+                    prefs.edit()
+                        .putString("selected_device_id", deviceId)
+                        .putString("child_device_id", deviceId)
+                        .apply()
 
-                    showToast("Выбрано устройство: ${child.name}")
-                    Log.d(TAG, "Устройство выбрано: ${child.name} ($deviceId)")
+                    showToast(getString(R.string.main_toast_contact_selected, child.name))
+                    Log.d(TAG, "Р Р€РЎРѓРЎвЂљРЎР‚Р С•Р в„–РЎРѓРЎвЂљР Р†Р С• Р Р†РЎвЂ№Р В±РЎР‚Р В°Р Р…Р С•: ${child.name} ($deviceId)")
                 } else {
-                    showToast("Ошибка: устройство не найдено")
+                    showToast(getString(R.string.main_toast_contact_not_found))
                     showDefaultChildSelection()
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Ошибка обновления профиля ребенка", e)
-                showToast("Ошибка обновления устройства")
+                Log.e(TAG, "Р С›РЎв‚¬Р С‘Р В±Р С”Р В° Р С•Р В±Р Р…Р С•Р Р†Р В»Р ВµР Р…Р С‘РЎРЏ Р С—РЎР‚Р С•РЎвЂћР С‘Р В»РЎРЏ РЎР‚Р ВµР В±Р ВµР Р…Р С”Р В°", e)
+                showToast(getString(R.string.main_toast_contact_update_error))
             }
         }
     }
@@ -1096,26 +1346,28 @@ class MainActivity : AppCompatActivity() {
      * Open remote camera activity
      */
     private fun openRemoteCamera() {
-        val childId = prefs.getString("child_device_id", null)
-        
-        if (childId == null) {
+        val targetDeviceId = resolveTargetDeviceId()
+        if (targetDeviceId.isNullOrBlank()) {
             Toast.makeText(
-                this,
-                "Сначала выберите устройство ребенка",
+                this@MainActivity,
+                getString(R.string.main_toast_set_child_device_id),
                 Toast.LENGTH_SHORT
             ).show()
             return
         }
 
-        // Show dialog with options: Video Stream or Photo Capture
-        MaterialAlertDialogBuilder(this)
+        MaterialAlertDialogBuilder(this@MainActivity)
             .setTitle("Remote Camera")
             .setMessage("Choose camera mode:")
-            .setPositiveButton("📸 Capture Photo") { _, _ ->
-                requestRemotePhoto(childId)
+            .setPositiveButton("Capture Photo") { _, _ ->
+                val intent = Intent(this@MainActivity, RemoteCameraActivity::class.java).apply {
+                    putExtra(RemoteCameraActivity.EXTRA_CHILD_ID, targetDeviceId)
+                    putExtra(RemoteCameraActivity.EXTRA_CHILD_NAME, binding.selectedChildName.text?.toString().orEmpty())
+                }
+                startActivity(intent)
             }
-            .setNegativeButton("🎥 Video Stream") { _, _ ->
-                openVideoStream(childId)
+            .setNegativeButton("Video Stream") { _, _ ->
+                openVideoStream(targetDeviceId)
             }
             .setNeutralButton("Cancel", null)
             .show()
@@ -1234,7 +1486,7 @@ class MainActivity : AppCompatActivity() {
                     Log.e(TAG, "Error opening RemoteCameraActivity", e)
                     Toast.makeText(
                         this@MainActivity,
-                        "Ошибка открытия камеры: ${e.message}",
+                        getString(R.string.main_toast_camera_open_error, e.message ?: "unknown"),
                         Toast.LENGTH_SHORT
                     ).show()
                 }
@@ -1248,3 +1500,4 @@ class MainActivity : AppCompatActivity() {
         private const val DEVICE_STATUS_STALE_MS = 10 * 60 * 1000L
     }
 }
+

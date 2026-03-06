@@ -13,15 +13,14 @@ android {
         applicationId "ru.example.childwatch"
         minSdk 26
         targetSdk 34
-    // v7.1.5: telemetry + streaming start tweaks
-    versionCode 51
-    versionName "7.1.7"
+        versionCode rootProject.ext.cwVersionCode as int
+        versionName rootProject.ext.cwVersionName as String
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
             useSupportLibrary true
         }
-    setProperty("archivesBaseName", "ParentMonitor-v$versionName")
+        setProperty("archivesBaseName", "ParentMonitor-v$versionName")
     }
 
     buildTypes {

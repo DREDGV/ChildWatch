@@ -341,3 +341,20 @@
 - Priority test now:
   - `MAP-CRASH-OPEN-01` (parent map open/close stress)
   - `AUDIO-ROLLBACK-01` (single 24 kHz quality check)
+
+## Sprint Update 2026-03-06 (Audio P1 - Child capture hardening)
+
+- Status: WIP
+- Scope done:
+  - `parentwatch/audio/AudioStreamRecorder.kt`: added AudioRecord fallback matrix by source and sample rate.
+  - `parentwatch/audio/AudioStreamRecorder.kt`: added diagnostics event `audio_capture_error` on permission/init/read failures.
+  - `parentwatch/service/ChatBackgroundService.kt`: added cooldown guard for duplicate `start_audio_stream` commands and protected service start with try/catch.
+  - `server/managers/WebSocketManager.js`: added log handler for `audio_capture_error` diagnostics.
+- Local verification:
+  - `:parentwatch:compileDebugKotlin` = PASS
+  - `:parentwatch:assembleDebug` = PASS
+- Server rollout required: yes (update `server/managers/WebSocketManager.js`)
+- APK:
+  - `parentwatch/build/outputs/apk/debug/ChildDevice-v7.1.26065.021241-debug.apk`
+- What to test now:
+  - Audio stream start from parent and server logs for `audio_chunk` or `audio_capture_error`.

@@ -361,7 +361,10 @@ class NetworkClient(private val context: Context) {
                 put("provider", "fused")
                 speed?.let { put("speed", it) }
                 bearing?.let { put("bearing", it) }
-                batteryLevel?.let { put("batteryLevel", it) }
+                batteryLevel?.let {
+                    put("battery", it)
+                    put("batteryLevel", it)
+                }
             }
             
             val requestBody = jsonData.toString()

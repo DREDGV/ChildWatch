@@ -17,6 +17,10 @@ class ParentLocationRepository(private val parentLocationDao: ParentLocationDao)
         return parentLocationDao.getLatestLocation(parentId)
     }
 
+    suspend fun getLatestLocationAny(): ParentLocation? {
+        return parentLocationDao.getLatestAnyLocation()
+    }
+
     /**
      * Получить поток всех локаций родителя
      */

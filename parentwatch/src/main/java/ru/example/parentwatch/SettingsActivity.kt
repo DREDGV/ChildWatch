@@ -27,7 +27,6 @@ class SettingsActivity : AppCompatActivity() {
 
         // Server URL presets
         private const val LOCALHOST_URL = "http://10.0.2.2:3000"
-        private const val RAILWAY_URL = "https://childwatch-production.up.railway.app"
         private const val VPS_URL = "http://31.28.27.96:3000"
     }
 
@@ -106,11 +105,6 @@ class SettingsActivity : AppCompatActivity() {
         binding.useVpsBtn.setOnClickListener {
             binding.serverUrlInput.setText(VPS_URL)
             Toast.makeText(this, "VPS URL установлен", Toast.LENGTH_SHORT).show()
-        }
-
-        binding.useRailwayBtn.setOnClickListener {
-            binding.serverUrlInput.setText(RAILWAY_URL)
-            Toast.makeText(this, "Railway URL установлен", Toast.LENGTH_SHORT).show()
         }
 
         binding.useLocalhostBtn.setOnClickListener {
@@ -222,9 +216,11 @@ class SettingsActivity : AppCompatActivity() {
             return
         }
 
+        val normalizedServerUrl = ServerUrlResolver.normalizeServerUrl(serverUrl)
+
         // Save server URL
         prefs.edit()
-            .putString("server_url", serverUrl)
+            .putString("server_url", normalizedServerUrl)
             .apply()
 
         // Save notification settings
@@ -237,6 +233,8 @@ class SettingsActivity : AppCompatActivity() {
             .putBoolean("notification_sound", notificationSound)
             .putBoolean("notification_vibration", notificationVibration)
             .apply()
+
+        ru.example.parentwatch.utils.NotificationManager.createNotificationChannels(this)
 
         Toast.makeText(this, "✅ Настройки сохранены", Toast.LENGTH_SHORT).show()
         finish()
@@ -341,28 +339,39 @@ class SettingsActivity : AppCompatActivity() {
         startActivity(intent)
     }
     
-        private fun saveParentDeviceId(childId: String) {
+    private fun saveParentDeviceId(parentId: String) {
+        val normalized = parentId.trim()
+        if (normalized.isEmpty()) return
+
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         prefs.edit()
-            .putString("child_device_id", childId)
+            .putString("parent_device_id", normalized)
+            .putString("linked_parent_device_id", normalized)
             .apply()
 
         val compat = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-        compat.edit().putString("child_device_id", childId).apply()
+        compat.edit()
+            .putString("parent_device_id", normalized)
+            .putString("linked_parent_device_id", normalized)
+            .apply()
 
-        Toast.makeText(this, "OK: ID ������ �������", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "ID родителя сохранен: $normalized", Toast.LENGTH_LONG).show()
         updateParentConnectionStatus()
     }
+
     private fun updateParentConnectionStatus() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val childId = prefs.getString("child_device_id", null)
-            ?: getSharedPreferences("childwatch_prefs", MODE_PRIVATE).getString("child_device_id", null)
+        val compat = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+        val parentId = prefs.getString("parent_device_id", null)
+            ?: prefs.getString("linked_parent_device_id", null)
+            ?: compat.getString("parent_device_id", null)
+            ?: compat.getString("linked_parent_device_id", null)
 
-        if (!childId.isNullOrEmpty()) {
-            binding.parentIdStatus.text = "��������� (${childId.take(8)}...)"
+        if (!parentId.isNullOrBlank()) {
+            binding.parentIdStatus.text = "Подключено (${parentId.take(8)}...)"
             binding.parentIdStatus.setTextColor(getColor(android.R.color.holo_green_dark))
         } else {
-            binding.parentIdStatus.text = "��� ID ������"
+            binding.parentIdStatus.text = "Не задан ID родителя"
             binding.parentIdStatus.setTextColor(getColor(android.R.color.holo_red_dark))
         }
     }

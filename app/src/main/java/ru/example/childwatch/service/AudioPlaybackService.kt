@@ -5,10 +5,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
-import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import android.content.IntentFilter
 import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioManager
@@ -50,11 +48,11 @@ import ru.example.childwatch.utils.AlertNotifier
 class AudioPlaybackService : LifecycleService() {
 
     companion object {
-        private const val TAG = "AUDIO" // Р­С‚Р°Рї A: unified tag
+        private const val TAG = "AUDIO" // Р В­РЎвЂљР В°Р С— A: unified tag
         private const val NOTIFICATION_ID = 3001
         private const val CHANNEL_ID = "audio_playback_channel"
 
-        // РћРїС‚РёРјРёР·РёСЂРѕРІР°РЅРѕ РґР»СЏ 24 РєР“С†, РєР°РґСЂРѕРІ РїРѕ 20 РјСЃ
+        // Р С›Р С—РЎвЂљР С‘Р СР С‘Р В·Р С‘РЎР‚Р С•Р Р†Р В°Р Р…Р С• Р Т‘Р В»РЎРЏ 24 Р С”Р вЂњРЎвЂ , Р С”Р В°Р Т‘РЎР‚Р С•Р Р† Р С—Р С• 20 Р СРЎРѓ
         private const val DEFAULT_STREAM_SAMPLE_RATE = 24_000   // 24 kHz
         private const val STREAM_CHANNEL_COUNT = 1       // MONO
         private const val FRAME_MS = 20                  // 20ms frames
@@ -62,7 +60,7 @@ class AudioPlaybackService : LifecycleService() {
             (DEFAULT_STREAM_SAMPLE_RATE * FRAME_MS / 1000) * 2 // 960 bytes
         // Keep explicit support for all app capture rates; avoid 44.1k fallback mismatch artifacts.
         private val PLAYBACK_SAMPLE_RATES = intArrayOf(24_000, 32_000, 48_000, 16_000)
-        private val INPUT_SAMPLE_RATES = intArrayOf(24_000, 32_000, 48_000)
+        private val INPUT_SAMPLE_RATES = intArrayOf(24_000)
 
         // Jitter buffer: Increased for poor network conditions
         // 250-400 ms = 12-20 frames of 20ms (improved for unstable connections)
@@ -149,7 +147,7 @@ class AudioPlaybackService : LifecycleService() {
     private val audioEnhancer = AudioEnhancer()
     private lateinit var recordingRepository: RecordingRepository
 
-    // Р­С‚Р°Рї D: Metrics manager for diagnostics
+    // Р В­РЎвЂљР В°Р С— D: Metrics manager for diagnostics
     lateinit var metricsManager: MetricsManager
         private set
     private var streamRecorder: StreamRecorder? = null
@@ -161,46 +159,30 @@ class AudioPlaybackService : LifecycleService() {
     private var previousAudioMode: Int = AudioManager.MODE_NORMAL
     private var previousSpeakerphoneState: Boolean = false
 
-    private val filterModeReceiver = object : BroadcastReceiver() {
-        override fun onReceive(context: Context?, intent: Intent?) {
-            if (intent?.action == "ru.example.childwatch.UPDATE_FILTER_MODE") {
-                val modeName = intent.getStringExtra("filter_mode")
-                if (modeName != null) {
-                    try {
-                        val mode = FilterMode.valueOf(modeName)
-                        setFilterMode(mode)
-                        Log.d(TAG, "Filter mode updated via broadcast: $mode")
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Invalid filter mode received: $modeName", e)
-                    }
-                }
-            }
-        }
-    }
 
     // Improvement: Audio focus listener to pause on calls/notifications
     private val audioFocusListener = AudioManager.OnAudioFocusChangeListener { focusChange ->
         when (focusChange) {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 // Lost focus for unknown duration - stop playback
-                Log.w(TAG, "рџЋµ AUDIOFOCUS_LOSS - stopping playback")
+                Log.w(TAG, "СЂСџР‹Вµ AUDIOFOCUS_LOSS - stopping playback")
                 wasPlayingBeforeFocusLoss = isPlaying
                 stopPlayback()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 // Lost focus temporarily (e.g., incoming call)
-                Log.w(TAG, "рџЋµ AUDIOFOCUS_LOSS_TRANSIENT - pausing temporarily")
+                Log.w(TAG, "СЂСџР‹Вµ AUDIOFOCUS_LOSS_TRANSIENT - pausing temporarily")
                 wasPlayingBeforeFocusLoss = isPlaying
                 pausePlayback()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
                 // Lost focus but can reduce volume
-                Log.i(TAG, "рџЋµ AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK - reducing volume")
+                Log.i(TAG, "СЂСџР‹Вµ AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK - reducing volume")
                 audioTrack?.setVolume(0.3f) // Duck to 30% volume
             }
             AudioManager.AUDIOFOCUS_GAIN -> {
                 // Regained focus
-                Log.i(TAG, "рџЋµ AUDIOFOCUS_GAIN - resumed")
+                Log.i(TAG, "СЂСџР‹Вµ AUDIOFOCUS_GAIN - resumed")
                 audioTrack?.setVolume(1.0f) // Restore volume
                 // Optionally resume if it was playing before
                 if (wasPlayingBeforeFocusLoss && !isPlaying) {
@@ -209,7 +191,7 @@ class AudioPlaybackService : LifecycleService() {
                 }
             }
             else -> {
-                Log.d(TAG, "рџЋµ Unknown audio focus change: $focusChange")
+                Log.d(TAG, "СЂСџР‹Вµ Unknown audio focus change: $focusChange")
             }
         }
     }
@@ -226,13 +208,13 @@ class AudioPlaybackService : LifecycleService() {
     private var outputSampleRate: Int = DEFAULT_STREAM_SAMPLE_RATE
     private var outputFrameBytes: Int = DEFAULT_FRAME_BYTES
 
-    // Jitter buffer (Р­С‚Р°Рї A: ArrayBlockingQueue with 50-100 frames capacity)
+    // Jitter buffer (Р В­РЎвЂљР В°Р С— A: ArrayBlockingQueue with 50-100 frames capacity)
     private val chunkQueue = java.util.concurrent.ArrayBlockingQueue<ByteArray>(JITTER_BUFFER_MAX_FRAMES)
     private var isBuffering = true
     private var bufferUnderrunCount = 0
 
 
-    // Metrics (Р­С‚Р°Рї A)
+    // Metrics (Р В­РЎвЂљР В°Р С— A)
     private var totalBytesReceived = 0L
     private var lastMetricsLogTime = 0L
     private var underrunCount = 0
@@ -288,9 +270,8 @@ class AudioPlaybackService : LifecycleService() {
     }
 
     fun setFilterMode(mode: FilterMode) {
-        val currentConfig = audioEnhancer.getConfig()
-        audioEnhancer.updateConfig(currentConfig.copy(mode = mode))
-        Log.d(TAG, "Filter mode changed to: $mode")
+        // Filters are disabled in streaming mode for stability.
+        Log.d(TAG, "Filter mode request ignored: $mode")
     }
 
     fun getAudioEnhancerConfig(): AudioEnhancer.Config = audioEnhancer.getConfig()
@@ -309,7 +290,7 @@ class AudioPlaybackService : LifecycleService() {
         super.onCreate()
         Log.d(TAG, "AudioPlaybackService created")
 
-        // Р­С‚Р°Рї D: Initialize metrics manager
+        // Р В­РЎвЂљР В°Р С— D: Initialize metrics manager
         metricsManager = MetricsManager(applicationContext)
 
         networkClient = NetworkClient(this)
@@ -317,12 +298,7 @@ class AudioPlaybackService : LifecycleService() {
         streamRecorder = StreamRecorder(this)
         createNotificationChannel()
 
-        // Load saved filter mode
-        loadFilterMode()
 
-        // Register broadcast receiver for filter mode updates
-        val filter = IntentFilter("ru.example.childwatch.UPDATE_FILTER_MODE")
-        registerReceiver(filterModeReceiver, filter, Context.RECEIVER_NOT_EXPORTED)
 
         // Initialize WakeLock
         val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -340,20 +316,8 @@ class AudioPlaybackService : LifecycleService() {
 
         // Improvement: Initialize AudioManager for audio focus handling
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        Log.d(TAG, "рџЋµ AudioManager initialized for audio focus handling")
-    }
+        Log.d(TAG, "СЂСџР‹Вµ AudioManager initialized for audio focus handling")
 
-    private fun loadFilterMode() {
-        val prefs = getSharedPreferences("audio_prefs", Context.MODE_PRIVATE)
-        val savedMode = prefs.getString("filter_mode", FilterMode.ORIGINAL.name)
-        val mode = try {
-            FilterMode.valueOf(savedMode ?: FilterMode.ORIGINAL.name)
-        } catch (e: Exception) {
-            Log.e(TAG, "Invalid filter mode: $savedMode, using ORIGINAL")
-            FilterMode.ORIGINAL
-        }
-        setFilterMode(mode)
-        Log.d(TAG, "Loaded filter mode: $mode")
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -389,7 +353,7 @@ class AudioPlaybackService : LifecycleService() {
                 if (deviceId.isNullOrEmpty() || serverUrl.isNullOrEmpty()) {
                     Log.e(TAG, "Missing required parameters - deviceId: $deviceId, serverUrl: $serverUrl")
                     // Start foreground anyway to prevent crash
-                    startForeground(NOTIFICATION_ID, createNotification("РћС€РёР±РєР°: РЅРµРІРµСЂРЅС‹Рµ РїР°СЂР°РјРµС‚СЂС‹"))
+                    startForeground(NOTIFICATION_ID, createNotification("Error: invalid parameters"))
                     stopSelf()
                     return START_NOT_STICKY
                 }
@@ -408,7 +372,7 @@ class AudioPlaybackService : LifecycleService() {
             else -> {
                 Log.w(TAG, "Unknown action: ${intent?.action}")
                 // Start foreground anyway to prevent crash
-                startForeground(NOTIFICATION_ID, createNotification("РќРµРёР·РІРµСЃС‚РЅР°СЏ РєРѕРјР°РЅРґР°"))
+                startForeground(NOTIFICATION_ID, createNotification("Unknown command"))
                 stopSelf()
                 return START_NOT_STICKY
             }
@@ -428,14 +392,14 @@ class AudioPlaybackService : LifecycleService() {
             this.serverUrl = serverUrl
             this.isRecording = recording
 
-            Log.d(TAG, "рџЋ§ Starting audio playback in foreground service")
+            Log.d(TAG, "СЂСџР‹В§ Starting audio playback in foreground service")
 
-            // Р­С‚Р°Рї D: Update metrics - buffering status
+            // Р В­РЎвЂљР В°Р С— D: Update metrics - buffering status
             metricsManager.updateAudioStatus(AudioStatus.BUFFERING)
             metricsManager.updateWsStatus(WsStatus.CONNECTING)
 
             // Start foreground with notification IMMEDIATELY (required by Android)
-            startForeground(NOTIFICATION_ID, createNotification("РџРѕРґРєР»СЋС‡РµРЅРёРµ..."))
+            startForeground(NOTIFICATION_ID, createNotification("Connecting..."))
 
             if (recording) {
                 startLocalRecording()
@@ -445,11 +409,11 @@ class AudioPlaybackService : LifecycleService() {
 
             // Acquire WakeLock (keeps CPU awake)
             wakeLock?.acquire(60*60*1000L /* 1 hour */)
-            Log.d(TAG, "рџ”‹ WakeLock acquired")
+            Log.d(TAG, "СЂСџвЂќвЂ№ WakeLock acquired")
 
             // Acquire WiFi Lock (keeps WiFi active to prevent disconnection)
             wifiLock?.acquire()
-            Log.d(TAG, "рџ“¶ WiFi Lock acquired (FULL_HIGH_PERF mode)")
+            Log.d(TAG, "СЂСџвЂњВ¶ WiFi Lock acquired (FULL_HIGH_PERF mode)")
 
             // Improvement: Request audio focus to handle calls/notifications
             val focusResult = audioManager?.requestAudioFocus(
@@ -458,9 +422,9 @@ class AudioPlaybackService : LifecycleService() {
                 AudioManager.AUDIOFOCUS_GAIN
             )
             if (focusResult == AudioManager.AUDIOFOCUS_REQUEST_GRANTED) {
-                Log.d(TAG, "рџЋµ Audio focus granted")
+                Log.d(TAG, "СЂСџР‹Вµ Audio focus granted")
             } else {
-                Log.w(TAG, "рџЋµ Audio focus NOT granted (other app playing?)")
+                Log.w(TAG, "СЂСџР‹Вµ Audio focus NOT granted (other app playing?)")
             }
 
             // Force media to speaker to avoid silent routing on some devices.
@@ -493,7 +457,7 @@ class AudioPlaybackService : LifecycleService() {
 
                     // SIMPLIFIED ARCHITECTURE - Direct WebSocket connection
                     // No HTTP request needed - connect directly to WebSocket
-                    Log.d(TAG, "рџЋ§ Starting direct WebSocket connection (simplified architecture)")
+                    Log.d(TAG, "СЂСџР‹В§ Starting direct WebSocket connection (simplified architecture)")
 
                     isPlaying = true
                     AudioPlaybackService.isPlaying = true
@@ -507,7 +471,7 @@ class AudioPlaybackService : LifecycleService() {
                     initializeAudioTrack()
                     if (audioTrack == null) {
                         val errorText = audioTrackInitError ?: "AudioTrack init failed"
-                        updateNotification("РћС€РёР±РєР° Р°СѓРґРёРѕ: $errorText")
+                        updateNotification("Audio error: $errorText")
                         Log.e(TAG, "Cannot start playback: $errorText")
                         stopSelf()
                         return@launch
@@ -519,7 +483,7 @@ class AudioPlaybackService : LifecycleService() {
                     updateNotification(getString(R.string.audio_monitor_status_active))
                     currentStatus = getString(R.string.audio_monitor_status_active)
                     AudioPlaybackService.currentStatus = currentStatus
-                    Log.d(TAG, "вњ… Direct WebSocket streaming started at $streamingStartTime")
+                    Log.d(TAG, "РІСљвЂ¦ Direct WebSocket streaming started at $streamingStartTime")
                     startStreamWatchdog()
 
                 } catch (e: Exception) {
@@ -531,7 +495,7 @@ class AudioPlaybackService : LifecycleService() {
             Log.e(TAG, "Critical error in startPlayback", e)
             // Ensure foreground is started even if there's an error
             try {
-                startForeground(NOTIFICATION_ID, createNotification("РћС€РёР±РєР° Р·Р°РїСѓСЃРєР°"))
+                startForeground(NOTIFICATION_ID, createNotification("Startup error"))
             } catch (ex: Exception) {
                 Log.e(TAG, "Failed to start foreground after error", ex)
             }
@@ -563,7 +527,7 @@ class AudioPlaybackService : LifecycleService() {
      * Can be resumed without full reconnection
      */
     private fun pausePlayback() {
-        Log.d(TAG, "вЏёпёЏ Pausing audio playback")
+        Log.d(TAG, "РІРЏС‘РїС‘РЏ Pausing audio playback")
         isPlaying = false
 
         // Stop playback job but keep everything else
@@ -574,7 +538,7 @@ class AudioPlaybackService : LifecycleService() {
         try {
             audioTrack?.pause()
             audioTrack?.flush()
-            Log.d(TAG, "вњ… AudioTrack paused")
+            Log.d(TAG, "РІСљвЂ¦ AudioTrack paused")
         } catch (e: Exception) {
             Log.e(TAG, "Error pausing AudioTrack", e)
         }
@@ -583,7 +547,7 @@ class AudioPlaybackService : LifecycleService() {
     }
 
     private fun stopPlayback() {
-        Log.d(TAG, "рџ›‘ Stopping audio playback")
+        Log.d(TAG, "СЂСџвЂєвЂ Stopping audio playback")
 
         // CRITICAL: Set flags FIRST to stop all loops
         isPlaying = false
@@ -604,12 +568,12 @@ class AudioPlaybackService : LifecycleService() {
         startCommandJob = null
         streamWatchdogJob = null
 
-        Log.d(TAG, "вњ… isPlaying set to false")
+        Log.d(TAG, "РІСљвЂ¦ isPlaying set to false")
 
         // Cancel playback job immediately
         playbackJob?.cancel()
         playbackJob = null
-        Log.d(TAG, "вњ… Playback job cancelled")
+        Log.d(TAG, "РІСљвЂ¦ Playback job cancelled")
 
         // Stop and release AudioTrack FIRST (force stop audio)
         try {
@@ -620,7 +584,7 @@ class AudioPlaybackService : LifecycleService() {
                 }
                 it.stop()
                 it.release()
-                Log.d(TAG, "вњ… AudioTrack stopped and released")
+                Log.d(TAG, "РІСљвЂ¦ AudioTrack stopped and released")
             }
             audioTrack = null
         } catch (e: Exception) {
@@ -629,18 +593,18 @@ class AudioPlaybackService : LifecycleService() {
 
         // Clear queue
         chunkQueue.clear()
-        Log.d(TAG, "вњ… Chunk queue cleared")
+        Log.d(TAG, "РІСљвЂ¦ Chunk queue cleared")
 
         // Disconnect WebSocket
         webSocketClient?.cleanup()
         webSocketClient = null
-        Log.d(TAG, "вњ… WebSocket disconnected")
+        Log.d(TAG, "РІСљвЂ¦ WebSocket disconnected")
 
         // Release WakeLock
         try {
             if (wakeLock?.isHeld == true) {
                 wakeLock?.release()
-                Log.d(TAG, "вњ… WakeLock released")
+                Log.d(TAG, "РІСљвЂ¦ WakeLock released")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing WakeLock", e)
@@ -650,7 +614,7 @@ class AudioPlaybackService : LifecycleService() {
         try {
             if (wifiLock?.isHeld == true) {
                 wifiLock?.release()
-                Log.d(TAG, "вњ… WiFi Lock released")
+                Log.d(TAG, "РІСљвЂ¦ WiFi Lock released")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error releasing WiFi Lock", e)
@@ -659,7 +623,7 @@ class AudioPlaybackService : LifecycleService() {
         // Improvement: Release audio focus so other apps can play
         try {
             audioManager?.abandonAudioFocus(audioFocusListener)
-            Log.d(TAG, "рџЋµ Audio focus abandoned")
+            Log.d(TAG, "СЂСџР‹Вµ Audio focus abandoned")
         } catch (e: Exception) {
             Log.e(TAG, "Error abandoning audio focus", e)
         }
@@ -678,7 +642,7 @@ class AudioPlaybackService : LifecycleService() {
         chunksReceived = 0
         AudioPlaybackService.chunksReceived = 0
         lastReceivedSequence = -1
-        currentStatus = "РћСЃС‚Р°РЅРѕРІР»РµРЅРѕ"
+        currentStatus = "Stopped"
         AudioPlaybackService.currentStatus = currentStatus
         connectionQuality = "--"
         AudioPlaybackService.connectionQuality = connectionQuality
@@ -698,7 +662,7 @@ class AudioPlaybackService : LifecycleService() {
                 frameSize = DEFAULT_FRAME_BYTES
             )
         }
-        Log.d(TAG, "вњ… State reset")
+        Log.d(TAG, "РІСљвЂ¦ State reset")
 
         // Stop streaming on server (detached scope to avoid cancellation during stopSelf)
         CoroutineScope(Dispatchers.IO).launch {
@@ -716,7 +680,7 @@ class AudioPlaybackService : LifecycleService() {
 
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
-        Log.d(TAG, "вњ… Service stopped")
+        Log.d(TAG, "РІСљвЂ¦ Service stopped")
     }
 
     private fun toggleRecording(recording: Boolean) {
@@ -761,7 +725,7 @@ class AudioPlaybackService : LifecycleService() {
     fun setVolume(volumePercent: Int) {
         val volume = (volumePercent / 100f).coerceIn(0f, 1f)
         audioTrack?.setVolume(volume)
-        Log.d(TAG, "рџ”Љ Volume set to $volumePercent%")
+        Log.d(TAG, "СЂСџвЂќР‰ Volume set to $volumePercent%")
     }
 
     /**
@@ -785,7 +749,7 @@ class AudioPlaybackService : LifecycleService() {
     }
 
     private fun sanitizeInputSampleRate(rate: Int): Int {
-        return if (INPUT_SAMPLE_RATES.contains(rate)) rate else DEFAULT_STREAM_SAMPLE_RATE
+        return DEFAULT_STREAM_SAMPLE_RATE
     }
 
     private fun frameBytesForRate(rate: Int): Int {
@@ -793,8 +757,10 @@ class AudioPlaybackService : LifecycleService() {
     }
 
     private fun inferRateFromChunkSize(chunkSize: Int): Int? {
-        if (chunkSize <= 0) return null
-        return INPUT_SAMPLE_RATES.firstOrNull { frameBytesForRate(it) == chunkSize }
+        if (chunkSize == frameBytesForRate(DEFAULT_STREAM_SAMPLE_RATE)) {
+            return DEFAULT_STREAM_SAMPLE_RATE
+        }
+        return null
     }
 
     private fun resolveInputSampleRate(rateFromMeta: Int, chunkSize: Int): Int {
@@ -830,9 +796,9 @@ class AudioPlaybackService : LifecycleService() {
         val recorder = streamRecorder ?: StreamRecorder(this).also { streamRecorder = it }
         if (recorder.start(inputSampleRate, STREAM_CHANNEL_COUNT)) {
             localRecordingActive = true
-            showToast("Р—Р°РїРёСЃСЊ РїСЂРѕСЃР»СѓС€РєРё РІРєР»СЋС‡РµРЅР°")
+            showToast(getString(R.string.audio_monitor_recording_saved_enabled))
         } else {
-            showToast("РќРµ СѓРґР°Р»РѕСЃСЊ РЅР°С‡Р°С‚СЊ Р·Р°РїРёСЃСЊ РїСЂРѕСЃР»СѓС€РєРё", Toast.LENGTH_LONG)
+            showToast(getString(R.string.audio_monitor_recording_start_failed), Toast.LENGTH_LONG)
         }
     }
 
@@ -848,9 +814,9 @@ class AudioPlaybackService : LifecycleService() {
         localRecordingActive = false
         if (metadata != null) {
             recordingRepository.addRecording(metadata)
-            showToast("Р—Р°РїРёСЃСЊ СЃРѕС…СЂР°РЅРµРЅР°: ${'$'}{metadata.fileName}")
+            showToast(getString(R.string.audio_monitor_recording_saved_file, metadata.fileName))
         } else if (shouldSave) {
-            showToast("Р—Р°РїРёСЃСЊ РЅРµ СЃРѕРґРµСЂР¶РёС‚ РґР°РЅРЅС‹С…")
+            showToast(getString(R.string.audio_monitor_recording_empty))
         }
     }
 
@@ -985,7 +951,7 @@ class AudioPlaybackService : LifecycleService() {
 
             webSocketClient = WebSocketClient(serverUrl, deviceId)
 
-            // Set callback for receiving audio chunks (Р­С‚Р°Рї A - jitter buffer)
+            // Set callback for receiving audio chunks (Р В­РЎвЂљР В°Р С— A - jitter buffer)
             webSocketClient?.setAudioChunkCallback { audioData, sequence, timestamp, sampleRate, channels ->
                 totalBytesReceived += audioData.size
 
@@ -1041,7 +1007,7 @@ class AudioPlaybackService : LifecycleService() {
                     startCommandJob = null
                 }
 
-                // Р­С‚Р°Рї A & D: Calculate and log metrics every ~2 seconds
+                // Р В­РЎвЂљР В°Р С— A & D: Calculate and log metrics every ~2 seconds
                 val now = System.currentTimeMillis()
                 if (now - lastMetricsLogTime >= 2000) {
                     val queueDepth = chunkQueue.size
@@ -1056,7 +1022,7 @@ class AudioPlaybackService : LifecycleService() {
                     }
                     Log.d(TAG, "AUDIO recv queueDepth=$queueDepth [$queueStatus], bytes/s=$bytesPerSecond, total=${totalBytesReceived}B, underruns=$underrunCount")
 
-                    // Р­С‚Р°Рї D: Update metrics manager
+                    // Р В­РЎвЂљР В°Р С— D: Update metrics manager
                     metricsManager.updateDataRate(bytesPerSecond, chunksReceived.toLong())
                     metricsManager.updateQueue(queueDepth, JITTER_BUFFER_MAX_FRAMES)
 
@@ -1073,7 +1039,7 @@ class AudioPlaybackService : LifecycleService() {
 
             // Set callback for child disconnect
             webSocketClient?.setChildDisconnectedCallback {
-                updateNotification("РЈСЃС‚СЂРѕР№СЃС‚РІРѕ РѕС‚РєР»СЋС‡РёР»РѕСЃСЊ")
+                updateNotification("Device disconnected")
             }
 
             webSocketClient?.setChildConnectedCallback {
@@ -1092,9 +1058,9 @@ class AudioPlaybackService : LifecycleService() {
             // Connect
             webSocketClient?.connect(
                 onConnected = {
-                    Log.d(TAG, "вњ… WebSocket connected")
+                    Log.d(TAG, "РІСљвЂ¦ WebSocket connected")
 
-                    // Р­С‚Р°Рї D: Update metrics - connected
+                    // Р В­РЎвЂљР В°Р С— D: Update metrics - connected
                     metricsManager.updateWsStatus(WsStatus.CONNECTED)
 
                     webSocketClient?.startHeartbeat()
@@ -1102,9 +1068,9 @@ class AudioPlaybackService : LifecycleService() {
                     startPlaybackJob()
                 },
                 onError = { error ->
-                    Log.e(TAG, "вќЊ WebSocket error: $error")
+                    Log.e(TAG, "РІСњРЉ WebSocket error: $error")
 
-                    // Р­С‚Р°Рї D: Report error
+                    // Р В­РЎвЂљР В°Р С— D: Report error
                     metricsManager.updateWsStatus(WsStatus.ERROR)
                     metricsManager.reportError("WebSocket error: $error", ErrorSeverity.ERROR)
                 }
@@ -1129,10 +1095,10 @@ class AudioPlaybackService : LifecycleService() {
                     if (isBuffering) {
                         if (chunkQueue.size >= JITTER_BUFFER_MIN_FRAMES) {
                             isBuffering = false
-                            updateNotification("Р’РѕСЃРїСЂРѕРёР·РІРµРґРµРЅРёРµ...")
+                            updateNotification("Playing...")
                             Log.d(TAG, "AUDIO buffer filled (${chunkQueue.size} frames), starting playback")
 
-                            // Р­С‚Р°Рї D: Update status to playing
+                            // Р В­РЎвЂљР В°Р С— D: Update status to playing
                             metricsManager.updateAudioStatus(AudioStatus.PLAYING)
                         } else {
                             delay(20) // Wait one frame duration
@@ -1140,7 +1106,7 @@ class AudioPlaybackService : LifecycleService() {
                         }
                     }
 
-                    // Р­С‚Р°Рї A: poll() with timeout
+                    // Р В­РЎвЂљР В°Р С— A: poll() with timeout
                     val chunk = withTimeoutOrNull(50) {
                         // Blocking poll - will wait if queue empty
                         val frame = chunkQueue.poll()
@@ -1173,10 +1139,10 @@ class AudioPlaybackService : LifecycleService() {
                             continue
                         }
 
-                        // Р­С‚Р°Рї A & D: track underruns
+                        // Р В­РЎвЂљР В°Р С— A & D: track underruns
                         if (written < playbackChunk.size) {
                             underrunCount++
-                            metricsManager.incrementUnderrun() // Р­С‚Р°Рї D
+                            metricsManager.incrementUnderrun() // Р В­РЎвЂљР В°Р С— D
                             if (underrunCount < 10) { // Log first few
                                 Log.w(TAG, "AUDIO write underrun: wrote $written < ${playbackChunk.size}")
                             }
@@ -1189,10 +1155,10 @@ class AudioPlaybackService : LifecycleService() {
                             streamRecorder?.write(processedChunk)
                         }
                     } else {
-                        // Р­С‚Р°Рї A & D: Queue empty - silence, but don't block UI
+                        // Р В­РЎвЂљР В°Р С— A & D: Queue empty - silence, but don't block UI
                         if (chunkQueue.isEmpty()) {
                             underrunCount++
-                            metricsManager.incrementUnderrun() // Р­С‚Р°Рї D
+                            metricsManager.incrementUnderrun() // Р В­РЎвЂљР В°Р С— D
                             if (underrunCount % 10 == 1) { // Log every 10th
                                 Log.w(TAG, "AUDIO queue empty (underrun #$underrunCount)")
                             }
@@ -1261,11 +1227,24 @@ class AudioPlaybackService : LifecycleService() {
         val url = serverUrl
         if (id.isNullOrBlank() || url.isNullOrBlank()) return
 
-        Log.d(TAG, "Sending start command to child (reason=$reason)")
+        val targets = resolveStartCommandTargets(id)
+        Log.d(TAG, "Sending start command to child (reason=$reason, targets=${targets.joinToString()})")
 
-        runCatching {
-            networkClient?.startAudioStreaming(url, id, isRecording, STREAM_TIMEOUT_MINUTES, requestedSampleRate)
-        }.onFailure { Log.w(TAG, "HTTP start command failed: ${it.message}") }
+        // HTTP trigger remains the most reliable bootstrap path when child reconnects after restart.
+        // If no chunks are flowing yet, we fan-out to all known candidate IDs for compatibility.
+        val shouldFanOut = chunksReceived == 0
+        val httpTargets = if (shouldFanOut) targets else listOf(id)
+        httpTargets.forEach { targetId ->
+            runCatching {
+                networkClient?.startAudioStreaming(
+                    url,
+                    targetId,
+                    isRecording,
+                    STREAM_TIMEOUT_MINUTES,
+                    requestedSampleRate
+                )
+            }.onFailure { Log.w(TAG, "HTTP start command failed for $targetId: ${it.message}") }
+        }
 
         if (webSocketClient?.isReady() == true) {
             val data = JSONObject().apply {
@@ -1278,6 +1257,43 @@ class AudioPlaybackService : LifecycleService() {
         } else {
             Log.d(TAG, "WS command skipped (not ready yet): reason=$reason")
         }
+    }
+
+    private fun resolveStartCommandTargets(primaryId: String): List<String> {
+        val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+        val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        val ownId = prefs.getString("device_id", null)?.trim().orEmpty()
+
+        val excluded = listOf(
+            ownId,
+            prefs.getString("parent_device_id", null),
+            prefs.getString("linked_parent_device_id", null),
+            legacyPrefs.getString("parent_device_id", null),
+            legacyPrefs.getString("linked_parent_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        val ordered = linkedSetOf<String>()
+        listOf(
+            primaryId,
+            prefs.getString("selected_device_id", null),
+            prefs.getString("child_device_id", null),
+            legacyPrefs.getString("selected_device_id", null),
+            legacyPrefs.getString("child_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .forEach { candidate ->
+                if (candidate.isNotBlank() && candidate !in excluded) {
+                    ordered.add(candidate)
+                }
+            }
+
+        if (ordered.isEmpty()) {
+            ordered.add(primaryId)
+        }
+        return ordered.toList()
     }
 
     /**
@@ -1353,8 +1369,8 @@ class AudioPlaybackService : LifecycleService() {
             } else {
                 -1L
             }
-            val ageText = if (ageMs >= 0L) "${ageMs}ms" else "вЂ”"
-            " вЂў $sr вЂў #$chunksReceived вЂў ${ageText}"
+            val ageText = if (ageMs >= 0L) "${ageMs}ms" else "—"
+            " • $sr • #$chunksReceived • ${ageText}"
         } else {
             ""
         }
@@ -1370,15 +1386,9 @@ class AudioPlaybackService : LifecycleService() {
         Log.d(TAG, "AudioPlaybackService destroyed")
         stopLocalRecording(save = false)
 
-        // Р­С‚Р°Рї D: Cleanup metrics manager
+        // Р В­РЎвЂљР В°Р С— D: Cleanup metrics manager
         metricsManager.destroy()
 
-        // Unregister broadcast receiver
-        try {
-            unregisterReceiver(filterModeReceiver)
-        } catch (e: Exception) {
-            Log.e(TAG, "Error unregistering filter mode receiver", e)
-        }
 
         startCommandJob?.cancel()
         streamWatchdogJob?.cancel()
@@ -1412,4 +1422,3 @@ class AudioPlaybackService : LifecycleService() {
         audioTrackInitError = null
     }
 }
-

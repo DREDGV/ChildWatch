@@ -7,7 +7,7 @@
     <string name="stop_service">⏸️ ОСТАНОВИТЬ МОНИТОРИНГ</string>
     <string name="status_running">Работает</string>
     <string name="status_stopped">Остановлен</string>
-    <string name="server_url_hint">https://childwatch-production.up.railway.app</string>
+    <string name="server_url_hint">http://31.28.27.96:3000</string>
     <string name="notification_channel_name">Отслеживание местоположения</string>
     <string name="notification_channel_description">Уведомления о работе службы отслеживания</string>
     <string name="chat_status_sending">Отправляется…</string>
@@ -23,5 +23,19 @@
     <string name="chat_presence_connecting">Подключение…</string>
     <string name="chat_presence_offline">Офлайн</string>
     <string name="server_url_not_configured">Не настроен</string>
+    <string name="chat_enter_message">Введите сообщение</string>
+    <string name="chat_cleared">Чат очищен</string>
+    <string name="chat_new_message_from">Новое сообщение от %1$s</string>
+    <string name="chat_emoji_picker_title">Выберите emoji</string>
+    <string name="chat_close">Закрыть</string>
+    <string name="chat_title_with_name">Чат с %1$s</string>
+    <string name="chat_title_with_parents">Чат с родителями</string>
+    <string name="chat_title_generic">Чат</string>
+    <string name="chat_typing_parent">Родитель печатает...</string>
+    <string name="chat_typing_child">Ребенок печатает...</string>
+    <string name="chat_input_hint">Введите сообщение...</string>
+    <string name="chat_send">Отправить</string>
+    <string name="chat_error_device_not_registered">Устройство не зарегистрировано. Настройте ID в настройках.</string>
+    <string name="chat_error_device_id_not_set">Device ID не настроен</string>
 </resources>
 

@@ -14,11 +14,19 @@ object WebSocketManager {
 
     private var webSocketClient: WebSocketClient? = null
     private var isInitialized = false
+    private var currentServerUrl: String? = null
+    private var currentDeviceId: String? = null
     // Legacy single callback for backward compatibility
     private var chatMessageCallback: ((String, String, String, Long) -> Unit)? = null
     // Multiple listeners support (service + activities)
     private val chatMessageListeners = java.util.Collections.synchronizedSet(
         mutableSetOf<(String, String, String, Long) -> Unit>()
+    )
+    private val chatMessageSentListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(String, Boolean, Long) -> Unit>()
+    )
+    private val chatStatusListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(String, String, Long) -> Unit>()
     )
     private var chatMessageSentCallback: ((String, Boolean, Long) -> Unit)? = null
     private var chatStatusCallback: ((String, String, Long) -> Unit)? = null
@@ -32,8 +40,12 @@ object WebSocketManager {
 
     fun initialize(context: Context, serverUrl: String, childDeviceId: String, onMissedMessages: ((List<ChatMessage>) -> Unit)? = null) {
         if (isInitialized && webSocketClient != null) {
-            Log.d(TAG, "WebSocket already initialized")
-            return
+            if (currentServerUrl == serverUrl && currentDeviceId == childDeviceId) {
+                Log.d(TAG, "WebSocket already initialized")
+                return
+            }
+            Log.d(TAG, "Reinitializing WebSocket for new target")
+            cleanup()
         }
 
         Log.d(TAG, "Initializing WebSocket: $serverUrl with childDeviceId: $childDeviceId")
@@ -43,11 +55,17 @@ object WebSocketManager {
         webSocketClient?.setChatMessageCallback { id, text, sender, ts ->
             dispatchChatMessage(id, text, sender, ts)
         }
-        chatMessageSentCallback?.let { webSocketClient?.setChatMessageSentCallback(it) }
-        chatStatusCallback?.let { webSocketClient?.setChatStatusCallback(it) }
+        webSocketClient?.setChatMessageSentCallback { messageId, delivered, timestamp ->
+            dispatchChatMessageSent(messageId, delivered, timestamp)
+        }
+        webSocketClient?.setChatStatusCallback { messageId, status, timestamp ->
+            dispatchChatStatus(messageId, status, timestamp)
+        }
         childConnectedCallback?.let { webSocketClient?.setChildConnectedCallback(it) }
         childDisconnectedCallback?.let { webSocketClient?.setChildDisconnectedCallback(it) }
         isInitialized = true
+        currentServerUrl = serverUrl
+        currentDeviceId = childDeviceId
     }
 
     /**
@@ -65,11 +83,33 @@ object WebSocketManager {
             setChatMessageCallback { id, text, sender, ts ->
                 dispatchChatMessage(id, text, sender, ts)
             }
-            chatMessageSentCallback?.let { setChatMessageSentCallback(it) }
-            chatStatusCallback?.let { setChatStatusCallback(it) }
+            setChatMessageSentCallback { messageId, delivered, timestamp ->
+                dispatchChatMessageSent(messageId, delivered, timestamp)
+            }
+            setChatStatusCallback { messageId, status, timestamp ->
+                dispatchChatStatus(messageId, status, timestamp)
+            }
             childConnectedCallback?.let { setChildConnectedCallback(it) }
             childDisconnectedCallback?.let { setChildDisconnectedCallback(it) }
             connect(onConnected, onError)
+        }
+    }
+
+    fun ensureConnected(onReady: () -> Unit = {}, onError: (String) -> Unit = {}) {
+        if (!isInitialized) {
+            Log.e(TAG, "WebSocket not initialized. Call initialize() first")
+            onError("WebSocket not initialized")
+            return
+        }
+        if (isReady()) {
+            onReady()
+            return
+        }
+        webSocketClient?.setRegisteredCallback { onReady() }
+        if (!isConnected()) {
+            connect(onConnected = {}, onError = onError)
+        } else {
+            webSocketClient?.requestRegistration()
         }
     }
 
@@ -90,7 +130,16 @@ object WebSocketManager {
         onSuccess: () -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
-        webSocketClient?.sendChatMessage(messageId, text, sender, onSuccess, onError)
+        val client = webSocketClient
+        if (client == null) {
+            onError("WebSocket not initialized")
+            return
+        }
+        if (!client.isReady()) {
+            onError("WebSocket not ready")
+            return
+        }
+        client.sendChatMessage(messageId, text, sender, onSuccess, onError)
     }
 
     /**
@@ -167,24 +216,86 @@ object WebSocketManager {
         }
     }
 
+    private fun dispatchChatMessageSent(messageId: String, delivered: Boolean, timestamp: Long) {
+        try {
+            val snapshot = synchronized(chatMessageSentListeners) { chatMessageSentListeners.toList() }
+            snapshot.forEach { listener ->
+                try {
+                    listener(messageId, delivered, timestamp)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in chat sent listener", e)
+                }
+            }
+            chatMessageSentCallback?.invoke(messageId, delivered, timestamp)
+        } catch (e: Exception) {
+            Log.e(TAG, "dispatchChatMessageSent failed", e)
+        }
+    }
+
+    private fun dispatchChatStatus(messageId: String, status: String, timestamp: Long) {
+        try {
+            val snapshot = synchronized(chatStatusListeners) { chatStatusListeners.toList() }
+            snapshot.forEach { listener ->
+                try {
+                    listener(messageId, status, timestamp)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in chat status listener", e)
+                }
+            }
+            chatStatusCallback?.invoke(messageId, status, timestamp)
+        } catch (e: Exception) {
+            Log.e(TAG, "dispatchChatStatus failed", e)
+        }
+    }
+
     fun setChatMessageSentCallback(callback: (messageId: String, delivered: Boolean, timestamp: Long) -> Unit) {
         chatMessageSentCallback = callback
-        webSocketClient?.setChatMessageSentCallback(callback)
+        webSocketClient?.setChatMessageSentCallback { messageId, delivered, timestamp ->
+            dispatchChatMessageSent(messageId, delivered, timestamp)
+        }
     }
 
     fun clearChatMessageSentCallback() {
         chatMessageSentCallback = null
-        webSocketClient?.setChatMessageSentCallback { _, _, _ -> }
+        webSocketClient?.setChatMessageSentCallback { messageId, delivered, timestamp ->
+            dispatchChatMessageSent(messageId, delivered, timestamp)
+        }
     }
 
     fun setChatStatusCallback(callback: (messageId: String, status: String, timestamp: Long) -> Unit) {
         chatStatusCallback = callback
-        webSocketClient?.setChatStatusCallback(callback)
+        webSocketClient?.setChatStatusCallback { messageId, status, timestamp ->
+            dispatchChatStatus(messageId, status, timestamp)
+        }
     }
 
     fun clearChatStatusCallback() {
         chatStatusCallback = null
-        webSocketClient?.setChatStatusCallback { _, _, _ -> }
+        webSocketClient?.setChatStatusCallback { messageId, status, timestamp ->
+            dispatchChatStatus(messageId, status, timestamp)
+        }
+    }
+
+    fun addChatMessageSentListener(listener: (messageId: String, delivered: Boolean, timestamp: Long) -> Unit) {
+        chatMessageSentListeners.add(listener)
+        webSocketClient?.setChatMessageSentCallback { messageId, delivered, timestamp ->
+            dispatchChatMessageSent(messageId, delivered, timestamp)
+        }
+    }
+
+    fun removeChatMessageSentListener(listener: (messageId: String, delivered: Boolean, timestamp: Long) -> Unit) {
+        chatMessageSentListeners.remove(listener)
+    }
+
+    fun addChatStatusListener(listener: (messageId: String, status: String, timestamp: Long) -> Unit) {
+        chatStatusListeners.add(listener)
+        webSocketClient?.setChatStatusCallback { messageId, status, timestamp ->
+            dispatchChatStatus(messageId, status, timestamp)
+        }
+    }
+
+    fun removeChatStatusListener(listener: (messageId: String, status: String, timestamp: Long) -> Unit) {
+        chatStatusListeners.remove(listener)
     }
 
     fun sendChatStatus(messageId: String, status: String, actor: String) {
@@ -230,6 +341,10 @@ object WebSocketManager {
         return webSocketClient?.isConnected() ?: false
     }
 
+    fun isReady(): Boolean {
+        return webSocketClient?.isReady() ?: false
+    }
+
     /**
      * Get WebSocket client instance
      */
@@ -240,18 +355,25 @@ object WebSocketManager {
     // Photo capture callbacks
     private var photoReceivedCallback: ((photoBase64: String, requestId: String, timestamp: Long) -> Unit)? = null
     private var photoErrorCallback: ((requestId: String, error: String) -> Unit)? = null
+    private val photoReceivedListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(String, String, Long) -> Unit>()
+    )
+    private val photoErrorListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(String, String) -> Unit>()
+    )
 
     /**
      * Request remote photo capture
      */
     fun requestPhoto(
         targetDevice: String,
+        cameraFacing: String = "back",
         requestId: String = java.util.UUID.randomUUID().toString(),
         onSuccess: () -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
-        if (!isConnected()) {
-            onError("Not connected to server")
+        if (!isReady()) {
+            onError("WebSocket not ready")
             return
         }
 
@@ -259,6 +381,7 @@ object WebSocketManager {
             val data = JSONObject().apply {
                 put("targetDevice", targetDevice)
                 put("requestId", requestId)
+                put("camera", cameraFacing)
             }
 
             webSocketClient?.emit("request_photo", data)
@@ -275,7 +398,9 @@ object WebSocketManager {
      */
     fun setPhotoReceivedCallback(callback: (photoBase64: String, requestId: String, timestamp: Long) -> Unit) {
         photoReceivedCallback = callback
-        webSocketClient?.onPhotoReceived = callback
+        webSocketClient?.onPhotoReceived = { photoBase64, requestId, timestamp ->
+            dispatchPhotoReceived(photoBase64, requestId, timestamp)
+        }
     }
 
     /**
@@ -283,7 +408,55 @@ object WebSocketManager {
      */
     fun setPhotoErrorCallback(callback: (requestId: String, error: String) -> Unit) {
         photoErrorCallback = callback
-        webSocketClient?.onPhotoError = callback
+        webSocketClient?.onPhotoError = { requestId, error ->
+            dispatchPhotoError(requestId, error)
+        }
+    }
+
+    fun addPhotoReceivedListener(listener: (photoBase64: String, requestId: String, timestamp: Long) -> Unit) {
+        photoReceivedListeners.add(listener)
+        webSocketClient?.onPhotoReceived = { photoBase64, requestId, timestamp ->
+            dispatchPhotoReceived(photoBase64, requestId, timestamp)
+        }
+    }
+
+    fun removePhotoReceivedListener(listener: (photoBase64: String, requestId: String, timestamp: Long) -> Unit) {
+        photoReceivedListeners.remove(listener)
+    }
+
+    fun addPhotoErrorListener(listener: (requestId: String, error: String) -> Unit) {
+        photoErrorListeners.add(listener)
+        webSocketClient?.onPhotoError = { requestId, error ->
+            dispatchPhotoError(requestId, error)
+        }
+    }
+
+    fun removePhotoErrorListener(listener: (requestId: String, error: String) -> Unit) {
+        photoErrorListeners.remove(listener)
+    }
+
+    private fun dispatchPhotoReceived(photoBase64: String, requestId: String, timestamp: Long) {
+        val snapshot = synchronized(photoReceivedListeners) { photoReceivedListeners.toList() }
+        snapshot.forEach { listener ->
+            try {
+                listener(photoBase64, requestId, timestamp)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in photo listener", e)
+            }
+        }
+        photoReceivedCallback?.invoke(photoBase64, requestId, timestamp)
+    }
+
+    private fun dispatchPhotoError(requestId: String, error: String) {
+        val snapshot = synchronized(photoErrorListeners) { photoErrorListeners.toList() }
+        snapshot.forEach { listener ->
+            try {
+                listener(requestId, error)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in photo error listener", e)
+            }
+        }
+        photoErrorCallback?.invoke(requestId, error)
     }
 
     /**
@@ -293,12 +466,18 @@ object WebSocketManager {
         webSocketClient?.cleanup()
         webSocketClient = null
         isInitialized = false
+        currentServerUrl = null
+        currentDeviceId = null
         chatMessageCallback = null
         chatMessageSentCallback = null
         chatStatusCallback = null
         childConnectedCallback = null
         childDisconnectedCallback = null
+        chatMessageSentListeners.clear()
+        chatStatusListeners.clear()
         photoReceivedCallback = null
         photoErrorCallback = null
+        photoReceivedListeners.clear()
+        photoErrorListeners.clear()
     }
 }

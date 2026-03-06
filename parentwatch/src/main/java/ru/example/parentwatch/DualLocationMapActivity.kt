@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Bundle
 import android.util.Log
+import android.view.MotionEvent
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -17,6 +18,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
@@ -48,6 +50,9 @@ class DualLocationMapActivity : AppCompatActivity() {
         private const val TAG = "DualLocationMapActivity"
         private const val LOCATION_PERMISSION_REQUEST = 1001
         private const val AUTO_REFRESH_INTERVAL = 30_000L // 30 секунд
+        private const val STALE_THRESHOLD_MS = 10 * 60 * 1000L // 10 minutes
+        private const val MAP_CACHE_MY = "map_cache_my"
+        private const val MAP_CACHE_OTHER = "map_cache_other"
         
         const val EXTRA_MY_ROLE = "MY_ROLE"
         const val EXTRA_MY_ID = "MY_ID"
@@ -87,39 +92,102 @@ class DualLocationMapActivity : AppCompatActivity() {
     
     private var isMapReady = false
     private var autoRefreshJob: Job? = null
+    private var autoFitEnabled = true
+    private var lastMyPoint: GeoPoint? = null
+    private var lastOtherPoint: GeoPoint? = null
+
+    private data class CachedLocation(
+        val latitude: Double,
+        val longitude: Double,
+        val timestamp: Long,
+        val speed: Float?
+    )
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        
-        // Get role and IDs from intent
-        myRole = intent.getStringExtra(EXTRA_MY_ROLE) ?: ROLE_PARENT
-        myId = intent.getStringExtra(EXTRA_MY_ID) ?: ""
-        otherId = intent.getStringExtra(EXTRA_OTHER_ID) ?: ""
-        
-        // Allow opening without full setup (limited mode: show only my location)
-        limitedMode = myId.isEmpty() || otherId.isEmpty()
-        
-        // Initialize OSMdroid
-        Configuration.getInstance().load(this, getSharedPreferences("osmdroid", MODE_PRIVATE))
-        Configuration.getInstance().userAgentValue = packageName
-        
         binding = ActivityDualLocationMapBinding.inflate(layoutInflater)
         setContentView(binding.root)
-        
-        // Initialize components
-        prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
-        database = ParentWatchDatabase.getInstance(this)
-        locationManager = LocationManager(this)
-        networkClient = NetworkClient(this)
-        parentLocationRepository = ParentLocationRepository(database.parentLocationDao())
-        
-        // Setup UI
-    setupToolbar()
-        setupMap()
-        setupRefreshButton()
-        
-        // Load locations
-        checkPermissionsAndLoad()
+
+        try {
+            // Get role and IDs from intent
+            myRole = intent.getStringExtra(EXTRA_MY_ROLE) ?: ROLE_PARENT
+            myId = intent.getStringExtra(EXTRA_MY_ID)?.trim().orEmpty()
+            otherId = intent.getStringExtra(EXTRA_OTHER_ID)?.trim().orEmpty()
+
+            val localPrefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+            val legacyPrefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+
+            if (myId.isBlank()) {
+                myId = listOf(
+                    localPrefs.getString("device_id", null),
+                    localPrefs.getString("child_device_id", null),
+                    legacyPrefs.getString("device_id", null),
+                    legacyPrefs.getString("child_device_id", null)
+                )
+                    .mapNotNull { it?.trim() }
+                    .firstOrNull { it.isNotBlank() }
+                    .orEmpty()
+            }
+
+            if (otherId.isBlank()) {
+                otherId = resolveParentIdCandidateFromPrefs(localPrefs, legacyPrefs, myId)
+            }
+
+            // In child mode we can resolve parentId dynamically; limited mode only when parent target is unknown.
+            limitedMode = otherId.isEmpty() && myRole != ROLE_CHILD
+
+            // Initialize OSMdroid
+            Configuration.getInstance().load(this, getSharedPreferences("osmdroid", MODE_PRIVATE))
+            Configuration.getInstance().userAgentValue = packageName
+
+            // Initialize components
+            prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+            database = ParentWatchDatabase.getInstance(this)
+            locationManager = LocationManager(this)
+            networkClient = NetworkClient(this)
+            parentLocationRepository = ParentLocationRepository(database.parentLocationDao())
+
+            // Setup UI
+            setupToolbar()
+            setupMap()
+            setupRefreshButton()
+            setupCenterButtons()
+
+            // Load locations
+            checkPermissionsAndLoad()
+        } catch (e: Exception) {
+            handleStartupFailure(e)
+        }
+    }
+
+    private fun resolveParentIdCandidateFromPrefs(
+        prefs: SharedPreferences,
+        legacyPrefs: SharedPreferences,
+        myDeviceId: String
+    ): String {
+        val candidates = listOf(
+            prefs.getString("parent_device_id", null),
+            prefs.getString("linked_parent_device_id", null),
+            prefs.getString("selected_device_id", null),
+            legacyPrefs.getString("parent_device_id", null),
+            legacyPrefs.getString("linked_parent_device_id", null),
+            legacyPrefs.getString("selected_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .filter { it.isNotBlank() && it != myDeviceId }
+
+        return candidates.firstOrNull().orEmpty()
+    }
+
+    private fun handleStartupFailure(error: Throwable) {
+        Log.e(TAG, "Map startup failed", error)
+        if (::binding.isInitialized) {
+            binding.loadingIndicator.visibility = View.GONE
+            binding.errorCard.visibility = View.VISIBLE
+            binding.errorText.text = "Map startup failed: ${error.message ?: "unknown error"}"
+            return
+        }
+        Toast.makeText(this, "Map startup failed", Toast.LENGTH_LONG).show()
     }
     
     private fun setupToolbar() {
@@ -142,6 +210,16 @@ class DualLocationMapActivity : AppCompatActivity() {
         mapView.setTileSource(TileSourceFactory.MAPNIK)
         mapView.setMultiTouchControls(true)
         mapView.controller.setZoom(15.0)
+
+        mapView.setOnTouchListener { _, event ->
+            if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_MOVE) {
+                if (autoFitEnabled) {
+                    autoFitEnabled = false
+                    updateAutoFitUi()
+                }
+            }
+            false
+        }
         
         isMapReady = true
     }
@@ -151,6 +229,81 @@ class DualLocationMapActivity : AppCompatActivity() {
             loadLocations()
         }
     }
+
+    private fun setupCenterButtons() {
+        updateCenterIcons()
+        updateAutoFitUi()
+        if (limitedMode) {
+            binding.centerOtherButton.isEnabled = false
+            binding.centerOtherButton.alpha = 0.4f
+            binding.centerBothButton.isEnabled = false
+            binding.centerBothButton.alpha = 0.4f
+        }
+
+        binding.centerBothButton.setOnClickListener {
+            autoFitEnabled = true
+            updateAutoFitUi()
+            centerOnAvailable()
+        }
+
+        binding.centerMyButton.setOnClickListener {
+            autoFitEnabled = false
+            updateAutoFitUi()
+            if (!centerOnPoint(lastMyPoint)) {
+                Toast.makeText(this, "My location not available", Toast.LENGTH_SHORT).show()
+            }
+        }
+
+        binding.centerOtherButton.setOnClickListener {
+            autoFitEnabled = false
+            updateAutoFitUi()
+            if (!centerOnPoint(lastOtherPoint)) {
+                Toast.makeText(this, "Other location not available", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun updateCenterIcons() {
+        val myIcon = when (myRole) {
+            ROLE_PARENT -> R.drawable.ic_parent_marker
+            ROLE_CHILD -> R.drawable.ic_child_marker
+            else -> R.drawable.ic_parent_marker
+        }
+        val otherIcon = when (myRole) {
+            ROLE_PARENT -> R.drawable.ic_child_marker
+            ROLE_CHILD -> R.drawable.ic_parent_marker
+            else -> R.drawable.ic_child_marker
+        }
+        binding.centerMyButton.setImageResource(myIcon)
+        binding.centerOtherButton.setImageResource(otherIcon)
+    }
+
+    private fun updateAutoFitUi() {
+        binding.centerBothButton.alpha = if (autoFitEnabled) 1.0f else 0.6f
+    }
+
+    private fun centerOnPoint(point: GeoPoint?): Boolean {
+        if (point == null) return false
+        mapView.controller.setCenter(point)
+        return true
+    }
+
+    private fun centerOnAvailable() {
+        val myPoint = lastMyPoint
+        val otherPoint = lastOtherPoint
+        when {
+            myPoint != null && otherPoint != null -> {
+                centerMapOnBothLocations(
+                    myPoint.latitude,
+                    myPoint.longitude,
+                    otherPoint.latitude,
+                    otherPoint.longitude
+                )
+            }
+            myPoint != null -> centerOnPoint(myPoint)
+            otherPoint != null -> centerOnPoint(otherPoint)
+        }
+    }
     
     private fun checkPermissionsAndLoad() {
         if (hasLocationPermission()) {
@@ -158,6 +311,9 @@ class DualLocationMapActivity : AppCompatActivity() {
             startAutoRefresh()
         } else {
             requestLocationPermission()
+            // Still try to load other device location without my GPS
+            loadLocations()
+            startAutoRefresh()
         }
     }
     
@@ -191,65 +347,109 @@ class DualLocationMapActivity : AppCompatActivity() {
                 loadLocations()
                 startAutoRefresh()
             } else {
-                Toast.makeText(this, "Требуется разрешение на доступ к локации", Toast.LENGTH_LONG).show()
-                finish()
+                Toast.makeText(this, "Локация устройства недоступна: нет разрешения", Toast.LENGTH_LONG).show()
+                loadLocations()
+                startAutoRefresh()
             }
         }
     }
     
     private fun loadLocations() {
         binding.loadingIndicator.visibility = View.VISIBLE
-        binding.errorText.visibility = View.GONE
+        binding.errorCard.visibility = View.GONE
         
         lifecycleScope.launch {
             try {
-                // Получить мою локацию
-                val myLocation = withContext(Dispatchers.IO) {
-                    locationManager.getCurrentLocation()
+                val cachedMy = loadCachedLocation(cacheKeyMy())
+                val cachedOther = if (limitedMode) null else loadCachedLocation(cacheKeyOther())
+
+                if (cachedMy != null || cachedOther != null) {
+                    displayAvailableLocations(
+                        myLat = cachedMy?.latitude,
+                        myLon = cachedMy?.longitude,
+                        myTimestamp = cachedMy?.timestamp,
+                        otherLocation = cachedOther?.toParentLocationData(otherId)
+                    )
+                    binding.loadingIndicator.visibility = View.GONE
+                }
+                val myLocation = if (hasLocationPermission()) {
+                    withContext(Dispatchers.IO) { locationManager.getCurrentLocation() }
+                } else {
+                    null
                 }
                 
                 if (myLocation != null) {
                     myLatitude = myLocation.latitude
                     myLongitude = myLocation.longitude
+                    saveCachedLocation(
+                        cacheKeyMy(),
+                        myLocation.latitude,
+                        myLocation.longitude,
+                        myLocation.time,
+                        if (myLocation.hasSpeed()) myLocation.speed else null
+                    )
                 } else {
                     Log.w(TAG, "My location not available")
                 }
                 
                 // Получить локацию другого устройства
-                // Для ребенка (ROLE_CHILD): сначала проверяем локальную БД для parent_location через WebSocket
+                // Для ребенка (ROLE_CHILD): пробуем несколько parentId и локальный fallback
+                var resolvedOtherId = otherId
                 val otherLocation = if (limitedMode) {
                     null
                 } else withContext(Dispatchers.IO) {
-                    if (myRole == ROLE_CHILD && otherId.isNotEmpty()) {
-                        val cachedParent = parentLocationRepository.getLatestLocation(otherId)
-                        cachedParent?.toNetworkModel() ?: run {
-                            Log.w(TAG, "No parent location in local DB, trying server...")
-                            networkClient.getLatestParentLocation(otherId)
+                    if (myRole == ROLE_CHILD) {
+                        val parentCandidates = resolveParentIdCandidates()
+                        val fromServer = parentCandidates.firstNotNullOfOrNull { parentId ->
+                            networkClient.getLatestParentLocation(parentId)?.also {
+                                resolvedOtherId = parentId
+                            }
                         }
+                        val cachedParentExact = parentCandidates.firstNotNullOfOrNull { parentId ->
+                            parentLocationRepository.getLatestLocation(parentId)?.also {
+                                resolvedOtherId = parentId
+                            }
+                        }
+                        val cachedParentAny = parentLocationRepository.getLatestLocationAny()
+                        fromServer ?: cachedParentExact?.toNetworkModel() ?: cachedParentAny?.toNetworkModel()
                     } else {
                         // Parent getting child location from server
                         networkClient.getLatestLocation(otherId)
                     }
                 }
                 
-                if (otherLocation != null && myLatitude != null && myLongitude != null) {
-                    // Отобразить обе локации
-                    displayLocations(
-                        myLat = myLatitude!!,
-                        myLon = myLongitude!!,
-                        otherLat = otherLocation.latitude,
-                        otherLon = otherLocation.longitude,
-                        otherSpeed = otherLocation.speed
+                if (otherLocation != null) {
+                    if (resolvedOtherId.isNotBlank() && resolvedOtherId != otherId) {
+                        otherId = resolvedOtherId
+                    }
+                    saveCachedLocation(
+                        cacheKeyOther(),
+                        otherLocation.latitude,
+                        otherLocation.longitude,
+                        otherLocation.timestamp,
+                        otherLocation.speed
                     )
-                    
+                }
+
+                val myLatFinal = myLatitude ?: cachedMy?.latitude
+                val myLonFinal = myLongitude ?: cachedMy?.longitude
+                val myTsFinal = myLocation?.time ?: cachedMy?.timestamp
+                val otherFinal = otherLocation ?: cachedOther?.toParentLocationData(
+                    resolvedOtherId.ifBlank { otherId.ifBlank { "paired-device" } }
+                )
+
+                if (myLatFinal != null && myLonFinal != null || otherFinal != null) {
+                    displayAvailableLocations(
+                        myLat = myLatFinal,
+                        myLon = myLonFinal,
+                        myTimestamp = myTsFinal,
+                        otherLocation = otherFinal
+                    )
                     binding.loadingIndicator.visibility = View.GONE
-                    binding.errorText.visibility = View.GONE
-                    
                 } else {
-                    // Локация другого устройства недоступна
                     binding.loadingIndicator.visibility = View.GONE
-                    binding.errorText.visibility = View.VISIBLE
-                    
+                    binding.errorCard.visibility = View.VISIBLE
+
                     val errorMsg = if (limitedMode) {
                         "Чтобы видеть локацию родителей — свяжите устройства в Настройках."
                     } else when (myRole) {
@@ -258,17 +458,12 @@ class DualLocationMapActivity : AppCompatActivity() {
                         else -> "Локация недоступна"
                     }
                     binding.errorText.text = errorMsg
-                    
-                    // Показать только мою локацию если доступна
-                    if (myLatitude != null && myLongitude != null) {
-                        displayMyLocationOnly(myLatitude!!, myLongitude!!)
-                    }
                 }
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading locations", e)
                 binding.loadingIndicator.visibility = View.GONE
-                binding.errorText.visibility = View.VISIBLE
+                binding.errorCard.visibility = View.VISIBLE
                 binding.errorText.text = "Ошибка загрузки локации: ${e.message}"
             }
         }
@@ -279,8 +474,17 @@ class DualLocationMapActivity : AppCompatActivity() {
         myLon: Double,
         otherLat: Double,
         otherLon: Double,
-        otherSpeed: Float?
+        otherSpeed: Float?,
+        myTimestamp: Long?,
+        otherTimestamp: Long?
     ) {
+        if (!isValidCoordinate(myLat, myLon) || !isValidCoordinate(otherLat, otherLon)) {
+            Log.w(TAG, "displayLocations skipped due to invalid coordinates: my=($myLat,$myLon), other=($otherLat,$otherLon)")
+            binding.errorCard.visibility = View.VISIBLE
+            binding.errorText.text = "Получены некорректные координаты. Обновите карту."
+            return
+        }
+
         // Очистить предыдущие маркеры
         myMarker?.let { mapView.overlays.remove(it) }
         otherMarker?.let { mapView.overlays.remove(it) }
@@ -302,7 +506,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         myMarker = Marker(mapView).apply {
             position = GeoPoint(myLat, myLon)
             title = myMarkerTitle
-            snippet = "Моя локация"
+            snippet = buildSnippet("Моя локация", myTimestamp)
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
             icon = ContextCompat.getDrawable(this@DualLocationMapActivity, myMarkerIcon)
         }
@@ -324,7 +528,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         otherMarker = Marker(mapView).apply {
             position = GeoPoint(otherLat, otherLon)
             title = otherMarkerTitle
-            snippet = "Текущая локация"
+            snippet = buildSnippet("Текущая локация", otherTimestamp)
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
             icon = ContextCompat.getDrawable(this@DualLocationMapActivity, otherMarkerIcon)
         }
@@ -340,7 +544,11 @@ class DualLocationMapActivity : AppCompatActivity() {
         mapView.overlays.add(connectionLine)
         
         // Центрировать карту
-        centerMapOnBothLocations(myLat, myLon, otherLat, otherLon)
+        if (autoFitEnabled) {
+
+            centerMapOnBothLocations(myLat, myLon, otherLat, otherLon)
+
+        }
         
         // Рассчитать и показать расстояние и ETA
         val etaInfo = parentLocationRepository.calculateETA(
@@ -356,39 +564,211 @@ class DualLocationMapActivity : AppCompatActivity() {
         mapView.invalidate()
     }
     
-    private fun displayMyLocationOnly(myLat: Double, myLon: Double) {
+    private fun displaySingleLocation(lat: Double, lon: Double, title: String, iconRes: Int, timestamp: Long?) {
+        if (!isValidCoordinate(lat, lon)) {
+            Log.w(TAG, "displaySingleLocation skipped due to invalid coordinates: ($lat,$lon)")
+            binding.errorCard.visibility = View.VISIBLE
+            binding.errorText.text = "Получены некорректные координаты. Обновите карту."
+            return
+        }
+
         // Очистить предыдущие маркеры
         myMarker?.let { mapView.overlays.remove(it) }
-        
-        // Создать только мой маркер
-        val myMarkerIcon = when (myRole) {
-            ROLE_PARENT -> R.drawable.ic_parent_marker
-            ROLE_CHILD -> R.drawable.ic_child_marker
-            else -> R.drawable.ic_parent_marker
-        }
-        
-        val myMarkerTitle = when (myRole) {
-            ROLE_PARENT -> "Я (Родитель)"
-            ROLE_CHILD -> "Я (Ребенок)"
-            else -> "Я"
-        }
+        otherMarker?.let { mapView.overlays.remove(it) }
+        connectionLine?.let { mapView.overlays.remove(it) }
         
         myMarker = Marker(mapView).apply {
-            position = GeoPoint(myLat, myLon)
-            title = myMarkerTitle
-            snippet = "Моя локация"
+            position = GeoPoint(lat, lon)
+            this.title = title
+            snippet = buildSnippet("Текущая локация", timestamp)
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            icon = ContextCompat.getDrawable(this@DualLocationMapActivity, myMarkerIcon)
+            icon = ContextCompat.getDrawable(this@DualLocationMapActivity, iconRes)
         }
         mapView.overlays.add(myMarker)
         
-        // Центрировать на мне
-        mapView.controller.setCenter(GeoPoint(myLat, myLon))
-        mapView.controller.setZoom(15.0)
+        // Центрировать на точке
+        if (autoFitEnabled) {
+
+            mapView.controller.setCenter(GeoPoint(lat, lon))
+
+            mapView.controller.setZoom(15.0)
+
+        }
         
         binding.statsCard.visibility = View.GONE
         
         mapView.invalidate()
+    }
+
+    private fun displayAvailableLocations(
+        myLat: Double?,
+        myLon: Double?,
+        myTimestamp: Long?,
+        otherLocation: ParentLocationData?
+    ) {
+        val otherLat = otherLocation?.latitude
+        val otherLon = otherLocation?.longitude
+
+        lastMyPoint = if (myLat != null && myLon != null) {
+            GeoPoint(myLat, myLon)
+        } else {
+            null
+        }
+        lastOtherPoint = if (otherLat != null && otherLon != null) {
+            GeoPoint(otherLat, otherLon)
+        } else {
+            null
+        }
+
+        val myTitle = when (myRole) {
+            ROLE_PARENT -> "Я (Родитель)"
+            ROLE_CHILD -> "Я (Ребенок)"
+            else -> "Я"
+        }
+
+        val myIcon = when (myRole) {
+            ROLE_PARENT -> R.drawable.ic_parent_marker
+            ROLE_CHILD -> R.drawable.ic_child_marker
+            else -> R.drawable.ic_parent_marker
+        }
+
+        val otherTitle = when (myRole) {
+            ROLE_PARENT -> "Ребенок"
+            ROLE_CHILD -> "Родитель"
+            else -> "Другое устройство"
+        }
+
+        val otherIcon = when (myRole) {
+            ROLE_PARENT -> R.drawable.ic_child_marker
+            ROLE_CHILD -> R.drawable.ic_parent_marker
+            else -> R.drawable.ic_child_marker
+        }
+
+        val staleWarnings = mutableListOf<String>()
+        if (myTimestamp != null && isStale(myTimestamp)) {
+            staleWarnings.add("ваша локация устарела")
+        }
+        if (otherLocation?.timestamp != null && isStale(otherLocation.timestamp)) {
+            staleWarnings.add("локация второго устройства устарела")
+        }
+
+        if (myLat != null && myLon != null && otherLat != null && otherLon != null) {
+            displayLocations(
+                myLat = myLat,
+                myLon = myLon,
+                otherLat = otherLat,
+                otherLon = otherLon,
+                otherSpeed = otherLocation.speed,
+                myTimestamp = myTimestamp,
+                otherTimestamp = otherLocation.timestamp
+            )
+        } else if (myLat != null && myLon != null) {
+            displaySingleLocation(myLat, myLon, myTitle, myIcon, myTimestamp)
+        } else if (otherLat != null && otherLon != null) {
+            displaySingleLocation(otherLat, otherLon, otherTitle, otherIcon, otherLocation.timestamp)
+        }
+
+        if (staleWarnings.isNotEmpty()) {
+            binding.errorCard.visibility = View.VISIBLE
+            binding.errorText.text = "⚠ ${staleWarnings.joinToString(", ")}"
+        } else {
+            binding.errorCard.visibility = View.GONE
+        }
+    }
+
+    private fun normalizeTimestampMillis(raw: Long?): Long? {
+        if (raw == null || raw <= 0L) return null
+        return when {
+            raw < 10_000_000_000L -> raw * 1000L // seconds -> millis
+            raw > 10_000_000_000_000L -> raw / 1000L // micros -> millis
+            else -> raw
+        }
+    }
+
+    private fun formatTimestamp(timestamp: Long): String {
+        val normalized = normalizeTimestampMillis(timestamp) ?: timestamp
+        val sdf = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        return sdf.format(java.util.Date(normalized))
+    }
+
+    private fun isStale(timestamp: Long): Boolean {
+        val normalized = normalizeTimestampMillis(timestamp) ?: return false
+        return System.currentTimeMillis() - normalized > STALE_THRESHOLD_MS
+    }
+
+    private fun buildSnippet(label: String, timestamp: Long?): String {
+        val normalized = normalizeTimestampMillis(timestamp) ?: return label
+        val timeInfo = formatTimestamp(normalized)
+        return if (isStale(normalized)) {
+            "$label - $timeInfo (\u0443\u0441\u0442\u0430\u0440.)"
+        } else {
+            "$label - $timeInfo"
+        }
+    }
+
+    private fun resolveParentIdCandidates(): List<String> {
+        val legacyPrefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+        val ownId = myId.trim()
+        val candidates = listOf(
+            otherId,
+            prefs.getString("parent_device_id", null),
+            prefs.getString("linked_parent_device_id", null),
+            prefs.getString("selected_device_id", null),
+            prefs.getString("device_id", null),
+            legacyPrefs.getString("parent_device_id", null),
+            legacyPrefs.getString("linked_parent_device_id", null),
+            legacyPrefs.getString("selected_device_id", null),
+            legacyPrefs.getString("device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .filter { it.isNotBlank() && it != ownId }
+            .distinct()
+
+        return buildList {
+            addAll(candidates)
+            if (ownId.isNotBlank() && ownId !in candidates) {
+                // Compatibility fallback: some legacy parent builds reported location under child device ID.
+                add(ownId)
+            }
+        }
+    }
+
+    private fun cacheKeyMy(): String = "${MAP_CACHE_MY}_${myRole}"
+
+    private fun cacheKeyOther(): String = "${MAP_CACHE_OTHER}_${otherId}"
+
+    private fun saveCachedLocation(key: String, lat: Double, lon: Double, timestamp: Long, speed: Float?) {
+        val normalizedTimestamp = normalizeTimestampMillis(timestamp) ?: System.currentTimeMillis()
+        val speedValue = speed?.toString() ?: ""
+        prefs.edit().putString(key, "$lat|$lon|$normalizedTimestamp|$speedValue").apply()
+    }
+
+    private fun loadCachedLocation(key: String): CachedLocation? {
+        val raw = prefs.getString(key, null) ?: return null
+        val parts = raw.split("|")
+        if (parts.size < 3) return null
+        return try {
+            val lat = parts[0].toDouble()
+            val lon = parts[1].toDouble()
+            val ts = normalizeTimestampMillis(parts[2].toLong()) ?: return null
+            val speed = parts.getOrNull(3)?.toFloatOrNull()
+            CachedLocation(lat, lon, ts, speed)
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    private fun CachedLocation.toParentLocationData(deviceId: String): ParentLocationData {
+        return ParentLocationData(
+            parentId = deviceId,
+            latitude = latitude,
+            longitude = longitude,
+            accuracy = 0f,
+            timestamp = timestamp,
+            battery = null,
+            speed = speed,
+            bearing = null
+        )
     }
     
     private fun centerMapOnBothLocations(
@@ -397,24 +777,29 @@ class DualLocationMapActivity : AppCompatActivity() {
         lat2: Double,
         lon2: Double
     ) {
-        // Рассчитать центр между двумя точками
-        val centerLat = (lat1 + lat2) / 2
-        val centerLon = (lon1 + lon2) / 2
-        
-        // Рассчитать расстояние для определения zoom уровня
-        val distance = calculateDistance(lat1, lon1, lat2, lon2)
-        
-        val zoomLevel = when {
-            distance < 100 -> 18.0    // < 100 метров
-            distance < 500 -> 16.0    // < 500 метров
-            distance < 1000 -> 15.0   // < 1 км
-            distance < 5000 -> 13.0   // < 5 км
-            distance < 10000 -> 12.0  // < 10 км
-            else -> 11.0              // > 10 км
+        if (!isValidCoordinate(lat1, lon1) || !isValidCoordinate(lat2, lon2)) {
+            Log.w(TAG, "Skip centerMapOnBothLocations due to invalid coordinates")
+            return
         }
-        
-        mapView.controller.setCenter(GeoPoint(centerLat, centerLon))
-        mapView.controller.setZoom(zoomLevel)
+
+        val distance = calculateDistance(lat1, lon1, lat2, lon2)
+        if (distance < 30) {
+            mapView.controller.setCenter(GeoPoint(lat1, lon1))
+            mapView.controller.setZoom(17.0)
+            return
+        }
+
+        val bounds = BoundingBox.fromGeoPoints(
+            listOf(
+                GeoPoint(lat1, lon1),
+                GeoPoint(lat2, lon2)
+            )
+        )
+        mapView.zoomToBoundingBox(bounds, true, 100)
+    }
+
+    private fun isValidCoordinate(lat: Double, lon: Double): Boolean {
+        return lat.isFinite() && lon.isFinite() && lat in -90.0..90.0 && lon in -180.0..180.0
     }
     
     private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Float {
@@ -447,16 +832,20 @@ class DualLocationMapActivity : AppCompatActivity() {
     
     override fun onResume() {
         super.onResume()
-        mapView.onResume()
+        if (::mapView.isInitialized) {
+            mapView.onResume()
+        }
         
-        if (hasLocationPermission() && isMapReady) {
+        if (isMapReady) {
             startAutoRefresh()
         }
     }
     
     override fun onPause() {
         super.onPause()
-        mapView.onPause()
+        if (::mapView.isInitialized) {
+            mapView.onPause()
+        }
         autoRefreshJob?.cancel()
     }
     
@@ -484,3 +873,8 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
 }
+
+
+
+
+

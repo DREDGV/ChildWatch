@@ -24,6 +24,12 @@ import ru.example.parentwatch.database.entity.*
  *
  * Version 2: Added ParentLocation for "Where are parents?" feature
  * - Parent locations table with battery level, speed, bearing
+ *
+ * Version 4: Added contact metadata fields to children
+ * - role, icon_id, allowed_features, alias
+ *
+ * Version 5: Normalize children defaults for contact fields
+ * Version 6: Rebuild children table to align schema hash on upgraded installs
  */
 @Database(
     entities = [
@@ -34,7 +40,7 @@ import ru.example.parentwatch.database.entity.*
         LocationPoint::class,
         ParentLocation::class
     ],
-    version = 3,
+    version = 6,
     exportSchema = true
 )
 abstract class ParentWatchDatabase : RoomDatabase() {
@@ -157,6 +163,138 @@ abstract class ParentWatchDatabase : RoomDatabase() {
         }
 
         /**
+         * Migration from version 3 to 4
+         * Adds contact metadata fields to children table
+         */
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                try {
+                    database.execSQL("ALTER TABLE children ADD COLUMN role TEXT NOT NULL DEFAULT 'child'")
+                } catch (e: Exception) {
+                }
+                try {
+                    database.execSQL("ALTER TABLE children ADD COLUMN icon_id INTEGER NOT NULL DEFAULT 0")
+                } catch (e: Exception) {
+                }
+                try {
+                    database.execSQL("ALTER TABLE children ADD COLUMN allowed_features INTEGER NOT NULL DEFAULT 15")
+                } catch (e: Exception) {
+                }
+                try {
+                    database.execSQL("ALTER TABLE children ADD COLUMN alias TEXT")
+                } catch (e: Exception) {
+                }
+            }
+        }
+
+        /**
+         * Migration from version 4 to 5
+         * Rebuild children table to normalize defaults across installs.
+         */
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS children_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        device_id TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        role TEXT NOT NULL DEFAULT 'child',
+                        icon_id INTEGER NOT NULL DEFAULT 0,
+                        allowed_features INTEGER NOT NULL DEFAULT 15,
+                        alias TEXT,
+                        age INTEGER,
+                        avatar_url TEXT,
+                        phone_number TEXT,
+                        last_seen_at INTEGER,
+                        is_active INTEGER NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+
+                database.execSQL(
+                    """
+                    INSERT INTO children_new (
+                        id, device_id, name, role, icon_id, allowed_features, alias,
+                        age, avatar_url, phone_number, last_seen_at, is_active, created_at, updated_at
+                    )
+                    SELECT
+                        id, device_id, name, role, icon_id, allowed_features, alias,
+                        age, avatar_url, phone_number, last_seen_at, is_active, created_at, updated_at
+                    FROM children
+                    """.trimIndent()
+                )
+
+                database.execSQL("DROP TABLE children")
+                database.execSQL("ALTER TABLE children_new RENAME TO children")
+
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_children_device_id ON children(device_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_children_created_at ON children(created_at)")
+            }
+        }
+
+        /**
+         * Migration from version 5 to 6
+         * Rebuild children table to align schema hash safely on upgraded installs.
+         */
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS children_new (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
+                        device_id TEXT NOT NULL,
+                        name TEXT NOT NULL,
+                        role TEXT NOT NULL DEFAULT 'child',
+                        icon_id INTEGER NOT NULL DEFAULT 0,
+                        allowed_features INTEGER NOT NULL DEFAULT 15,
+                        alias TEXT,
+                        age INTEGER,
+                        avatar_url TEXT,
+                        phone_number TEXT,
+                        last_seen_at INTEGER,
+                        is_active INTEGER NOT NULL,
+                        created_at INTEGER NOT NULL,
+                        updated_at INTEGER NOT NULL
+                    )
+                    """.trimIndent()
+                )
+
+                database.execSQL(
+                    """
+                    INSERT INTO children_new (
+                        id, device_id, name, role, icon_id, allowed_features, alias,
+                        age, avatar_url, phone_number, last_seen_at, is_active, created_at, updated_at
+                    )
+                    SELECT
+                        id,
+                        device_id,
+                        name,
+                        COALESCE(role, 'child'),
+                        COALESCE(icon_id, 0),
+                        COALESCE(allowed_features, 15),
+                        alias,
+                        age,
+                        avatar_url,
+                        phone_number,
+                        last_seen_at,
+                        is_active,
+                        created_at,
+                        updated_at
+                    FROM children
+                    """.trimIndent()
+                )
+
+                database.execSQL("DROP TABLE children")
+                database.execSQL("ALTER TABLE children_new RENAME TO children")
+                database.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS index_children_device_id ON children(device_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_children_created_at ON children(created_at)")
+            }
+        }
+
+        /**
          * Get database instance (Singleton pattern)
          *
          * @param context Application context
@@ -169,7 +307,13 @@ abstract class ParentWatchDatabase : RoomDatabase() {
                     ParentWatchDatabase::class.java,
                     DATABASE_NAME
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3)
+                    .addMigrations(
+                        MIGRATION_1_2,
+                        MIGRATION_2_3,
+                        MIGRATION_3_4,
+                        MIGRATION_4_5,
+                        MIGRATION_5_6
+                    )
                     // Only allow destructive migration on DOWNGRADE (not upgrade)
                     // This preserves data on upgrades while allowing clean reinstalls
                     .fallbackToDestructiveMigrationOnDowngrade()

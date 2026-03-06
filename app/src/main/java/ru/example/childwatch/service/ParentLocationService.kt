@@ -96,8 +96,12 @@ class ParentLocationService : Service() {
     private fun sendLocationToChild(location: Location) {
         serviceScope.launch {
             try {
-                val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-                val parentId = prefs.getString("device_id", null) ?: return@launch
+                val parentId = resolveParentDeviceId()
+                if (parentId.isNullOrBlank()) {
+                    Log.w(TAG, "Parent device ID is missing, skipping location upload")
+                    return@launch
+                }
+                val targetDeviceId = resolveTargetDeviceId(parentId)
                 val serverUrl = SecureSettingsManager(this@ParentLocationService).getServerUrl().trim()
                 
                 val locationData = org.json.JSONObject().apply {
@@ -108,6 +112,9 @@ class ParentLocationService : Service() {
                     put("timestamp", System.currentTimeMillis())
                     put("speed", location.speed.takeIf { it > 0 } ?: 0f)
                     put("bearing", location.bearing.takeIf { it > 0 } ?: 0f)
+                    if (!targetDeviceId.isNullOrBlank()) {
+                        put("targetDevice", targetDeviceId)
+                    }
                 }
                 
                 // Отправить через WebSocket
@@ -141,6 +148,52 @@ class ParentLocationService : Service() {
                 Log.e(TAG, "Error sending parent location", e)
             }
         }
+    }
+
+    private fun resolveParentDeviceId(): String? {
+        val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+        val legacyPrefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        val secure = SecureSettingsManager(this)
+        val resolved = listOf(
+            secure.getDeviceId(),
+            prefs.getString("device_id", null),
+            prefs.getString("parent_device_id", null),
+            prefs.getString("linked_parent_device_id", null),
+            legacyPrefs.getString("device_id", null),
+            legacyPrefs.getString("parent_device_id", null),
+            legacyPrefs.getString("linked_parent_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .firstOrNull { it.isNotBlank() }
+        if (!resolved.isNullOrBlank() && secure.getDeviceId().isNullOrBlank()) {
+            secure.setDeviceId(resolved)
+        }
+        return resolved
+    }
+
+    private fun resolveTargetDeviceId(parentId: String): String? {
+        val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+        val secure = SecureSettingsManager(this)
+        val legacyPrefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+        val excluded = listOf(
+            parentId,
+            prefs.getString("parent_device_id", null),
+            prefs.getString("linked_parent_device_id", null),
+            legacyPrefs.getString("parent_device_id", null),
+            legacyPrefs.getString("linked_parent_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        val candidates = listOf(
+            prefs.getString("child_device_id", null),
+            secure.getChildDeviceId(),
+            legacyPrefs.getString("child_device_id", null),
+            prefs.getString("selected_device_id", null),
+            legacyPrefs.getString("selected_device_id", null)
+        ).mapNotNull { it?.trim() }
+        return candidates.firstOrNull { it.isNotBlank() && it !in excluded }
     }
     
     private fun createNotificationChannel() {

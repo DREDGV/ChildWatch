@@ -1,4 +1,4 @@
-package ru.example.parentwatch
+﻿package ru.example.parentwatch
 
 import android.Manifest
 import android.content.Context
@@ -15,18 +15,25 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import ru.example.parentwatch.BuildConfig
+import ru.example.parentwatch.chat.ChatManagerAdapter
 import ru.example.parentwatch.utils.NotificationManager
 import ru.example.parentwatch.service.LocationService
 import ru.example.parentwatch.service.ChatBackgroundService
 import ru.example.parentwatch.service.PhotoCaptureService
-import ru.example.parentwatch.location.ParentLocationTracker
 import ru.example.parentwatch.network.PhotoIntegration
 import ru.example.parentwatch.utils.ServerUrlResolver
 import android.view.MotionEvent
 import android.view.View
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -48,8 +55,6 @@ class MainActivity : AppCompatActivity() {
     private var isServiceRunning = false
     private val appVersion: String by lazy { BuildConfig.VERSION_NAME.replace("-debug", "") }
     
-    // Parent location tracker instance
-    private var parentLocationTracker: ParentLocationTracker? = null
     
     // Photo integration for remote photo capture
     private var photoIntegration: ru.example.parentwatch.network.PhotoIntegration? = null
@@ -57,9 +62,12 @@ class MainActivity : AppCompatActivity() {
     // UI elements
     private lateinit var titleText: TextView
     private lateinit var chatCard: MaterialCardView
+    private lateinit var chatBadge: TextView
     private lateinit var settingsCard: MaterialCardView
     // Removed extra cards/buttons from main screen for a minimal menu
     private lateinit var lastUpdateText: TextView
+    private var chatManagerAdapter: ChatManagerAdapter? = null
+    private var badgeRefreshJob: Job? = null
 
     // Permission launchers
     private val locationPermissionLauncher = registerForActivityResult(
@@ -90,7 +98,7 @@ class MainActivity : AppCompatActivity() {
         if (isGranted) {
         startLocationService()
         } else {
-            Toast.makeText(this, "Фоновое отслеживание местоположения отключено. Некоторые функции могут работать некорректно.", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "Фоновая геолокация отключена. Некоторые функции могут работать нестабильно.", Toast.LENGTH_LONG).show()
             startLocationService() // Still start, but with limited location updates
         }
     }
@@ -101,24 +109,49 @@ class MainActivity : AppCompatActivity() {
 
         prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
 
-        // Создаем каналы уведомлений
+        // РЎРѕР·РґР°РµРј РєР°РЅР°Р»С‹ СѓРІРµРґРѕРјР»РµРЅРёР№
         NotificationManager.createNotificationChannels(this)
 
-        // Синхронизируем device_id с child_device_id для совместимости
+        // РЎРёРЅС…СЂРѕРЅРёР·РёСЂСѓРµРј device_id СЃ child_device_id РґР»СЏ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚Рё
         syncDeviceIds()
+        val ensuredDeviceId = getUniqueDeviceId()
+        chatManagerAdapter = ChatManagerAdapter(this, ensuredDeviceId)
         ensureChatBackgroundService()
 
         setupUI()
         loadSettings()
         updateUI()
+        updateChatBadge()
+        ensureRuntimePermissions()
         
         // PhotoIntegration is deprecated - RemotePhotoService now handles this via WebSocketManager
         // initializePhotoIntegration()
         
-        // Проверяем, нужно ли открыть чат
+        // РџСЂРѕРІРµСЂСЏРµРј, РЅСѓР¶РЅРѕ Р»Рё РѕС‚РєСЂС‹С‚СЊ С‡Р°С‚
         if (intent.getBooleanExtra("open_chat", false)) {
+            NotificationManager.resetUnreadCount()
+            updateChatBadge()
             val chatIntent = Intent(this, ChatActivity::class.java)
             startActivity(chatIntent)
+        }
+    }
+
+    private fun ensureRuntimePermissions() {
+        val permissions = mutableListOf(
+            Manifest.permission.ACCESS_FINE_LOCATION,
+            Manifest.permission.ACCESS_COARSE_LOCATION,
+            Manifest.permission.RECORD_AUDIO,
+            Manifest.permission.CAMERA
+        )
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissions.add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        val missing = permissions.any {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missing) {
+            locationPermissionLauncher.launch(permissions.toTypedArray())
         }
     }
 
@@ -126,6 +159,7 @@ class MainActivity : AppCompatActivity() {
         // Find UI elements
     titleText = findViewById(R.id.titleText)
         chatCard = findViewById(R.id.chatCard)
+        chatBadge = findViewById(R.id.chatBadge)
         settingsCard = findViewById(R.id.settingsCard)
         lastUpdateText = findViewById(R.id.lastUpdateText)
 
@@ -134,6 +168,13 @@ class MainActivity : AppCompatActivity() {
         
         // Menu card click listeners
         chatCard.setOnClickListener {
+            NotificationManager.resetUnreadCount()
+            try {
+                chatManagerAdapter?.markAllAsRead()
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Failed to mark child chat as read", e)
+            }
+            updateChatBadge()
             val intent = Intent(this, ChatActivity::class.java)
             startActivity(intent)
         }
@@ -141,16 +182,16 @@ class MainActivity : AppCompatActivity() {
         // Parent location map card (always open, limited mode if not paired)
         findViewById<MaterialCardView>(R.id.parentLocationCard)?.setOnClickListener {
             val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
-            val childId = prefs.getString("device_id", "unknown") ?: "unknown"
-            val parentId = prefs.getString("parent_device_id", null)
+            val myDeviceId = prefs.getString("device_id", "unknown") ?: "unknown"
+            val parentId = resolvePairedParentId(prefs, myDeviceId)
 
-            val myId = if (childId != "unknown") childId else ""
-            val otherId = parentId ?: ""
+            val myId = if (myDeviceId != "unknown") myDeviceId else ""
+            val otherId = parentId
 
             if (otherId.isEmpty() || myId.isEmpty()) {
                 Toast.makeText(
                     this,
-                    "Открыт режим просмотра карты. Чтобы видеть локацию родителей — свяжите устройства в Настройках.",
+                    "Открыт режим просмотра карты. Чтобы видеть второе устройство, свяжите устройства в настройках.",
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -242,7 +283,7 @@ class MainActivity : AppCompatActivity() {
                         val pin2 = input2.text?.toString()?.trim().orEmpty()
                         if (pin1 == pin2) {
                             savePin(pin1)
-                            Toast.makeText(this, "PIN сохранён", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(this, "PIN сохранен", Toast.LENGTH_SHORT).show()
                             onResult(true)
                         } else {
                             Toast.makeText(this, "PIN не совпадает", Toast.LENGTH_SHORT).show()
@@ -298,7 +339,7 @@ class MainActivity : AppCompatActivity() {
         val lastUpdate = prefs.getLong("last_update", 0)
         if (lastUpdate > 0) {
             val dateLine = SimpleDateFormat("dd.MM.yy", Locale.getDefault()).format(Date(lastUpdate))
-            lastUpdateText.text = "$dateLine — ChildDevice v$appVersion\nЕрмошкин-Дмитриев Лев © 2025"
+            lastUpdateText.text = "$dateLine - ChildDevice v$appVersion\nРаботает в фоновом режиме"
         }
     }
 
@@ -326,8 +367,16 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        prefs.edit().putBoolean("chat_open", false).apply()
         ensureChatBackgroundService()
         ensurePhotoCaptureService()
+        updateChatBadge()
+        startBadgeRefreshLoop()
+    }
+
+    override fun onPause() {
+        badgeRefreshJob?.cancel()
+        super.onPause()
     }
 
     private fun requestPermissionsAndStart() {
@@ -363,8 +412,8 @@ class MainActivity : AppCompatActivity() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_BACKGROUND_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                 AlertDialog.Builder(this)
-                    .setTitle("Разрешение на фоновое местоположение")
-                    .setMessage("Для непрерывного отслеживания местоположения ChildDevice требуется разрешение на доступ к местоположению в фоновом режиме. Пожалуйста, выберите 'Разрешить всегда' в следующем окне.")
+                    .setTitle("Разрешение на фоновую геолокацию")
+                    .setMessage("Для непрерывного отслеживания местоположения ChildDevice нужно разрешение на доступ к геолокации в фоне. В следующем окне выберите «Разрешить всегда».")
                     .setPositiveButton("Продолжить") { _, _ ->
                 backgroundLocationPermissionLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
                     }
@@ -398,9 +447,6 @@ class MainActivity : AppCompatActivity() {
                 ensureChatBackgroundService()
                 ensurePhotoCaptureService()
                 
-                // Start parent location tracking (for "Where are parents?" feature)
-                startParentLocationTracking()
-
             isServiceRunning = true
             prefs.edit().putBoolean("service_running", true).apply()
             updateUI()
@@ -424,9 +470,6 @@ class MainActivity : AppCompatActivity() {
                 ChatBackgroundService.stop(this)
                 PhotoCaptureService.stop(this)
                 
-                // Stop parent location tracking
-                stopParentLocationTracking()
-
         isServiceRunning = false
         prefs.edit().putBoolean("service_running", false).apply()
         updateUI()
@@ -440,42 +483,6 @@ class MainActivity : AppCompatActivity() {
         }
     }
     
-    /**
-     * Start parent location tracking for "Where are parents?" feature
-     */
-    private fun startParentLocationTracking() {
-        try {
-            // Get parent ID from shared preferences
-            val parentId = prefs.getString("parent_device_id", null)
-            
-            if (parentId.isNullOrEmpty()) {
-                Log.w("MainActivity", "Parent device ID not set - cannot start parent location tracking")
-                return
-            }
-            
-            // Create and start tracker
-            parentLocationTracker = ParentLocationTracker(this, parentId)
-            parentLocationTracker?.startTracking()
-            
-            Log.i("MainActivity", "Parent location tracking started for parentId: $parentId")
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Error starting parent location tracking", e)
-        }
-    }
-    
-    /**
-     * Stop parent location tracking
-     */
-    private fun stopParentLocationTracking() {
-        try {
-            parentLocationTracker?.stopTracking()
-            parentLocationTracker = null
-            Log.i("MainActivity", "Parent location tracking stopped")
-        } catch (e: Exception) {
-            Log.e("MainActivity", "Error stopping parent location tracking", e)
-        }
-    }
-
     private fun emergencyStopAllFunctions() {
         try {
         // Send EMERGENCY_STOP action to service
@@ -484,15 +491,12 @@ class MainActivity : AppCompatActivity() {
         }
         startService(intent)
         
-        // Stop parent location tracking
-        stopParentLocationTracking()
-
         // Update local state
         isServiceRunning = false
         prefs.edit().putBoolean("service_running", false).apply()
         updateUI()
 
-        Toast.makeText(this, "🚨 Экстренная остановка выполнена", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "Экстренная остановка выполнена", Toast.LENGTH_LONG).show()
         } catch (e: Exception) {
             Log.e("MainActivity", "Error in emergency stop", e)
             Toast.makeText(this, "Ошибка экстренной остановки: ${e.message}", Toast.LENGTH_LONG).show()
@@ -509,7 +513,41 @@ class MainActivity : AppCompatActivity() {
         } else {
             SimpleDateFormat("dd.MM.yy", Locale.getDefault()).format(Date())
         }
-    lastUpdateText.text = "$dateLine — ChildDevice v$appVersion\nЕрмошкин-Дмитриев Лев © 2025"
+    lastUpdateText.text = "$dateLine - ChildDevice v$appVersion\nРаботает в фоновом режиме"
+    }
+
+    private fun updateChatBadge() {
+        val adapter = chatManagerAdapter
+        if (adapter == null || !::chatBadge.isInitialized) return
+
+        lifecycleScope.launch(Dispatchers.IO) {
+            val unreadFromDb = try {
+                adapter.getUnreadCount()
+            } catch (e: Exception) {
+                Log.e("MainActivity", "Failed to load unread chat count", e)
+                0
+            }
+            val unread = maxOf(unreadFromDb, NotificationManager.getUnreadCount())
+
+            withContext(Dispatchers.Main) {
+                if (unread > 0) {
+                    chatBadge.visibility = View.VISIBLE
+                    chatBadge.text = if (unread > 99) "99+" else unread.toString()
+                } else {
+                    chatBadge.visibility = View.GONE
+                }
+            }
+        }
+    }
+
+    private fun startBadgeRefreshLoop() {
+        if (badgeRefreshJob?.isActive == true) return
+        badgeRefreshJob = lifecycleScope.launch {
+            while (isActive) {
+                updateChatBadge()
+                delay(2000)
+            }
+        }
     }
 
     private fun syncDeviceIds() {
@@ -517,41 +555,61 @@ class MainActivity : AppCompatActivity() {
         val childDeviceId = prefs.getString("child_device_id", null)
         
         if (deviceId != null && childDeviceId == null) {
-            // Если есть device_id, но нет child_device_id - синхронизируем
+            // Р•СЃР»Рё РµСЃС‚СЊ device_id, РЅРѕ РЅРµС‚ child_device_id - СЃРёРЅС…СЂРѕРЅРёР·РёСЂСѓРµРј
             prefs.edit().putString("child_device_id", deviceId).apply()
-            Log.d("MainActivity", "Синхронизирован device_id с child_device_id: $deviceId")
+            Log.d("MainActivity", "РЎРёРЅС…СЂРѕРЅРёР·РёСЂРѕРІР°РЅ device_id СЃ child_device_id: $deviceId")
         } else if (deviceId == null && childDeviceId != null) {
-            // Если есть child_device_id, но нет device_id - синхронизируем
+            // Р•СЃР»Рё РµСЃС‚СЊ child_device_id, РЅРѕ РЅРµС‚ device_id - СЃРёРЅС…СЂРѕРЅРёР·РёСЂСѓРµРј
             prefs.edit().putString("device_id", childDeviceId).apply()
-            Log.d("MainActivity", "Синхронизирован child_device_id с device_id: $childDeviceId")
+            Log.d("MainActivity", "РЎРёРЅС…СЂРѕРЅРёР·РёСЂРѕРІР°РЅ child_device_id СЃ device_id: $childDeviceId")
+        } else if (!deviceId.isNullOrBlank() && !childDeviceId.isNullOrBlank() && deviceId != childDeviceId) {
+            // Recover from broken pairing migration where child_device_id was overwritten by parent ID.
+            prefs.edit().putString("child_device_id", deviceId).apply()
+            Log.w("MainActivity", "Исправлен child_device_id: восстановлен из device_id ($deviceId)")
         }
     }
+    private fun resolvePairedParentId(prefs: SharedPreferences, myDeviceId: String): String {
+        val legacyPrefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+        val resolved = listOf(
+            prefs.getString("parent_device_id", null),
+            prefs.getString("linked_parent_device_id", null),
+            prefs.getString("selected_device_id", null),
+            prefs.getString("child_device_id", null),
+            legacyPrefs.getString("parent_device_id", null),
+            legacyPrefs.getString("selected_device_id", null),
+            legacyPrefs.getString("child_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .firstOrNull { it.isNotBlank() && it != myDeviceId }
+            .orEmpty()
 
+        if (resolved.isNotEmpty() && prefs.getString("parent_device_id", null) != resolved) {
+            prefs.edit().putString("parent_device_id", resolved).apply()
+        }
+        return resolved
+    }
     private fun getUniqueDeviceId(): String {
         var deviceId = prefs.getString("device_id", null)
-        val isPermanent = prefs.getBoolean("device_id_permanent", false)
 
-        if (deviceId != null && !isPermanent) {
+        // Keep existing ID stable to avoid breaking pairing/streaming after updates.
+        if (deviceId.isNullOrBlank()) {
             deviceId = "child-" + UUID.randomUUID().toString().substring(0, 8)
-            prefs.edit()
-                .putString("device_id", deviceId)
-                .putString("child_device_id", deviceId) // Для совместимости с ChildWatch
-                .putBoolean("device_id_permanent", true)
-                .apply()
-        } else if (deviceId == null) {
-            deviceId = "child-" + UUID.randomUUID().toString().substring(0, 8)
-            prefs.edit()
-                .putString("device_id", deviceId)
-                .putString("child_device_id", deviceId) // Для совместимости с ChildWatch
-                .putBoolean("device_id_permanent", true)
-                .apply()
         }
-        return deviceId!!
+
+        prefs.edit()
+            .putString("device_id", deviceId)
+            .putString("child_device_id", deviceId)
+            .putBoolean("device_id_permanent", true)
+            .apply()
+
+        return deviceId
     }
     
     override fun onDestroy() {
         super.onDestroy()
+        badgeRefreshJob?.cancel()
         photoIntegration?.unregister()
         photoIntegration = null
     }
 }
+

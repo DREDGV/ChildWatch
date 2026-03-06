@@ -1,12 +1,16 @@
-package ru.example.childwatch.network
+﻿package ru.example.childwatch.network
 
 import android.util.Log
+import android.util.Base64
 import io.socket.client.IO
 import io.socket.client.Socket
 import io.socket.emitter.Emitter
 import kotlinx.coroutines.*
+import org.json.JSONArray
 import org.json.JSONObject
 import ru.example.childwatch.chat.ChatMessage
+import java.nio.ByteBuffer
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * WebSocketClient for ChildWatch (Parent Device)
@@ -19,6 +23,8 @@ class WebSocketClient(
 ) {
     private var socket: Socket? = null
     private var isConnected = false
+    private var isRegistered = false
+    private var registeredDeviceId: String = childDeviceId
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     // Callbacks
@@ -31,7 +37,7 @@ class WebSocketClient(
         val createdAt: Long
     )
 
-    private var onAudioChunkReceived: ((ByteArray, Int, Long) -> Unit)? = null
+    private var onAudioChunkReceived: ((ByteArray, Int, Long, Int, Int) -> Unit)? = null
     private var onChildConnected: (() -> Unit)? = null
     private var onChildDisconnected: (() -> Unit)? = null
     private var onCriticalAlertCallback: ((CriticalAlertMessage) -> Unit)? = null
@@ -40,14 +46,18 @@ class WebSocketClient(
     private var onChatMessageCallback: ((String, String, String, Long) -> Unit)? = null
     private var onChatMessageSentCallback: ((String, Boolean, Long) -> Unit)? = null
     private var onChatStatusCallback: ((String, String, Long) -> Unit)? = null
+    private var onRegisteredCallback: (() -> Unit)? = null
     var onPhotoReceived: ((photoBase64: String, requestId: String, timestamp: Long) -> Unit)? = null
     var onPhotoError: ((requestId: String, error: String) -> Unit)? = null
     private var onTypingCallback: ((isTyping: Boolean) -> Unit)? = null
     
     // Track last processed sequence to prevent duplicates
     private var lastProcessedSequence = -1
+    private var audioDeviceMismatchLogged = false
+    private var audioPayloadTypeLogged = false
     private var heartbeatJob: Job? = null
     private var reregistrationJob: Job? = null
+    private val pendingChatCallbacks = ConcurrentHashMap<String, PendingChatCallback>()
 
     companion object {
         private const val TAG = "WebSocketClient"
@@ -56,31 +66,47 @@ class WebSocketClient(
         private const val RECONNECTION_DELAY_MAX = 10000L // 10 seconds max (increased from 5)
         private const val PING_INTERVAL = 25000L // 25 seconds (heartbeat)
         private const val MAX_RECONNECT_ATTEMPTS_BEFORE_WARNING = 3 // Warn user after 3 failed attempts
+        private const val CHAT_ACK_TIMEOUT = 10000L
     }
+
+    private data class PendingChatCallback(
+        val onSuccess: () -> Unit,
+        val onError: (String) -> Unit,
+        val createdAt: Long = System.currentTimeMillis()
+    )
 
     // Connection event handlers
     private val onConnect = Emitter.Listener {
-        Log.d(TAG, "🟢 WebSocket connected")
+        Log.d(TAG, "рџџў WebSocket connected")
         scope.launch {
             isConnected = true
+            isRegistered = false
+            registeredDeviceId = childDeviceId
             lastProcessedSequence = -1
+            audioPayloadTypeLogged = false
             registerAsParent()
             onConnectedCallback?.invoke()
         }
     }
 
     private val onDisconnect = Emitter.Listener { args ->
-        Log.d(TAG, "🔴 WebSocket disconnected. Reason: ${args.getOrNull(0)}")
+        Log.d(TAG, "рџ”ґ WebSocket disconnected. Reason: ${args.getOrNull(0)}")
         isConnected = false
+        isRegistered = false
+        registeredDeviceId = childDeviceId
         stopHeartbeat()
         lastProcessedSequence = -1
+        failPendingChat("Disconnected")
         onChildDisconnected?.invoke()
     }
 
     private val onConnectError = Emitter.Listener { args ->
         val error = args.getOrNull(0)
-        Log.e(TAG, "❌ WebSocket connection error: $error")
+        Log.e(TAG, "вќЊ WebSocket connection error: $error")
         isConnected = false
+        isRegistered = false
+        registeredDeviceId = childDeviceId
+        failPendingChat(error?.toString() ?: "Connection error")
         scope.launch {
             onErrorCallback?.invoke(error?.toString() ?: "Connection error")
         }
@@ -89,58 +115,90 @@ class WebSocketClient(
     private val onRegistered = Emitter.Listener { args ->
         val data = args.getOrNull(0) as? JSONObject
         val success = data?.optBoolean("success") ?: false
-        val deviceId = data?.optString("deviceId")
-        
-        if (success && deviceId == childDeviceId) {
-            Log.d(TAG, "Parent registered for device: $childDeviceId")
+        val deviceId = data?.optString("deviceId")?.trim().orEmpty()
+        val requestedDeviceId = data?.optString("requestedDeviceId")?.trim().orEmpty()
+
+        if (success) {
+            registeredDeviceId = when {
+                deviceId.isNotEmpty() -> deviceId
+                requestedDeviceId.isNotEmpty() -> requestedDeviceId
+                else -> childDeviceId
+            }
+            if (registeredDeviceId != childDeviceId) {
+                Log.w(
+                    TAG,
+                    "Parent registered with remapped deviceId: requested=$childDeviceId registered=$registeredDeviceId"
+                )
+            } else {
+                Log.d(TAG, "Parent registered for device: $registeredDeviceId")
+            }
+            isRegistered = true
+            audioDeviceMismatchLogged = false
+            onRegisteredCallback?.invoke()
             requestMissedMessagesViaSocket()
         } else {
-            Log.e(TAG, "❌ Parent registration failed for device: $childDeviceId")
+            Log.e(TAG, "вќЊ Parent registration failed for device: $childDeviceId")
         }
     }
 
 
 
-    private val onAudioChunk = Emitter.Listener { args ->
+        private val onAudioChunk = Emitter.Listener { args ->
         try {
-            // First argument should be metadata JSON
-            val metadata = args.getOrNull(0) as? JSONObject
-            // Second argument should be binary data
-            val binaryData = args.getOrNull(1) as? ByteArray
-            
+            val metadata = parseMetadata(args.getOrNull(0))
+                ?: parseMetadata(args.getOrNull(1))
+            val binaryData = parseBinaryChunk(args.getOrNull(1))
+                ?: parseBinaryChunk(args.getOrNull(0))
+
             if (metadata != null && binaryData != null) {
                 val sequence = metadata.optInt("sequence", -1)
                 val timestamp = metadata.optLong("timestamp", System.currentTimeMillis())
-                val deviceId = metadata.optString("deviceId")
-                
-                // Only process chunks for our device and prevent duplicates
-                if (deviceId == childDeviceId) {
-                    if (sequence < 0) {
-                        Log.w(TAG, "Ignoring chunk with invalid sequence: $sequence")
-                        return@Listener
-                    }
+                val sourceDeviceId = metadata.optString("deviceId").trim()
+                val sampleRate = metadata.optInt("sampleRate", 24_000)
+                val channels = metadata.optInt("channels", 1)
 
-                    if (sequence < lastProcessedSequence) {
-                        Log.d(TAG, "Detected sequence reset ($sequence < $lastProcessedSequence). Accepting new stream.")
-                    } else if (sequence == lastProcessedSequence) {
-                        Log.d(TAG, "⏭️ Skipped duplicate chunk #$sequence")
-                        return@Listener
-                    }
+                // Chunks are routed to this socket by server mapping, so keep stream alive even if
+                // local target ID drifted after contact migration.
+                if (sourceDeviceId.isNotEmpty() &&
+                    sourceDeviceId != childDeviceId &&
+                    !audioDeviceMismatchLogged
+                ) {
+                    audioDeviceMismatchLogged = true
+                    Log.w(
+                        TAG,
+                        "Audio chunk deviceId mismatch: expected=$childDeviceId actual=$sourceDeviceId; accepting stream"
+                    )
+                }
 
-                    lastProcessedSequence = sequence
-                    Log.d(TAG, "🎧 Received audio chunk #$sequence (${binaryData.size} bytes)")
-                    scope.launch {
-                        onAudioChunkReceived?.invoke(binaryData, sequence, timestamp)
-                    }
+                if (sequence < 0) {
+                    Log.w(TAG, "Ignoring chunk with invalid sequence: $sequence")
+                    return@Listener
+                }
+
+                if (sequence < lastProcessedSequence) {
+                    Log.d(TAG, "Detected sequence reset ($sequence < $lastProcessedSequence). Accepting new stream.")
+                } else if (sequence == lastProcessedSequence) {
+                    Log.d(TAG, "Skipped duplicate chunk #$sequence")
+                    return@Listener
+                }
+
+                lastProcessedSequence = sequence
+                Log.d(TAG, "Received audio chunk #$sequence (${binaryData.size} bytes)")
+                scope.launch {
+                    onAudioChunkReceived?.invoke(binaryData, sequence, timestamp, sampleRate, channels)
                 }
             } else {
-                Log.w(TAG, "Invalid audio chunk data received")
+                if (!audioPayloadTypeLogged) {
+                    audioPayloadTypeLogged = true
+                    val arg0 = args.getOrNull(0)?.javaClass?.name ?: "null"
+                    val arg1 = args.getOrNull(1)?.javaClass?.name ?: "null"
+                    Log.w(TAG, "Invalid audio chunk payload (arg0=$arg0, arg1=$arg1)")
+                }
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error processing audio chunk", e)
         }
     }
-
     private val onCriticalAlert = Emitter.Listener { args ->
         try {
             val data = args.getOrNull(0) as? JSONObject
@@ -166,7 +224,7 @@ class WebSocketClient(
     private val onChildConnectedEvent = Emitter.Listener { args ->
         val data = args.getOrNull(0) as? JSONObject
         val deviceId = data?.optString("deviceId", childDeviceId) ?: childDeviceId
-        if (deviceId != childDeviceId) return@Listener
+        if (!isTargetDevice(deviceId)) return@Listener
         Log.d(TAG, "Child device connected")
         scope.launch {
             onChildConnected?.invoke()
@@ -176,7 +234,7 @@ class WebSocketClient(
     private val onChildDisconnectedEvent = Emitter.Listener { args ->
         val data = args.getOrNull(0) as? JSONObject
         val deviceId = data?.optString("deviceId", childDeviceId) ?: childDeviceId
-        if (deviceId != childDeviceId) return@Listener
+        if (!isTargetDevice(deviceId)) return@Listener
         Log.d(TAG, "Child device disconnected")
         lastProcessedSequence = -1
         scope.launch {
@@ -212,7 +270,12 @@ class WebSocketClient(
         val sender = obj.optString("sender", "")
         val timestamp = obj.optLong("timestamp", System.currentTimeMillis())
         val isRead = obj.optBoolean("isRead", false)
-        val status = if (isRead) ChatMessage.MessageStatus.READ else ChatMessage.MessageStatus.DELIVERED
+        val isIncoming = sender != "parent"
+        val status = when {
+            isRead -> ChatMessage.MessageStatus.READ
+            isIncoming -> ChatMessage.MessageStatus.DELIVERED
+            else -> ChatMessage.MessageStatus.SENT
+        }
         return ChatMessage(
             id = messageId,
             text = text,
@@ -226,7 +289,7 @@ class WebSocketClient(
     private fun requestMissedMessagesViaSocket() {
         try {
             val payload = JSONObject().apply {
-                put("deviceId", childDeviceId)
+                put("deviceId", registeredDeviceId.ifBlank { childDeviceId })
             }
             socket?.emit("get_missed_messages", payload)
             Log.d(TAG, "Requested missed messages via WebSocket")
@@ -236,7 +299,7 @@ class WebSocketClient(
     }
 
     private val onPong = Emitter.Listener {
-        Log.d(TAG, "🏓 Pong received")
+        Log.d(TAG, "рџЏ“ Pong received")
     }
 
     private val onChatMessage = Emitter.Listener { args ->
@@ -248,14 +311,14 @@ class WebSocketClient(
                 val sender = messageData.optString("sender", "")
                 val timestamp = messageData.optLong("timestamp", System.currentTimeMillis())
 
-                Log.d(TAG, "💬 Chat message received: from=$sender, text=$text")
+                Log.d(TAG, "рџ’¬ Chat message received: from=$sender, text=$text")
 
                 scope.launch {
                     onChatMessageCallback?.invoke(messageId, text, sender, timestamp)
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error handling chat message", e)
+            Log.e(TAG, "вќЊ Error handling chat message", e)
         }
     }
 
@@ -268,10 +331,11 @@ class WebSocketClient(
             val timestamp = data.optLong("timestamp", System.currentTimeMillis())
             val delivered = data.optBoolean("delivered", false)
 
-            Log.d(TAG, "✅ Chat message sent confirmation: id=$messageId, delivered=$delivered")
+            Log.d(TAG, "вњ… Chat message sent confirmation: id=$messageId, delivered=$delivered")
+            pendingChatCallbacks.remove(messageId)?.onSuccess?.invoke()
             onChatMessageSentCallback?.invoke(messageId, delivered, timestamp)
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error handling chat message sent confirmation", e)
+            Log.e(TAG, "вќЊ Error handling chat message sent confirmation", e)
         }
     }
 
@@ -282,10 +346,10 @@ class WebSocketClient(
             val status = data.optString("status")
             if (messageId.isNullOrEmpty() || status.isNullOrEmpty()) return@Listener
             val timestamp = data.optLong("timestamp", System.currentTimeMillis())
-            Log.d(TAG, "📬 Chat status update: id=$messageId status=$status")
+            Log.d(TAG, "рџ“¬ Chat status update: id=$messageId status=$status")
             onChatStatusCallback?.invoke(messageId, status, timestamp)
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error handling chat status update", e)
+            Log.e(TAG, "вќЊ Error handling chat status update", e)
         }
     }
 
@@ -294,9 +358,9 @@ class WebSocketClient(
             val data = args.getOrNull(0) as? JSONObject
             val error = data?.optString("error") ?: "Unknown error"
 
-            Log.e(TAG, "❌ Chat message error: $error")
+            Log.e(TAG, "вќЊ Chat message error: $error")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error handling chat message error", e)
+            Log.e(TAG, "вќЊ Error handling chat message error", e)
         }
     }
 
@@ -307,13 +371,13 @@ class WebSocketClient(
             val requestId = data?.optString("requestId") ?: ""
             val timestamp = data?.optLong("timestamp") ?: System.currentTimeMillis()
 
-            Log.d(TAG, "📸 Photo received: requestId=$requestId, size=${photoBase64.length} bytes")
+            Log.d(TAG, "рџ“ё Photo received: requestId=$requestId, size=${photoBase64.length} bytes")
             
             if (photoBase64.isNotEmpty()) {
                 onPhotoReceived?.invoke(photoBase64, requestId, timestamp)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error handling photo", e)
+            Log.e(TAG, "вќЊ Error handling photo", e)
         }
     }
 
@@ -323,10 +387,10 @@ class WebSocketClient(
             val requestId = data?.optString("requestId") ?: ""
             val error = data?.optString("error") ?: "Unknown error"
 
-            Log.e(TAG, "❌ Photo error: requestId=$requestId, error=$error")
+            Log.e(TAG, "вќЊ Photo error: requestId=$requestId, error=$error")
             onPhotoError?.invoke(requestId, error)
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error handling photo error", e)
+            Log.e(TAG, "вќЊ Error handling photo error", e)
         }
     }
 
@@ -336,12 +400,12 @@ class WebSocketClient(
             val deviceId = data?.optString("deviceId") ?: ""
             
             // Only process if it's from the child device
-            if (deviceId == childDeviceId) {
-                Log.d(TAG, "📝 Child started typing")
+            if (isTargetDevice(deviceId)) {
+                Log.d(TAG, "рџ“ќ Child started typing")
                 onTypingCallback?.invoke(true)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error handling typing_start", e)
+            Log.e(TAG, "вќЊ Error handling typing_start", e)
         }
     }
 
@@ -351,12 +415,12 @@ class WebSocketClient(
             val deviceId = data?.optString("deviceId") ?: ""
             
             // Only process if it's from the child device
-            if (deviceId == childDeviceId) {
-                Log.d(TAG, "📝 Child stopped typing")
+            if (isTargetDevice(deviceId)) {
+                Log.d(TAG, "рџ“ќ Child stopped typing")
                 onTypingCallback?.invoke(false)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error handling typing_stop", e)
+            Log.e(TAG, "вќЊ Error handling typing_stop", e)
         }
     }
 
@@ -426,6 +490,9 @@ class WebSocketClient(
             socket?.off()
             socket = null
             isConnected = false
+            isRegistered = false
+            registeredDeviceId = childDeviceId
+            failPendingChat("Disconnected")
         } catch (e: Exception) {
             Log.e(TAG, "Error disconnecting", e)
         }
@@ -434,7 +501,7 @@ class WebSocketClient(
     /**
      * Set callback for receiving audio chunks
      */
-    fun setAudioChunkCallback(callback: (ByteArray, Int, Long) -> Unit) {
+    fun setAudioChunkCallback(callback: (ByteArray, Int, Long, Int, Int) -> Unit) {
         onAudioChunkReceived = callback
     }
 
@@ -467,18 +534,18 @@ class WebSocketClient(
             }
 
             socket?.emit("register_parent", registrationData)
-            Log.d(TAG, "📤 Parent registration sent for device: $childDeviceId, socketId: ${socket?.id()}")
+            Log.d(TAG, "рџ“¤ Parent registration sent for device: $childDeviceId, socketId: ${socket?.id()}")
 
             // Retry registration after 2 seconds to ensure it's received
             scope.launch {
                 delay(2000)
                 if (isConnected && socket != null) {
                     socket?.emit("register_parent", registrationData)
-                    Log.d(TAG, "📤 Parent registration RETRY sent for device: $childDeviceId")
+                    Log.d(TAG, "рџ“¤ Parent registration RETRY sent for device: $childDeviceId")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Error registering as parent", e)
+            Log.e(TAG, "вќЊ Error registering as parent", e)
         }
     }
 
@@ -508,17 +575,28 @@ class WebSocketClient(
                 onError("Not connected to server")
                 return
             }
+            if (!isRegistered) {
+                onError("Not registered on server")
+                return
+            }
 
             val messageData = JSONObject().apply {
                 put("id", messageId)
                 put("text", text)
                 put("sender", sender)
-                put("deviceId", childDeviceId)
+                put("deviceId", registeredDeviceId.ifBlank { childDeviceId })
                 put("timestamp", System.currentTimeMillis())
             }
 
+            pendingChatCallbacks[messageId] = PendingChatCallback(onSuccess, onError)
             socket?.emit("chat_message", messageData)
-            onSuccess()
+
+            scope.launch {
+                delay(CHAT_ACK_TIMEOUT)
+                pendingChatCallbacks.remove(messageId)?.let { pending ->
+                    pending.onError("No server ACK for message $messageId")
+                }
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error sending chat message", e)
             onError("Failed to send message: ${e.message}")
@@ -542,7 +620,7 @@ class WebSocketClient(
 
             val commandData = JSONObject().apply {
                 put("type", commandType)
-                put("deviceId", childDeviceId)
+                put("deviceId", registeredDeviceId.ifBlank { childDeviceId })
                 put("timestamp", System.currentTimeMillis())
                 if (data != null) {
                     put("data", data)
@@ -550,7 +628,7 @@ class WebSocketClient(
             }
 
             socket?.emit("command", commandData)
-            Log.d(TAG, "📤 Command sent: $commandType to device: $childDeviceId")
+            Log.d(TAG, "рџ“¤ Command sent: $commandType to device: $childDeviceId")
             onSuccess()
         } catch (e: Exception) {
             Log.e(TAG, "Error sending command", e)
@@ -563,7 +641,7 @@ class WebSocketClient(
      */
     fun setChatMessageCallback(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
         onChatMessageCallback = callback
-        Log.d(TAG, "✅ Chat message callback registered")
+        Log.d(TAG, "вњ… Chat message callback registered")
     }
 
     fun setChatMessageSentCallback(callback: (messageId: String, delivered: Boolean, timestamp: Long) -> Unit) {
@@ -579,7 +657,7 @@ class WebSocketClient(
      */
     fun setTypingCallback(callback: (isTyping: Boolean) -> Unit) {
         onTypingCallback = callback
-        Log.d(TAG, "✅ Typing indicator callback registered")
+        Log.d(TAG, "вњ… Typing indicator callback registered")
     }
 
     /**
@@ -588,18 +666,18 @@ class WebSocketClient(
     fun sendTypingStatus(isTyping: Boolean) {
         try {
             if (!isConnected) {
-                Log.w(TAG, "⚠️ Cannot send typing status - not connected")
+                Log.w(TAG, "вљ пёЏ Cannot send typing status - not connected")
                 return
             }
             val event = if (isTyping) "typing_start" else "typing_stop"
             val payload = JSONObject().apply {
-                put("deviceId", childDeviceId)
+                put("deviceId", registeredDeviceId.ifBlank { childDeviceId })
                 put("timestamp", System.currentTimeMillis())
             }
             socket?.emit(event, payload)
-            Log.d(TAG, "📝 Sent $event event")
+            Log.d(TAG, "рџ“ќ Sent $event event")
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to send typing status", e)
+            Log.e(TAG, "вќЊ Failed to send typing status", e)
         }
     }
 
@@ -609,13 +687,13 @@ class WebSocketClient(
             val payload = JSONObject().apply {
                 put("id", messageId)
                 put("status", status)
-                put("deviceId", childDeviceId)
+                put("deviceId", registeredDeviceId.ifBlank { childDeviceId })
                 put("actor", actor)
                 put("timestamp", System.currentTimeMillis())
             }
             socket?.emit("chat_message_status", payload)
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Failed to send chat status", e)
+            Log.e(TAG, "вќЊ Failed to send chat status", e)
         }
     }
 
@@ -623,6 +701,66 @@ class WebSocketClient(
      * Check if connected
      */
     fun isConnected(): Boolean = isConnected
+
+    fun isReady(): Boolean = isConnected && isRegistered
+
+    private fun parseMetadata(raw: Any?): JSONObject? {
+        return when (raw) {
+            is JSONObject -> raw
+            is String -> runCatching { JSONObject(raw) }.getOrNull()
+            is Map<*, *> -> runCatching { JSONObject(raw) }.getOrNull()
+            else -> null
+        }
+    }
+
+    private fun parseBinaryChunk(raw: Any?): ByteArray? {
+        return when (raw) {
+            is ByteArray -> raw
+            is ByteBuffer -> {
+                val copy = raw.slice()
+                ByteArray(copy.remaining()).also { copy.get(it) }
+            }
+            is JSONArray -> {
+                val out = ByteArray(raw.length())
+                for (i in 0 until raw.length()) {
+                    out[i] = raw.optInt(i, 0).toByte()
+                }
+                out
+            }
+            is IntArray -> raw.map { it.toByte() }.toByteArray()
+            is String -> runCatching { Base64.decode(raw, Base64.DEFAULT) }.getOrNull()
+            is Array<*> -> {
+                val out = ByteArray(raw.size)
+                for (i in raw.indices) {
+                    val value = raw[i]
+                    out[i] = when (value) {
+                        is Number -> value.toInt().toByte()
+                        else -> return null
+                    }
+                }
+                out
+            }
+            else -> null
+        }
+    }
+
+    private fun isTargetDevice(candidate: String?): Boolean {
+        val normalizedCandidate = candidate?.trim().orEmpty()
+        if (normalizedCandidate.isEmpty()) return false
+        val requested = childDeviceId.trim()
+        val registered = registeredDeviceId.trim()
+        return normalizedCandidate == requested || normalizedCandidate == registered
+    }
+
+    fun setRegisteredCallback(callback: () -> Unit) {
+        onRegisteredCallback = callback
+    }
+
+    fun requestRegistration() {
+        if (isConnected) {
+            registerAsParent()
+        }
+    }
 
     /**
      * Start heartbeat job to keep connection alive
@@ -655,7 +793,7 @@ class WebSocketClient(
             while (isActive && isConnected) {
                 try {
                     registerAsParent()
-                    Log.d(TAG, "🔄 Periodic parent re-registration triggered")
+                    Log.d(TAG, "рџ”„ Periodic parent re-registration triggered")
                 } catch (e: Exception) {
                     Log.e(TAG, "Periodic re-registration failed", e)
                 }
@@ -682,6 +820,7 @@ class WebSocketClient(
      * Cleanup resources
      */
     fun cleanup() {
+        failPendingChat("Client cleanup")
         stopHeartbeat()
         disconnect()
         scope.cancel()
@@ -689,6 +828,7 @@ class WebSocketClient(
         onChildDisconnected = null
         onConnectedCallback = null
         onErrorCallback = null
+        onRegisteredCallback = null
         onCriticalAlertCallback = null
         onChatMessageCallback = null
         onChatMessageSentCallback = null
@@ -696,4 +836,18 @@ class WebSocketClient(
         onPhotoReceived = null
         onPhotoError = null
     }
+
+    private fun failPendingChat(reason: String) {
+        if (pendingChatCallbacks.isEmpty()) return
+        val pending = pendingChatCallbacks.entries.toList()
+        pendingChatCallbacks.clear()
+        pending.forEach { entry ->
+            try {
+                entry.value.onError(reason)
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to notify pending chat error", e)
+            }
+        }
+    }
 }
+

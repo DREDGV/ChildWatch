@@ -60,10 +60,24 @@ class ChatRepository(private val chatMessageDao: ChatMessageDao) {
     }
 
     /**
+     * Get unread messages count for a specific sender.
+     */
+    suspend fun getUnreadCountBySender(childId: Long, sender: String): Int {
+        return chatMessageDao.getUnreadCountBySender(childId, sender)
+    }
+
+    /**
      * Получить количество непрочитанных сообщений (Flow)
      */
     fun getUnreadCountFlow(childId: Long): Flow<Int> {
         return chatMessageDao.getUnreadCountFlow(childId)
+    }
+
+    /**
+     * Get unread messages count by sender as Flow (reactive).
+     */
+    fun getUnreadCountFlowBySender(childId: Long, sender: String): Flow<Int> {
+        return chatMessageDao.getUnreadCountFlowBySender(childId, sender)
     }
 
     /**

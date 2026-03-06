@@ -1,4 +1,4 @@
-package ru.example.parentwatch.chat
+﻿package ru.example.parentwatch.chat
 
 import android.content.Context
 import android.util.Log
@@ -9,15 +9,16 @@ import ru.example.parentwatch.database.repository.ChatRepository
 import ru.example.parentwatch.database.repository.ChildRepository
 
 /**
- * Новый ChatManager на основе Room Database
+ * РќРѕРІС‹Р№ ChatManager РЅР° РѕСЃРЅРѕРІРµ Room Database
  *
- * Заменяет старый ChatManager, использовавший SharedPreferences.
- * Работает через ChatRepository и поддерживает реактивные обновления.
+ * Р—Р°РјРµРЅСЏРµС‚ СЃС‚Р°СЂС‹Р№ ChatManager, РёСЃРїРѕР»СЊР·РѕРІР°РІС€РёР№ SharedPreferences.
+ * Р Р°Р±РѕС‚Р°РµС‚ С‡РµСЂРµР· ChatRepository Рё РїРѕРґРґРµСЂР¶РёРІР°РµС‚ СЂРµР°РєС‚РёРІРЅС‹Рµ РѕР±РЅРѕРІР»РµРЅРёСЏ.
  */
 class ChatManagerV2(context: Context, private val deviceId: String) {
 
     companion object {
         private const val TAG = "ChatManagerV2"
+        private const val INCOMING_SENDER = "parent"
     }
 
     private val database = ParentWatchDatabase.getInstance(context)
@@ -27,181 +28,182 @@ class ChatManagerV2(context: Context, private val deviceId: String) {
     private var childId: Long? = null
 
     /**
-     * Инициализация - получение или создание профиля ребенка
+     * РРЅРёС†РёР°Р»РёР·Р°С†РёСЏ - РїРѕР»СѓС‡РµРЅРёРµ РёР»Рё СЃРѕР·РґР°РЅРёРµ РїСЂРѕС„РёР»СЏ СЂРµР±РµРЅРєР°
      */
     suspend fun initialize() {
         try {
-            val child = childRepository.getOrCreateChild(deviceId, "Ребенок")
+            val child = childRepository.getOrCreateChild(deviceId, "Р РµР±РµРЅРѕРє")
             childId = child.id
-            Log.d(TAG, "ChatManagerV2 инициализирован для устройства $deviceId, childId=$childId")
+            Log.d(TAG, "ChatManagerV2 РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ РґР»СЏ СѓСЃС‚СЂРѕР№СЃС‚РІР° $deviceId, childId=$childId")
         } catch (e: Exception) {
-            Log.e(TAG, "Ошибка инициализации ChatManagerV2", e)
+            Log.e(TAG, "РћС€РёР±РєР° РёРЅРёС†РёР°Р»РёР·Р°С†РёРё ChatManagerV2", e)
             throw e
         }
     }
 
     /**
-     * Получить ID ребенка
+     * РџРѕР»СѓС‡РёС‚СЊ ID СЂРµР±РµРЅРєР°
      */
     fun getChildId(): Long {
-        return childId ?: throw IllegalStateException("ChatManagerV2 не инициализирован. Вызовите initialize() сначала.")
+        return childId ?: throw IllegalStateException("ChatManagerV2 РЅРµ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ. Р’С‹Р·РѕРІРёС‚Рµ initialize() СЃРЅР°С‡Р°Р»Р°.")
     }
 
     /**
-     * Сохранить сообщение
+     * РЎРѕС…СЂР°РЅРёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ
      */
     suspend fun saveMessage(message: ChatMessage) {
         try {
             val id = getChildId()
             chatRepository.insertMessage(message, id)
-            Log.d(TAG, "Сообщение сохранено: ${message.text}")
+            Log.d(TAG, "РЎРѕРѕР±С‰РµРЅРёРµ СЃРѕС…СЂР°РЅРµРЅРѕ: ${message.text}")
         } catch (e: Exception) {
-            Log.e(TAG, "Ошибка сохранения сообщения", e)
+            Log.e(TAG, "РћС€РёР±РєР° СЃРѕС…СЂР°РЅРµРЅРёСЏ СЃРѕРѕР±С‰РµРЅРёСЏ", e)
             throw e
         }
     }
 
     /**
-     * Получить все сообщения (обычный список)
+     * РџРѕР»СѓС‡РёС‚СЊ РІСЃРµ СЃРѕРѕР±С‰РµРЅРёСЏ (РѕР±С‹С‡РЅС‹Р№ СЃРїРёСЃРѕРє)
      */
     suspend fun getAllMessages(): List<ChatMessage> {
         return try {
             val id = getChildId()
             val messages = chatRepository.getMessagesForChild(id, limit = 200, offset = 0)
-            Log.d(TAG, "Загружено ${messages.size} сообщений")
+            Log.d(TAG, "Р—Р°РіСЂСѓР¶РµРЅРѕ ${messages.size} СЃРѕРѕР±С‰РµРЅРёР№")
             messages.sortedBy { it.timestamp }
         } catch (e: Exception) {
-            Log.e(TAG, "Ошибка загрузки сообщений", e)
+            Log.e(TAG, "РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё СЃРѕРѕР±С‰РµРЅРёР№", e)
             emptyList()
         }
     }
 
     /**
-     * Получить сообщения как Flow (реактивное обновление)
+     * РџРѕР»СѓС‡РёС‚СЊ СЃРѕРѕР±С‰РµРЅРёСЏ РєР°Рє Flow (СЂРµР°РєС‚РёРІРЅРѕРµ РѕР±РЅРѕРІР»РµРЅРёРµ)
      */
     fun getAllMessagesFlow(): Flow<List<ChatMessage>> {
-        val id = childId ?: throw IllegalStateException("ChatManagerV2 не инициализирован")
+        val id = childId ?: throw IllegalStateException("ChatManagerV2 РЅРµ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ")
         return chatRepository.getMessagesForChildFlow(id)
             .map { it.sortedBy { msg -> msg.timestamp } }
     }
 
     /**
-     * Получить количество непрочитанных сообщений
+     * РџРѕР»СѓС‡РёС‚СЊ РєРѕР»РёС‡РµСЃС‚РІРѕ РЅРµРїСЂРѕС‡РёС‚Р°РЅРЅС‹С… СЃРѕРѕР±С‰РµРЅРёР№
      */
     suspend fun getUnreadCount(): Int {
         return try {
             val id = getChildId()
-            chatRepository.getUnreadCount(id)
+            chatRepository.getUnreadCountBySender(id, INCOMING_SENDER)
         } catch (e: Exception) {
-            Log.e(TAG, "Ошибка получения количества непрочитанных", e)
+            Log.e(TAG, "РћС€РёР±РєР° РїРѕР»СѓС‡РµРЅРёСЏ РєРѕР»РёС‡РµСЃС‚РІР° РЅРµРїСЂРѕС‡РёС‚Р°РЅРЅС‹С…", e)
             0
         }
     }
 
     /**
-     * Получить количество непрочитанных сообщений (Flow)
+     * РџРѕР»СѓС‡РёС‚СЊ РєРѕР»РёС‡РµСЃС‚РІРѕ РЅРµРїСЂРѕС‡РёС‚Р°РЅРЅС‹С… СЃРѕРѕР±С‰РµРЅРёР№ (Flow)
      */
     fun getUnreadCountFlow(): Flow<Int> {
-        val id = childId ?: throw IllegalStateException("ChatManagerV2 не инициализирован")
-        return chatRepository.getUnreadCountFlow(id)
+        val id = childId ?: throw IllegalStateException("ChatManagerV2 РЅРµ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ")
+        return chatRepository.getUnreadCountFlowBySender(id, INCOMING_SENDER)
     }
 
     /**
-     * Пометить сообщение как прочитанное
+     * РџРѕРјРµС‚РёС‚СЊ СЃРѕРѕР±С‰РµРЅРёРµ РєР°Рє РїСЂРѕС‡РёС‚Р°РЅРЅРѕРµ
      */
     suspend fun markAsRead(messageId: String) {
         try {
             val id = getChildId()
             val message = chatRepository.getMessageByMessageId(messageId)
             if (message != null) {
-                // Получаем внутренний ID из БД для пометки
+                // РџРѕР»СѓС‡Р°РµРј РІРЅСѓС‚СЂРµРЅРЅРёР№ ID РёР· Р‘Р” РґР»СЏ РїРѕРјРµС‚РєРё
                 val entity = database.chatMessageDao().getByMessageId(messageId)
                 entity?.let {
                     chatRepository.markAsRead(it.id)
-                    Log.d(TAG, "Сообщение помечено как прочитанное: $messageId")
+                    Log.d(TAG, "РЎРѕРѕР±С‰РµРЅРёРµ РїРѕРјРµС‡РµРЅРѕ РєР°Рє РїСЂРѕС‡РёС‚Р°РЅРЅРѕРµ: $messageId")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "Ошибка пометки сообщения как прочитанного", e)
+            Log.e(TAG, "РћС€РёР±РєР° РїРѕРјРµС‚РєРё СЃРѕРѕР±С‰РµРЅРёСЏ РєР°Рє РїСЂРѕС‡РёС‚Р°РЅРЅРѕРіРѕ", e)
         }
     }
 
     /**
-     * Пометить все сообщения как прочитанные
+     * РџРѕРјРµС‚РёС‚СЊ РІСЃРµ СЃРѕРѕР±С‰РµРЅРёСЏ РєР°Рє РїСЂРѕС‡РёС‚Р°РЅРЅС‹Рµ
      */
     suspend fun markAllAsRead() {
         try {
             val id = getChildId()
             chatRepository.markAllAsRead(id)
-            Log.d(TAG, "Все сообщения помечены как прочитанные")
+            Log.d(TAG, "Р’СЃРµ СЃРѕРѕР±С‰РµРЅРёСЏ РїРѕРјРµС‡РµРЅС‹ РєР°Рє РїСЂРѕС‡РёС‚Р°РЅРЅС‹Рµ")
         } catch (e: Exception) {
-            Log.e(TAG, "Ошибка пометки всех сообщений как прочитанных", e)
+            Log.e(TAG, "РћС€РёР±РєР° РїРѕРјРµС‚РєРё РІСЃРµС… СЃРѕРѕР±С‰РµРЅРёР№ РєР°Рє РїСЂРѕС‡РёС‚Р°РЅРЅС‹С…", e)
         }
     }
 
     /**
-     * Обновить статус сообщения
+     * РћР±РЅРѕРІРёС‚СЊ СЃС‚Р°С‚СѓСЃ СЃРѕРѕР±С‰РµРЅРёСЏ
      */
     suspend fun updateMessageStatus(messageId: String, status: ChatMessage.MessageStatus) {
         try {
             chatRepository.updateMessageStatus(messageId, status.name.lowercase())
-            Log.d(TAG, "Статус сообщения обновлен: $messageId -> $status")
+            Log.d(TAG, "РЎС‚Р°С‚СѓСЃ СЃРѕРѕР±С‰РµРЅРёСЏ РѕР±РЅРѕРІР»РµРЅ: $messageId -> $status")
         } catch (e: Exception) {
-            Log.e(TAG, "Ошибка обновления статуса сообщения", e)
+            Log.e(TAG, "РћС€РёР±РєР° РѕР±РЅРѕРІР»РµРЅРёСЏ СЃС‚Р°С‚СѓСЃР° СЃРѕРѕР±С‰РµРЅРёСЏ", e)
         }
     }
 
     /**
-     * Очистить все сообщения
+     * РћС‡РёСЃС‚РёС‚СЊ РІСЃРµ СЃРѕРѕР±С‰РµРЅРёСЏ
      */
     suspend fun clearAllMessages() {
         try {
             val id = getChildId()
             chatRepository.deleteMessagesForChild(id)
-            Log.d(TAG, "Все сообщения удалены")
+            Log.d(TAG, "Р’СЃРµ СЃРѕРѕР±С‰РµРЅРёСЏ СѓРґР°Р»РµРЅС‹")
         } catch (e: Exception) {
-            Log.e(TAG, "Ошибка очистки сообщений", e)
+            Log.e(TAG, "РћС€РёР±РєР° РѕС‡РёСЃС‚РєРё СЃРѕРѕР±С‰РµРЅРёР№", e)
         }
     }
 
     /**
-     * Поиск сообщений
+     * РџРѕРёСЃРє СЃРѕРѕР±С‰РµРЅРёР№
      */
     suspend fun searchMessages(query: String, limit: Int = 50): List<ChatMessage> {
         return try {
             val id = getChildId()
             chatRepository.searchMessages(id, query, limit)
         } catch (e: Exception) {
-            Log.e(TAG, "Ошибка поиска сообщений", e)
+            Log.e(TAG, "РћС€РёР±РєР° РїРѕРёСЃРєР° СЃРѕРѕР±С‰РµРЅРёР№", e)
             emptyList()
         }
     }
 
     /**
-     * Получить последнее сообщение
+     * РџРѕР»СѓС‡РёС‚СЊ РїРѕСЃР»РµРґРЅРµРµ СЃРѕРѕР±С‰РµРЅРёРµ
      */
     suspend fun getLatestMessage(): ChatMessage? {
         return try {
             val id = getChildId()
             chatRepository.getLatestMessage(id)
         } catch (e: Exception) {
-            Log.e(TAG, "Ошибка получения последнего сообщения", e)
+            Log.e(TAG, "РћС€РёР±РєР° РїРѕР»СѓС‡РµРЅРёСЏ РїРѕСЃР»РµРґРЅРµРіРѕ СЃРѕРѕР±С‰РµРЅРёСЏ", e)
             null
         }
     }
 
     /**
-     * Получить последнее сообщение (Flow)
+     * РџРѕР»СѓС‡РёС‚СЊ РїРѕСЃР»РµРґРЅРµРµ СЃРѕРѕР±С‰РµРЅРёРµ (Flow)
      */
     fun getLatestMessageFlow(): Flow<ChatMessage?> {
-        val id = childId ?: throw IllegalStateException("ChatManagerV2 не инициализирован")
+        val id = childId ?: throw IllegalStateException("ChatManagerV2 РЅРµ РёРЅРёС†РёР°Р»РёР·РёСЂРѕРІР°РЅ")
         return chatRepository.getLatestMessageFlow(id)
     }
 
     /**
-     * Очистка ресурсов
+     * РћС‡РёСЃС‚РєР° СЂРµСЃСѓСЂСЃРѕРІ
      */
     fun cleanup() {
         Log.d(TAG, "ChatManagerV2 cleanup completed")
     }
 }
+

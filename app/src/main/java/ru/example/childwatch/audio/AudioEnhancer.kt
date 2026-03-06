@@ -27,14 +27,15 @@ class AudioEnhancer {
      */
     enum class VolumeMode {
         QUIET,   // 1.0x
-        NORMAL,  // 1.5x
-        LOUD,    // 3.0x
-        BOOST    // 4.0x (use with caution)
+        NORMAL,  // 1.25x
+        LOUD,    // 1.6x
+        BOOST,   // 2.0x
+        MAX      // 2.6x
     }
 
     data class Config(
         val mode: FilterMode = FilterMode.ORIGINAL,
-        val volumeMode: VolumeMode = VolumeMode.NORMAL,
+        val volumeMode: VolumeMode = VolumeMode.QUIET,
         val noiseSuppressionEnabled: Boolean = true,
         val gainBoostDb: Int = 0,
         val compressionEnabled: Boolean = false
@@ -43,9 +44,10 @@ class AudioEnhancer {
         val gainMultiplier: Float = 10.0f.pow(gainBoostDb / 20f)
         val volumeMultiplier: Float = when (volumeMode) {
             VolumeMode.QUIET -> 1.0f
-            VolumeMode.NORMAL -> 1.5f
-            VolumeMode.LOUD -> 3.0f
-            VolumeMode.BOOST -> 4.0f
+            VolumeMode.NORMAL -> 1.25f
+            VolumeMode.LOUD -> 1.6f
+            VolumeMode.BOOST -> 2.0f
+            VolumeMode.MAX -> 2.6f
         }
     }
 
@@ -197,9 +199,16 @@ class AudioEnhancer {
 
     private fun applyVolume(data: ShortArray, length: Int, multiplier: Float) {
         if (multiplier == 1.0f) return
-        val safeMultiplier = multiplier.coerceAtMost(5.0f)
+        val safeMultiplier = multiplier.coerceIn(1.0f, 2.6f)
+        val softLimit = MAX_AMPLITUDE * 0.82f
         for (i in 0 until length) {
-            data[i] = clamp(data[i] * safeMultiplier)
+            val boosted = data[i] * safeMultiplier
+            val limited = when {
+                boosted > softLimit -> softLimit + (boosted - softLimit) * 0.18f
+                boosted < -softLimit -> -(softLimit + (abs(boosted) - softLimit) * 0.18f)
+                else -> boosted
+            }
+            data[i] = clamp(limited)
         }
     }
 

@@ -1,4 +1,4 @@
-﻿<resources>
+<resources>
     <string name="app_name">ParentMonitor</string>
     <string name="battery_optimization_warning">Для корректной работы приложения рекомендуется отключить оптимизацию батареи</string>
     <string name="monitoring_active">Мониторинг активен</string>
@@ -86,6 +86,7 @@
     <string name="last_audio_update">Последняя аудиозапись: %1$s</string>
     <string name="last_photo_update">Последнее фото: %1$s</string>
     <string name="service_running_time">Сервис работает: %1$s</string>
+    <string name="service_running_time_value">%1$d ч %2$d мин</string>
     <string name="permissions_status">Разрешения: %1$s</string>
     <string name="permissions_all_granted">все предоставлены</string>
     <string name="permissions_missing">отсутствуют: %1$s</string>
@@ -237,6 +238,14 @@
     <string name="audio_monitor_volume_default">100%</string>
     <string name="audio_monitor_volume_modes">Режим усиления</string>
     <string name="audio_monitor_volume_mode_quiet">Стандарт (×1)</string>
+    <string name="audio_monitor_label_quality">Качество аудио:</string>
+    <string name="audio_monitor_quality_24k">24 kHz</string>
+    <string name="audio_monitor_quality_32k">32 kHz</string>
+    <string name="audio_monitor_quality_48k">48 kHz</string>
+    <string name="audio_monitor_quality_switching">Переключаю качество на %1$d kHz…</string>
+    <string name="audio_monitor_quality_applied">Качество применено: %1$d kHz</string>
+    <string name="audio_monitor_quality_fallback">Устройство ребенка использует %1$d kHz</string>
+    <string name="audio_monitor_quality_current">Q:%1$.1fk / in:%2$.1fk / out:%3$.1fk</string>
     <string name="audio_monitor_label_connection_quality">Качество соединения:</string>
 
     <!-- Missing Audio Monitor Strings -->
@@ -281,11 +290,17 @@
     <string name="server_url_missing">Server URL is not configured. Open settings.</string>
     <string name="audio_monitor_device_id">ID устройства: %1$s</string>
     <string name="audio_monitor_filter_applied">Фильтр: %1$s</string>
-    <string name="audio_monitor_volume_mode_normal">Обычный (×1.5)</string>
+    <string name="audio_monitor_volume_mode_normal">Обычный (×2)</string>
     <string name="audio_monitor_volume_mode_loud">Громкий (×3)</string>
     <string name="audio_monitor_volume_mode_boost">Макс. усиление (×4)</string>
+    <string name="audio_monitor_volume_mode_max">Экстра (×5)</string>
     <string name="audio_monitor_toast_recording_on">Локальная запись включена</string>
     <string name="audio_monitor_toast_recording_off">Локальная запись остановлена</string>
+    
+    <string name="audio_monitor_recording_saved_enabled">Запись прослушки включена</string>
+    <string name="audio_monitor_recording_start_failed">Не удалось начать запись прослушки</string>
+    <string name="audio_monitor_recording_saved_file">Запись сохранена: %1$s</string>
+    <string name="audio_monitor_recording_empty">Запись не содержит данных</string>
     <string name="audio_monitor_state_running">Активно</string>
     <string name="audio_monitor_status_active">Мониторинг активен</string>
     <string name="audio_monitor_status_recording">Запись активна</string>
@@ -305,4 +320,33 @@
     <string name="chat_status_delivered">Доставлено</string>
     <string name="chat_status_read">Прочитано</string>
     <string name="chat_status_failed">Не отправлено</string>
+    <string name="chat_enter_message">Введите сообщение</string>
+    <string name="chat_cleared">Чат очищен</string>
+    <string name="chat_new_message_from">Новое сообщение от %1$s</string>
+    <string name="chat_emoji_picker_title">Выберите emoji</string>
+    <string name="chat_close">Закрыть</string>
+    <string name="chat_title_with_name">Чат с %1$s</string>
+    <string name="chat_title_with_child">Чат с ребенком</string>
+    <string name="chat_title_generic">Чат</string>
+    <string name="chat_typing_child">Ребенок печатает...</string>
+    <string name="chat_typing_parent">Родитель печатает...</string>
+    <string name="chat_input_hint">Введите сообщение...</string>
+    <string name="chat_clear">Очистить</string>
+    <string name="chat_send">Отправить</string>
+    <string name="device_info_stale_suffix">(устар.)</string>
+    <string name="common_cancel">Отмена</string>
+    <string name="main_toast_set_child_device_id">Укажите ID устройства ребенка в настройках</string>
+    <string name="main_toast_launch_error">Ошибка запуска: %1$s</string>
+    <string name="main_dialog_device_id_missing_title">Device ID не задан</string>
+    <string name="main_dialog_device_id_missing_message">Выберите способ получения Device ID ребенка:</string>
+    <string name="main_dialog_device_id_missing_test">Тестовый режим</string>
+    <string name="main_dialog_device_id_missing_settings">Настройки</string>
+    <string name="main_toast_started_test_mode">Открыто в тестовом режиме с ID: %1$s</string>
+    <string name="main_select_contact_placeholder_title">Выберите устройство</string>
+    <string name="main_select_contact_placeholder_subtitle">Нажмите для выбора</string>
+    <string name="main_toast_contacts_db_error">Ошибка базы контактов. Перезапустите приложение.</string>
+    <string name="main_toast_contact_selected">Выбрано устройство: %1$s</string>
+    <string name="main_toast_contact_not_found">Ошибка: устройство не найдено</string>
+    <string name="main_toast_contact_update_error">Ошибка обновления устройства</string>
+    <string name="main_toast_camera_open_error">Ошибка открытия камеры: %1$s</string>
 </resources>

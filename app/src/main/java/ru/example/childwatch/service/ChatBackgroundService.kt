@@ -38,6 +38,8 @@ class ChatBackgroundService : LifecycleService() {
 
         var isRunning = false
             private set
+        @Volatile private var lastServerUrl: String? = null
+        @Volatile private var lastDeviceId: String? = null
 
         fun start(context: Context, serverUrl: String, childDeviceId: String) {
             val intent = Intent(context, ChatBackgroundService::class.java).apply {
@@ -64,6 +66,8 @@ class ChatBackgroundService : LifecycleService() {
     private lateinit var chatManager: ChatManager
     private var chatManagerAdapter: ru.example.childwatch.chat.ChatManagerAdapter? = null
     private var serviceChatListener: ((String, String, String, Long) -> Unit)? = null
+    private var photoReceivedListener: ((String, String, Long) -> Unit)? = null
+    private var photoErrorListener: ((String, String) -> Unit)? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -71,6 +75,7 @@ class ChatBackgroundService : LifecycleService() {
 
         chatManager = ChatManager(this)
         createNotificationChannel()
+        ru.example.childwatch.utils.NotificationManager.createNotificationChannels(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -82,7 +87,15 @@ class ChatBackgroundService : LifecycleService() {
         if (intent == null) {
             val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
             val serverUrl = SecureSettingsManager(this).getServerUrl().trim()
-            val childDeviceId = prefs.getString("child_device_id", null)
+            val legacyPrefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+            val childDeviceId = listOf(
+                prefs.getString("child_device_id", null),
+                prefs.getString("selected_device_id", null),
+                legacyPrefs.getString("child_device_id", null),
+                legacyPrefs.getString("selected_device_id", null)
+            )
+                .mapNotNull { it?.trim() }
+                .firstOrNull { it.isNotBlank() }
             if (serverUrl.isNotBlank() && !childDeviceId.isNullOrEmpty()) {
                 Log.d(TAG, "Restarting ChatBackgroundService after kill (from prefs)")
                 startForegroundService(serverUrl, childDeviceId)
@@ -127,6 +140,20 @@ class ChatBackgroundService : LifecycleService() {
         if (!isRunning) {
             startForeground(NOTIFICATION_ID, createNotification("Подключение..."))
         }
+
+        if (isRunning &&
+            serverUrl == lastServerUrl &&
+            childDeviceId == lastDeviceId &&
+            WebSocketManager.getClient() != null
+        ) {
+            WebSocketManager.ensureConnected(
+                onReady = { updateNotification("Чат активен") },
+                onError = { updateNotification("Ошибка подключения") }
+            )
+            return
+        }
+        lastServerUrl = serverUrl
+        lastDeviceId = childDeviceId
 
         // Always cleanup and reinitialize WebSocket to ensure fresh connection
         if (WebSocketManager.isConnected()) {
@@ -174,10 +201,20 @@ class ChatBackgroundService : LifecycleService() {
                                 } catch (e: Exception) {
                                     Log.e(TAG, "Error saving missed message to legacy store", e)
                                 }
+
+                                if (msg.sender == "child" && !msg.isRead && msg.id.isNotEmpty()) {
+                                    chatManagerAdapter?.updateMessageStatus(msg.id, ChatMessage.MessageStatus.DELIVERED)
+                                    chatManager.updateMessageStatus(msg.id, ChatMessage.MessageStatus.DELIVERED)
+                                    WebSocketManager.sendChatStatus(msg.id, "delivered", "parent")
+                                }
                             }
-                            // Optionally, show notifications for missed messages
+
+                            // Notifications only for incoming child messages when chat screen is closed.
                             missed.forEach { msg ->
-                                val senderName = if (msg.sender == "child") "Ребенок" else "Родитель"
+                                if (!shouldShowIncomingChatNotification(msg.sender)) {
+                                    return@forEach
+                                }
+                                val senderName = if (msg.sender == "child") "Child" else "Parent"
                                 ru.example.childwatch.utils.NotificationManager.showChatNotification(
                                     context = this@ChatBackgroundService,
                                     senderName = senderName,
@@ -200,34 +237,40 @@ class ChatBackgroundService : LifecycleService() {
                         WebSocketManager.addChatMessageListener(serviceChatListener!!)
                     }
 
-                    // Подписка на получение фото и ошибок фото до подключения
-                    WebSocketManager.setPhotoReceivedCallback { photoBase64, requestId, timestamp ->
-                        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
-                            try {
-                                val uri = saveBase64PhotoToGallery(photoBase64, timestamp)
-                                Log.d(TAG, "✅ Photo saved: $uri")
-                                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
-                                    ru.example.childwatch.utils.NotificationManager.showChatNotification(
-                                        context = this@ChatBackgroundService,
-                                        senderName = "Удалённая камера",
-                                        messageText = "Получено фото (ID: $requestId)",
-                                        timestamp = timestamp
-                                    )
+                    // Подписка на получение фото и ошибок фото (не перезаписываем другие слушатели)
+                    if (photoReceivedListener == null) {
+                        photoReceivedListener = { photoBase64, requestId, timestamp ->
+                            lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                try {
+                                    val uri = saveBase64PhotoToGallery(photoBase64, timestamp)
+                                    Log.d(TAG, "✅ Photo saved: $uri")
+                                    kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                        ru.example.childwatch.utils.NotificationManager.showChatNotification(
+                                            context = this@ChatBackgroundService,
+                                            senderName = "Удалённая камера",
+                                            messageText = "Получено фото (ID: $requestId)",
+                                            timestamp = timestamp
+                                        )
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "❌ Error saving received photo", e)
                                 }
-                            } catch (e: Exception) {
-                                Log.e(TAG, "❌ Error saving received photo", e)
                             }
                         }
+                        WebSocketManager.addPhotoReceivedListener(photoReceivedListener!!)
                     }
 
-                    WebSocketManager.setPhotoErrorCallback { requestId, error ->
-                        Log.e(TAG, "❌ Photo error (request=$requestId): $error")
-                        ru.example.childwatch.utils.NotificationManager.showChatNotification(
-                            context = this@ChatBackgroundService,
-                            senderName = "Ошибка фото",
-                            messageText = "$error (req $requestId)",
-                            timestamp = System.currentTimeMillis()
-                        )
+                    if (photoErrorListener == null) {
+                        photoErrorListener = { requestId, error ->
+                            Log.e(TAG, "❌ Photo error (request=$requestId): $error")
+                            ru.example.childwatch.utils.NotificationManager.showChatNotification(
+                                context = this@ChatBackgroundService,
+                                senderName = "Ошибка фото",
+                                messageText = "$error (req $requestId)",
+                                timestamp = System.currentTimeMillis()
+                            )
+                        }
+                        WebSocketManager.addPhotoErrorListener(photoErrorListener!!)
                     }
 
                     // Connect WebSocket
@@ -290,6 +333,8 @@ class ChatBackgroundService : LifecycleService() {
         }
 
         isRunning = false
+        lastServerUrl = null
+        lastDeviceId = null
         stopSelf()
     }
 
@@ -319,14 +364,16 @@ class ChatBackgroundService : LifecycleService() {
             WebSocketManager.sendChatStatus(messageId, "delivered", "parent")
         }
 
-        // Show notification
-        val senderName = if (sender == "child") "Ребенок" else "Родитель"
-        ru.example.childwatch.utils.NotificationManager.showChatNotification(
-            context = this,
-            senderName = senderName,
-            messageText = text,
-            timestamp = timestamp
-        )
+        if (shouldShowIncomingChatNotification(sender)) {
+            // Show notification only for incoming child messages while chat screen is closed.
+            val senderName = if (sender == "child") "Child" else "Parent"
+            ru.example.childwatch.utils.NotificationManager.showChatNotification(
+                context = this,
+                senderName = senderName,
+                messageText = text,
+                timestamp = timestamp
+            )
+        }
     }
 
     private fun handleStatusUpdate(messageId: String, status: String) {
@@ -406,6 +453,12 @@ class ChatBackgroundService : LifecycleService() {
         }
     }
 
+    private fun shouldShowIncomingChatNotification(sender: String): Boolean {
+        if (sender != "child") return false
+        val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+        return !prefs.getBoolean("chat_open", false)
+    }
+
     private fun saveBase64PhotoToGallery(base64: String, timestamp: Long): android.net.Uri? {
         val bytes = android.util.Base64.decode(base64, android.util.Base64.DEFAULT)
         val resolver = contentResolver
@@ -432,6 +485,10 @@ class ChatBackgroundService : LifecycleService() {
         Log.d(TAG, "ChatBackgroundService destroyed")
         serviceChatListener?.let { WebSocketManager.removeChatMessageListener(it) }
         serviceChatListener = null
+        photoReceivedListener?.let { WebSocketManager.removePhotoReceivedListener(it) }
+        photoReceivedListener = null
+        photoErrorListener?.let { WebSocketManager.removePhotoErrorListener(it) }
+        photoErrorListener = null
         isRunning = false
     }
 }

@@ -41,7 +41,6 @@ class SettingsActivity : AppCompatActivity() {
 
         // Server URL presets
         private const val LOCALHOST_URL = "http://10.0.2.2:3000"
-        private const val RAILWAY_URL = "https://childwatch-production.up.railway.app"
         private const val VPS_URL = "http://31.28.27.96:3000"
         
         // Keys
@@ -122,11 +121,6 @@ class SettingsActivity : AppCompatActivity() {
         binding.useVpsBtn.setOnClickListener {
             binding.serverUrlInput.setText(VPS_URL)
             Toast.makeText(this, "VPS URL установлен", Toast.LENGTH_SHORT).show()
-        }
-
-        binding.useRailwayBtn.setOnClickListener {
-            binding.serverUrlInput.setText(RAILWAY_URL)
-            Toast.makeText(this, "Railway URL установлен", Toast.LENGTH_SHORT).show()
         }
 
         binding.useLocalhostBtn.setOnClickListener {
@@ -263,6 +257,8 @@ class SettingsActivity : AppCompatActivity() {
                 .putBoolean("notification_sound", notificationSound)
                 .putBoolean("notification_vibration", notificationVibration)
                 .apply()
+
+            ru.example.childwatch.utils.NotificationManager.createNotificationChannels(this)
 
             secureSettings.setServerUrl(serverUrl)
 

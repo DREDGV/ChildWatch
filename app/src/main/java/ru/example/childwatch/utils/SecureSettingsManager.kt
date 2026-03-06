@@ -102,13 +102,7 @@ class SecureSettingsManager(private val context: Context) {
     fun setServerUrl(url: String?) {
         val sanitizedUrl = url?.trim()
             ?.takeIf { it.isNotBlank() }
-            ?.let {
-                if (it.startsWith("http://") || it.startsWith("https://")) {
-                    it
-                } else {
-                    "https://$it"
-                }
-            }
+            ?.let { normalizeServerUrl(it) }
         securePrefs.putString(KEY_SERVER_URL, sanitizedUrl)
         Log.d(TAG, "Server URL set to: ${sanitizedUrl ?: "(cleared)"}")
     }
@@ -116,7 +110,11 @@ class SecureSettingsManager(private val context: Context) {
     fun getServerUrl(): String {
         val secureUrl = securePrefs.getString(KEY_SERVER_URL)?.trim()
         if (!secureUrl.isNullOrBlank()) {
-            return secureUrl
+            val normalized = normalizeServerUrl(secureUrl)
+            if (normalized != secureUrl) {
+                securePrefs.putString(KEY_SERVER_URL, normalized)
+            }
+            return normalized
         }
 
         // Legacy fallback (childwatch_prefs) - migrate once, but do not auto-default
@@ -124,12 +122,40 @@ class SecureSettingsManager(private val context: Context) {
             .getString(KEY_SERVER_URL, null)
             ?.trim()
         if (!legacyUrl.isNullOrBlank()) {
-            securePrefs.putString(KEY_SERVER_URL, legacyUrl)
+            val normalized = normalizeServerUrl(legacyUrl)
+            securePrefs.putString(KEY_SERVER_URL, normalized)
             Log.d(TAG, "Server URL migrated from legacy prefs")
-            return legacyUrl
+            return normalized
         }
 
         return ""
+    }
+
+    private fun normalizeServerUrl(raw: String): String {
+        val candidate = extractUrlCandidate(raw)
+        if (candidate.startsWith("http://") || candidate.startsWith("https://")) {
+            return candidate
+        }
+
+        val looksLikeLocalOrIp = candidate.startsWith("localhost", ignoreCase = true) ||
+            candidate.matches(Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+(:\\d+)?$"))
+
+        return if (looksLikeLocalOrIp) {
+            "http://$candidate"
+        } else {
+            "https://$candidate"
+        }
+    }
+
+    private fun extractUrlCandidate(raw: String): String {
+        val value = raw.trim()
+        if (value.isEmpty()) return value
+
+        // Legacy bug: sometimes two URLs were saved in one field.
+        // We pick the last valid URL token as the active one.
+        val regex = Regex("""https?://[^\s,;]+|(?:localhost|\d{1,3}(?:\.\d{1,3}){3}|[A-Za-z0-9.-]+\.[A-Za-z]{2,})(?::\d+)?""")
+        val tokens = regex.findAll(value).map { it.value.trim() }.toList()
+        return tokens.lastOrNull().orEmpty().ifBlank { value.lineSequence().lastOrNull()?.trim().orEmpty() }
     }
     
     // User consent

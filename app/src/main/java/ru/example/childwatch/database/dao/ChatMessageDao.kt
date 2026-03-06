@@ -73,10 +73,22 @@ interface ChatMessageDao {
     suspend fun getUnreadCount(childId: Long): Int
 
     /**
+     * Get unread messages count for a specific sender.
+     */
+    @Query("SELECT COUNT(*) FROM chat_messages WHERE child_id = :childId AND is_read = 0 AND sender = :sender")
+    suspend fun getUnreadCountBySender(childId: Long, sender: String): Int
+
+    /**
      * Get unread messages count as Flow (reactive)
      */
     @Query("SELECT COUNT(*) FROM chat_messages WHERE child_id = :childId AND is_read = 0")
     fun getUnreadCountFlow(childId: Long): Flow<Int>
+
+    /**
+     * Get unread messages count by sender as Flow (reactive).
+     */
+    @Query("SELECT COUNT(*) FROM chat_messages WHERE child_id = :childId AND is_read = 0 AND sender = :sender")
+    fun getUnreadCountFlowBySender(childId: Long, sender: String): Flow<Int>
 
     /**
      * Mark message as read

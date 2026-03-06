@@ -11,6 +11,8 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import ru.example.childwatch.R
 import ru.example.childwatch.database.entity.Child
+import ru.example.childwatch.contacts.ContactIcons
+import ru.example.childwatch.contacts.ContactRoles
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -52,11 +54,13 @@ class ChildrenAdapter(
             childName.text = child.name
 
             // Установить Device ID (первые 8 символов)
-            childDeviceId.text = if (child.deviceId.length > 8) {
+            val roleLabel = ContactRoles.label(child.role)
+            val shortId = if (child.deviceId.length > 8) {
                 child.deviceId.substring(0, 8) + "..."
             } else {
                 child.deviceId
             }
+            childDeviceId.text = "ID: $shortId • $roleLabel"
 
             // Установить последнюю активность
             if (child.lastSeenAt != null) {
@@ -87,12 +91,12 @@ class ChildrenAdapter(
                     childAvatar.setImageURI(uri)
                 } catch (e: SecurityException) {
                     // URI недоступен - используем иконку по умолчанию
-                    childAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+                    childAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
                 } catch (e: Exception) {
-                    childAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+                    childAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
                 }
             } else {
-                childAvatar.setImageResource(android.R.drawable.ic_menu_myplaces)
+                childAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
             }
 
             // Обработчик клика на карточку

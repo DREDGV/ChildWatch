@@ -358,7 +358,8 @@ class LocationService : Service() {
 
             when (command.type) {
                 "start_audio_stream" -> {
-                    startAudioStreaming(recording = false)
+                    val sampleRate = command.data?.optInt("sampleRate", 24_000) ?: 24_000
+                    startAudioStreaming(recording = false, sampleRate = sampleRate)
                 }
                 "stop_audio_stream" -> {
                     stopAudioStreaming()
@@ -381,7 +382,7 @@ class LocationService : Service() {
     /**
      * Start audio streaming
      */
-    private fun startAudioStreaming(recording: Boolean) {
+    private fun startAudioStreaming(recording: Boolean, sampleRate: Int = 24_000) {
         if (isStreamingAudio) {
             if (!audioRecorder.isActive()) {
                 Log.w(TAG, "Streaming flag set but recorder inactive - restarting")
@@ -392,12 +393,15 @@ class LocationService : Service() {
                 }
                 isStreamingAudio = false
             } else {
-                Log.w(TAG, "Already streaming audio")
+                // Service can remain "active" with alive WS but paused mic (e.g., after reconnect race).
+                // Force recorder resume on repeated start command.
+                audioRecorder.ensureCaptureRunning()
+                Log.w(TAG, "Already streaming audio, capture resume check performed")
                 RemoteLogger.warn(
                     serverUrl = serverUrl,
                     deviceId = deviceId,
                     source = TAG,
-                    message = "startAudioStreaming called while already active"
+                    message = "startAudioStreaming called while already active; ensured capture running"
                 )
                 return
             }
@@ -437,7 +441,7 @@ class LocationService : Service() {
             return
         }
 
-        audioRecorder.startStreaming(deviceId, serverUrl, recording)
+        audioRecorder.startStreaming(deviceId, serverUrl, recording, sampleRate)
         isStreamingAudio = true
 
         Log.d(TAG, "Audio streaming started (silent mode)")

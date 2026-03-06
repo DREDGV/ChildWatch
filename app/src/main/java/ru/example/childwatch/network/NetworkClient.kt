@@ -365,7 +365,10 @@ class NetworkClient(private val context: Context) {
                 put("provider", "fused")
                 speed?.let { put("speed", it) }
                 bearing?.let { put("bearing", it) }
-                batteryLevel?.let { put("batteryLevel", it) }
+                batteryLevel?.let {
+                    put("battery", it)
+                    put("batteryLevel", it)
+                }
             }
             
             val requestBody = jsonData.toString()
@@ -1098,7 +1101,8 @@ class NetworkClient(private val context: Context) {
         serverUrl: String,
         deviceId: String,
         recordingMode: Boolean = false,
-        timeoutMinutes: Int = 30
+        timeoutMinutes: Int = 30,
+        sampleRate: Int = 24_000
     ): Boolean {
         return withContext(Dispatchers.IO) {
             try {
@@ -1107,6 +1111,7 @@ class NetworkClient(private val context: Context) {
                     put("deviceId", deviceId)
                     put("recording", recordingMode)
                     put("timeoutMinutes", timeoutMinutes)
+                    put("sampleRate", sampleRate)
                 }
 
                 val requestBody = json.toString()

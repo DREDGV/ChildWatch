@@ -75,15 +75,19 @@ class CommandManager {
      * @param {string} parentId - Parent device ID
      * @param {number} timeoutMinutes - Timeout in minutes (default: 30 minutes)
      */
-    startStreaming(deviceId, parentId, timeoutMinutes = 30) {
+    startStreaming(deviceId, parentId, timeoutMinutes = 30, options = {}) {
         const timeout = timeoutMinutes * 60 * 1000; // Convert minutes to milliseconds
+        const sampleRate = options && Number.isFinite(Number(options.sampleRate))
+            ? Number(options.sampleRate)
+            : null;
 
         this.streamingSessions.set(deviceId, {
             parentId: parentId,
             startTime: Date.now(),
             recording: false,
             chunks: 0,
-            timeout: timeout
+            timeout: timeout,
+            sampleRate: sampleRate
         });
 
         // Initialize audio buffer
@@ -91,7 +95,7 @@ class CommandManager {
             this.audioBuffers.set(deviceId, []);
         }
 
-        this.addCommand(deviceId, this.COMMANDS.START_STREAM, { parentId });
+        this.addCommand(deviceId, this.COMMANDS.START_STREAM, { parentId, sampleRate });
 
         console.log(`🎙️ Audio streaming started for ${deviceId} by ${parentId}`);
         return true;
