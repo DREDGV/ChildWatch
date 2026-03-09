@@ -35,20 +35,10 @@ class AudioStreamRecorder(
     companion object {
         private const val TAG = "AUDIO"
 
-        // Optimized for low-latency voice streaming (Р В­РЎвЂљР В°Р С— A)
-        private const val DEFAULT_SAMPLE_RATE = 24_000          // 24 kHz for higher fidelity
-        private val CAPTURE_SAMPLE_RATE_FALLBACKS = intArrayOf(24_000, 16_000, 48_000, 44_100, 32_000)
-        private val CAPTURE_AUDIO_SOURCE_FALLBACKS = intArrayOf(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
-            MediaRecorder.AudioSource.MIC,
-            MediaRecorder.AudioSource.CAMCORDER,
-            MediaRecorder.AudioSource.DEFAULT
-        )
-        private const val CHANNEL_CONFIG = AudioFormat.CHANNEL_IN_MONO
-        private const val AUDIO_FORMAT = AudioFormat.ENCODING_PCM_16BIT
-        private const val CHUNK_DURATION_MS = 20L       // 20ms frames (was 500ms)
-
-        // Frame size depends on the active sample rate.
+        // FIXED: Use fixed 24kHz for best quality and no resampling
+        private const val DEFAULT_SAMPLE_RATE = 24_000          // 24 kHz fixed
+        private const val CHUNK_DURATION_MS = 20L       // 20ms frames
+        private const val FRAME_BYTES = (DEFAULT_SAMPLE_RATE * CHUNK_DURATION_MS / 1000) * 2 // 960 bytes
 
         // Reconnection strategy with exponential backoff
         private const val RECONNECTION_DELAY_MS = 1_000L
@@ -600,9 +590,89 @@ class AudioStreamRecorder(
     }
 
     /**
-     * Initialize AudioRecord (Р В­РЎвЂљР В°Р С— A+B - with system effects)
+     * Initialize AudioRecord - FIXED: Use fixed 24kHz, no resampling
      */
     private fun initializeAudioRecord() {
+        try {
+            releaseRecorder()
+
+            if (!hasRecordAudioPermission()) {
+                Log.e(TAG, "AUDIO init aborted: RECORD_AUDIO permission missing")
+                releaseRecorder()
+                return
+            }
+
+            // FIXED: Use fixed 24kHz - no fallback, no resampling
+            val sampleRate = DEFAULT_SAMPLE_RATE
+            val channelConfig = AudioFormat.CHANNEL_IN_MONO
+            val audioFormat = AudioFormat.ENCODING_PCM_16BIT
+            
+            val minBuf = AudioRecord.getMinBufferSize(sampleRate, channelConfig, audioFormat)
+            if (minBuf <= 0) {
+                Log.e(TAG, "AUDIO min buffer invalid: rate=${sampleRate}Hz buf=$minBuf")
+                releaseRecorder()
+                return
+            }
+
+            val actualBuf = minBuf * 2
+            
+            // Try VOICE_COMMUNICATION first (best for voice), fallback to MIC
+            val audioSources = intArrayOf(
+                MediaRecorder.AudioSource.VOICE_COMMUNICATION,
+                MediaRecorder.AudioSource.MIC
+            )
+            
+            var initialized = false
+            for (source in audioSources) {
+                try {
+                    audioRecord = AudioRecord(
+                        source,
+                        sampleRate,
+                        channelConfig,
+                        audioFormat,
+                        actualBuf
+                    )
+
+                    if (audioRecord?.state == AudioRecord.STATE_INITIALIZED) {
+                        initialized = true
+                        Log.d(TAG, "AUDIO initialized with source: ${audioSourceName(source)}")
+                        break
+                    } else {
+                        Log.w(TAG, "AUDIO init failed for source: ${audioSourceName(source)}")
+                        audioRecord?.release()
+                        audioRecord = null
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "AUDIO init exception for source: ${audioSourceName(source)}", e)
+                    audioRecord = null
+                }
+            }
+
+            if (!initialized || audioRecord == null) {
+                Log.e(TAG, "AUDIO record init FAILED for all sources")
+                releaseRecorder()
+                return
+            }
+
+            sessionId = audioRecord?.audioSessionId ?: 0
+            audioRecord?.startRecording()
+            
+            val recordingState = audioRecord?.recordingState ?: AudioRecord.RECORDSTATE_STOPPED
+            if (recordingState != AudioRecord.RECORDSTATE_RECORDING) {
+                Log.e(TAG, "AUDIO startRecording failed: state=$recordingState")
+                releaseRecorder()
+                return
+            }
+
+            Log.d(
+                TAG,
+                "AUDIO record init OK: sid=$sessionId, minBuf=$minBuf, actualBuf=$actualBuf, frame=${FRAME_BYTES}B, rate=$sampleRate"
+            )
+        } catch (e: Exception) {
+            Log.e(TAG, "AUDIO init ERROR: ${e.message}", e)
+            releaseRecorder()
+        }
+    }
         try {
             releaseRecorder()
 

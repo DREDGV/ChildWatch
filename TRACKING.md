@@ -53,7 +53,43 @@
 
 ## ✅ ВЫПОЛНЕНО
 
-### [2026-03-09] Задача 1.3: Координация Service + Activity слушателей
+### [2026-03-10] Задача FIX-4: Исправление кракозябр на картах
+**Файлы:**
+- `app/src/main/res/values/strings.xml` - добавлены string resources
+- `parentwatch/src/main/res/values/strings.xml` - добавлены string resources
+- `app/src/main/res/layout/activity_dual_location_map.xml`
+- `parentwatch/src/main/res/layout/activity_dual_location_map.xml`
+- `app/src/main/java/ru/example/childwatch/DualLocationMapActivity.kt`
+- `parentwatch/src/main/java/ru/example/parentwatch/DualLocationMapActivity.kt`
+
+**Статус:** ✅ Завершено
+
+**Что сделано:**
+- ✅ Добавлены string resources для всех текстов карт
+- ✅ Заменен хардкод русского текста на @string/... в layout
+- ✅ Исправлены все hardcoded строки в коде Kotlin
+- ✅ Кракозябры должны исчезнуть
+
+**Коммит:** `f19b95e` - [FIX-MAPS] Fix encoding issues
+
+---
+
+### [2026-03-10] Задача FIX-1: Исправление потери сообщений в чате
+**Файлы:**
+- `app/src/main/java/ru/example/childwatch/service/ChatBackgroundService.kt`
+- `parentwatch/src/main/java/ru/example/parentwatch/service/ChatBackgroundService.kt`
+
+**Статус:** ✅ Завершено
+
+**Что сделано:**
+- ✅ Исправлена критическая ошибка: сообщения сохранялись ВСЕГДА
+- ✅ Подтверждение о доставке отправляется ВСЕГДА
+- ✅ Уведомление показывается только когда UI не активен
+- ✅ Добавлено логирование отправки подтверждений
+
+**Коммит:** `1169cdd` - [FIX-CHAT] Fix message loss when UI is visible
+
+---
 **Файлы:**
 - `app/src/main/java/ru/example/childwatch/ChatActivity.kt`
 - `app/src/main/java/ru/example/childwatch/service/ChatBackgroundService.kt`
