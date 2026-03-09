@@ -68,7 +68,7 @@
 3. **layout/activity_chat.xml (оба модуля):**
    - Добавлен LinearLayout с CircularProgressIndicator
 
-**Коммит:** *(ожидает создания)*
+**Коммит:** `1d9e3c8` - [CHAT-1.1] Неблокирующая загрузка сообщений с индикатором
 
 **Тестирование:**
 - [ ] Открыть чат с 100+ сообщениями → проверить индикатор
@@ -80,22 +80,40 @@
 ## 🔄 ТЕКУЩАЯ ЗАДАЧА
 
 ### Задача 1.2: Подтверждение доставки read receipts
-**Файлы:** 
+**Файлы:**
 - `app/src/main/java/ru/example/childwatch/ChatActivity.kt`
 - `parentwatch/src/main/java/ru/example/parentwatch/ChatActivity.kt`
 - `app/src/main/java/ru/example/childwatch/network/WebSocketManager.kt`
 - `parentwatch/src/main/java/ru/example/parentwatch/network/WebSocketManager.kt`
 
-**Статус:** ⏳ Ожидает (после коммита Задачи 1.1)
+**Статус:** 🔄 В работе (30%)
 
 **План:**
-1. [ ] Добавить очередь подтверждений read receipts
-2. [ ] Изменить отправку с подтверждением от сервера
-3. [ ] Обработать подтверждение от сервера
-4. [ ] Добавить 3 попытки отправки при ошибке
-5. [ ] Протестировать
+1. [x] Прочитать текущий код read receipts
+2. [x] Анализ инфраструктуры подтверждений → **Инфраструктура уже есть!**
+3. [ ] Улучшить retry логику с подсчетом попыток (до 3 раз)
+4. [ ] Добавить сохранение pending read receipts в SharedPreferences
+5. [ ] Обработать подтверждение от сервера
+6. [ ] Протестировать
 
-**Блокеры:** Нужно закоммитить Задачу 1.1
+**Сделано:**
+- ✅ Анализ текущего кода read receipts
+- ✅ Проверка инфраструктуры - `chat_message_status_ack` уже существует
+- ✅ WebSocketClient уже обрабатывает подтверждения
+- ✅ ChatActivity уже имеет `handleReadReceiptAck()`
+
+**Найдено:**
+- Инфраструктура подтверждений УЖЕ реализована!
+- Есть `sendReadReceiptsFor()`, `scheduleReadReceiptRetry()`, `handleReadReceiptAck()`
+- НО: Нет подсчета попыток, нет персистентности при перезапуске
+
+**Осталось:**
+- Улучшить retry логику с максимальным количеством попыток
+- Добавить сохранение pending read receipts
+
+**Блокеры:** Нет
+
+**Коммиты:** *(пока нет)*
 
 ---
 

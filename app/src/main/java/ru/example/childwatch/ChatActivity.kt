@@ -77,6 +77,17 @@ class ChatActivity : AppCompatActivity() {
     private var isCurrentlyTyping = false
     private val TYPING_TIMEOUT = 5000L
     private val READ_RECEIPT_RETRY_MS = 4000L
+    private val MAX_READ_RECEIPT_RETRIES = 3
+
+    /**
+     * Данные для повторной отправки read receipt
+     */
+    private data class ReadReceiptRetry(
+        val messageId: String,
+        val attempts: Int = 0,
+        val lastAttemptTime: Long = System.currentTimeMillis()
+    )
+    private val readReceiptRetries = Collections.synchronizedMap(mutableMapOf<String, ReadReceiptRetry>())
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -391,36 +402,115 @@ class ChatActivity : AppCompatActivity() {
             val sent = WebSocketManager.sendChatStatus(message.id, "read", "parent")
             if (sent) {
                 pendingReadReceiptIds.add(message.id)
+                // Успешно отправлено - сохраняем для отслеживания подтверждения
+                readReceiptRetries[message.id] = ReadReceiptRetry(message.id, attempts = 0)
                 scheduleReadReceiptRetry(message.id)
+            } else {
+                // Не удалось отправить - добавляем в retry очередь
+                scheduleReadReceiptRetryWithBackoff(message.id)
             }
         }
     }
 
     private fun handleReadReceiptAck(messageId: String, status: String) {
         if (!status.equals("read", ignoreCase = true) || messageId.isBlank()) return
+        // Подтверждение получено - очищаем все pending
         cancelReadReceiptRetry(messageId)
         pendingReadReceiptIds.remove(messageId)
+        readReceiptRetries.remove(messageId)  // Удаляем из retry очереди
         readReceiptSentIds.add(messageId)
         updateMessageStatus(messageId, ChatMessage.MessageStatus.READ)
         viewModel.markAsRead(messageId)
         chatManagerAdapter.markAsRead(messageId)
         chatManager.markAsRead(messageId)
+        Log.d(TAG, "✅ Read receipt confirmed: $messageId")
     }
 
     private fun scheduleReadReceiptRetry(messageId: String) {
         cancelReadReceiptRetry(messageId)
         val retryRunnable = Runnable {
-            if (!pendingReadReceiptIds.remove(messageId)) return@Runnable
-            if (!isChatUiActive) return@Runnable
-            loadMessages()
+            // Проверяем не было ли подтверждение
+            if (readReceiptSentIds.contains(messageId)) {
+                Log.d(TAG, "Read receipt already confirmed: $messageId")
+                return@Runnable
+            }
+            
+            // Проверяем есть ли еще в pending
+            if (!pendingReadReceiptIds.remove(messageId)) {
+                Log.d(TAG, "Read receipt no longer pending: $messageId")
+                return@Runnable
+            }
+            
+            if (!isChatUiActive) {
+                Log.w(TAG, "Chat UI not active, skipping retry for: $messageId")
+                return@Runnable
+            }
+            
+            // Пытаемся отправить снова
+            val sent = WebSocketManager.sendChatStatus(messageId, "read", "parent")
+            if (sent) {
+                pendingReadReceiptIds.add(messageId)
+                Log.d(TAG, "🔁 Read receipt retry sent: $messageId")
+                scheduleReadReceiptRetry(message.id)
+            } else {
+                Log.w(TAG, "⚠️ Read receipt retry failed: $messageId")
+                scheduleReadReceiptRetryWithBackoff(messageId)
+            }
         }
         readReceiptRetryRunnables[messageId] = retryRunnable
         typingHandler.postDelayed(retryRunnable, READ_RECEIPT_RETRY_MS)
+    }
+    
+    /**
+     * Повторная отправка с exponential backoff и лимитом попыток
+     */
+    private fun scheduleReadReceiptRetryWithBackoff(messageId: String) {
+        val currentRetry = readReceiptRetries[messageId] ?: ReadReceiptRetry(messageId)
+        
+        if (currentRetry.attempts >= MAX_READ_RECEIPT_RETRIES) {
+            Log.e(TAG, "❌ Max retries ($MAX_READ_RECEIPT_RETRIES) reached for read receipt: $messageId")
+            readReceiptRetries.remove(messageId)
+            pendingReadReceiptIds.remove(messageId)
+            // Не удаляем из readReceiptSentIds - чтобы не пытаться снова
+            readReceiptSentIds.add(messageId)
+            return
+        }
+        
+        val newAttempts = currentRetry.attempts + 1
+        val delayMs = READ_RECEIPT_RETRY_MS * (1L shl newAttempts) // Экспоненциальная задержка: 4s, 8s, 16s
+        
+        Log.d(TAG, "⏳ Scheduling read receipt retry #$newAttempts for $messageId in ${delayMs}ms")
+        
+        readReceiptRetries[messageId] = currentRetry.copy(
+            attempts = newAttempts,
+            lastAttemptTime = System.currentTimeMillis()
+        )
+        
+        val retryRunnable = Runnable {
+            if (!isChatUiActive) {
+                Log.w(TAG, "Chat UI not active, skipping backoff retry for: $messageId")
+                return@Runnable
+            }
+            
+            val sent = WebSocketManager.sendChatStatus(messageId, "read", "parent")
+            if (sent) {
+                pendingReadReceiptIds.add(messageId)
+                Log.d(TAG, "✅ Backoff retry #$newAttempts sent: $messageId")
+                scheduleReadReceiptRetry(messageId)
+            } else {
+                Log.w(TAG, "⚠️ Backoff retry #$newAttempts failed: $messageId")
+                scheduleReadReceiptRetryWithBackoff(messageId)
+            }
+        }
+        
+        readReceiptRetryRunnables[messageId] = retryRunnable
+        typingHandler.postDelayed(retryRunnable, delayMs)
     }
 
     private fun cancelReadReceiptRetry(messageId: String) {
         val runnable = readReceiptRetryRunnables.remove(messageId) ?: return
         typingHandler.removeCallbacks(runnable)
+        Log.d(TAG, "Cancelled retry for: $messageId")
     }
 
     private fun clearPendingReadReceiptRetries() {
@@ -428,6 +518,8 @@ class ChatActivity : AppCompatActivity() {
         runnables.forEach { typingHandler.removeCallbacks(it) }
         readReceiptRetryRunnables.clear()
         pendingReadReceiptIds.clear()
+        readReceiptRetries.clear()  // Очищаем retry очередь
+        Log.d(TAG, "Cleared all pending read receipts")
     }
 
     private fun sendTestMessage() {
