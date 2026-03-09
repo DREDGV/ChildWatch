@@ -46,6 +46,7 @@ class WebSocketClient(
     private var onChatMessageCallback: ((String, String, String, Long) -> Unit)? = null
     private var onChatMessageSentCallback: ((String, Boolean, Long) -> Unit)? = null
     private var onChatStatusCallback: ((String, String, Long) -> Unit)? = null
+    private var onChatStatusAckCallback: ((String, String, Long) -> Unit)? = null
     private var onRegisteredCallback: (() -> Unit)? = null
     var onPhotoReceived: ((photoBase64: String, requestId: String, timestamp: Long) -> Unit)? = null
     var onPhotoError: ((requestId: String, error: String) -> Unit)? = null
@@ -353,6 +354,20 @@ class WebSocketClient(
         }
     }
 
+    private val onChatMessageStatusAck = Emitter.Listener { args ->
+        try {
+            val data = args.getOrNull(0) as? JSONObject ?: return@Listener
+            val messageId = data.optString("id")
+            val status = data.optString("status")
+            if (messageId.isNullOrEmpty() || status.isNullOrEmpty()) return@Listener
+            val timestamp = data.optLong("timestamp", System.currentTimeMillis())
+            Log.d(TAG, "✅ Chat status ack: id=$messageId status=$status")
+            onChatStatusAckCallback?.invoke(messageId, status, timestamp)
+        } catch (e: Exception) {
+            Log.e(TAG, "вќЊ Error handling chat status ack", e)
+        }
+    }
+
     private val onChatMessageError = Emitter.Listener { args ->
         try {
             val data = args.getOrNull(0) as? JSONObject
@@ -463,6 +478,7 @@ class WebSocketClient(
             socket?.on("chat_message", onChatMessage)
             socket?.on("chat_message_sent", onChatMessageSent)
             socket?.on("chat_message_status", onChatMessageStatus)
+            socket?.on("chat_message_status_ack", onChatMessageStatusAck)
             socket?.on("chat_message_error", onChatMessageError)
             socket?.on("photo", onPhoto)
             socket?.on("photo_error", onPhotoErrorEvent)
@@ -652,6 +668,10 @@ class WebSocketClient(
         onChatStatusCallback = callback
     }
 
+    fun setChatStatusAckCallback(callback: (messageId: String, status: String, timestamp: Long) -> Unit) {
+        onChatStatusAckCallback = callback
+    }
+
     /**
      * Set callback for typing indicator
      */
@@ -681,9 +701,9 @@ class WebSocketClient(
         }
     }
 
-    fun sendChatStatus(messageId: String, status: String, actor: String) {
+    fun sendChatStatus(messageId: String, status: String, actor: String): Boolean {
         try {
-            if (!isConnected) return
+            if (!isReady()) return false
             val payload = JSONObject().apply {
                 put("id", messageId)
                 put("status", status)
@@ -692,8 +712,10 @@ class WebSocketClient(
                 put("timestamp", System.currentTimeMillis())
             }
             socket?.emit("chat_message_status", payload)
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "вќЊ Failed to send chat status", e)
+            return false
         }
     }
 

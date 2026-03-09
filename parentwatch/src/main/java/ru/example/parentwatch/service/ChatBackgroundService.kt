@@ -72,6 +72,7 @@ class ChatBackgroundService : LifecycleService() {
     private val backgroundListener: (String, String, String, Long) -> Unit = { messageId, text, sender, timestamp ->
         handleIncomingMessage(messageId, text, sender, timestamp)
     }
+    private var backgroundMessageSentListener: ((String, Boolean, Long) -> Unit)? = null
     private var backgroundListenerRegistered = false
     @Volatile private var lastStartStreamAtMs: Long = 0L
     @Volatile private var lastStartStreamRate: Int = 24_000
@@ -291,6 +292,12 @@ class ChatBackgroundService : LifecycleService() {
                     WebSocketManager.setChatStatusCallback { messageId, status, _ ->
                         handleStatusUpdate(messageId, status)
                     }
+                    if (backgroundMessageSentListener == null) {
+                        backgroundMessageSentListener = { messageId, delivered, _ ->
+                            handleMessageSentAck(messageId, delivered)
+                        }
+                        WebSocketManager.addChatMessageSentListener(backgroundMessageSentListener!!)
+                    }
                     if (!backgroundListenerRegistered) {
                         WebSocketManager.addChatMessageListener(backgroundListener)
                         WebSocketManager.addCommandListener(commandListener)
@@ -377,6 +384,8 @@ class ChatBackgroundService : LifecycleService() {
 
         // Clear callback
         WebSocketManager.removeChatMessageListener(backgroundListener)
+        backgroundMessageSentListener?.let { WebSocketManager.removeChatMessageSentListener(it) }
+        backgroundMessageSentListener = null
         WebSocketManager.removeCommandListener(commandListener)
 
         // Stop foreground
@@ -438,6 +447,48 @@ class ChatBackgroundService : LifecycleService() {
 
         if (::chatManagerAdapter.isInitialized) {
             chatManagerAdapter.updateMessageStatus(messageId, mapped)
+        }
+    }
+
+    private fun handleMessageSentAck(messageId: String, delivered: Boolean) {
+        if (messageId.isBlank() || !::chatManagerAdapter.isInitialized) return
+        val status = if (delivered) {
+            ChatMessage.MessageStatus.DELIVERED
+        } else {
+            ChatMessage.MessageStatus.SENT
+        }
+        if (!shouldApplyStatus(messageId, status)) return
+        chatManagerAdapter.updateMessageStatus(messageId, status)
+    }
+
+    private fun shouldApplyStatus(
+        messageId: String,
+        newStatus: ChatMessage.MessageStatus
+    ): Boolean {
+        val currentStatus = findCurrentStatus(messageId) ?: return true
+        if (newStatus == currentStatus) return false
+        if (newStatus == ChatMessage.MessageStatus.FAILED) {
+            return currentStatus == ChatMessage.MessageStatus.SENDING ||
+                currentStatus == ChatMessage.MessageStatus.SENT
+        }
+        val rank = mapOf(
+            ChatMessage.MessageStatus.FAILED to -1,
+            ChatMessage.MessageStatus.SENDING to 0,
+            ChatMessage.MessageStatus.SENT to 1,
+            ChatMessage.MessageStatus.DELIVERED to 2,
+            ChatMessage.MessageStatus.READ to 3
+        )
+        return (rank[newStatus] ?: 0) >= (rank[currentStatus] ?: 0)
+    }
+
+    private fun findCurrentStatus(messageId: String): ChatMessage.MessageStatus? {
+        return try {
+            chatManagerAdapter.getAllMessages()
+                .firstOrNull { it.id == messageId }
+                ?.status
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading current message status", e)
+            null
         }
     }
 
@@ -517,6 +568,8 @@ class ChatBackgroundService : LifecycleService() {
         super.onDestroy()
         Log.d(TAG, "ChatBackgroundService destroyed")
         WebSocketManager.removeChatMessageListener(backgroundListener)
+        backgroundMessageSentListener?.let { WebSocketManager.removeChatMessageSentListener(it) }
+        backgroundMessageSentListener = null
         WebSocketManager.removeCommandListener(commandListener)
         isRunning = false
     }

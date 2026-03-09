@@ -28,8 +28,12 @@ object WebSocketManager {
     private val chatStatusListeners = java.util.Collections.synchronizedSet(
         mutableSetOf<(String, String, Long) -> Unit>()
     )
+    private val chatStatusAckListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(String, String, Long) -> Unit>()
+    )
     private var chatMessageSentCallback: ((String, Boolean, Long) -> Unit)? = null
     private var chatStatusCallback: ((String, String, Long) -> Unit)? = null
+    private var chatStatusAckCallback: ((String, String, Long) -> Unit)? = null
     private var parentConnectedCallback: (() -> Unit)? = null
     private var parentDisconnectedCallback: (() -> Unit)? = null
 
@@ -60,6 +64,9 @@ object WebSocketManager {
         }
         webSocketClient?.setChatStatusCallback { messageId, status, timestamp ->
             dispatchChatStatus(messageId, status, timestamp)
+        }
+        webSocketClient?.setChatStatusAckCallback { messageId, status, timestamp ->
+            dispatchChatStatusAck(messageId, status, timestamp)
         }
         // Always dispatch incoming commands to all registered listeners.
         webSocketClient?.setCommandCallback { command, data ->
@@ -95,6 +102,9 @@ object WebSocketManager {
             }
             setChatStatusCallback { messageId, status, timestamp ->
                 dispatchChatStatus(messageId, status, timestamp)
+            }
+            setChatStatusAckCallback { messageId, status, timestamp ->
+                dispatchChatStatusAck(messageId, status, timestamp)
             }
             parentConnectedCallback?.let { setParentConnectedCallback(it) }
             parentDisconnectedCallback?.let { setParentDisconnectedCallback(it) }
@@ -248,6 +258,22 @@ object WebSocketManager {
         }
     }
 
+    private fun dispatchChatStatusAck(messageId: String, status: String, timestamp: Long) {
+        try {
+            val snapshot = synchronized(chatStatusAckListeners) { chatStatusAckListeners.toList() }
+            snapshot.forEach { listener ->
+                try {
+                    listener(messageId, status, timestamp)
+                } catch (e: Exception) {
+                    Log.e(TAG, "Error in chat status ack listener", e)
+                }
+            }
+            chatStatusAckCallback?.invoke(messageId, status, timestamp)
+        } catch (e: Exception) {
+            Log.e(TAG, "dispatchChatStatusAck failed", e)
+        }
+    }
+
     fun setChatMessageSentCallback(callback: (messageId: String, delivered: Boolean, timestamp: Long) -> Unit) {
         chatMessageSentCallback = callback
         webSocketClient?.setChatMessageSentCallback { messageId, delivered, timestamp ->
@@ -276,6 +302,20 @@ object WebSocketManager {
         }
     }
 
+    fun setChatStatusAckCallback(callback: (messageId: String, status: String, timestamp: Long) -> Unit) {
+        chatStatusAckCallback = callback
+        webSocketClient?.setChatStatusAckCallback { messageId, status, timestamp ->
+            dispatchChatStatusAck(messageId, status, timestamp)
+        }
+    }
+
+    fun clearChatStatusAckCallback() {
+        chatStatusAckCallback = null
+        webSocketClient?.setChatStatusAckCallback { messageId, status, timestamp ->
+            dispatchChatStatusAck(messageId, status, timestamp)
+        }
+    }
+
     fun addChatMessageSentListener(listener: (messageId: String, delivered: Boolean, timestamp: Long) -> Unit) {
         chatMessageSentListeners.add(listener)
         webSocketClient?.setChatMessageSentCallback { messageId, delivered, timestamp ->
@@ -298,8 +338,19 @@ object WebSocketManager {
         chatStatusListeners.remove(listener)
     }
 
-    fun sendChatStatus(messageId: String, status: String, actor: String) {
-        webSocketClient?.sendChatStatus(messageId, status, actor)
+    fun addChatStatusAckListener(listener: (messageId: String, status: String, timestamp: Long) -> Unit) {
+        chatStatusAckListeners.add(listener)
+        webSocketClient?.setChatStatusAckCallback { messageId, status, timestamp ->
+            dispatchChatStatusAck(messageId, status, timestamp)
+        }
+    }
+
+    fun removeChatStatusAckListener(listener: (messageId: String, status: String, timestamp: Long) -> Unit) {
+        chatStatusAckListeners.remove(listener)
+    }
+
+    fun sendChatStatus(messageId: String, status: String, actor: String): Boolean {
+        return webSocketClient?.sendChatStatus(messageId, status, actor) == true
     }
 
     fun setParentConnectedCallback(callback: () -> Unit) {

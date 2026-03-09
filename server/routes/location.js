@@ -17,36 +17,32 @@ router.get("/history/:deviceId", async (req, res) => {
     const dbManager = new DatabaseManager();
     await dbManager.initialize();
 
-    let sql = `SELECT * FROM locations WHERE device_id = ?`;
-    let params = [deviceId];
+    const parsedLimit = parseInt(limit, 10) || 100;
+    const parsedOffset = parseInt(offset, 10) || 0;
+    const parsedFrom = from !== undefined ? parseInt(from, 10) : null;
+    const parsedTo = to !== undefined ? parseInt(to, 10) : null;
 
-    // Add date range filter if provided
-    if (from) {
-      sql += ` AND timestamp >= ?`;
-      params.push(parseInt(from));
-    }
-
-    if (to) {
-      sql += ` AND timestamp <= ?`;
-      params.push(parseInt(to));
-    }
-
-    sql += ` ORDER BY timestamp DESC LIMIT ? OFFSET ?`;
-    params.push(parseInt(limit), parseInt(offset));
-
-    const locations = await dbManager.all(sql, params);
+    const locations = await dbManager.getLocationHistory(
+      deviceId,
+      parsedLimit,
+      parsedOffset,
+      parsedFrom,
+      parsedTo
+    );
 
     await dbManager.close();
 
     res.json({
       success: true,
+      deviceId,
+      limit: parsedLimit,
+      offset: parsedOffset,
       locations: locations.map((loc) => ({
-        id: loc.id,
         latitude: loc.latitude,
         longitude: loc.longitude,
         accuracy: loc.accuracy,
         timestamp: loc.timestamp,
-        createdAt: loc.created_at,
+        recordedAt: new Date(loc.timestamp).toISOString(),
       })),
       count: locations.length,
     });
@@ -80,13 +76,13 @@ router.get("/latest/:deviceId", async (req, res) => {
 
     res.json({
       success: true,
+      deviceId,
       location: {
-        id: location.id,
         latitude: location.latitude,
         longitude: location.longitude,
         accuracy: location.accuracy,
         timestamp: location.timestamp,
-        createdAt: location.created_at,
+        recordedAt: new Date(location.timestamp).toISOString(),
       },
     });
   } catch (error) {

@@ -65,12 +65,18 @@ class ChatActivity : AppCompatActivity() {
     private var activityChatListener: ((String, String, String, Long) -> Unit)? = null
     private var chatStatusListener: ((String, String, Long) -> Unit)? = null
     private var chatMessageSentListener: ((String, Boolean, Long) -> Unit)? = null
+    private var chatStatusAckListener: ((String, String, Long) -> Unit)? = null
     private val readReceiptSentIds = Collections.synchronizedSet(mutableSetOf<String>())
+    private val pendingReadReceiptIds = Collections.synchronizedSet(mutableSetOf<String>())
+    private val readReceiptRetryRunnables = Collections.synchronizedMap(mutableMapOf<String, Runnable>())
+    private var isChatUiActive = false
+    private var chatUiListenersRegistered = false
 
     private val typingHandler = Handler(Looper.getMainLooper())
     private var typingRunnable: Runnable? = null
     private var isCurrentlyTyping = false
     private val TYPING_TIMEOUT = 5000L
+    private val READ_RECEIPT_RETRY_MS = 4000L
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -294,7 +300,13 @@ class ChatActivity : AppCompatActivity() {
 
         // РќР°Р±Р»СЋРґРµРЅРёРµ Р·Р° СЃРѕСЃС‚РѕСЏРЅРёРµРј Р·Р°РіСЂСѓР·РєРё
         viewModel.isLoading.observe(this) { isLoading ->
-            // TODO: РџРѕРєР°Р·Р°С‚СЊ/СЃРєСЂС‹С‚СЊ РёРЅРґРёРєР°С‚РѕСЂ Р·Р°РіСЂСѓР·РєРё
+            if (isLoading) {
+                binding.loadingIndicator.visibility = View.VISIBLE
+                binding.messagesRecyclerView.visibility = View.GONE
+            } else {
+                binding.loadingIndicator.visibility = View.GONE
+                binding.messagesRecyclerView.visibility = View.VISIBLE
+            }
             Log.d(TAG, "ViewModel: Р·Р°РіСЂСѓР·РєР° = $isLoading")
         }
 
@@ -355,16 +367,67 @@ class ChatActivity : AppCompatActivity() {
 
 
     private fun sendReadReceiptsFor(messageList: List<ChatMessage>) {
-        messageList
+        if (!isChatUiActive) return
+        val pendingMessages = messageList
             .filter { it.sender != currentUser && !it.isRead && it.status != ChatMessage.MessageStatus.READ }
-            .filter { readReceiptSentIds.add(it.id) }
-            .forEach { message ->
-                updateMessageStatus(message.id, ChatMessage.MessageStatus.READ)
-                viewModel.markAsRead(message.id)
-                chatManagerAdapter.markAsRead(message.id)
-                chatManager.markAsRead(message.id)
-                WebSocketManager.sendChatStatus(message.id, "read", "parent")
+            .filter { it.id !in readReceiptSentIds && it.id !in pendingReadReceiptIds }
+
+        if (pendingMessages.isEmpty()) return
+
+        if (!WebSocketManager.isReady()) {
+            pendingReadReceiptIds.clear()
+            WebSocketManager.ensureConnected(
+                onReady = {
+                    runOnUiThread { loadMessages() }
+                },
+                onError = { error ->
+                    Log.w(TAG, "Read receipt retry waiting for ready state: $error")
+                }
+            )
+            return
+        }
+
+        pendingMessages.forEach { message ->
+            val sent = WebSocketManager.sendChatStatus(message.id, "read", "parent")
+            if (sent) {
+                pendingReadReceiptIds.add(message.id)
+                scheduleReadReceiptRetry(message.id)
             }
+        }
+    }
+
+    private fun handleReadReceiptAck(messageId: String, status: String) {
+        if (!status.equals("read", ignoreCase = true) || messageId.isBlank()) return
+        cancelReadReceiptRetry(messageId)
+        pendingReadReceiptIds.remove(messageId)
+        readReceiptSentIds.add(messageId)
+        updateMessageStatus(messageId, ChatMessage.MessageStatus.READ)
+        viewModel.markAsRead(messageId)
+        chatManagerAdapter.markAsRead(messageId)
+        chatManager.markAsRead(messageId)
+    }
+
+    private fun scheduleReadReceiptRetry(messageId: String) {
+        cancelReadReceiptRetry(messageId)
+        val retryRunnable = Runnable {
+            if (!pendingReadReceiptIds.remove(messageId)) return@Runnable
+            if (!isChatUiActive) return@Runnable
+            loadMessages()
+        }
+        readReceiptRetryRunnables[messageId] = retryRunnable
+        typingHandler.postDelayed(retryRunnable, READ_RECEIPT_RETRY_MS)
+    }
+
+    private fun cancelReadReceiptRetry(messageId: String) {
+        val runnable = readReceiptRetryRunnables.remove(messageId) ?: return
+        typingHandler.removeCallbacks(runnable)
+    }
+
+    private fun clearPendingReadReceiptRetries() {
+        val runnables = synchronized(readReceiptRetryRunnables) { readReceiptRetryRunnables.values.toList() }
+        runnables.forEach { typingHandler.removeCallbacks(it) }
+        readReceiptRetryRunnables.clear()
+        pendingReadReceiptIds.clear()
     }
 
     private fun sendTestMessage() {
@@ -390,21 +453,50 @@ class ChatActivity : AppCompatActivity() {
         Toast.makeText(this, getString(R.string.chat_cleared), Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * Загрузка сообщений из локальной БД
+     */
     private fun loadMessages() {
+        // Показываем индикатор загрузки
+        binding.loadingIndicator.visibility = View.VISIBLE
+        binding.messagesRecyclerView.visibility = View.GONE
+        
         lifecycleScope.launch {
-            val savedMessages = chatManagerAdapter.getAllMessagesAsync()
-            if (isFinishing || isDestroyed) return@launch
+            try {
+                val savedMessages = withContext(Dispatchers.IO) {
+                    chatManagerAdapter.getAllMessagesAsync()
+                }
+                
+                if (isFinishing || isDestroyed) {
+                    Log.w(TAG, "Activity finishing, skipping message load")
+                    return@launch
+                }
 
-            messages.clear()
-            messages.addAll(savedMessages)
-            chatAdapter.notifyDataSetChanged()
+                messages.clear()
+                messages.addAll(savedMessages)
+                chatAdapter.notifyDataSetChanged()
 
-            if (messages.isNotEmpty()) {
-                binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
+                if (messages.isNotEmpty()) {
+                    binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
+                }
+
+                sendReadReceiptsFor(savedMessages)
+                Log.d(TAG, "✅ Loaded ${messages.size} messages from local storage")
+                
+            } catch (e: Exception) {
+                Log.e(TAG, "❌ Error loading messages", e)
+                Toast.makeText(
+                    this@ChatActivity,
+                    "Ошибка загрузки сообщений: ${e.message ?: "Неизвестная ошибка"}",
+                    Toast.LENGTH_SHORT
+                ).show()
+            } finally {
+                // Скрываем индикатор загрузки в любом случае
+                if (!isFinishing && !isDestroyed) {
+                    binding.loadingIndicator.visibility = View.GONE
+                    binding.messagesRecyclerView.visibility = View.VISIBLE
+                }
             }
-
-            sendReadReceiptsFor(savedMessages)
-            Log.d(TAG, "Loaded ${messages.size} messages from local storage")
         }
     }
 
@@ -526,22 +618,8 @@ class ChatActivity : AppCompatActivity() {
             Log.d(TAG, "ChatBackgroundService started")
         }
 
-        activityChatListener = { messageId, text, sender, timestamp ->
-            runOnUiThread { receiveMessage(messageId, text, sender, timestamp) }
-        }
-        WebSocketManager.addChatMessageListener(activityChatListener!!)
-        if (chatStatusListener == null) {
-            chatStatusListener = { messageId, status, _ ->
-                runOnUiThread { handleRemoteStatusUpdate(messageId, status) }
-            }
-            WebSocketManager.addChatStatusListener(chatStatusListener!!)
-        }
-        if (chatMessageSentListener == null) {
-            chatMessageSentListener = { messageId, delivered, _ ->
-                runOnUiThread { handleMessageSentAck(messageId, delivered) }
-            }
-            WebSocketManager.addChatMessageSentListener(chatMessageSentListener!!)
-        }
+        ensureChatUiListeners()
+        registerChatUiListeners()
         WebSocketManager.setChildConnectedCallback {
             runOnUiThread { updateConnectionStatus(ConnectionStatus.CONNECTED) }
         }
@@ -703,6 +781,10 @@ class ChatActivity : AppCompatActivity() {
      * Receive message from WebSocket
      */
     private fun receiveMessage(messageId: String, text: String, sender: String, timestamp: Long) {
+        if (!isChatUiActive) {
+            Log.d(TAG, "Ignoring activity chat event while UI is paused: $messageId")
+            return
+        }
         val existingMessage = messages.firstOrNull { it.id == messageId }
         if (existingMessage != null) {
             if (existingMessage.sender != currentUser && !existingMessage.isRead) {
@@ -735,6 +817,48 @@ class ChatActivity : AppCompatActivity() {
 
         Log.d(TAG, "Received message from $sender: $text")
         Toast.makeText(this, getString(R.string.chat_new_message_from, message.getSenderName()), Toast.LENGTH_SHORT).show()
+    }
+
+    private fun ensureChatUiListeners() {
+        if (activityChatListener == null) {
+            activityChatListener = { messageId, text, sender, timestamp ->
+                runOnUiThread { receiveMessage(messageId, text, sender, timestamp) }
+            }
+        }
+        if (chatStatusListener == null) {
+            chatStatusListener = { messageId, status, _ ->
+                runOnUiThread { handleRemoteStatusUpdate(messageId, status) }
+            }
+        }
+        if (chatMessageSentListener == null) {
+            chatMessageSentListener = { messageId, delivered, _ ->
+                runOnUiThread { handleMessageSentAck(messageId, delivered) }
+            }
+        }
+        if (chatStatusAckListener == null) {
+            chatStatusAckListener = { messageId, status, _ ->
+                runOnUiThread { handleReadReceiptAck(messageId, status) }
+            }
+        }
+    }
+
+    private fun registerChatUiListeners() {
+        if (chatUiListenersRegistered) return
+        ensureChatUiListeners()
+        activityChatListener?.let { WebSocketManager.addChatMessageListener(it) }
+        chatStatusListener?.let { WebSocketManager.addChatStatusListener(it) }
+        chatMessageSentListener?.let { WebSocketManager.addChatMessageSentListener(it) }
+        chatStatusAckListener?.let { WebSocketManager.addChatStatusAckListener(it) }
+        chatUiListenersRegistered = true
+    }
+
+    private fun unregisterChatUiListeners() {
+        if (!chatUiListenersRegistered) return
+        activityChatListener?.let { WebSocketManager.removeChatMessageListener(it) }
+        chatStatusListener?.let { WebSocketManager.removeChatStatusListener(it) }
+        chatMessageSentListener?.let { WebSocketManager.removeChatMessageSentListener(it) }
+        chatStatusAckListener?.let { WebSocketManager.removeChatStatusAckListener(it) }
+        chatUiListenersRegistered = false
     }
 
     /**
@@ -898,13 +1022,20 @@ class ChatActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        isChatUiActive = true
+        clearPendingReadReceiptRetries()
         getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
             .edit()
             .putBoolean("chat_open", true)
             .apply()
+        registerChatUiListeners()
+        loadMessages()
     }
 
     override fun onPause() {
+        isChatUiActive = false
+        unregisterChatUiListeners()
+        clearPendingReadReceiptRetries()
         getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
             .edit()
             .putBoolean("chat_open", false)
@@ -920,17 +1051,16 @@ class ChatActivity : AppCompatActivity() {
             WebSocketManager.sendTypingStatus(false)
         }
         typingRunnable?.let { typingHandler.removeCallbacks(it) }
+        clearPendingReadReceiptRetries()
         
         chatManager.cleanup()
         chatManagerAdapter.cleanup()
         messageQueue.release()
-        // Remove only this activity's listener to keep background service receiving
-        activityChatListener?.let { WebSocketManager.removeChatMessageListener(it) }
+        unregisterChatUiListeners()
         activityChatListener = null
-        chatStatusListener?.let { WebSocketManager.removeChatStatusListener(it) }
         chatStatusListener = null
-        chatMessageSentListener?.let { WebSocketManager.removeChatMessageSentListener(it) }
         chatMessageSentListener = null
+        chatStatusAckListener = null
         WebSocketManager.clearChildConnectedCallback()
         WebSocketManager.clearChildDisconnectedCallback()
     }

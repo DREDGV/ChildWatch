@@ -431,15 +431,36 @@ class DatabaseManager {
   /**
    * Get location history
    */
-  async getLocationHistory(deviceId, limit = 100) {
-    const sql = `
+  async getLocationHistory(
+    deviceId,
+    limit = 100,
+    offset = 0,
+    fromTimestamp = null,
+    toTimestamp = null
+  ) {
+    let sql = `
             SELECT * FROM locations
             WHERE device_id = ?
-            ORDER BY timestamp DESC
-            LIMIT ?
         `;
+    const params = [deviceId];
 
-    return this.all(sql, [deviceId, limit]);
+    if (typeof fromTimestamp === "number" && !Number.isNaN(fromTimestamp)) {
+      sql += ` AND timestamp >= ?`;
+      params.push(fromTimestamp);
+    }
+
+    if (typeof toTimestamp === "number" && !Number.isNaN(toTimestamp)) {
+      sql += ` AND timestamp <= ?`;
+      params.push(toTimestamp);
+    }
+
+    sql += `
+            ORDER BY timestamp DESC
+            LIMIT ? OFFSET ?
+        `;
+    params.push(limit, offset);
+
+    return this.all(sql, params);
   }
 
   /**
@@ -460,11 +481,11 @@ class DatabaseManager {
    * Save audio file metadata
    */
   async addColumnIfNotExists(tableName, columnName, columnType) {
-    const columns = await this.all(PRAGMA table_info());
+    const columns = await this.all(`PRAGMA table_info(${tableName})`);
     const exists = Array.isArray(columns) && columns.some((col) => col.name === columnName);
     if (!exists) {
-      await this.run(ALTER TABLE  ADD COLUMN  );
-      console.log(✅ Added column  to );
+      await this.run(`ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${columnType}`);
+      console.log(`Added column ${columnName} to ${tableName}`);
     }
   }
 

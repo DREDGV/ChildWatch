@@ -358,3 +358,35 @@
   - `parentwatch/build/outputs/apk/debug/ChildDevice-v7.1.26065.021241-debug.apk`
 - What to test now:
   - Audio stream start from parent and server logs for `audio_chunk` or `audio_capture_error`.
+
+## Sprint Update 2026-03-06 (Chat lifecycle read/ack stabilization)
+
+- Current Sprint Status: WIP
+- Ticket scope:
+  - stabilize chat lifecycle only;
+  - do not change server API, queue architecture, map, audio, or DB schema.
+- Root cause fixed in this iteration:
+  - ChatActivity kept chat listeners active until onDestroy, while chat_open=false was already set in onPause;
+  - a paused chat screen could still receive a message and emit read;
+  - ChatBackgroundService did not persist chat_message_sent ACK while the screen was closed, so sender messages could remain stuck in SENDING.
+- Files changed:
+  - app/src/main/java/ru/example/childwatch/ChatActivity.kt
+  - app/src/main/java/ru/example/childwatch/service/ChatBackgroundService.kt
+  - parentwatch/src/main/java/ru/example/parentwatch/ChatActivity.kt
+  - parentwatch/src/main/java/ru/example/parentwatch/service/ChatBackgroundService.kt
+- Scope done:
+  - both chat activities now unregister message/status/sent listeners in onPause and re-register them in onResume;
+  - both chat activities now send read receipts only when chat UI is actually active;
+  - both background chat services now listen for chat_message_sent and persist sender ACK while the activity is closed;
+  - background ACK persistence now avoids status downgrade (READ/DELIVERED -> SENT).
+- Local verification:
+  - :app:compileDebugKotlin = PASS
+  - :parentwatch:compileDebugKotlin = PASS
+- Server rollout required: no
+- What user should test now:
+  - CHAT-LC-01: open chat, press Home, send message from other device; expect DELIVERED, not READ, until chat is opened again.
+  - CHAT-LC-02: send message while recipient chat is closed; sender must not stay forever in SENDING.
+  - CHAT-LC-03: reopen recipient chat after background delivery; message becomes READ only at this moment.
+  - CHAT-LC-04: repeat open/close chat 10+ times on both devices; no duplicate processing and no crash.
+- Exact next command:
+  - .\\gradlew.bat :app:assembleDebug :parentwatch:assembleDebug

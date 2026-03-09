@@ -129,6 +129,31 @@
         android:visibility="gone"
         android:gravity="start" />
 
+    <!-- Loading Indicator -->
+    <LinearLayout
+        android:id="@+id/loadingIndicator"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="horizontal"
+        android:padding="16dp"
+        android:visibility="gone">
+
+        <com.google.android.material.progressindicator.CircularProgressIndicator
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="12dp"
+            android:indeterminate="true"
+            app:indicatorSize="24dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Загрузка сообщений..."
+            android:textColor="#757575"
+            android:textSize="14sp" />
+    </LinearLayout>
+
     <!-- Messages RecyclerView -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/messagesRecyclerView"

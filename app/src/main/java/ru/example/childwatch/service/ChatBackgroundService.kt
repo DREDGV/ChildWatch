@@ -66,6 +66,7 @@ class ChatBackgroundService : LifecycleService() {
     private lateinit var chatManager: ChatManager
     private var chatManagerAdapter: ru.example.childwatch.chat.ChatManagerAdapter? = null
     private var serviceChatListener: ((String, String, String, Long) -> Unit)? = null
+    private var chatMessageSentListener: ((String, Boolean, Long) -> Unit)? = null
     private var photoReceivedListener: ((String, String, Long) -> Unit)? = null
     private var photoErrorListener: ((String, String) -> Unit)? = null
 
@@ -228,6 +229,12 @@ class ChatBackgroundService : LifecycleService() {
                     WebSocketManager.setChatStatusCallback { messageId, status, _ ->
                         handleStatusUpdate(messageId, status)
                     }
+                    if (chatMessageSentListener == null) {
+                        chatMessageSentListener = { messageId, delivered, _ ->
+                            handleMessageSentAck(messageId, delivered)
+                        }
+                        WebSocketManager.addChatMessageSentListener(chatMessageSentListener!!)
+                    }
 
                     // Set up message listener (do not override others)
                     if (serviceChatListener == null) {
@@ -323,6 +330,8 @@ class ChatBackgroundService : LifecycleService() {
         // Remove service-scoped listener only
         serviceChatListener?.let { WebSocketManager.removeChatMessageListener(it) }
         serviceChatListener = null
+        chatMessageSentListener?.let { WebSocketManager.removeChatMessageSentListener(it) }
+        chatMessageSentListener = null
 
         // Stop foreground
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -390,6 +399,55 @@ class ChatBackgroundService : LifecycleService() {
             chatManager.updateMessageStatus(messageId, mapped)
         } catch (e: Exception) {
             Log.e(TAG, "Error updating legacy chat status", e)
+        }
+    }
+
+    private fun handleMessageSentAck(messageId: String, delivered: Boolean) {
+        if (messageId.isBlank()) return
+        val status = if (delivered) {
+            ChatMessage.MessageStatus.DELIVERED
+        } else {
+            ChatMessage.MessageStatus.SENT
+        }
+        if (!shouldApplyStatus(messageId, status)) return
+
+        chatManagerAdapter?.updateMessageStatus(messageId, status)
+        try {
+            chatManager.updateMessageStatus(messageId, status)
+        } catch (e: Exception) {
+            Log.e(TAG, "Error updating legacy sent ack status", e)
+        }
+    }
+
+    private fun shouldApplyStatus(
+        messageId: String,
+        newStatus: ChatMessage.MessageStatus
+    ): Boolean {
+        val currentStatus = findCurrentStatus(messageId) ?: return true
+        if (newStatus == currentStatus) return false
+        if (newStatus == ChatMessage.MessageStatus.FAILED) {
+            return currentStatus == ChatMessage.MessageStatus.SENDING ||
+                currentStatus == ChatMessage.MessageStatus.SENT
+        }
+        val rank = mapOf(
+            ChatMessage.MessageStatus.FAILED to -1,
+            ChatMessage.MessageStatus.SENDING to 0,
+            ChatMessage.MessageStatus.SENT to 1,
+            ChatMessage.MessageStatus.DELIVERED to 2,
+            ChatMessage.MessageStatus.READ to 3
+        )
+        return (rank[newStatus] ?: 0) >= (rank[currentStatus] ?: 0)
+    }
+
+    private fun findCurrentStatus(messageId: String): ChatMessage.MessageStatus? {
+        return try {
+            chatManagerAdapter?.getAllMessages()
+                ?.firstOrNull { it.id == messageId }
+                ?.status
+                ?: chatManager.getAllMessages().firstOrNull { it.id == messageId }?.status
+        } catch (e: Exception) {
+            Log.e(TAG, "Error reading current message status", e)
+            null
         }
     }
 
@@ -485,6 +543,8 @@ class ChatBackgroundService : LifecycleService() {
         Log.d(TAG, "ChatBackgroundService destroyed")
         serviceChatListener?.let { WebSocketManager.removeChatMessageListener(it) }
         serviceChatListener = null
+        chatMessageSentListener?.let { WebSocketManager.removeChatMessageSentListener(it) }
+        chatMessageSentListener = null
         photoReceivedListener?.let { WebSocketManager.removePhotoReceivedListener(it) }
         photoReceivedListener = null
         photoErrorListener?.let { WebSocketManager.removePhotoErrorListener(it) }

@@ -755,6 +755,9 @@ app.get(
       const targetDeviceId = req.params.deviceId || req.deviceId;
       const limit = parseInt(req.query.limit) || 100;
       const offset = parseInt(req.query.offset) || 0;
+      const from =
+        req.query.from !== undefined ? parseInt(req.query.from, 10) : null;
+      const to = req.query.to !== undefined ? parseInt(req.query.to, 10) : null;
 
       // Validate parameters
       if (!validator.validateDeviceIdFormat(targetDeviceId)) {
@@ -771,11 +774,27 @@ app.get(
         });
       }
 
+      if (from !== null && Number.isNaN(from)) {
+        return res.status(400).json({
+          error: "Invalid from timestamp",
+          code: "INVALID_FROM_TIMESTAMP",
+        });
+      }
+
+      if (to !== null && Number.isNaN(to)) {
+        return res.status(400).json({
+          error: "Invalid to timestamp",
+          code: "INVALID_TO_TIMESTAMP",
+        });
+      }
+
       // Get location history from database
       const locations = await dbManager.getLocationHistory(
         targetDeviceId,
         limit,
-        offset
+        offset,
+        from,
+        to
       );
 
       res.json({
