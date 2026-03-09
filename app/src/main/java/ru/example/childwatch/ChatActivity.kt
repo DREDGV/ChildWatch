@@ -457,7 +457,7 @@ class ChatActivity : AppCompatActivity() {
             if (sent) {
                 pendingReadReceiptIds.add(messageId)
                 Log.d(TAG, "🔁 Read receipt retry sent: $messageId")
-                scheduleReadReceiptRetry(message.id)
+                scheduleReadReceiptRetry(messageId)
             } else {
                 Log.w(TAG, "⚠️ Read receipt retry failed: $messageId")
                 scheduleReadReceiptRetryWithBackoff(messageId)

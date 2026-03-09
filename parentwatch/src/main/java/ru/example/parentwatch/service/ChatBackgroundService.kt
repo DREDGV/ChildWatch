@@ -406,14 +406,7 @@ class ChatBackgroundService : LifecycleService() {
     private fun handleIncomingMessage(messageId: String, text: String, sender: String, timestamp: Long) {
         Log.d(TAG, "Received message: $text from $sender")
 
-        // Проверяем активен ли UI чата - если да, то сервис не должен обрабатывать сообщения
-        // Это предотвращает дублирование обработки между Activity и Service
-        if (ru.example.parentwatch.ChatActivity.isChatUiVisible) {
-            Log.d(TAG, "Chat UI is visible, skipping message processing in service")
-            return
-        }
-
-        // Save message to Room Database
+        // Сохраняем сообщение в БД в любом случае (даже если UI активен)
         val message = ChatMessage(
             id = messageId,
             text = text,
@@ -428,10 +421,20 @@ class ChatBackgroundService : LifecycleService() {
             Log.e(TAG, "ChatManagerAdapter not initialized, message not saved")
         }
 
+        // Отправляем подтверждение о доставке в любом случае
         if (sender == "parent" && messageId.isNotEmpty()) {
             WebSocketManager.sendChatStatus(messageId, "delivered", "child")
+            Log.d(TAG, "Sent delivered status for message: $messageId")
         }
 
+        // Проверяем активен ли UI чата - если да, то показываем уведомление
+        // Service НЕ должен показывать уведомление если UI активен
+        if (ru.example.parentwatch.ChatActivity.isChatUiVisible) {
+            Log.d(TAG, "Chat UI is visible, skipping notification")
+            return
+        }
+
+        // Показываем уведомление только если чат закрыт
         if (shouldShowIncomingChatNotification(sender)) {
             val senderName = if (sender == "parent") "Parent" else "Child"
             ru.example.parentwatch.utils.NotificationManager.showChatNotification(
