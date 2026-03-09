@@ -406,6 +406,13 @@ class ChatBackgroundService : LifecycleService() {
     private fun handleIncomingMessage(messageId: String, text: String, sender: String, timestamp: Long) {
         Log.d(TAG, "Received message: $text from $sender")
 
+        // Проверяем активен ли UI чата - если да, то сервис не должен обрабатывать сообщения
+        // Это предотвращает дублирование обработки между Activity и Service
+        if (ru.example.parentwatch.ChatActivity.isChatUiVisible) {
+            Log.d(TAG, "Chat UI is visible, skipping message processing in service")
+            return
+        }
+
         // Save message to Room Database
         val message = ChatMessage(
             id = messageId,

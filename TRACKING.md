@@ -36,8 +36,36 @@
 
 ## ✅ ВЫПОЛНЕНО
 
+### [2026-03-09] Задача 1.2: Подтверждение доставки read receipts
+**Файлы:**
+- `app/src/main/java/ru/example/childwatch/ChatActivity.kt`
+- `parentwatch/src/main/java/ru/example/parentwatch/ChatActivity.kt`
+
+**Статус:** ✅ Завершено
+
+**Что сделано:**
+- ✅ Анализ инфраструктуры - уже существовала (chat_message_status_ack)
+- ✅ Добавлен ReadReceiptRetry data class для отслеживания попыток
+- ✅ Добавлен лимит MAX_READ_RECEIPT_RETRIES = 3
+- ✅ Улучшена sendReadReceiptsFor() с обработкой ошибок
+- ✅ Улучшена handleReadReceiptAck() с логированием
+- ✅ Новая scheduleReadReceiptRetryWithBackoff() с exponential backoff
+- ✅ Экспоненциальная задержка: 4s, 8s, 16s между попытками
+- ✅ Улучшена очистка pending read receipts
+
+**Коммит:** `cce1bf7` - [CHAT-1.2] Improve read receipts delivery with retry logic
+
+**Технические детали:**
+- Проверка подтверждения перед retry
+- Проверка isChatUiActive перед отправкой
+- Логирование каждого этапа доставки
+- Очистка retry очереди после подтверждения
+- Максимум 3 попытки отправки
+
+---
+
 ### [2026-03-09] Задача 1.1: Неблокирующая загрузка сообщений
-**Файлы:** 
+**Файлы:**
 - `app/src/main/java/ru/example/childwatch/ChatActivity.kt`
 - `parentwatch/src/main/java/ru/example/parentwatch/ChatActivity.kt`
 - `app/src/main/res/layout/activity_chat.xml`
@@ -53,63 +81,26 @@
 - ✅ Подключен isLoading из ViewModel к индикатору (app)
 - ✅ Добавлены импорты coroutine (parentwatch)
 
-**Изменения:**
-1. **app/ChatActivity.kt:**
-   - Улучшена обработка ошибок в loadMessages()
-   - Добавлен индикатор загрузки
-   - Подключен viewModel.isLoading к UI
-
-2. **parentwatch/ChatActivity.kt:**
-   - Заменен getAllMessages() на getAllMessagesAsync()
-   - Добавлен индикатор загрузки
-   - Добавлена обработка ошибок
-   - Добавлены импорты coroutine
-
-3. **layout/activity_chat.xml (оба модуля):**
-   - Добавлен LinearLayout с CircularProgressIndicator
-
 **Коммит:** `1d9e3c8` - [CHAT-1.1] Неблокирующая загрузка сообщений с индикатором
-
-**Тестирование:**
-- [ ] Открыть чат с 100+ сообщениями → проверить индикатор
-- [ ] Проверить что UI не подвисает
-- [ ] Проверить обработку ошибок
 
 ---
 
 ## 🔄 ТЕКУЩАЯ ЗАДАЧА
 
-### Задача 1.2: Подтверждение доставки read receipts
+### Задача 1.3: Координация Service + Activity слушателей
 **Файлы:**
 - `app/src/main/java/ru/example/childwatch/ChatActivity.kt`
+- `app/src/main/java/ru/example/childwatch/service/ChatBackgroundService.kt`
 - `parentwatch/src/main/java/ru/example/parentwatch/ChatActivity.kt`
-- `app/src/main/java/ru/example/childwatch/network/WebSocketManager.kt`
-- `parentwatch/src/main/java/ru/example/parentwatch/network/WebSocketManager.kt`
+- `parentwatch/src/main/java/ru/example/parentwatch/service/ChatBackgroundService.kt`
 
-**Статус:** 🔄 В работе (30%)
+**Статус:** 🔄 В работе (0%)
 
 **План:**
-1. [x] Прочитать текущий код read receipts
-2. [x] Анализ инфраструктуры подтверждений → **Инфраструктура уже есть!**
-3. [ ] Улучшить retry логику с подсчетом попыток (до 3 раз)
-4. [ ] Добавить сохранение pending read receipts в SharedPreferences
-5. [ ] Обработать подтверждение от сервера
-6. [ ] Протестировать
-
-**Сделано:**
-- ✅ Анализ текущего кода read receipts
-- ✅ Проверка инфраструктуры - `chat_message_status_ack` уже существует
-- ✅ WebSocketClient уже обрабатывает подтверждения
-- ✅ ChatActivity уже имеет `handleReadReceiptAck()`
-
-**Найдено:**
-- Инфраструктура подтверждений УЖЕ реализована!
-- Есть `sendReadReceiptsFor()`, `scheduleReadReceiptRetry()`, `handleReadReceiptAck()`
-- НО: Нет подсчета попыток, нет персистентности при перезапуске
-
-**Осталось:**
-- Улучшить retry логику с максимальным количеством попыток
-- Добавить сохранение pending read receipts
+1. [ ] Прочитать текущий код слушателей
+2. [ ] Добавить флаг isChatUiVisible
+3. [ ] Изменить Service для проверки флага
+4. [ ] Протестировать
 
 **Блокеры:** Нет
 
@@ -119,9 +110,9 @@
 
 ## ⏳ СЛЕДУЮЩИЕ ЗАДАЧИ
 
-1. **Задача 1.2** - Подтверждение доставки read receipts (после 1.1)
-2. **Задача 1.3** - Координация Service + Activity (после 1.2)
-3. **Задача 1.4** - Тестирование Итерации 1 (после 1.3)
+1. **Задача 1.4** - Тестирование Итерации 1 (после 1.3)
+2. **Задача 2.1** - Загрузка имен из БД (Итерация 2)
+3. **Задача 2.2** - Обновление ChatAdapter (Итерация 2)
 
 ---
 

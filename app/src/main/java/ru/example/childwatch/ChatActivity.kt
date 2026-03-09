@@ -48,6 +48,12 @@ class ChatActivity : AppCompatActivity() {
     
     companion object {
         private const val TAG = "ChatActivity"
+        
+        /**
+         * Глобальный флаг активности UI чата для использования в ChatBackgroundService
+         */
+        var isChatUiVisible = false
+            private set
     }
 
     private lateinit var binding: ActivityChatBinding
@@ -1115,6 +1121,7 @@ class ChatActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         isChatUiActive = true
+        isChatUiVisible = true  // Устанавливаем глобальный флаг
         clearPendingReadReceiptRetries()
         getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
             .edit()
@@ -1126,6 +1133,7 @@ class ChatActivity : AppCompatActivity() {
 
     override fun onPause() {
         isChatUiActive = false
+        isChatUiVisible = false  // Сбрасываем глобальный флаг
         unregisterChatUiListeners()
         clearPendingReadReceiptRetries()
         getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
