@@ -37,5 +37,14 @@
     <string name="chat_send">Отправить</string>
     <string name="chat_error_device_not_registered">Устройство не зарегистрировано. Настройте ID в настройках.</string>
     <string name="chat_error_device_id_not_set">Device ID не настроен</string>
+    
+    <!-- Map Strings -->
+    <string name="location_unavailable">Локация недоступна</string>
+    <string name="parent_location_unavailable">Локация родителя недоступна.\nПроверьте что родительское устройство подключено к интернету.</string>
+    <string name="child_location_unavailable">Локация ребенка недоступна.\nПроверьте что детское устройство подключено к интернету.</string>
+    <string name="location_stale_warning">локация устарела</string>
+    <string name="my_location">Моя локация</string>
+    <string name="other_location">Текущая локация</string>
+    <string name="refresh">Обновить</string>
 </resources>
 

@@ -646,10 +646,10 @@ class DualLocationMapActivity : AppCompatActivity() {
 
         val staleWarnings = mutableListOf<String>()
         if (myTimestamp != null && isStale(myTimestamp)) {
-            staleWarnings.add("ваша локация устарела")
+            staleWarnings.add(getString(R.string.my_location) + " " + getString(R.string.location_stale_warning))
         }
         if (otherLocation?.timestamp != null && isStale(otherLocation.timestamp)) {
-            staleWarnings.add("локация второго устройства устарела")
+            staleWarnings.add(getString(R.string.other_location) + " " + getString(R.string.location_stale_warning))
         }
 
         if (myLat != null && myLon != null && otherLat != null && otherLon != null) {
@@ -670,7 +670,7 @@ class DualLocationMapActivity : AppCompatActivity() {
 
         if (staleWarnings.isNotEmpty()) {
             binding.errorCard.visibility = View.VISIBLE
-            binding.errorText.text = "⚠ ${staleWarnings.joinToString(", ")}"
+            binding.errorText.text = "⚠️ ${staleWarnings.joinToString(", ")}"
         } else {
             binding.errorCard.visibility = View.GONE
         }

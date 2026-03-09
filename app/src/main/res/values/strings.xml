@@ -91,6 +91,15 @@
     <string name="permissions_all_granted">все предоставлены</string>
     <string name="permissions_missing">отсутствуют: %1$s</string>
     
+    <!-- Map Strings -->
+    <string name="location_unavailable">Локация недоступна</string>
+    <string name="parent_location_unavailable">Локация родителя недоступна.\nПроверьте что детское устройство подключено к интернету.</string>
+    <string name="child_location_unavailable">Локация ребенка недоступна.\nПроверьте что детское устройство подключено к интернету.</string>
+    <string name="location_stale_warning">локация устарела</string>
+    <string name="my_location">Моя локация</string>
+    <string name="other_location">Текущая локация</string>
+    <string name="refresh">Обновить</string>
+    
     <!-- Settings Screen Strings -->
     <string name="monitoring_settings_title">Настройки мониторинга</string>
     <string name="location_interval_help">Интервал отправки геолокации в секундах (10-300)</string>

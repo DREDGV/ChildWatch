@@ -658,9 +658,9 @@ class DualLocationMapActivity : AppCompatActivity() {
 
                     if (myLat != null && myLon != null) {
                         val myTitle = when (myRole) {
-                            ROLE_PARENT -> "РЇ (Р РѕРґРёС‚РµР»СЊ)"
-                            ROLE_CHILD -> "РЇ (Р РµР±РµРЅРѕРє)"
-                            else -> "РЇ"
+                            ROLE_PARENT -> getString(R.string.my_location) + " (Родитель)"
+                            ROLE_CHILD -> getString(R.string.my_location) + " (Ребенок)"
+                            else -> getString(R.string.my_location)
                         }
                         val myIcon = when (myRole) {
                             ROLE_PARENT -> R.drawable.ic_parent_marker
@@ -672,12 +672,12 @@ class DualLocationMapActivity : AppCompatActivity() {
 
                     binding.loadingIndicator.visibility = View.GONE
                     binding.errorCard.visibility = View.VISIBLE
-                    binding.errorText.text = "РќРµ СѓРєР°Р·Р°РЅ ID РІС‚РѕСЂРѕРіРѕ СѓСЃС‚СЂРѕР№СЃС‚РІР°. Р”РѕР±Р°РІСЊС‚Рµ СЃРІСЏР·СЊ РІ РЅР°СЃС‚СЂРѕР№РєР°С…."
+                    binding.errorText.text = getString(R.string.child_location_unavailable)
                 } catch (e: Exception) {
                     Log.e(TAG, "Error loading locations in limited mode", e)
                     binding.loadingIndicator.visibility = View.GONE
                     binding.errorCard.visibility = View.VISIBLE
-                    binding.errorText.text = "РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё РєР°СЂС‚С‹: ${e.message}"
+                    binding.errorText.text = getString(R.string.location_unavailable) + ": ${e.message}"
                 }
             }
             return
@@ -953,10 +953,10 @@ class DualLocationMapActivity : AppCompatActivity() {
 
         val staleWarnings = mutableListOf<String>()
         if (myTimestamp != null && isStale(myTimestamp)) {
-            staleWarnings.add("РІР°С€Р° Р»РѕРєР°С†РёСЏ СѓСЃС‚Р°СЂРµР»Р°")
+            staleWarnings.add(getString(R.string.my_location) + " " + getString(R.string.location_stale_warning))
         }
         if (otherLocation?.timestamp != null && isStale(otherLocation.timestamp)) {
-            staleWarnings.add("Р»РѕРєР°С†РёСЏ РІС‚РѕСЂРѕРіРѕ СѓСЃС‚СЂРѕР№СЃС‚РІР° СѓСЃС‚Р°СЂРµР»Р°")
+            staleWarnings.add(getString(R.string.other_location) + " " + getString(R.string.location_stale_warning))
         }
 
         if (myLat != null && myLon != null && otherLat != null && otherLon != null) {
@@ -977,7 +977,7 @@ class DualLocationMapActivity : AppCompatActivity() {
 
         if (staleWarnings.isNotEmpty()) {
             binding.errorCard.visibility = View.VISIBLE
-            binding.errorText.text = "вљ  ${staleWarnings.joinToString(", ")}"
+            binding.errorText.text = "⚠️ ${staleWarnings.joinToString(", ")}"
         } else {
             binding.errorCard.visibility = View.GONE
         }

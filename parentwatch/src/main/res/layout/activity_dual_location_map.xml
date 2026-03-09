@@ -172,7 +172,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:padding="24dp"
-            android:text="Локация родителя недоступна"
+            android:text="@string/parent_location_unavailable"
             android:textSize="16sp"
             android:textColor="@color/error"
             android:gravity="center"

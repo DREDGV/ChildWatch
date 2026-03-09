@@ -171,7 +171,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:padding="24dp"
-            android:text="Локация родителя недоступна"
+            android:text="@string/parent_location_unavailable"
             android:textSize="16sp"
             android:textColor="@color/error"
             android:gravity="center"
@@ -206,7 +206,7 @@
         android:layout_margin="16dp"
         android:layout_marginTop="80dp"
         android:src="@drawable/ic_refresh"
-        android:contentDescription="Обновить"
+        android:contentDescription="@string/refresh"
         app:tint="@android:color/white" />
 
     <!-- Center Buttons -->
