@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="map_unknown_error">неизвестная ошибка</string>
+    <string name="map_startup_failed">Не удалось открыть карту</string>
+    <string name="map_startup_failed_with_reason">Не удалось открыть карту: %1$s</string>
+    <string name="map_title_where_child">Где ребенок?</string>
+    <string name="map_title_where_parents">Где родители?</string>
+    <string name="map_title_default">Карта</string>
+    <string name="map_limited_mode_subtitle">Режим просмотра: свяжите устройства в настройках</string>
+
+    <string name="map_history_today">Сегодня</string>
+    <string name="map_history_yesterday">Вчера</string>
+    <string name="map_history_week">Неделя</string>
+    <string name="map_history_month">Месяц</string>
+    <string name="map_history_select_period">Выберите период</string>
+    <string name="map_history_no_data">Нет данных за выбранный период</string>
+    <string name="map_history_loaded_points">Загружено точек: %1$d</string>
+    <string name="map_history_load_error">Ошибка загрузки истории: %1$s</string>
+    <string name="map_history_route_start">Начало маршрута</string>
+    <string name="map_history_route_end">Конец маршрута</string>
+    <string name="map_history_button">История</string>
+    <string name="map_history_summary_title">Сводка перемещений</string>
+    <string name="map_history_summary_distance">Пройдено: %1$s</string>
+    <string name="map_history_summary_duration">Период: %1$s</string>
+    <string name="map_history_summary_points">Точек: %1$d</string>
+    <string name="map_history_summary_last_seen">Последняя точка: %1$s</string>
+    <string name="map_history_summary_stops">Остановок: %1$d</string>
+    <string name="map_history_summary_longest_stop">Самая долгая остановка: %1$s</string>
+    <string name="map_history_summary_no_stop">Долгих остановок не найдено</string>
+
+    <string name="map_location_load_error">Ошибка загрузки локации: %1$s</string>
+    <string name="map_permission_location_denied">Локация устройства недоступна: нет разрешения</string>
+    <string name="map_invalid_coordinates">Получены некорректные координаты. Обновите карту.</string>
+
+    <string name="map_title_me_parent">Я (родитель)</string>
+    <string name="map_title_me_child">Я (ребенок)</string>
+    <string name="map_title_me">Я</string>
+    <string name="map_title_child">Ребенок</string>
+    <string name="map_title_parent">Родитель</string>
+    <string name="map_title_other_device">Другое устройство</string>
+
+    <string name="map_location_unavailable">Локация недоступна</string>
+    <string name="map_parent_location_unavailable">Локация родителя недоступна.\nПопросите родителя включить передачу локации в настройках.</string>
+    <string name="map_child_location_unavailable">Локация ребенка недоступна.\nПроверьте, что детское устройство подключено к интернету.</string>
+    <string name="map_stale_warning">локация устарела</string>
+    <string name="map_my_location">Моя локация</string>
+    <string name="map_other_location">Текущая локация</string>
+    <string name="map_warning_prefix">Внимание: %1$s</string>
+
+    <string name="map_distance_label">Расстояние</string>
+    <string name="map_eta_label">Время прибытия</string>
+    <string name="map_updated_every_30s">Обновляется каждые 30 секунд</string>
+    <string name="map_center_both">Центрировать по двум точкам</string>
+    <string name="map_center_me">Центрировать по мне</string>
+    <string name="map_center_other">Центрировать по второй точке</string>
+    <string name="map_my_location_not_available">Моя локация недоступна</string>
+    <string name="map_other_location_not_available">Локация второй точки недоступна</string>
+    <string name="map_refresh">Обновить</string>
+    <string name="map_marker_snippet_fresh">%1$s - %2$s</string>
+    <string name="map_marker_snippet_stale">%1$s - %2$s (устар.)</string>
+    <string name="map_distance_meters">%1$d м</string>
+    <string name="map_distance_km">%1$.1f км</string>
+    <string name="map_duration_under_minute">меньше минуты</string>
+    <string name="map_duration_minutes">%1$d мин</string>
+    <string name="map_duration_hours_minutes">%1$d ч %2$d мин</string>
+    <string name="map_duration_days_hours">%1$d д %2$d ч</string>
+    <string name="map_history_status_moving">в движении</string>
+    <string name="map_history_status_stationary">на месте</string>
+    <string name="map_history_summary_current_status">Сейчас: %1$s</string>
+    <string name="map_history_summary_current_stop">На текущем месте: %1$s</string>
+</resources>

@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="notification_settings_title">Уведомления чата</string>
+    <string name="notification_duration_label">Длительность показа</string>
+    <string name="notification_duration_default_value">10 сек</string>
+    <string name="notification_duration_value">%1$d сек</string>
+    <string name="notification_duration_hint">Уведомление автоматически исчезнет через выбранное время.</string>
+    <string name="notification_size_label">Формат уведомления</string>
+    <string name="notification_size_compact">Компактный</string>
+    <string name="notification_size_expanded">Развернутый</string>
+    <string name="notification_priority_label">Приоритет</string>
+    <string name="notification_priority_low">Низкий</string>
+    <string name="notification_priority_medium">Обычный</string>
+    <string name="notification_priority_high">Высокий</string>
+    <string name="notification_priority_hint">Высокий приоритет делает чат заметнее в шторке и heads-up.</string>
+    <string name="notification_sound_label">Звук</string>
+    <string name="notification_vibration_label">Вибрация</string>
+    <string name="notification_badge_label">Счетчик на иконке</string>
+    <string name="notification_badge_hint">Показывает количество непрочитанных сообщений на значке приложения.</string>
+    <string name="notification_preview_label">Экран блокировки</string>
+    <string name="notification_preview_public">Показывать текст</string>
+    <string name="notification_preview_private">Скрывать текст</string>
+    <string name="notification_preview_hint">Скрытый режим оставляет уведомление видимым, но не показывает текст сообщения на экране блокировки.</string>
+    <string name="notification_quiet_hours_label">Тихие часы</string>
+    <string name="notification_quiet_hours_hint">В это время чат приходит без звука и вибрации. Визуальное уведомление остается.</string>
+    <string name="notification_quiet_hours_start">С %1$s</string>
+    <string name="notification_quiet_hours_end">До %1$s</string>
+    <string name="notification_test_button">Тест уведомления</string>
+    <string name="notification_system_button">Системные настройки</string>
+    <string name="notification_settings_saved">Настройки сохранены</string>
+    <string name="notification_settings_open_error">Не удалось открыть системные настройки уведомлений</string>
+    <string name="notification_preview_sent">Тестовое уведомление отправлено</string>
+    <string name="notification_channel_chat_name">Сообщения чата</string>
+    <string name="notification_channel_chat_description">Новые сообщения от родителя</string>
+    <string name="notification_user_self">Вы</string>
+    <string name="notification_content_title">Чат с родителем</string>
+    <string name="notification_conversation_title">Чат с родителем</string>
+    <string name="notification_preview_sender">Родитель</string>
+    <string name="notification_preview_message">Так будет выглядеть новое сообщение в чате.</string>
+    <string name="notification_hidden_content">Новое сообщение</string>
+    <string name="notification_action_reply">Ответить</string>
+    <string name="notification_reply_hint">Написать ответ</string>
+</resources>

@@ -1,0 +1,36 @@
+<resources>
+    <string name="settings_share_location_title">📍 Делиться моей локацией</string>
+    <string name="settings_share_location_description">Позволить ребенку видеть, где вы находитесь (обновление каждые 60 секунд)</string>
+    <string name="settings_link_child_title">👨‍👩‍👧 Связь с детским устройством</string>
+    <string name="settings_link_child_description">Покажите QR-код детскому устройству для синхронизации на карте</string>
+    <string name="settings_show_qr_button">📱 Показать QR-код</string>
+
+    <string name="settings_scanned_qr">QR-код отсканирован: %1$s</string>
+    <string name="settings_toast_vps_set">VPS URL установлен</string>
+    <string name="settings_toast_local_set">Local URL установлен</string>
+    <string name="settings_validation_location_interval">Интервал геолокации должен быть от 10 до 300 секунд</string>
+    <string name="settings_validation_audio_duration">Длительность аудио должна быть от 5 до 60 секунд</string>
+    <string name="settings_validation_server_url">Введите корректный URL сервера</string>
+    <string name="settings_save_error">Ошибка при сохранении настроек</string>
+
+    <string name="settings_reset_title">Сброс настроек</string>
+    <string name="settings_reset_message">Вы уверены, что хотите сбросить все настройки к значениям по умолчанию?</string>
+    <string name="settings_reset_confirm">Сбросить</string>
+    <string name="settings_reset_done">Настройки сброшены к умолчанию</string>
+
+    <string name="settings_revoke_title">Отзыв согласия</string>
+    <string name="settings_revoke_message">Вы уверены, что хотите отозвать согласие на мониторинг? Это остановит все функции отслеживания.</string>
+    <string name="settings_revoke_confirm">Отозвать</string>
+    <string name="settings_revoke_done">Согласие отозвано</string>
+
+    <string name="settings_unsaved_title">Несохраненные изменения</string>
+    <string name="settings_unsaved_message">У вас есть несохраненные изменения. Сохранить их?</string>
+    <string name="settings_unsaved_save">Сохранить</string>
+    <string name="settings_unsaved_discard">Не сохранять</string>
+
+    <string name="settings_background_permission_title">Требуется разрешение</string>
+    <string name="settings_background_permission_message">Для отслеживания вашей локации в фоновом режиме необходимо разрешение "Разрешить всегда" в настройках локации.\n\nЭто позволит ребенку видеть, где вы находитесь на карте.</string>
+    <string name="settings_background_permission_grant">Предоставить</string>
+    <string name="settings_background_permission_granted">Разрешение на фоновую локацию получено</string>
+    <string name="settings_background_permission_denied">Без разрешения фоновой локации функция недоступна</string>
+</resources>

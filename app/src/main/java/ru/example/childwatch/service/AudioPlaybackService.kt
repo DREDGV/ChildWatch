@@ -1,4 +1,4 @@
-﻿package ru.example.childwatch.service
+package ru.example.childwatch.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -25,6 +25,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import org.json.JSONObject
+import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import ru.example.childwatch.MainActivity
@@ -39,6 +40,7 @@ import ru.example.childwatch.diagnostics.ErrorSeverity
 import ru.example.childwatch.audio.StreamRecorder
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketClient
+import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.utils.AlertNotifier
 
 /**
@@ -59,7 +61,7 @@ class AudioPlaybackService : LifecycleService() {
         private const val DEFAULT_FRAME_BYTES =
             (DEFAULT_STREAM_SAMPLE_RATE * FRAME_MS / 1000) * 2 // 960 bytes
         // Keep explicit support for all app capture rates; avoid 44.1k fallback mismatch artifacts.
-        private val PLAYBACK_SAMPLE_RATES = intArrayOf(24_000, 32_000, 48_000, 16_000)
+        private val PLAYBACK_SAMPLE_RATES = intArrayOf(DEFAULT_STREAM_SAMPLE_RATE)
         private val INPUT_SAMPLE_RATES = intArrayOf(24_000)
 
         // Jitter buffer: Increased for poor network conditions
@@ -72,6 +74,12 @@ class AudioPlaybackService : LifecycleService() {
         const val ACTION_START_PLAYBACK = "ru.example.childwatch.START_PLAYBACK"
         const val ACTION_STOP_PLAYBACK = "ru.example.childwatch.STOP_PLAYBACK"
         const val ACTION_TOGGLE_RECORDING = "ru.example.childwatch.TOGGLE_RECORDING"
+        private const val PREFS_NAME = "audio_playback_session"
+        private const val PREF_SESSION_DESIRED = "desired"
+        private const val PREF_SESSION_DEVICE_ID = "device_id"
+        private const val PREF_SESSION_SERVER_URL = "server_url"
+        private const val PREF_SESSION_RECORDING = "recording"
+        private const val PREF_SESSION_SAMPLE_RATE = "sample_rate"
 
         const val EXTRA_DEVICE_ID = "device_id"
         const val EXTRA_SERVER_URL = "server_url"
@@ -98,6 +106,14 @@ class AudioPlaybackService : LifecycleService() {
         var requestedStreamSampleRate = DEFAULT_STREAM_SAMPLE_RATE
             private set
         var audioTrackInitError: String? = null
+            private set
+        var remoteChildBatteryDeviceId: String? = null
+            private set
+        var remoteChildBatteryLevel: Int? = null
+            private set
+        var remoteChildCharging: Boolean? = null
+            private set
+        var remoteChildBatteryTimestamp: Long? = null
             private set
 
         fun startPlayback(
@@ -135,6 +151,44 @@ class AudioPlaybackService : LifecycleService() {
                 putExtra(EXTRA_RECORDING, recording)
             }
             context.startService(intent)
+        }
+
+        fun isSessionDesired(context: Context): Boolean {
+            return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_SESSION_DESIRED, false)
+        }
+
+        fun restoreIfNeeded(context: Context): Boolean {
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            if (!prefs.getBoolean(PREF_SESSION_DESIRED, false)) return false
+
+            val deviceId = prefs.getString(PREF_SESSION_DEVICE_ID, null)?.trim().orEmpty()
+            val serverUrl = prefs.getString(PREF_SESSION_SERVER_URL, null)?.trim().orEmpty()
+            if (deviceId.isBlank() || serverUrl.isBlank()) return false
+
+            startPlayback(
+                context = context,
+                deviceId = deviceId,
+                serverUrl = serverUrl,
+                recording = prefs.getBoolean(PREF_SESSION_RECORDING, false),
+                sampleRate = prefs.getInt(PREF_SESSION_SAMPLE_RATE, DEFAULT_STREAM_SAMPLE_RATE)
+            )
+            return true
+        }
+
+        private fun updateRemoteChildBattery(
+            deviceId: String?,
+            batteryLevel: Int?,
+            isCharging: Boolean?,
+            timestamp: Long?
+        ) {
+            if (deviceId.isNullOrBlank() || batteryLevel == null || batteryLevel !in 0..100) {
+                return
+            }
+            remoteChildBatteryDeviceId = deviceId
+            remoteChildBatteryLevel = batteryLevel
+            remoteChildCharging = isCharging
+            remoteChildBatteryTimestamp = timestamp
         }
     }
 
@@ -246,6 +300,8 @@ class AudioPlaybackService : LifecycleService() {
         Log.d(TAG, "Volume set to: ${(volume * 100).toInt()}%")
     }
 
+    fun isRecordingEnabled(): Boolean = isRecording
+
     /**
      * Request remote capture sample-rate change without full local restart.
      * Returns true if request was accepted for dispatch.
@@ -325,6 +381,16 @@ class AudioPlaybackService : LifecycleService() {
         
         Log.d(TAG, "onStartCommand called with action: ${intent?.action}")
 
+        if (intent == null || intent.action == null) {
+            if (restoreIfNeeded(this)) {
+                Log.d(TAG, "Restoring sticky audio playback session after restart")
+                return START_STICKY
+            }
+            Log.w(TAG, "Sticky audio restart ignored: no saved session")
+            stopSelf()
+            return START_NOT_STICKY
+        }
+
         when (intent?.action) {
             ACTION_START_PLAYBACK -> {
                 val requestedDeviceId = intent.getStringExtra(EXTRA_DEVICE_ID)
@@ -391,6 +457,7 @@ class AudioPlaybackService : LifecycleService() {
             this.deviceId = deviceId
             this.serverUrl = serverUrl
             this.isRecording = recording
+            persistSession(deviceId, serverUrl, recording, requestedSampleRate)
 
             Log.d(TAG, "СЂСџР‹В§ Starting audio playback in foreground service")
 
@@ -480,8 +547,8 @@ class AudioPlaybackService : LifecycleService() {
                     // Connect to WebSocket directly
                     connectWebSocket()
 
-                    updateNotification(getString(R.string.audio_monitor_status_active))
-                    currentStatus = getString(R.string.audio_monitor_status_active)
+                    updateNotification(getString(R.string.listen_status_active))
+                    currentStatus = getString(R.string.listen_status_active)
                     AudioPlaybackService.currentStatus = currentStatus
                     Log.d(TAG, "РІСљвЂ¦ Direct WebSocket streaming started at $streamingStartTime")
                     startStreamWatchdog()
@@ -547,6 +614,7 @@ class AudioPlaybackService : LifecycleService() {
     }
 
     private fun stopPlayback() {
+        clearPersistedSession()
         Log.d(TAG, "СЂСџвЂєвЂ Stopping audio playback")
 
         // CRITICAL: Set flags FIRST to stop all loops
@@ -707,9 +775,9 @@ class AudioPlaybackService : LifecycleService() {
 
                 if (success == true) {
                     val status = if (recording) {
-                        getString(R.string.audio_monitor_status_recording)
+                        getString(R.string.listen_status_recording)
                     } else {
-                        getString(R.string.audio_monitor_status_active)
+                        getString(R.string.listen_status_active)
                     }
                     updateNotification(status)
                 }
@@ -796,9 +864,9 @@ class AudioPlaybackService : LifecycleService() {
         val recorder = streamRecorder ?: StreamRecorder(this).also { streamRecorder = it }
         if (recorder.start(inputSampleRate, STREAM_CHANNEL_COUNT)) {
             localRecordingActive = true
-            showToast(getString(R.string.audio_monitor_recording_saved_enabled))
+            showToast(getString(R.string.listen_recording_saved_enabled))
         } else {
-            showToast(getString(R.string.audio_monitor_recording_start_failed), Toast.LENGTH_LONG)
+            showToast(getString(R.string.listen_recording_start_failed), Toast.LENGTH_LONG)
         }
     }
 
@@ -814,9 +882,26 @@ class AudioPlaybackService : LifecycleService() {
         localRecordingActive = false
         if (metadata != null) {
             recordingRepository.addRecording(metadata)
-            showToast(getString(R.string.audio_monitor_recording_saved_file, metadata.fileName))
+            showToast(getString(R.string.listen_recording_saved_file, metadata.fileName))
+            lifecycleScope.launch(Dispatchers.IO) {
+                val archiveServerUrl = serverUrl?.takeIf { !it.isNullOrBlank() }
+                    ?: SecureSettingsManager(applicationContext).getServerUrl().trim()
+                if (archiveServerUrl.isBlank()) {
+                    Log.w(TAG, "Skipping recording archive upload: server URL is missing")
+                    return@launch
+                }
+
+                val audioFile = File(metadata.filePath)
+                val uploaded = networkClient?.uploadAudio(archiveServerUrl, audioFile) ?: false
+                if (!uploaded) {
+                    Log.w(TAG, "Recording archived locally only: ${metadata.fileName}")
+                    showToast(getString(R.string.recording_archive_upload_failed), Toast.LENGTH_LONG)
+                } else {
+                    Log.d(TAG, "Recording uploaded to archive: ${metadata.fileName}")
+                }
+            }
         } else if (shouldSave) {
-            showToast(getString(R.string.audio_monitor_recording_empty))
+            showToast(getString(R.string.listen_recording_empty))
         }
     }
 
@@ -829,14 +914,7 @@ class AudioPlaybackService : LifecycleService() {
         val channelConfig = AudioFormat.CHANNEL_OUT_MONO
         val audioFormat = AudioFormat.ENCODING_PCM_16BIT
         var lastError: String? = null
-        val playbackCandidates = linkedSetOf(
-            inputSampleRate,
-            requestedSampleRate,
-            48_000,
-            32_000,
-            24_000,
-            16_000
-        ).filter { it > 0 && PLAYBACK_SAMPLE_RATES.contains(it) }
+        val playbackCandidates = PLAYBACK_SAMPLE_RATES.toList()
 
         audioTrack?.runCatching {
             pause()
@@ -952,8 +1030,14 @@ class AudioPlaybackService : LifecycleService() {
             webSocketClient = WebSocketClient(serverUrl, deviceId)
 
             // Set callback for receiving audio chunks (Р В­РЎвЂљР В°Р С— A - jitter buffer)
-            webSocketClient?.setAudioChunkCallback { audioData, sequence, timestamp, sampleRate, channels ->
+            webSocketClient?.setAudioChunkCallback { audioData, sequence, timestamp, sampleRate, channels, batteryLevel, isCharging, deviceStatusTimestamp ->
                 totalBytesReceived += audioData.size
+                updateRemoteChildBattery(
+                    deviceId = deviceId,
+                    batteryLevel = batteryLevel,
+                    isCharging = isCharging,
+                    timestamp = deviceStatusTimestamp
+                )
 
                 val resolvedRate = resolveInputSampleRate(sampleRate, audioData.size)
                 if (resolvedRate != inputSampleRate) {
@@ -1120,16 +1204,21 @@ class AudioPlaybackService : LifecycleService() {
                     }
 
             if (chunk != null && isPlaying && track?.playState == AudioTrack.PLAYSTATE_PLAYING) {
-                        // Process with filter
-                        val processedChunk = audioEnhancer.process(chunk)
-                        val playbackChunk = if (outputSampleRate != inputSampleRate) {
-                            resamplePcm16Mono(processedChunk, inputSampleRate, outputSampleRate)
+                        val playbackChunk = chunk
+                        val enhancerConfig = audioEnhancer.getConfig()
+                        val enhancedChunk = if (
+                            enhancerConfig.mode == FilterMode.ORIGINAL &&
+                            enhancerConfig.volumeMode == AudioEnhancer.VolumeMode.QUIET &&
+                            !enhancerConfig.hasGain &&
+                            !enhancerConfig.compressionEnabled
+                        ) {
+                            playbackChunk
                         } else {
-                            processedChunk
+                            audioEnhancer.process(playbackChunk)
                         }
 
                         // Write to AudioTrack
-                        val written = track.write(playbackChunk, 0, playbackChunk.size, AudioTrack.WRITE_BLOCKING)
+                        val written = track.write(enhancedChunk, 0, enhancedChunk.size, AudioTrack.WRITE_BLOCKING)
                         if (written < 0) {
                             Log.e(TAG, "AudioTrack write error: $written")
                             if (written == AudioTrack.ERROR_DEAD_OBJECT || written == AudioTrack.ERROR_INVALID_OPERATION) {
@@ -1140,19 +1229,19 @@ class AudioPlaybackService : LifecycleService() {
                         }
 
                         // Р В­РЎвЂљР В°Р С— A & D: track underruns
-                        if (written < playbackChunk.size) {
+                        if (written < enhancedChunk.size) {
                             underrunCount++
                             metricsManager.incrementUnderrun() // Р В­РЎвЂљР В°Р С— D
                             if (underrunCount < 10) { // Log first few
-                                Log.w(TAG, "AUDIO write underrun: wrote $written < ${playbackChunk.size}")
+                                Log.w(TAG, "AUDIO write underrun: wrote $written < ${enhancedChunk.size}")
                             }
                         }
 
                         // Send chunk to waveform visualizer
-                        waveformCallback?.invoke(processedChunk)
+                        waveformCallback?.invoke(enhancedChunk)
 
                         if (localRecordingActive) {
-                            streamRecorder?.write(processedChunk)
+                            streamRecorder?.write(playbackChunk)
                         }
                     } else {
                         // Р В­РЎвЂљР В°Р С— A & D: Queue empty - silence, but don't block UI
@@ -1329,10 +1418,10 @@ class AudioPlaybackService : LifecycleService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                getString(R.string.audio_monitor_notification_channel),
+                getString(R.string.listen_notification_channel),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = getString(R.string.audio_monitor_notification_channel_description)
+                description = getString(R.string.listen_notification_channel_description)
                 setShowBadge(false)
             }
 
@@ -1351,7 +1440,7 @@ class AudioPlaybackService : LifecycleService() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle(getString(R.string.audio_monitor_notification_title))
+            .setContentTitle(getString(R.string.listen_notification_title))
             .setContentText(contentText)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
@@ -1420,5 +1509,30 @@ class AudioPlaybackService : LifecycleService() {
         requestedStreamSampleRate = DEFAULT_STREAM_SAMPLE_RATE
         inputStreamSampleRate = DEFAULT_STREAM_SAMPLE_RATE
         audioTrackInitError = null
+    }
+
+    private fun persistSession(
+        deviceId: String,
+        serverUrl: String,
+        recording: Boolean,
+        sampleRate: Int
+    ) {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(PREF_SESSION_DESIRED, true)
+            .putString(PREF_SESSION_DEVICE_ID, deviceId)
+            .putString(PREF_SESSION_SERVER_URL, serverUrl)
+            .putBoolean(PREF_SESSION_RECORDING, recording)
+            .putInt(PREF_SESSION_SAMPLE_RATE, sampleRate)
+            .apply()
+    }
+
+    private fun clearPersistedSession() {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(PREF_SESSION_DESIRED, false)
+            .remove(PREF_SESSION_DEVICE_ID)
+            .remove(PREF_SESSION_SERVER_URL)
+            .remove(PREF_SESSION_RECORDING)
+            .remove(PREF_SESSION_SAMPLE_RATE)
+            .apply()
     }
 }

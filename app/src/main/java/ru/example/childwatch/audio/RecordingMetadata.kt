@@ -6,5 +6,7 @@ data class RecordingMetadata(
     val filePath: String,
     val createdAt: Long,
     val durationMs: Long,
-    val sizeBytes: Long
+    val sizeBytes: Long,
+    val downloadUrl: String? = null,
+    val remoteFileId: Long? = null
 )

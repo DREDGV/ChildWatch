@@ -1,22 +1,27 @@
-﻿package ru.example.childwatch.chat
+package ru.example.childwatch.chat
 
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.recyclerview.widget.DiffUtil
+import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import ru.example.childwatch.R
 
 class ChatAdapter(
-    private val messages: MutableList<ChatMessage>,
     private val currentUser: String,
     private val onRetryMessage: ((ChatMessage) -> Unit)? = null
-) : RecyclerView.Adapter<ChatAdapter.MessageViewHolder>() {
+) : ListAdapter<ChatMessage, ChatAdapter.MessageViewHolder>(MessageDiffCallback()) {
 
     private fun isOutgoing(message: ChatMessage) = message.sender == currentUser
 
+    fun submitMessages(messages: List<ChatMessage>) {
+        submitList(messages.toList())
+    }
+
     override fun getItemViewType(position: Int): Int {
-        return if (isOutgoing(messages[position])) VIEW_TYPE_OUTGOING else VIEW_TYPE_INCOMING
+        return if (isOutgoing(getItem(position))) VIEW_TYPE_OUTGOING else VIEW_TYPE_INCOMING
     }
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): MessageViewHolder {
@@ -30,10 +35,8 @@ class ChatAdapter(
     }
 
     override fun onBindViewHolder(holder: MessageViewHolder, position: Int) {
-        holder.bind(messages[position])
+        holder.bind(getItem(position))
     }
-
-    override fun getItemCount(): Int = messages.size
 
     inner class MessageViewHolder(itemView: View, private val isOutgoing: Boolean) :
         RecyclerView.ViewHolder(itemView) {
@@ -59,7 +62,7 @@ class ChatAdapter(
             statusText?.let { view ->
                 if (isOutgoing) {
                     view.visibility = View.VISIBLE
-                    val statusLabel = when (message.status) {
+                    view.text = when (message.status) {
                         ChatMessage.MessageStatus.SENDING ->
                             itemView.context.getString(R.string.chat_status_sending)
                         ChatMessage.MessageStatus.SENT ->
@@ -71,7 +74,6 @@ class ChatAdapter(
                         ChatMessage.MessageStatus.FAILED ->
                             itemView.context.getString(R.string.chat_status_failed)
                     }
-                    view.text = statusLabel
                     val statusColor = if (message.status == ChatMessage.MessageStatus.READ) {
                         0xFF4CAF50.toInt()
                     } else {
@@ -95,7 +97,16 @@ class ChatAdapter(
                 }
             }
         }
+    }
 
+    private class MessageDiffCallback : DiffUtil.ItemCallback<ChatMessage>() {
+        override fun areItemsTheSame(oldItem: ChatMessage, newItem: ChatMessage): Boolean {
+            return oldItem.id == newItem.id
+        }
+
+        override fun areContentsTheSame(oldItem: ChatMessage, newItem: ChatMessage): Boolean {
+            return oldItem == newItem
+        }
     }
 
     companion object {

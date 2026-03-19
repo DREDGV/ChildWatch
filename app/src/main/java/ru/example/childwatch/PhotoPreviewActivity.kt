@@ -18,17 +18,9 @@ import ru.example.childwatch.databinding.ActivityPhotoPreviewBinding
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
-/**
- * PhotoPreviewActivity - Display remotely captured photos
- * 
- * Features:
- * - Full-screen photo viewer with zoom
- * - Save to gallery
- * - Share functionality
- * - Photo metadata display (timestamp, device)
- */
 class PhotoPreviewActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityPhotoPreviewBinding
@@ -38,6 +30,7 @@ class PhotoPreviewActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_PHOTO_BASE64 = "photo_base64"
+        const val EXTRA_PHOTO_FILE_PATH = "photo_file_path"
         const val EXTRA_PHOTO_TIMESTAMP = "photo_timestamp"
         const val EXTRA_DEVICE_NAME = "device_name"
         private const val TAG = "PhotoPreviewActivity"
@@ -56,77 +49,119 @@ class PhotoPreviewActivity : AppCompatActivity() {
     private fun setupToolbar() {
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        binding.toolbar.setNavigationOnClickListener {
-            finish()
-        }
+        binding.toolbar.setNavigationOnClickListener { finish() }
     }
 
     private fun loadPhotoFromIntent() {
+        val photoFilePath = intent.getStringExtra(EXTRA_PHOTO_FILE_PATH)
         val photoBase64 = intent.getStringExtra(EXTRA_PHOTO_BASE64)
         photoTimestamp = intent.getLongExtra(EXTRA_PHOTO_TIMESTAMP, System.currentTimeMillis())
-        deviceName = intent.getStringExtra(EXTRA_DEVICE_NAME) ?: "Unknown Device"
+        deviceName = intent.getStringExtra(EXTRA_DEVICE_NAME)
+            ?: getString(R.string.photo_preview_device_fallback)
 
-        if (photoBase64.isNullOrEmpty()) {
-            showError("No photo data received")
+        if (photoFilePath.isNullOrEmpty() && photoBase64.isNullOrEmpty()) {
+            showError(getString(R.string.photo_preview_no_data))
             return
         }
 
         try {
             binding.loadingProgress.isVisible = true
             binding.errorLayout.isVisible = false
+            binding.photoImageView.isVisible = true
 
-            // Decode Base64 to Bitmap
-            val imageBytes = Base64.decode(photoBase64, Base64.DEFAULT)
-            currentBitmap = BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size)
+            currentBitmap = when {
+                !photoFilePath.isNullOrEmpty() -> decodeBitmapFromFile(photoFilePath)
+                !photoBase64.isNullOrEmpty() -> decodeBitmapFromBytes(Base64.decode(photoBase64, Base64.DEFAULT))
+                else -> null
+            }
 
             if (currentBitmap != null) {
                 binding.photoImageView.setImageBitmap(currentBitmap)
                 binding.loadingProgress.isVisible = false
                 updatePhotoInfo()
             } else {
-                showError("Failed to decode photo")
+                showError(getString(R.string.photo_preview_decode_error))
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error loading photo", e)
-            showError("Error loading photo: ${e.message}")
+            showError(getString(R.string.photo_preview_load_error, e.message ?: "unknown"))
         }
     }
 
+    private fun decodeBitmapFromFile(path: String): Bitmap? {
+        val file = File(path)
+        if (!file.exists() || file.length() == 0L) {
+            return null
+        }
+
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+
+        val metrics = resources.displayMetrics
+        val sampleSize = calculateInSampleSize(
+            bounds.outWidth,
+            bounds.outHeight,
+            metrics.widthPixels.coerceAtLeast(1080),
+            metrics.heightPixels.coerceAtLeast(1920)
+        )
+
+        val options = BitmapFactory.Options().apply {
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+            inSampleSize = sampleSize
+        }
+        return BitmapFactory.decodeFile(path, options)
+    }
+
+    private fun decodeBitmapFromBytes(bytes: ByteArray): Bitmap? {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+
+        val metrics = resources.displayMetrics
+        val sampleSize = calculateInSampleSize(
+            bounds.outWidth,
+            bounds.outHeight,
+            metrics.widthPixels.coerceAtLeast(1080),
+            metrics.heightPixels.coerceAtLeast(1920)
+        )
+
+        val options = BitmapFactory.Options().apply {
+            inPreferredConfig = Bitmap.Config.ARGB_8888
+            inSampleSize = sampleSize
+        }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
+    }
+
+    private fun calculateInSampleSize(width: Int, height: Int, reqWidth: Int, reqHeight: Int): Int {
+        var inSampleSize = 1
+        while (width / inSampleSize >= reqWidth * 2 && height / inSampleSize >= reqHeight * 2) {
+            inSampleSize *= 2
+        }
+        return inSampleSize.coerceAtLeast(1)
+    }
+
     private fun updatePhotoInfo() {
-        // Format timestamp
-        val dateFormat = SimpleDateFormat("MMM dd, yyyy • HH:mm", Locale.getDefault())
-        val timeText = dateFormat.format(Date(photoTimestamp))
-        
-        binding.photoTimestamp.text = timeText
+        val dateFormat = SimpleDateFormat("dd.MM.yyyy HH:mm", Locale.getDefault())
+        binding.photoTimestamp.text = dateFormat.format(Date(photoTimestamp))
         binding.photoDeviceName.text = deviceName
     }
 
     private fun setupButtons() {
-        binding.saveButton.setOnClickListener {
-            savePhotoToGallery()
-        }
-
-        binding.shareButton.setOnClickListener {
-            sharePhoto()
-        }
-
-        binding.retryButton.setOnClickListener {
-            loadPhotoFromIntent()
-        }
+        binding.saveButton.setOnClickListener { savePhotoToGallery() }
+        binding.shareButton.setOnClickListener { sharePhoto() }
+        binding.retryButton.setOnClickListener { loadPhotoFromIntent() }
     }
 
     private fun savePhotoToGallery() {
         val bitmap = currentBitmap
         if (bitmap == null) {
-            Toast.makeText(this, "No photo to save", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.photo_preview_save_empty), Toast.LENGTH_SHORT).show()
             return
         }
 
         try {
             val fileName = "RemotePhoto_${System.currentTimeMillis()}.jpg"
-            
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                // Use MediaStore for Android 10+
                 val contentValues = ContentValues().apply {
                     put(MediaStore.MediaColumns.DISPLAY_NAME, fileName)
                     put(MediaStore.MediaColumns.MIME_TYPE, "image/jpeg")
@@ -138,11 +173,10 @@ class PhotoPreviewActivity : AppCompatActivity() {
                     contentResolver.openOutputStream(it)?.use { outputStream ->
                         bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
                     }
-                    Toast.makeText(this, "Photo saved to gallery", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(this, getString(R.string.photo_preview_saved), Toast.LENGTH_SHORT).show()
                     Log.d(TAG, "Photo saved: $uri")
                 }
             } else {
-                // Legacy storage for older Android versions
                 val picturesDir = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES)
                 val childWatchDir = File(picturesDir, "ChildWatch")
                 if (!childWatchDir.exists()) {
@@ -154,29 +188,31 @@ class PhotoPreviewActivity : AppCompatActivity() {
                     bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
                 }
 
-                // Notify media scanner
                 val mediaScanIntent = Intent(Intent.ACTION_MEDIA_SCANNER_SCAN_FILE)
                 mediaScanIntent.data = Uri.fromFile(file)
                 sendBroadcast(mediaScanIntent)
 
-                Toast.makeText(this, "Photo saved to gallery", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, getString(R.string.photo_preview_saved), Toast.LENGTH_SHORT).show()
                 Log.d(TAG, "Photo saved: ${file.absolutePath}")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Error saving photo", e)
-            Toast.makeText(this, "Failed to save photo: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                getString(R.string.photo_preview_save_failed, e.message ?: "unknown"),
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 
     private fun sharePhoto() {
         val bitmap = currentBitmap
         if (bitmap == null) {
-            Toast.makeText(this, "No photo to share", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.photo_preview_share_empty), Toast.LENGTH_SHORT).show()
             return
         }
 
         try {
-            // Save to cache directory
             val cachePath = File(cacheDir, "shared_photos")
             cachePath.mkdirs()
             val file = File(cachePath, "remote_photo_${System.currentTimeMillis()}.jpg")
@@ -185,7 +221,6 @@ class PhotoPreviewActivity : AppCompatActivity() {
                 bitmap.compress(Bitmap.CompressFormat.JPEG, 90, outputStream)
             }
 
-            // Create share intent
             val uri = androidx.core.content.FileProvider.getUriForFile(
                 this,
                 "${packageName}.fileprovider",
@@ -195,14 +230,18 @@ class PhotoPreviewActivity : AppCompatActivity() {
             val shareIntent = Intent(Intent.ACTION_SEND).apply {
                 type = "image/jpeg"
                 putExtra(Intent.EXTRA_STREAM, uri)
-                putExtra(Intent.EXTRA_TEXT, "Remote photo from $deviceName")
+                putExtra(Intent.EXTRA_TEXT, getString(R.string.photo_preview_share_text, deviceName))
                 addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             }
 
-            startActivity(Intent.createChooser(shareIntent, "Share photo"))
+            startActivity(Intent.createChooser(shareIntent, getString(R.string.photo_preview_share_title)))
         } catch (e: Exception) {
             Log.e(TAG, "Error sharing photo", e)
-            Toast.makeText(this, "Failed to share photo: ${e.message}", Toast.LENGTH_LONG).show()
+            Toast.makeText(
+                this,
+                getString(R.string.photo_preview_share_failed, e.message ?: "unknown"),
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 

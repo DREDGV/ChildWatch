@@ -1,4 +1,4 @@
-package ru.example.childwatch
+﻿package ru.example.childwatch
 
 import android.content.ComponentName
 import android.content.Context
@@ -11,11 +11,11 @@ import android.os.Bundle
 import android.os.IBinder
 import android.util.Log
 import android.view.WindowManager
+import android.widget.CompoundButton
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
-import com.google.android.material.button.MaterialButton
 import com.google.gson.Gson
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -56,6 +56,9 @@ class AudioStreamingActivity : AppCompatActivity() {
         const val EXTRA_DEVICE_ID = "device_id"
         const val EXTRA_SERVER_URL = "server_url"
         private const val DEFAULT_SAMPLE_RATE = 24_000
+        private const val CHILD_STATUS_FRESH_MS = 60_000L
+        private const val STATUS_POLL_ACTIVE_MS = 10_000L
+        private const val STATUS_POLL_IDLE_MS = 25_000L
     }
 
     private lateinit var binding: ActivityAudioStreamingBinding
@@ -78,22 +81,27 @@ class AudioStreamingActivity : AppCompatActivity() {
     // Child device status cache
     private var childBatteryLevel: Int? = null
     private var childCharging: Boolean? = null
+    private var childStatusTimestamp: Long? = null
     private var statusPollingJob: Job? = null
 
     // Visualization
-    private var currentVisualizationMode = AdvancedAudioVisualizer.VisualizationMode.FREQUENCY_BARS
-    private val visualizationModes = listOf(
-        AdvancedAudioVisualizer.VisualizationMode.FREQUENCY_BARS,
-        AdvancedAudioVisualizer.VisualizationMode.WAVEFORM,
-        AdvancedAudioVisualizer.VisualizationMode.VOLUME_METER,
-        AdvancedAudioVisualizer.VisualizationMode.CIRCULAR
-    )
-    private var visualizationModeIndex = 0
+    private val currentVisualizationMode = AdvancedAudioVisualizer.VisualizationMode.WAVEFORM
 
     private var audioService: AudioPlaybackService? = null
     private var serviceBound = false
     private var streamingStartTime: Long = 0L
-    private lateinit var hudModeButton: MaterialButton
+    private var metricsCollectorJob: Job? = null
+    private var uiUpdateJob: Job? = null
+    private var transitionResetJob: Job? = null
+    private var streamingActionInProgress = false
+    private var desiredRecordingEnabled = false
+
+    private val recordingToggleListener = CompoundButton.OnCheckedChangeListener { _, isChecked ->
+        desiredRecordingEnabled = isChecked
+        if (AudioPlaybackService.isPlaying) {
+            toggleRecording(isChecked)
+        }
+    }
 
     private enum class HudMode { COMPACT, EXPANDED }
     private var hudMode = HudMode.EXPANDED
@@ -105,9 +113,10 @@ class AudioStreamingActivity : AppCompatActivity() {
             syncFilterModeWithService()
             syncVolumeModeWithService()
             serviceBound = true
+            desiredRecordingEnabled = audioService?.isRecordingEnabled() ?: desiredRecordingEnabled
+            syncRecordingSwitch(desiredRecordingEnabled)
             Log.d(TAG, "Service connected")
 
-            // Set waveform callback for advanced visualizer
             audioService?.setWaveformCallback { audioData ->
                 runOnUiThread {
                     binding.advancedAudioVisualizer.updateVisualization(audioData)
@@ -115,8 +124,8 @@ class AudioStreamingActivity : AppCompatActivity() {
                 }
             }
 
-            // ╨н╤В╨░╨┐ D: Subscribe to metrics updates
-            lifecycleScope.launch {
+            metricsCollectorJob?.cancel()
+            metricsCollectorJob = lifecycleScope.launch {
                 audioService?.metricsManager?.metrics?.collect { metrics ->
                     runOnUiThread {
                         updateHUD(metrics)
@@ -124,16 +133,8 @@ class AudioStreamingActivity : AppCompatActivity() {
                 }
             }
 
-            // Wait for service to actually start, then update UI
-            runOnUiThread {
-                binding.toggleStreamingBtn.postDelayed({
-                    binding.toggleStreamingBtn.isEnabled = true
-                    updateUI()
-                    Log.d(TAG, "тЬЕ Button enabled. isPlaying=${AudioPlaybackService.isPlaying}")
-                }, 1000)
-            }
-
-            // Start UI update loop
+            finishStreamingTransition()
+            updateUI()
             startUIUpdateLoop()
         }
 
@@ -141,7 +142,16 @@ class AudioStreamingActivity : AppCompatActivity() {
             audioService?.setWaveformCallback(null)
             audioService = null
             serviceBound = false
-            binding.toggleStreamingBtn.isEnabled = true
+            metricsCollectorJob?.cancel()
+            finishStreamingTransition()
+            updateUI()
+            if (AudioPlaybackService.isSessionDesired(this@AudioStreamingActivity)) {
+                lifecycleScope.launch {
+                    delay(1200L)
+                    AudioPlaybackService.restoreIfNeeded(this@AudioStreamingActivity)
+                    bindPlaybackService()
+                }
+            }
             Log.d(TAG, "Service disconnected")
         }
     }
@@ -158,7 +168,7 @@ class AudioStreamingActivity : AppCompatActivity() {
             ?: run {
                 Toast.makeText(
                     this,
-                    getString(R.string.audio_monitor_error_missing_device),
+                    getString(R.string.listen_error_missing_device),
                     Toast.LENGTH_SHORT
                 ).show()
                 finish()
@@ -170,7 +180,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         if (resolvedServerUrl.isBlank()) {
             Toast.makeText(
                 this,
-                getString(R.string.audio_monitor_error_missing_server),
+                getString(R.string.listen_error_missing_server),
                 Toast.LENGTH_SHORT
             ).show()
             finish()
@@ -185,10 +195,11 @@ class AudioStreamingActivity : AppCompatActivity() {
 
         // Check if service is already running
         if (AudioPlaybackService.isPlaying) {
-            Intent(this, AudioPlaybackService::class.java).also { intent ->
-                bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
-            }
-            streamingStartTime = System.currentTimeMillis()
+            bindPlaybackService()
+            streamingStartTime = AudioPlaybackService.streamingStartTime.takeIf { it > 0L } ?: System.currentTimeMillis()
+        } else if (AudioPlaybackService.isSessionDesired(this)) {
+            AudioPlaybackService.restoreIfNeeded(this)
+            bindPlaybackService()
         }
 
         updateUI()
@@ -226,30 +237,16 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun loadAudioSettings() {
-        val savedMode = audioPrefs.getString("filter_mode", FilterMode.ORIGINAL.name)
-        currentFilterMode = try {
-            FilterMode.valueOf(savedMode ?: FilterMode.ORIGINAL.name)
-        } catch (e: IllegalArgumentException) {
-            FilterMode.ORIGINAL
-        }
-
-        val savedVolumeMode = audioPrefs.getString("volume_mode", VolumeMode.QUIET.name)
+        // Safe baseline for listening stability: no filter, no boosted gain, fixed 24 kHz.
+        currentFilterMode = FilterMode.ORIGINAL
         currentVolumeMode = try {
-            VolumeMode.valueOf(savedVolumeMode ?: VolumeMode.QUIET.name)
-        } catch (e: IllegalArgumentException) {
+            VolumeMode.valueOf(
+                audioPrefs.getString("volume_mode", VolumeMode.QUIET.name) ?: VolumeMode.QUIET.name
+            )
+        } catch (_: IllegalArgumentException) {
             VolumeMode.QUIET
         }
-
-        selectedSampleRate = DEFAULT_SAMPLE_RATE
-
-        val savedVisualization = audioPrefs.getString("visualization_mode", "FREQUENCY_BARS")
-        currentVisualizationMode = try {
-            AdvancedAudioVisualizer.VisualizationMode.valueOf(savedVisualization ?: "FREQUENCY_BARS")
-        } catch (e: IllegalArgumentException) {
-            AdvancedAudioVisualizer.VisualizationMode.FREQUENCY_BARS
-        }
-
-        visualizationModeIndex = visualizationModes.indexOf(currentVisualizationMode)
+        selectedSampleRate = sanitizeSampleRate(audioPrefs.getInt("audio_quality_hz", DEFAULT_SAMPLE_RATE))
 
         val savedHudMode = audioPrefs.getString("hud_mode", HudMode.EXPANDED.name)
         hudMode = try {
@@ -261,11 +258,14 @@ class AudioStreamingActivity : AppCompatActivity() {
 
     private fun loadCachedStatus() {
         try {
-            val cachedStatus = secureSettings.getLastDeviceStatus()
+            val cachedStatus = secureSettings.getLastDeviceStatusForDevice(deviceId)
             if (!cachedStatus.isNullOrEmpty()) {
                 val status = gson.fromJson(cachedStatus, DeviceStatus::class.java)
                 childBatteryLevel = status?.batteryLevel
                 childCharging = status?.isCharging
+                childStatusTimestamp = normalizeStatusTimestamp(
+                    status?.timestamp ?: secureSettings.getLastDeviceStatusTimestampForDevice(deviceId)
+                )
             }
         } catch (e: Exception) {
             Log.w(TAG, "Failed to load cached device status", e)
@@ -277,31 +277,25 @@ class AudioStreamingActivity : AppCompatActivity() {
             .putString("filter_mode", currentFilterMode.name)
             .putString("volume_mode", currentVolumeMode.name)
             .putInt("audio_quality_hz", selectedSampleRate)
-            .putString("visualization_mode", currentVisualizationMode.name)
             .putString("hud_mode", hudMode.name)
             .apply()
     }
 
     private fun setupUI() {
-        binding.deviceIdText.text = getString(R.string.audio_monitor_device_id, deviceId)
+        binding.deviceIdText.text = getString(R.string.listen_device_id, deviceId)
+        binding.topAppBar.setNavigationOnClickListener { finish() }
 
-        hudModeButton = binding.hudModeButton
-        hudModeButton.setOnClickListener { toggleHudMode() }
-        applyHudMode()
-
-        // Audio filters are disabled for now
         binding.filterCard.isVisible = false
-        
-        // Setup visualization mode button
-        setupVisualizationModeButton()
-
-        // Setup volume mode button
-        setupVolumeModeButton()
+        binding.advancedAudioVisualizer.setVisualizationMode(currentVisualizationMode)
+        setupVolumeModeControls()
+        setupHudModeControls()
         setupAudioQualitySelector()
 
-        // Start/Stop streaming button
         binding.toggleStreamingBtn.setOnClickListener {
+            if (streamingActionInProgress) return@setOnClickListener
+
             Log.d(TAG, "Button clicked. isPlaying=${AudioPlaybackService.isPlaying}")
+            beginStreamingTransition()
             if (AudioPlaybackService.isPlaying) {
                 Log.d(TAG, "Calling stopStreaming()")
                 stopStreaming()
@@ -311,14 +305,8 @@ class AudioStreamingActivity : AppCompatActivity() {
             }
         }
 
-        // Toggle recording switch
-        binding.recordingSwitch.setOnCheckedChangeListener { _, isChecked ->
-            if (AudioPlaybackService.isPlaying) {
-                toggleRecording(isChecked)
-            }
-        }
+        binding.recordingSwitch.setOnCheckedChangeListener(recordingToggleListener)
 
-        // Volume control
         binding.volumeSlider.addOnChangeListener { _, value, fromUser ->
             if (fromUser) {
                 val volume = (value / 100f).coerceIn(0f, 1f)
@@ -327,14 +315,13 @@ class AudioStreamingActivity : AppCompatActivity() {
             }
         }
 
-        // Open recordings library
         binding.openRecordingsButton.setOnClickListener {
             startActivity(Intent(this, RecordingsLibraryActivity::class.java))
         }
 
-        // Advanced controls removed - no custom mode in new filter system
-
+        syncRecordingSwitch(desiredRecordingEnabled)
         updateBatteryHud()
+        updateDiagnosticsSummary(AudioStreamMetrics())
     }
 
     private fun sanitizeSampleRate(candidate: Int): Int {
@@ -354,7 +341,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         updateUI()
         Toast.makeText(
             this,
-            getString(R.string.audio_monitor_quality_switching, newRate / 1000),
+            getString(R.string.listen_quality_switching, newRate / 1000),
             Toast.LENGTH_SHORT
         ).show()
 
@@ -371,13 +358,13 @@ class AudioStreamingActivity : AppCompatActivity() {
                 if (actualInputRate == newRate) {
                     Toast.makeText(
                         this@AudioStreamingActivity,
-                        getString(R.string.audio_monitor_quality_applied, actualInputRate / 1000),
+                        getString(R.string.listen_quality_applied, actualInputRate / 1000),
                         Toast.LENGTH_SHORT
                     ).show()
                 } else {
                     Toast.makeText(
                         this@AudioStreamingActivity,
-                        getString(R.string.audio_monitor_quality_fallback, actualInputRate / 1000),
+                        getString(R.string.listen_quality_fallback, actualInputRate / 1000),
                         Toast.LENGTH_LONG
                     ).show()
                     // Keep UI and persisted preference aligned with actual remote stream quality.
@@ -405,7 +392,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         qualitySwitchInProgress = true
         Toast.makeText(
             this,
-            getString(R.string.audio_monitor_quality_switching, selectedSampleRate / 1000),
+            getString(R.string.listen_quality_switching, selectedSampleRate / 1000),
             Toast.LENGTH_SHORT
         ).show()
 
@@ -425,31 +412,31 @@ class AudioStreamingActivity : AppCompatActivity() {
         val filterItems = listOf(
             ru.example.childwatch.audio.AudioFilterItem(
                 FilterMode.ORIGINAL,
-                "🎧",
+                "RAW",
                 getString(R.string.audio_monitor_filter_original),
                 getString(R.string.audio_monitor_filter_original_desc)
             ),
             ru.example.childwatch.audio.AudioFilterItem(
                 FilterMode.VOICE,
-                "🗣️",
+                "VOC",
                 getString(R.string.audio_monitor_filter_voice),
                 getString(R.string.audio_monitor_filter_voice_desc)
             ),
             ru.example.childwatch.audio.AudioFilterItem(
                 FilterMode.QUIET_SOUNDS,
-                "🔈",
+                "LOW",
                 getString(R.string.audio_monitor_filter_quiet),
                 getString(R.string.audio_monitor_filter_quiet_desc)
             ),
             ru.example.childwatch.audio.AudioFilterItem(
                 FilterMode.MUSIC,
-                "🎵",
+                "MUS",
                 getString(R.string.audio_monitor_filter_music),
                 getString(R.string.audio_monitor_filter_music_desc)
             ),
             ru.example.childwatch.audio.AudioFilterItem(
                 FilterMode.OUTDOOR,
-                "🌬️",
+                "OUT",
                 getString(R.string.audio_monitor_filter_outdoor),
                 getString(R.string.audio_monitor_filter_outdoor_desc)
             )
@@ -489,35 +476,96 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
     }
 
-    private fun setupVisualizationModeButton() {
-        binding.visualizationModeBtn.setOnClickListener {
-            cycleVisualizationMode()
-        }
-        updateVisualizationModeButton()
+    private fun setupVolumeModeControls() {
+        binding.gainX1Button.setOnClickListener { setVolumeMode(VolumeMode.QUIET) }
+        binding.gainX2Button.setOnClickListener { setVolumeMode(VolumeMode.NORMAL) }
+        binding.gainX3Button.setOnClickListener { setVolumeMode(VolumeMode.LOUD) }
+        binding.gainX4Button.setOnClickListener { setVolumeMode(VolumeMode.BOOST) }
+        binding.gainX5Button.setOnClickListener { setVolumeMode(VolumeMode.MAX) }
+        updateVolumeModeControls()
     }
 
-    private fun setupVolumeModeButton() {
-        binding.volumeModeBtn.setOnClickListener {
-            toggleVolumeMode()
-        }
-        updateVolumeModeButton()
+    private fun setupHudModeControls() {
+        binding.hudCompactButton.setOnClickListener { setHudMode(HudMode.COMPACT) }
+        binding.hudExpandedButton.setOnClickListener { setHudMode(HudMode.EXPANDED) }
+        applyHudMode()
     }
 
-    private fun toggleHudMode() {
-        hudMode = if (hudMode == HudMode.EXPANDED) HudMode.COMPACT else HudMode.EXPANDED
+    private fun setHudMode(mode: HudMode) {
+        if (hudMode == mode) return
+        hudMode = mode
         applyHudMode()
         saveAudioSettings()
     }
 
     private fun applyHudMode() {
         binding.hudRow2.isVisible = hudMode == HudMode.EXPANDED
-        hudModeButton.text = getString(
-            if (hudMode == HudMode.EXPANDED) {
-                R.string.audio_monitor_hud_toggle_compact
-            } else {
-                R.string.audio_monitor_hud_toggle_expanded
-            }
+        binding.hudModeGroup.check(
+            if (hudMode == HudMode.EXPANDED) R.id.hudExpandedButton else R.id.hudCompactButton
         )
+    }
+
+    private fun syncRecordingSwitch(checked: Boolean) {
+        binding.recordingSwitch.setOnCheckedChangeListener(null)
+        binding.recordingSwitch.isChecked = checked
+        binding.recordingSwitch.setOnCheckedChangeListener(recordingToggleListener)
+    }
+
+    private fun beginStreamingTransition() {
+        streamingActionInProgress = true
+        binding.toggleStreamingBtn.isEnabled = false
+        transitionResetJob?.cancel()
+        transitionResetJob = lifecycleScope.launch {
+            delay(4_000)
+            if (streamingActionInProgress) {
+                finishStreamingTransition()
+                updateUI()
+            }
+        }
+    }
+
+    private fun finishStreamingTransition() {
+        streamingActionInProgress = false
+        transitionResetJob?.cancel()
+        transitionResetJob = null
+    }
+
+    private fun formatChildBatteryText(): String {
+        val batteryDisplay = childBatteryLevel?.takeIf { it in 0..100 }
+        val ageSuffix = statusAgeMs()
+            ?.takeIf { it > CHILD_STATUS_FRESH_MS }
+            ?.let { " · ${formatStatusAgeCompact(it)}" }
+            .orEmpty()
+        return when {
+            batteryDisplay == null -> getString(R.string.listen_battery_waiting)
+            childCharging == true -> getString(R.string.listen_battery_charging, batteryDisplay) + ageSuffix
+            else -> getString(R.string.listen_battery_percent, batteryDisplay) + ageSuffix
+        }
+    }
+
+    private fun buildConnectionHeadline(isPlaying: Boolean, initError: String?, lastChunkAgeMs: Long): String {
+        return when {
+            !initError.isNullOrBlank() -> getString(R.string.listen_connection_error)
+            !isPlaying -> getString(R.string.listen_connection_idle)
+            AudioPlaybackService.chunksReceived == 0 -> getString(R.string.listen_connection_waiting)
+            lastChunkAgeMs in 0..1500 -> getString(R.string.listen_connection_stable)
+            lastChunkAgeMs in 1501..6000 -> getString(R.string.listen_connection_delayed)
+            else -> getString(R.string.listen_connection_reconnecting)
+        }
+    }
+
+    private fun buildConnectionHint(isPlaying: Boolean, initError: String?, ageText: String): String {
+        return when {
+            !initError.isNullOrBlank() -> getString(R.string.listen_hint_error)
+            !isPlaying -> getString(R.string.listen_hint_idle)
+            AudioPlaybackService.chunksReceived == 0 -> getString(R.string.listen_hint_waiting)
+            AudioPlaybackService.lastChunkTimestamp > 0L &&
+                (System.currentTimeMillis() - AudioPlaybackService.lastChunkTimestamp) > 1500L ->
+                getString(R.string.listen_hint_delayed, ageText)
+            !isChildStatusFresh() && childStatusTimestamp != null ->
+                getString(R.string.listen_hint_active_stale_status, formatStatusAgeLong(statusAgeMs()))
+            else -> getString(R.string.listen_hint_active, ageText)
+        }
     }
 
     private fun startChildStatusPolling() {
@@ -525,7 +573,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         statusPollingJob = lifecycleScope.launch {
             fetchChildStatus()
             while (isActive) {
-                delay(30_000)
+                delay(if (AudioPlaybackService.isPlaying) STATUS_POLL_ACTIVE_MS else STATUS_POLL_IDLE_MS)
                 fetchChildStatus()
             }
         }
@@ -546,29 +594,23 @@ class AudioStreamingActivity : AppCompatActivity() {
             if (response.isSuccessful) {
                 val status = response.body()?.status
                 if (status != null) {
-                    childBatteryLevel = status.batteryLevel
-                    childCharging = status.isCharging
-                    secureSettings.setLastDeviceStatus(gson.toJson(status))
-                    val timestamp = status.timestamp ?: System.currentTimeMillis()
-                    secureSettings.setLastDeviceStatusTimestamp(timestamp)
-                    updateBatteryHud()
+                    applyChildStatus(status)
+                } else {
+                    syncChildStatusFromPlaybackService()
                 }
             } else {
                 Log.w(TAG, "Device status request failed: ${'$'}{response.code()}")
+                syncChildStatusFromPlaybackService()
             }
         } catch (e: Exception) {
             Log.w(TAG, "Error fetching device status", e)
+            syncChildStatusFromPlaybackService()
         }
     }
 
-    private fun toggleVolumeMode() {
-        currentVolumeMode = when (currentVolumeMode) {
-            VolumeMode.QUIET -> VolumeMode.NORMAL
-            VolumeMode.NORMAL -> VolumeMode.LOUD
-            VolumeMode.LOUD -> VolumeMode.BOOST
-            VolumeMode.BOOST -> VolumeMode.MAX
-            VolumeMode.MAX -> VolumeMode.QUIET
-        }
+    private fun setVolumeMode(mode: VolumeMode) {
+        if (currentVolumeMode == mode) return
+        currentVolumeMode = mode
 
         audioService?.let { service ->
             val currentConfig = service.getAudioEnhancerConfig()
@@ -576,21 +618,29 @@ class AudioStreamingActivity : AppCompatActivity() {
             service.setAudioEnhancerConfig(newConfig)
         }
 
-        updateVolumeModeButton()
+        updateVolumeModeControls()
         saveAudioSettings()
 
         Log.d(TAG, "Volume mode changed to: $currentVolumeMode")
     }
 
-    private fun updateVolumeModeButton() {
-        val (icon, labelRes) = when (currentVolumeMode) {
-            VolumeMode.QUIET -> "🎧" to R.string.audio_monitor_volume_mode_quiet
-            VolumeMode.NORMAL -> "🔊" to R.string.audio_monitor_volume_mode_normal
-            VolumeMode.LOUD -> "📣" to R.string.audio_monitor_volume_mode_loud
-            VolumeMode.BOOST -> "🚀" to R.string.audio_monitor_volume_mode_boost
-            VolumeMode.MAX -> "⚡" to R.string.audio_monitor_volume_mode_max
+    private fun updateVolumeModeControls() {
+        val checkedButtonId = when (currentVolumeMode) {
+            VolumeMode.QUIET -> R.id.gainX1Button
+            VolumeMode.NORMAL -> R.id.gainX2Button
+            VolumeMode.LOUD -> R.id.gainX3Button
+            VolumeMode.BOOST -> R.id.gainX4Button
+            VolumeMode.MAX -> R.id.gainX5Button
         }
-        binding.volumeModeBtn.text = getString(labelRes).let { "$icon $it" }
+        val captionRes = when (currentVolumeMode) {
+            VolumeMode.QUIET -> R.string.listen_gain_mode_quiet
+            VolumeMode.NORMAL -> R.string.listen_gain_mode_normal
+            VolumeMode.LOUD -> R.string.listen_gain_mode_loud
+            VolumeMode.BOOST -> R.string.listen_gain_mode_boost
+            VolumeMode.MAX -> R.string.listen_gain_mode_max
+        }
+        binding.gainModeGroup.check(checkedButtonId)
+        binding.volumeModeCaptionText.text = getString(captionRes)
     }
 
     private fun setFilterMode(mode: FilterMode) {
@@ -629,31 +679,10 @@ class AudioStreamingActivity : AppCompatActivity() {
         binding.modeDescriptionText?.text = description
     }
 
-    private fun cycleVisualizationMode() {
-        visualizationModeIndex = (visualizationModeIndex + 1) % visualizationModes.size
-        currentVisualizationMode = visualizationModes[visualizationModeIndex]
-        
-        binding.advancedAudioVisualizer.setVisualizationMode(currentVisualizationMode)
-        updateVisualizationModeButton()
-        saveAudioSettings()
-        
-        Log.d(TAG, "Visualization mode changed to: $currentVisualizationMode")
-    }
-
-    private fun updateVisualizationModeButton() {
-        val modeText = when (currentVisualizationMode) {
-            AdvancedAudioVisualizer.VisualizationMode.FREQUENCY_BARS -> getString(R.string.audio_monitor_visualization_equalizer)
-            AdvancedAudioVisualizer.VisualizationMode.WAVEFORM -> getString(R.string.audio_monitor_visualization_waveform)
-            AdvancedAudioVisualizer.VisualizationMode.VOLUME_METER -> getString(R.string.audio_monitor_visualization_volume)
-            AdvancedAudioVisualizer.VisualizationMode.CIRCULAR -> getString(R.string.audio_monitor_visualization_circular)
-        }
-        binding.visualizationModeBtn.text = modeText
-    }
-
     private fun updateSignalLevel(audioData: ByteArray) {
         if (audioData.isEmpty()) {
             runOnUiThread {
-                binding.signalLevelText.text = getString(R.string.audio_monitor_signal_no_data)
+                binding.signalLevelText.text = getString(R.string.listen_signal_no_data)
             }
             return
         }
@@ -674,10 +703,10 @@ class AudioStreamingActivity : AppCompatActivity() {
         val percentage = (level * 100).toInt()
 
         val levelText = when {
-            percentage > 50 -> getString(R.string.audio_monitor_signal_strong)
-            percentage > 20 -> getString(R.string.audio_monitor_signal_medium)
-            percentage > 5 -> getString(R.string.audio_monitor_signal_weak)
-            else -> getString(R.string.audio_monitor_signal_silence)
+            percentage > 50 -> getString(R.string.listen_signal_strong)
+            percentage > 20 -> getString(R.string.listen_signal_medium)
+            percentage > 5 -> getString(R.string.listen_signal_weak)
+            else -> getString(R.string.listen_signal_silence)
         }
 
         runOnUiThread {
@@ -701,12 +730,68 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
     }
 
+    private fun applyChildStatus(status: DeviceStatus, updateUi: Boolean = true) {
+        childBatteryLevel = status.batteryLevel?.takeIf { it in 0..100 }
+        childCharging = status.isCharging
+
+        val normalizedStatusTimestamp =
+            normalizeStatusTimestamp(status.timestamp) ?: System.currentTimeMillis()
+        val normalizedStatus = status.copy(
+            batteryLevel = childBatteryLevel,
+            timestamp = normalizedStatusTimestamp
+        )
+        val statusJson = gson.toJson(normalizedStatus)
+
+        childStatusTimestamp = normalizedStatusTimestamp
+        secureSettings.setLastDeviceStatus(statusJson)
+        secureSettings.setLastDeviceStatusTimestamp(normalizedStatusTimestamp)
+        secureSettings.setLastDeviceStatusForDevice(deviceId, statusJson)
+        secureSettings.setLastDeviceStatusTimestampForDevice(deviceId, normalizedStatusTimestamp)
+
+        if (updateUi) {
+            runOnUiThread {
+                updateBatteryHud()
+                updateDiagnosticsSummary(audioService?.metricsManager?.metrics?.value ?: AudioStreamMetrics())
+            }
+        }
+    }
+
+    private fun syncChildStatusFromPlaybackService(updateUi: Boolean = true) {
+        val remoteDeviceId = AudioPlaybackService.remoteChildBatteryDeviceId?.trim().orEmpty()
+        if (remoteDeviceId.isBlank() || remoteDeviceId != deviceId.trim()) return
+
+        val liveBattery = AudioPlaybackService.remoteChildBatteryLevel?.takeIf { it in 0..100 } ?: return
+        val liveTimestamp = normalizeStatusTimestamp(AudioPlaybackService.remoteChildBatteryTimestamp) ?: return
+        val currentTimestamp = childStatusTimestamp ?: 0L
+        if (currentTimestamp > 0L && liveTimestamp <= currentTimestamp) return
+
+        applyChildStatus(
+            DeviceStatus(
+                batteryLevel = liveBattery,
+                isCharging = AudioPlaybackService.remoteChildCharging,
+                chargingType = null,
+                temperature = null,
+                voltage = null,
+                health = null,
+                manufacturer = null,
+                model = null,
+                androidVersion = null,
+                sdkVersion = null,
+                currentAppName = null,
+                currentAppPackage = null,
+                timestamp = liveTimestamp,
+                raw = null
+            ),
+            updateUi = updateUi
+        )
+    }
+
     private fun startStreaming() {
         Log.d(TAG, "Starting audio streaming...")
 
         // Improvement: Keep screen on during streaming to prevent system sleep
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        Log.d(TAG, "ЁЯТб Screen lock enabled - preventing sleep during streaming")
+        Log.d(TAG, "Screen lock enabled - preventing sleep during streaming")
 
         // Start visualizer
         binding.advancedAudioVisualizer.start()
@@ -715,12 +800,12 @@ class AudioStreamingActivity : AppCompatActivity() {
             action = AudioPlaybackService.ACTION_START_PLAYBACK
             putExtra(AudioPlaybackService.EXTRA_DEVICE_ID, deviceId)
             putExtra(AudioPlaybackService.EXTRA_SERVER_URL, serverUrl)
-            putExtra(AudioPlaybackService.EXTRA_RECORDING, binding.recordingSwitch.isChecked)
+            putExtra(AudioPlaybackService.EXTRA_RECORDING, desiredRecordingEnabled)
             putExtra(AudioPlaybackService.EXTRA_SAMPLE_RATE, selectedSampleRate)
         }
 
         startForegroundService(intent)
-        bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        bindPlaybackService()
 
         streamingStartTime = System.currentTimeMillis()
         updateUI()
@@ -731,7 +816,7 @@ class AudioStreamingActivity : AppCompatActivity() {
 
         // Improvement: Allow screen to sleep when streaming stops
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        Log.d(TAG, "ЁЯТб Screen lock disabled - allowing normal sleep")
+        Log.d(TAG, "Screen lock disabled - allowing normal sleep")
 
         // Stop visualizer
         binding.advancedAudioVisualizer.stop()
@@ -746,6 +831,8 @@ class AudioStreamingActivity : AppCompatActivity() {
             serviceBound = false
         }
 
+        syncRecordingSwitch(false)
+        desiredRecordingEnabled = false
         updateUI()
     }
 
@@ -757,86 +844,68 @@ class AudioStreamingActivity : AppCompatActivity() {
         startForegroundService(intent)
 
         val toastRes = if (recording) {
-            R.string.audio_monitor_toast_recording_on
+            R.string.listen_toast_recording_on
         } else {
-            R.string.audio_monitor_toast_recording_off
+            R.string.listen_toast_recording_off
         }
         Toast.makeText(this, getString(toastRes), Toast.LENGTH_SHORT).show()
     }
 
     private fun startUIUpdateLoop() {
-        lifecycleScope.launch {
+        uiUpdateJob?.cancel()
+        uiUpdateJob = lifecycleScope.launch {
             while (isActive) {
                 updateUI()
-                delay(1000) // Update every second
+                delay(1000)
             }
         }
     }
 
     private fun updateUI() {
+        syncChildStatusFromPlaybackService(updateUi = false)
+
         val isPlaying = AudioPlaybackService.isPlaying
+        val lastChunkAgeMs = if (AudioPlaybackService.lastChunkTimestamp > 0L) {
+            (System.currentTimeMillis() - AudioPlaybackService.lastChunkTimestamp).coerceAtLeast(0L)
+        } else {
+            -1L
+        }
+        val ageText = if (lastChunkAgeMs >= 0L) formatStreamAge(lastChunkAgeMs) else getString(R.string.audio_monitor_placeholder_dash)
+        val initError = AudioPlaybackService.audioTrackInitError
 
-        // Update button text and state
         binding.toggleStreamingBtn.text = getString(
-            if (isPlaying) R.string.audio_monitor_toggle_stop else R.string.audio_monitor_toggle_start
+            if (isPlaying) R.string.listen_toggle_stop else R.string.listen_toggle_start
         )
-        binding.toggleStreamingBtn.isEnabled = true
+        binding.toggleStreamingBtn.isEnabled = !streamingActionInProgress
 
-        // Update status
         binding.statusText.text = getString(
-            if (isPlaying) R.string.audio_monitor_state_running else R.string.audio_monitor_state_stopped
+            if (isPlaying) R.string.listen_state_running else R.string.listen_state_stopped
         )
-        binding.statusText.setTextColor(
-            if (isPlaying) getColor(android.R.color.holo_green_dark)
-            else getColor(android.R.color.darker_gray)
+        binding.statusText.setTextColor(getColor(android.R.color.white))
+        binding.statusBadgeCard.setCardBackgroundColor(
+            if (isPlaying) Color.parseColor("#1FBBF7D0") else Color.parseColor("#1FFFFFFF")
         )
 
-        // Update recording switch
         binding.recordingSwitch.isEnabled = isPlaying
+        binding.childBatteryText.text = formatChildBatteryText()
+        binding.connectionQualityText.text = buildConnectionHeadline(isPlaying, initError, lastChunkAgeMs)
+        binding.connectionHintText.text = buildConnectionHint(isPlaying, initError, ageText)
 
         val qualityEnabled = !qualitySwitchInProgress
         binding.audioQualityGroup.isEnabled = qualityEnabled
         binding.quality24Button.isEnabled = qualityEnabled
         binding.quality32Button.isEnabled = qualityEnabled
         binding.quality48Button.isEnabled = qualityEnabled
+        updateBatteryHud()
+        updateDiagnosticsSummary(audioService?.metricsManager?.metrics?.value ?: AudioStreamMetrics())
 
-        // Update connection quality from service
-        binding.connectionQualityText.text = if (isPlaying) {
-            val lastChunkAgeMs = if (AudioPlaybackService.lastChunkTimestamp > 0L) {
-                (System.currentTimeMillis() - AudioPlaybackService.lastChunkTimestamp).coerceAtLeast(0L)
-            } else {
-                -1L
-            }
-            val ageText = if (lastChunkAgeMs >= 0L) "${lastChunkAgeMs}ms" else "—"
-            val sampleRateText = getString(
-                R.string.audio_monitor_quality_current,
-                AudioPlaybackService.requestedStreamSampleRate / 1000.0,
-                AudioPlaybackService.inputStreamSampleRate / 1000.0,
-                AudioPlaybackService.playbackSampleRate / 1000.0
-            )
-            val initError = AudioPlaybackService.audioTrackInitError
-            if (!initError.isNullOrBlank()) {
-                "Ошибка аудио: $initError"
-            } else {
-                "${AudioPlaybackService.connectionQuality} • $sampleRateText • age:$ageText"
-            }
-        } else {
-            val initError = AudioPlaybackService.audioTrackInitError
-            if (!initError.isNullOrBlank()) {
-                "Ошибка аудио: $initError"
-            } else {
-                getString(R.string.audio_monitor_placeholder_dash)
-            }
-        }
-
-        // Update time displays with defensive checks
         if (isPlaying) {
-            // Sync streamingStartTime with service if not set locally
-            if (streamingStartTime == 0L && AudioPlaybackService.streamingStartTime > 0) {
-                streamingStartTime = AudioPlaybackService.streamingStartTime
+            val serviceStart = AudioPlaybackService.streamingStartTime
+            if (serviceStart > 0L) {
+                streamingStartTime = serviceStart
             }
 
-            if (streamingStartTime > 0) {
+            if (streamingStartTime > 0L) {
                 val currentTime = System.currentTimeMillis()
                 val duration = currentTime - streamingStartTime
 
@@ -847,26 +916,23 @@ class AudioStreamingActivity : AppCompatActivity() {
                     val durationFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                     durationFormat.timeZone = TimeZone.getTimeZone("UTC")
                     binding.durationText.text = durationFormat.format(Date(duration))
-
-                    binding.chunksReceivedText.text = AudioPlaybackService.chunksReceived.toString()
-                } else {
-                    streamingStartTime = currentTime
                 }
-            } else {
-                binding.startTimeText.text = getString(R.string.audio_monitor_time_placeholder)
-                binding.durationText.text = getString(R.string.audio_monitor_duration_placeholder)
-                binding.chunksReceivedText.text = AudioPlaybackService.chunksReceived.toString()
             }
+            binding.chunksReceivedText.text = AudioPlaybackService.chunksReceived.toString()
         } else {
             binding.startTimeText.text = getString(R.string.audio_monitor_time_placeholder)
             binding.durationText.text = getString(R.string.audio_monitor_duration_placeholder)
             binding.chunksReceivedText.text = getString(R.string.audio_monitor_placeholder_zero)
-            streamingStartTime = 0L // Reset local timer
+            streamingStartTime = 0L
         }
     }
 
     override fun onResume() {
         super.onResume()
+        if (AudioPlaybackService.isSessionDesired(this) && !AudioPlaybackService.isPlaying) {
+            AudioPlaybackService.restoreIfNeeded(this)
+            bindPlaybackService()
+        }
         startChildStatusPolling()
     }
 
@@ -878,6 +944,9 @@ class AudioStreamingActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         stopChildStatusPolling()
+        metricsCollectorJob?.cancel()
+        uiUpdateJob?.cancel()
+        transitionResetJob?.cancel()
         if (serviceBound) {
             unbindService(serviceConnection)
             serviceBound = false
@@ -885,30 +954,29 @@ class AudioStreamingActivity : AppCompatActivity() {
         binding.advancedAudioVisualizer.stop()
     }
 
+    private fun bindPlaybackService() {
+        if (serviceBound) return
+        Intent(this, AudioPlaybackService::class.java).also { intent ->
+            bindService(intent, serviceConnection, Context.BIND_AUTO_CREATE)
+        }
+    }
+
     /**
      * Enhanced HUD with 2 rows of detailed metrics
      */
     private fun updateHUD(metrics: AudioStreamMetrics) {
-        // === ROW 1: Connection & Network ===
+        val dash = getString(R.string.audio_monitor_placeholder_dash)
 
-        // WS Status with icon and session time
-        val wsIcon = when (metrics.wsStatus) {
-            WsStatus.CONNECTED -> "🟢"
-            WsStatus.CONNECTING -> "🟡"
-            WsStatus.RETRYING -> "🟠"
-            WsStatus.ERROR -> "🔴"
-            else -> "⚫"
+        val wsLabel = when (metrics.wsStatus) {
+            WsStatus.CONNECTED -> "Сокет онлайн"
+            WsStatus.CONNECTING -> "Подключение"
+            WsStatus.RETRYING -> "Повтор"
+            WsStatus.ERROR -> "Ошибка"
+            else -> "Оффлайн"
         }
         val duration = formatDuration(metrics.connectionDuration)
-        binding.hudWsStatus.text = "$wsIcon $duration"
+        binding.hudWsStatus.text = "$wsLabel $duration"
 
-        // Network Type with icon
-        val netIcon = when (metrics.networkType) {
-            NetworkType.WIFI -> "📡"
-            NetworkType.MOBILE -> "📱"
-            NetworkType.ETHERNET -> "🌐"
-            else -> "❌"
-        }
         val networkLabel = if (metrics.networkName.isNotEmpty() && metrics.networkName != "Wi-Fi") {
             metrics.networkName.take(5)
         } else {
@@ -916,97 +984,212 @@ class AudioStreamingActivity : AppCompatActivity() {
                 NetworkType.WIFI -> "WiFi"
                 NetworkType.MOBILE -> "LTE"
                 NetworkType.ETHERNET -> "LAN"
-                else -> "—"
+                else -> dash
             }
         }
-        binding.hudNetwork.text = "$netIcon $networkLabel"
+        binding.hudNetwork.text = networkLabel
 
-        // Data Rate with icon
         val dataRateKB = metrics.bytesPerSecond / 1024
-        val rateText = if (dataRateKB > 0) "${dataRateKB}KB/s" else "—"
-        binding.hudDataRate.text = "▼ $rateText"
+        val rateText = if (dataRateKB > 0) getString(R.string.listen_stream_kbps, dataRateKB.toInt()) else dash
+        binding.hudDataRate.text = rateText
 
-        // Ping with color
-        val pingText = if (metrics.pingMs > 0) "${metrics.pingMs}ms" else "—"
-        binding.hudPing.text = pingText
-        binding.hudPing.setTextColor(getPingColor(metrics.pingStatus))
+        val latencyMs = resolveLatencyMs(metrics)
+        val latencyText = if (latencyMs > 0) {
+            getString(R.string.listen_ping_value, latencyMs.toInt())
+        } else {
+            dash
+        }
+        binding.hudPing.text = latencyText
+        binding.hudPing.setTextColor(getPingColor(resolveLatencyStatus(metrics, latencyMs)))
 
-        // Battery (child device)
         val batteryDisplay = childBatteryLevel?.takeIf { it in 0..100 }
         val charging = childCharging == true
-        if (batteryDisplay == null) {
-            binding.hudBattery.text = "—"
+        binding.hudBattery.text = if (batteryDisplay == null) {
+            dash
         } else {
-            val batteryIcon = when {
-                charging -> "⚡"
-                batteryDisplay >= 80 -> "🔋"
-                batteryDisplay >= 50 -> "🔋"
-                batteryDisplay >= 20 -> "🪫"
-                else -> "🪫"
+            val suffix = statusAgeMs()?.let { " • ${formatStatusAgeCompact(it)}" }.orEmpty()
+            if (charging) {
+                "${batteryDisplay}%⚡$suffix"
+            } else {
+                "${batteryDisplay}%$suffix"
             }
-            binding.hudBattery.text = "$batteryIcon $batteryDisplay%"
         }
 
-        // === ROW 2: Audio & Quality ===
-
-        // Audio Status with icon
-        val audioIcon = when (metrics.audioStatus) {
-            AudioStatus.PLAYING -> "▶️"
-            AudioStatus.BUFFERING -> "⏳"
-            AudioStatus.RECORDING -> "🔴"
-            AudioStatus.ERROR -> "⚠️"
-            else -> "⏸️"
-        }
         val audioLabel = when (metrics.audioStatus) {
-            AudioStatus.PLAYING -> "Play"
-            AudioStatus.BUFFERING -> "Buf"
-            AudioStatus.RECORDING -> "Rec"
-            AudioStatus.ERROR -> "Err"
-            else -> "Stop"
+            AudioStatus.PLAYING -> "Идет"
+            AudioStatus.BUFFERING -> "Буфер"
+            AudioStatus.RECORDING -> "Запись"
+            AudioStatus.ERROR -> "Сбой"
+            else -> "Стоп"
         }
-        binding.hudAudioStatus.text = "$audioIcon $audioLabel"
+        binding.hudAudioStatus.text = audioLabel
 
-        // Queue with underrun indicator
         val queueText = if (metrics.queueCapacity > 0) {
-            val underrunIndicator = if (metrics.underrunCount > 0) " ⚠️${metrics.underrunCount}" else ""
-            "Q:${metrics.queueDepth}/${metrics.queueCapacity}$underrunIndicator"
+            val underrunSuffix = if (metrics.underrunCount > 0) " !${metrics.underrunCount}" else ""
+            "${metrics.queueDepth}/${metrics.queueCapacity}$underrunSuffix"
         } else {
-            "Q:—"
+            dash
         }
         binding.hudQueue.text = queueText
 
-        // Total Data with icon
         val totalBytes = metrics.framesTotal * metrics.frameSize
         val totalMB = totalBytes / (1024.0 * 1024.0)
         val totalText = when {
             totalMB >= 1.0 -> "%.1fM".format(totalMB)
             totalBytes > 0 -> "%.0fK".format(totalBytes / 1024.0)
-            else -> "—"
+            else -> dash
         }
-        binding.hudTotalData.text = "Σ $totalText"
+        binding.hudTotalData.text = totalText
 
-        // Sample Rate with icon
         val sampleRateKHz = metrics.sampleRate / 1000.0
-        binding.hudSampleRate.text = "♫ %.1fk".format(sampleRateKHz)
-
-        // Toggle row 2 visibility based on HUD mode
+        binding.hudSampleRate.text = "%.1f кГц".format(sampleRateKHz)
         binding.hudRow2.isVisible = hudMode == HudMode.EXPANDED
+        updateDiagnosticsSummary(metrics)
     }
 
     private fun updateBatteryHud() {
         val batteryDisplay = childBatteryLevel?.takeIf { it in 0..100 }
-        val charging = childCharging == true
-        if (batteryDisplay == null) {
-            binding.hudBattery.text = "—"
-        } else {
-            val batteryIcon = when {
-                charging -> "⚡"
-                batteryDisplay >= 80 -> "🔋"
-                batteryDisplay >= 50 -> "🔋"
-                batteryDisplay >= 20 -> "🪫"
-                else -> "🪫"
+        binding.childBatteryText.text = formatChildBatteryText()
+        binding.childBatteryMetaText.text = buildBatteryMetaText()
+        binding.childBatteryIcon.setImageResource(
+            if (batteryDisplay == null) {
+                android.R.drawable.ic_menu_help
+            } else if (childCharging == true) {
+                android.R.drawable.ic_lock_idle_charging
+            } else {
+                android.R.drawable.ic_lock_idle_low_battery
             }
-            binding.hudBattery.text = "$batteryIcon $batteryDisplay%"
+        )
+    }
+
+    private fun updateDiagnosticsSummary(metrics: AudioStreamMetrics) {
+        val dash = getString(R.string.listen_diag_no_data)
+        binding.diagConnectionValue.text = buildConnectionHeadline(
+            AudioPlaybackService.isPlaying,
+            AudioPlaybackService.audioTrackInitError,
+            if (AudioPlaybackService.lastChunkTimestamp > 0L) {
+                (System.currentTimeMillis() - AudioPlaybackService.lastChunkTimestamp).coerceAtLeast(0L)
+            } else {
+                -1L
+            }
+        )
+        binding.diagConnectionValue.setTextColor(
+            when {
+                AudioPlaybackService.audioTrackInitError != null -> Color.parseColor("#B3261E")
+                !AudioPlaybackService.isPlaying -> Color.parseColor("#6B7280")
+                else -> Color.parseColor("#0F766E")
+            }
+        )
+
+        val latencyMs = resolveLatencyMs(metrics)
+        binding.diagLatencyValue.text = if (latencyMs > 0) {
+            getString(R.string.listen_ping_value, latencyMs.toInt())
+        } else {
+            dash
+        }
+        binding.diagLatencyValue.setTextColor(getPingColor(resolveLatencyStatus(metrics, latencyMs)))
+
+        val rateKb = (metrics.bytesPerSecond / 1024).toInt()
+        binding.diagStreamValue.text = when {
+            rateKb > 0 -> getString(R.string.listen_stream_kbps, rateKb)
+            AudioPlaybackService.isPlaying -> getString(
+                R.string.listen_stream_sample_rate,
+                AudioPlaybackService.inputStreamSampleRate / 1000
+            )
+            else -> dash
+        }
+
+        val freshnessAge = statusAgeMs()
+        val batteryDisplay = childBatteryLevel?.takeIf { it in 0..100 }
+        binding.diagFreshnessValue.text = when {
+            freshnessAge == null && batteryDisplay == null -> dash
+            freshnessAge == null && batteryDisplay != null ->
+                if (childCharging == true) "${batteryDisplay}% ⚡" else "${batteryDisplay}%"
+            freshnessAge != null && batteryDisplay != null -> {
+                val batteryText = if (childCharging == true) "${batteryDisplay}% ⚡" else "${batteryDisplay}%"
+                "$batteryText · ${formatStatusAgeCompact(freshnessAge)}"
+            }
+            else -> formatStatusAgeCompact(freshnessAge ?: 0L)
+        }
+        binding.diagFreshnessValue.setTextColor(
+            when {
+                freshnessAge == null -> Color.parseColor("#6B7280")
+                freshnessAge > CHILD_STATUS_FRESH_MS -> Color.parseColor("#B3261E")
+                else -> Color.parseColor("#0F766E")
+            }
+        )
+    }
+
+    private fun buildBatteryMetaText(): String {
+        val age = statusAgeMs() ?: return getString(R.string.listen_battery_meta_waiting)
+        val ageText = formatStatusAgeLong(age)
+        return if (age > CHILD_STATUS_FRESH_MS) {
+            getString(R.string.listen_battery_meta_stale, ageText)
+        } else {
+            getString(R.string.listen_battery_meta_updated, ageText)
+        }
+    }
+
+    private fun normalizeStatusTimestamp(rawTimestamp: Long?): Long? {
+        val value = rawTimestamp ?: return null
+        if (value <= 0L) return null
+        return if (value < 1_000_000_000_000L) value * 1000L else value
+    }
+
+    private fun statusAgeMs(now: Long = System.currentTimeMillis()): Long? {
+        val timestamp = childStatusTimestamp
+            ?: secureSettings.getLastDeviceStatusTimestampForDevice(deviceId).takeIf { it > 0L }
+        return timestamp?.let { (now - it).coerceAtLeast(0L) }
+    }
+
+    private fun isChildStatusFresh(now: Long = System.currentTimeMillis()): Boolean {
+        val age = statusAgeMs(now) ?: return false
+        return age <= CHILD_STATUS_FRESH_MS
+    }
+
+    private fun formatStatusAgeCompact(ageMs: Long): String {
+        val seconds = (ageMs / 1000).coerceAtLeast(0L)
+        return when {
+            seconds < 5 -> getString(R.string.listen_status_just_now)
+            seconds < 60 -> getString(R.string.listen_status_seconds, seconds.toInt())
+            seconds < 3600 -> getString(R.string.listen_status_minutes, (seconds / 60).toInt())
+            else -> getString(R.string.listen_status_hours, (seconds / 3600).toInt())
+        }
+    }
+
+    private fun formatStatusAgeLong(ageMs: Long?): String {
+        return ageMs?.let { formatStatusAgeCompact(it) } ?: getString(R.string.listen_diag_no_data)
+    }
+
+    private fun formatStreamAge(ageMs: Long): String {
+        return when {
+            ageMs < 1000L -> "${ageMs} мс"
+            ageMs < 60_000L -> getString(R.string.listen_status_seconds, (ageMs / 1000L).toInt())
+            else -> getString(R.string.listen_status_minutes, (ageMs / 60_000L).toInt())
+        }
+    }
+
+    private fun resolveLatencyMs(metrics: AudioStreamMetrics): Long {
+        if (metrics.pingMs > 0) {
+            return metrics.pingMs
+        }
+        return if (AudioPlaybackService.lastChunkTimestamp > 0L) {
+            (System.currentTimeMillis() - AudioPlaybackService.lastChunkTimestamp).coerceAtLeast(0L)
+        } else {
+            -1L
+        }
+    }
+
+    private fun resolveLatencyStatus(metrics: AudioStreamMetrics, latencyMs: Long): PingStatus {
+        if (metrics.pingMs > 0) {
+            return metrics.pingStatus
+        }
+        return when {
+            latencyMs < 0L -> PingStatus.UNKNOWN
+            latencyMs < 250L -> PingStatus.EXCELLENT
+            latencyMs < 1000L -> PingStatus.GOOD
+            latencyMs < 3000L -> PingStatus.FAIR
+            else -> PingStatus.POOR
         }
     }
 
@@ -1015,7 +1198,7 @@ class AudioStreamingActivity : AppCompatActivity() {
      * Format duration in milliseconds to human-readable string
      */
     private fun formatDuration(ms: Long): String {
-        if (ms == 0L) return "тАФ"
+        if (ms == 0L) return getString(R.string.audio_monitor_placeholder_dash)
 
         val seconds = ms / 1000
         val minutes = seconds / 60

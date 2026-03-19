@@ -278,51 +278,16 @@ class NetworkClient(private val context: Context) {
         try {
             // Ensure HTTPS URL
             val secureUrl = ensureHttpsUrl(serverUrl)
-            val url = "${secureUrl.trimEnd('/')}/api/loc"
-            
-            // Get child_device_id from preferences
-            val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-            val childDeviceId = prefs.getString("child_device_id", null) ?: getDeviceId()
-
-            val jsonData = JSONObject().apply {
-                put("latitude", latitude)
-                put("longitude", longitude)
-                put("accuracy", accuracy)
-                put("timestamp", timestamp)
-                put("deviceId", childDeviceId)
-            }
-            
-            val requestBody = jsonData.toString()
-                .toRequestBody("application/json; charset=utf-8".toMediaType())
-            
-            val request = Request.Builder()
-                .url(url)
-                .post(requestBody)
-                .addHeader("Content-Type", "application/json")
-                .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
-                .build()
-            
-            Log.d(TAG, "Uploading location to: $url")
-            Log.d(TAG, "Location data: lat=$latitude, lng=$longitude, acc=$accuracy")
-            Log.d(TAG, "Full JSON payload: ${jsonData.toString()}")
-            
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    Log.d(TAG, "Location uploaded successfully: ${response.code}")
-                    return@withContext true
-                } else {
-                    Log.e(TAG, "Failed to upload location: ${response.code} ${response.message}")
-                    Log.e(TAG, "Response body: ${response.body?.string()}")
-                    
-                    // Add to offline queue for retry later
-                    addToOfflineQueue(url, requestBody, mapOf(
-                        "Content-Type" to "application/json",
-                        "User-Agent" to "ChildWatch/" + BuildConfig.VERSION_NAME
-                    ))
-                    
-                    return@withContext false
-                }
-            }
+            val ownDeviceId = resolveOwnDeviceId()
+            return@withContext uploadLocationPayload(
+                secureUrl = secureUrl,
+                deviceId = ownDeviceId,
+                latitude = latitude,
+                longitude = longitude,
+                accuracy = accuracy,
+                timestamp = timestamp,
+                queueOnFailure = true
+            )
             
         } catch (e: IOException) {
             Log.e(TAG, "Network error uploading location", e)
@@ -387,6 +352,17 @@ class NetworkClient(private val context: Context) {
                 if (response.isSuccessful) {
                     Log.d(TAG, "Parent location uploaded successfully: ${response.code}")
                     return@withContext true
+                } else if (response.code == 404) {
+                    Log.w(TAG, "Parent location endpoint unavailable, falling back to generic /api/loc")
+                    return@withContext uploadLocationPayload(
+                        secureUrl = secureUrl,
+                        deviceId = parentId,
+                        latitude = latitude,
+                        longitude = longitude,
+                        accuracy = accuracy,
+                        timestamp = timestamp,
+                        queueOnFailure = false
+                    )
                 } else {
                     Log.w(TAG, "Failed to upload parent location: ${response.code}")
                     return@withContext false
@@ -453,8 +429,8 @@ class NetworkClient(private val context: Context) {
                         return@withContext null
                     }
                 } else if (response.code == 404) {
-                    Log.d(TAG, "No parent location data available (404)")
-                    return@withContext null
+                    Log.d(TAG, "No parent location data via parent endpoint, falling back to generic location endpoint")
+                    return@withContext getLatestLocation(parentId)
                 } else {
                     Log.w(TAG, "Failed to get parent location: ${response.code}")
                     return@withContext null
@@ -534,6 +510,68 @@ class NetworkClient(private val context: Context) {
             return@withContext null
         } catch (e: Exception) {
             Log.e(TAG, "Unexpected error getting child location", e)
+            return@withContext null
+        }
+    }
+
+    suspend fun getLocationPair(parentId: String, childId: String): LocationPairData? = withContext(Dispatchers.IO) {
+        try {
+            val serverUrl = getConfiguredServerUrl()
+
+            if (serverUrl.isNullOrEmpty()) {
+                Log.w(TAG, "Server URL not configured")
+                return@withContext null
+            }
+
+            val secureUrl = ensureHttpsUrl(serverUrl)
+            val url = "${secureUrl.trimEnd('/')}/api/location/pair?parentId=$parentId&childId=$childId"
+
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
+                .build()
+
+            Log.d(TAG, "Fetching location pair from: $url")
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    if (response.code != 404) {
+                        Log.w(TAG, "Failed to get location pair: ${response.code}")
+                    }
+                    return@withContext null
+                }
+
+                val responseBody = response.body?.string()
+                if (responseBody.isNullOrEmpty()) {
+                    Log.w(TAG, "Empty location pair response body")
+                    return@withContext null
+                }
+
+                val jsonResponse = JSONObject(responseBody)
+                if (!jsonResponse.optBoolean("success")) {
+                    Log.w(TAG, "Location pair response returned success=false")
+                    return@withContext null
+                }
+
+                val pairObject = jsonResponse.optJSONObject("pair") ?: return@withContext null
+                return@withContext LocationPairData(
+                    parent = pairObject.optJSONObject("parent")?.toParentLocationData(
+                        fallbackId = parentId,
+                        idKey = "parentId"
+                    ),
+                    child = pairObject.optJSONObject("child")?.toParentLocationData(
+                        fallbackId = childId,
+                        idKey = "deviceId"
+                    ),
+                    serverTimestamp = jsonResponse.optLong("serverTimestamp", System.currentTimeMillis())
+                )
+            }
+        } catch (e: IOException) {
+            Log.e(TAG, "Network error getting location pair", e)
+            return@withContext null
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected error getting location pair", e)
             return@withContext null
         }
     }
@@ -633,6 +671,100 @@ class NetworkClient(private val context: Context) {
         }
     }
 
+    suspend fun getParentLocationHistory(
+        parentId: String,
+        fromTimestamp: Long? = null,
+        toTimestamp: Long? = null,
+        limit: Int = 1000
+    ): List<ParentLocationData>? = withContext(Dispatchers.IO) {
+        try {
+            val serverUrl = getConfiguredServerUrl()
+
+            if (serverUrl.isNullOrEmpty()) {
+                Log.w(TAG, "Server URL not configured")
+                return@withContext null
+            }
+
+            val secureUrl = ensureHttpsUrl(serverUrl)
+            var url = "${secureUrl.trimEnd('/')}/api/location/parent/history/$parentId?limit=$limit"
+
+            if (fromTimestamp != null) {
+                url += "&from=$fromTimestamp"
+            }
+            if (toTimestamp != null) {
+                url += "&to=$toTimestamp"
+            }
+
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
+                .build()
+
+            Log.d(TAG, "Fetching parent location history from: $url")
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val responseBody = response.body?.string()
+                    if (!responseBody.isNullOrEmpty()) {
+                        val jsonResponse = JSONObject(responseBody)
+
+                        if (jsonResponse.getBoolean("success")) {
+                            val locationsArray = jsonResponse.getJSONArray("locations")
+                            val locationList = mutableListOf<ParentLocationData>()
+
+                            for (i in 0 until locationsArray.length()) {
+                                val locationObj = locationsArray.getJSONObject(i)
+                                locationList.add(
+                                    ParentLocationData(
+                                        parentId = locationObj.optString("parentId", parentId),
+                                        latitude = locationObj.getDouble("latitude"),
+                                        longitude = locationObj.getDouble("longitude"),
+                                        accuracy = locationObj.optDouble("accuracy", 0.0).toFloat(),
+                                        timestamp = locationObj.getLong("timestamp"),
+                                        battery = locationObj.optInt("battery").takeIf { !locationObj.isNull("battery") },
+                                        speed = locationObj.optDouble("speed", Double.NaN)
+                                            .takeIf { !it.isNaN() }
+                                            ?.toFloat(),
+                                        bearing = locationObj.optDouble("bearing", Double.NaN)
+                                            .takeIf { !it.isNaN() }
+                                            ?.toFloat()
+                                    )
+                                )
+                            }
+
+                            Log.d(TAG, "Retrieved ${locationList.size} parent location points")
+                            return@withContext locationList
+                        } else {
+                            Log.w(TAG, "Server returned success=false")
+                            return@withContext null
+                        }
+                    } else {
+                        Log.w(TAG, "Empty response body")
+                        return@withContext null
+                    }
+                } else if (response.code == 404) {
+                    Log.d(TAG, "No parent location history via parent endpoint, falling back to generic history endpoint")
+                    return@withContext getLocationHistory(
+                        deviceId = parentId,
+                        fromTimestamp = fromTimestamp,
+                        toTimestamp = toTimestamp,
+                        limit = limit
+                    )
+                } else {
+                    Log.w(TAG, "Failed to get parent location history: ${response.code}")
+                    return@withContext null
+                }
+            }
+        } catch (e: IOException) {
+            Log.e(TAG, "Network error getting parent location history", e)
+            return@withContext null
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected error getting parent location history", e)
+            return@withContext null
+        }
+    }
+
     /**
      * Upload audio file to server
      */
@@ -647,6 +779,12 @@ class NetworkClient(private val context: Context) {
             }
             
             val url = "${serverUrl.trimEnd('/')}/api/audio"
+            val mimeType = when (audioFile.extension.lowercase()) {
+                "wav" -> "audio/wav"
+                "m4a" -> "audio/mp4"
+                "aac" -> "audio/aac"
+                else -> "application/octet-stream"
+            }
             
             // Create multipart request body
             val requestBody = MultipartBody.Builder()
@@ -654,9 +792,9 @@ class NetworkClient(private val context: Context) {
                 .addFormDataPart(
                     "audio",
                     audioFile.name,
-                    audioFile.asRequestBody("audio/mp4".toMediaType())
+                    audioFile.asRequestBody(mimeType.toMediaType())
                 )
-                .addFormDataPart("deviceId", getDeviceId())
+                .addFormDataPart("deviceId", resolveOwnDeviceId())
                 .addFormDataPart("timestamp", System.currentTimeMillis().toString())
                 .addFormDataPart("duration", "unknown") // Could calculate from file
                 .build()
@@ -788,6 +926,71 @@ class NetworkClient(private val context: Context) {
         } catch (e: Exception) {
             Log.w(TAG, "Failed to get Android ID, using fallback", e)
             "device_${System.currentTimeMillis() % 10000}"
+        }
+    }
+
+    private fun resolveOwnDeviceId(): String {
+        val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+        val candidates = listOf(
+            secureSettings.getDeviceId(),
+            prefs.getString("device_id", null)
+        )
+        return candidates.firstOrNull { !it.isNullOrBlank() } ?: getDeviceId()
+    }
+
+    private fun uploadLocationPayload(
+        secureUrl: String,
+        deviceId: String,
+        latitude: Double,
+        longitude: Double,
+        accuracy: Float,
+        timestamp: Long,
+        queueOnFailure: Boolean
+    ): Boolean {
+        val url = "${secureUrl.trimEnd('/')}/api/loc"
+        val jsonData = JSONObject().apply {
+            put("latitude", latitude)
+            put("longitude", longitude)
+            put("accuracy", accuracy)
+            put("timestamp", timestamp)
+            put("deviceId", deviceId)
+        }
+
+        val requestBody = jsonData.toString()
+            .toRequestBody("application/json; charset=utf-8".toMediaType())
+
+        val request = Request.Builder()
+            .url(url)
+            .post(requestBody)
+            .addHeader("Content-Type", "application/json")
+            .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
+            .build()
+
+        Log.d(TAG, "Uploading location to: $url")
+        Log.d(TAG, "Location data: lat=$latitude, lng=$longitude, acc=$accuracy")
+        Log.d(TAG, "Full JSON payload: ${jsonData}")
+
+        client.newCall(request).execute().use { response ->
+            if (response.isSuccessful) {
+                Log.d(TAG, "Location uploaded successfully: ${response.code}")
+                return true
+            }
+
+            Log.e(TAG, "Failed to upload location: ${response.code} ${response.message}")
+            Log.e(TAG, "Response body: ${response.body?.string()}")
+
+            if (queueOnFailure) {
+                addToOfflineQueue(
+                    url,
+                    requestBody,
+                    mapOf(
+                        "Content-Type" to "application/json",
+                        "User-Agent" to "ChildWatch/" + BuildConfig.VERSION_NAME
+                    )
+                )
+            }
+
+            return false
         }
     }
     
@@ -1019,6 +1222,38 @@ class NetworkClient(private val context: Context) {
     }
 
     /**
+     * Get chat history for a device using authenticated Retrofit client.
+     */
+    suspend fun getChatHistory(
+        deviceId: String,
+        limit: Int = 100
+    ): retrofit2.Response<ChatHistoryResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot get chat history")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+
+                Log.d(TAG, "Getting chat history from server: $serverUrl")
+                Log.d(TAG, "Device ID: $deviceId, limit: $limit")
+
+                api.getChatHistory(deviceId, limit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting chat history", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    /**
      * Get captured photos for the child device
      */
     suspend fun getRemotePhotos(
@@ -1052,9 +1287,43 @@ class NetworkClient(private val context: Context) {
     }
 
     /**
+     * Get archived audio recordings for the current parent device.
+     */
+    suspend fun getRemoteAudio(
+        deviceId: String,
+        limit: Int = 50,
+        offset: Int = 0
+    ): retrofit2.Response<AudioGalleryResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot get remote audio")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+
+                Log.d(TAG, "Getting remote audio from server: $serverUrl")
+                Log.d(TAG, "Device ID: $deviceId, limit=$limit, offset=$offset")
+
+                api.getAudioGallery(deviceId, limit, offset)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting remote audio", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    /**
      * Create Retrofit client with authentication
      */
     private fun createRetrofitClient(baseUrl: String): retrofit2.Retrofit {
+        val normalizedBaseUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
         val loggingInterceptor = HttpLoggingInterceptor().apply {
             level = HttpLoggingInterceptor.Level.BODY
         }
@@ -1086,7 +1355,7 @@ class NetworkClient(private val context: Context) {
             .build()
 
         return retrofit2.Retrofit.Builder()
-            .baseUrl(baseUrl)
+            .baseUrl(normalizedBaseUrl)
             .client(okHttpClient)
             .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
             .build()
@@ -1489,4 +1758,23 @@ data class ParentLocationData(
     val speed: Float?,
     val bearing: Float?
 )
+
+data class LocationPairData(
+    val parent: ParentLocationData?,
+    val child: ParentLocationData?,
+    val serverTimestamp: Long
+)
+
+private fun JSONObject.toParentLocationData(fallbackId: String, idKey: String): ParentLocationData {
+    return ParentLocationData(
+        parentId = optString(idKey, fallbackId).ifBlank { fallbackId },
+        latitude = getDouble("latitude"),
+        longitude = getDouble("longitude"),
+        accuracy = optDouble("accuracy", 0.0).toFloat(),
+        timestamp = getLong("timestamp"),
+        battery = if (has("battery") && !isNull("battery")) optInt("battery") else null,
+        speed = if (has("speed") && !isNull("speed")) optDouble("speed", 0.0).toFloat() else null,
+        bearing = if (has("bearing") && !isNull("bearing")) optDouble("bearing", 0.0).toFloat() else null
+    )
+}
 

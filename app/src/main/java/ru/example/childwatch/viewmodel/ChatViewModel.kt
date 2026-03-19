@@ -1,20 +1,21 @@
 package ru.example.childwatch.viewmodel
 
 import android.app.Application
+import android.util.Log
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
-import androidx.lifecycle.asLiveData
 import androidx.lifecycle.viewModelScope
-import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.launch
 import ru.example.childwatch.chat.ChatMessage
 import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.database.repository.ChatRepository
 import ru.example.childwatch.database.repository.ChildRepository
-import android.util.Log
 
 /**
  * ViewModel для ChatActivity
@@ -26,6 +27,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
 
     companion object {
         private const val TAG = "ChatViewModel"
+        private const val INCOMING_SENDER = "child"
     }
 
     private val database = ChildWatchDatabase.getInstance(application)
@@ -36,8 +38,6 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     private val _currentChildId = MutableLiveData<Long?>()
     val currentChildId: LiveData<Long?> = _currentChildId
 
-    // Список сообщений (реактивный)
-    private var messagesFlow: Flow<List<ChatMessage>>? = null
     private val _messages = MutableLiveData<List<ChatMessage>>(emptyList())
     val messages: LiveData<List<ChatMessage>> = _messages
 
@@ -56,34 +56,38 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     // Статус инициализации
     private val _isInitialized = MutableStateFlow(false)
     val isInitialized: StateFlow<Boolean> = _isInitialized
+    private var messagesJob: Job? = null
+    private var unreadCountJob: Job? = null
 
     /**
      * Инициализация ViewModel с deviceId
      */
     fun initialize(deviceId: String) {
+        val normalizedDeviceId = deviceId.trim()
+        if (normalizedDeviceId.isEmpty()) {
+            _error.value = "Chat device ID is not configured"
+            _isLoading.value = false
+            return
+        }
+
         viewModelScope.launch {
             try {
                 _isLoading.value = true
-                Log.d(TAG, "Инициализация ChatViewModel для устройства: $deviceId")
+                Log.d(TAG, "Initializing ChatViewModel for device: $normalizedDeviceId")
 
-                // Получить или создать профиль ребенка
-                val child = childRepository.getOrCreateChild(deviceId, "Ребенок")
+                val child = childRepository.getOrCreateChild(normalizedDeviceId, "Ребенок")
                 _currentChildId.value = child.id
-                Log.d(TAG, "Профиль ребенка загружен: ID=${child.id}, имя=${child.name}")
+                Log.d(TAG, "Chat child profile ready: id=${child.id}, name=${child.name}")
 
-                // Подписаться на обновления сообщений
                 subscribeToMessages(child.id)
 
-                // Загрузить количество непрочитанных
-                loadUnreadCount(child.id)
-
                 _isInitialized.value = true
-                _isLoading.value = false
-                Log.d(TAG, "ChatViewModel инициализирован успешно")
+                Log.d(TAG, "ChatViewModel initialized successfully")
 
             } catch (e: Exception) {
-                Log.e(TAG, "Ошибка инициализации ChatViewModel", e)
-                _error.value = "Ошибка инициализации: ${e.message}"
+                Log.e(TAG, "Failed to initialize ChatViewModel", e)
+                _error.value = "Chat initialization failed: ${e.message}"
+            } finally {
                 _isLoading.value = false
             }
         }
@@ -93,40 +97,30 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * Подписка на реактивные обновления сообщений
      */
     private fun subscribeToMessages(childId: Long) {
-        viewModelScope.launch {
-            try {
-                // Подписываемся на Flow сообщений
-                chatRepository.getMessagesForChildFlow(childId)
-                    .asLiveData(viewModelScope.coroutineContext)
-                    .observeForever { messagesList ->
-                        _messages.value = messagesList.sortedBy { it.timestamp }
-                        Log.d(TAG, "Сообщения обновлены: ${messagesList.size} шт.")
-                    }
+        messagesJob?.cancel()
+        unreadCountJob?.cancel()
 
-                // Подписываемся на количество непрочитанных
-                chatRepository.getUnreadCountFlow(childId)
-                    .asLiveData(viewModelScope.coroutineContext)
-                    .observeForever { count ->
-                        _unreadCount.value = count
-                        Log.d(TAG, "Непрочитанных сообщений: $count")
-                    }
-
-            } catch (e: Exception) {
-                Log.e(TAG, "Ошибка подписки на сообщения", e)
-                _error.value = "Ошибка загрузки сообщений: ${e.message}"
-            }
+        messagesJob = viewModelScope.launch {
+            chatRepository.getMessagesForChildFlow(childId)
+                .catch { error ->
+                    Log.e(TAG, "Failed to observe chat messages", error)
+                    _error.postValue("Failed to load chat messages: ${error.message}")
+                }
+                .collectLatest { messagesList ->
+                    _messages.postValue(messagesList.sortedBy { it.timestamp })
+                    Log.d(TAG, "Messages updated: ${messagesList.size}")
+                }
         }
-    }
 
-    /**
-     * Загрузить количество непрочитанных сообщений
-     */
-    private suspend fun loadUnreadCount(childId: Long) {
-        try {
-            val count = chatRepository.getUnreadCount(childId)
-            _unreadCount.postValue(count)
-        } catch (e: Exception) {
-            Log.e(TAG, "Ошибка загрузки количества непрочитанных", e)
+        unreadCountJob = viewModelScope.launch {
+            chatRepository.getUnreadCountFlowBySender(childId, INCOMING_SENDER)
+                .catch { error ->
+                    Log.e(TAG, "Failed to observe unread message count", error)
+                }
+                .collectLatest { count ->
+                    _unreadCount.postValue(count)
+                    Log.d(TAG, "Unread incoming messages: $count")
+                }
         }
     }
 
@@ -134,19 +128,32 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * Отправить сообщение
      */
     fun sendMessage(message: ChatMessage) {
+        persistMessages(listOf(message), "outgoing message")
+    }
+
+    fun saveMessage(message: ChatMessage) {
+        persistMessages(listOf(message), "chat message")
+    }
+
+    fun saveMessages(messages: List<ChatMessage>) {
+        persistMessages(messages, "chat batch")
+    }
+
+    private fun persistMessages(messages: List<ChatMessage>, label: String) {
         val childId = _currentChildId.value
         if (childId == null) {
-            _error.value = "Профиль ребенка не инициализирован"
+            _error.value = "Chat profile is not initialized"
             return
         }
+        if (messages.isEmpty()) return
 
         viewModelScope.launch {
             try {
-                chatRepository.insertMessage(message, childId)
-                Log.d(TAG, "Сообщение отправлено: ${message.text}")
+                chatRepository.insertMessages(messages, childId)
+                Log.d(TAG, "Persisted ${messages.size} $label item(s)")
             } catch (e: Exception) {
-                Log.e(TAG, "Ошибка отправки сообщения", e)
-                _error.value = "Ошибка отправки: ${e.message}"
+                Log.e(TAG, "Failed to persist $label", e)
+                _error.value = "Failed to persist chat data: ${e.message}"
             }
         }
     }
@@ -172,7 +179,7 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
      * Пометить сообщение как прочитанное
      */
     fun markAsRead(messageId: String) {
-        val childId = _currentChildId.value ?: return
+        _currentChildId.value ?: return
 
         viewModelScope.launch {
             try {
@@ -269,6 +276,8 @@ class ChatViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     override fun onCleared() {
+        messagesJob?.cancel()
+        unreadCountJob?.cancel()
         super.onCleared()
         Log.d(TAG, "ChatViewModel очищен")
     }

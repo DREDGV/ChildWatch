@@ -34,9 +34,16 @@
     <string name="chat_typing_parent">Родитель печатает...</string>
     <string name="chat_typing_child">Ребенок печатает...</string>
     <string name="chat_input_hint">Введите сообщение...</string>
+    <string name="chat_loading_messages">Загрузка сообщений...</string>
+    <string name="chat_unknown_error">Неизвестная ошибка</string>
+    <string name="chat_error_loading_messages">Ошибка загрузки сообщений: %1$s</string>
     <string name="chat_send">Отправить</string>
     <string name="chat_error_device_not_registered">Устройство не зарегистрировано. Настройте ID в настройках.</string>
     <string name="chat_error_device_id_not_set">Device ID не настроен</string>
+    <string name="location_service_monitoring_active">Мониторинг активен</string>
+    <string name="location_service_notification_active">Отслеживание активно</string>
+    <string name="location_service_notification_active_with_battery">Активно • %1$s</string>
+    <string name="location_service_emergency_stop_done">Экстренная остановка: все функции отключены</string>
     
     <!-- Map Strings -->
     <string name="location_unavailable">Локация недоступна</string>
@@ -47,4 +54,3 @@
     <string name="other_location">Текущая локация</string>
     <string name="refresh">Обновить</string>
 </resources>
-

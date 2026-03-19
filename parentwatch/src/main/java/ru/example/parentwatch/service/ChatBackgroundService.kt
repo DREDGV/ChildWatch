@@ -1,4 +1,4 @@
-package ru.example.parentwatch.service
+﻿package ru.example.parentwatch.service
 
 import android.app.Notification
 import android.app.NotificationChannel
@@ -15,6 +15,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -22,6 +23,7 @@ import ru.example.parentwatch.MainActivity
 import ru.example.parentwatch.R
 import ru.example.parentwatch.chat.ChatManager
 import ru.example.parentwatch.chat.ChatMessage
+import ru.example.parentwatch.chat.withStatus
 import ru.example.parentwatch.network.WebSocketManager
 import ru.example.parentwatch.utils.RemoteLogger
 import ru.example.parentwatch.utils.ServerUrlResolver
@@ -37,6 +39,8 @@ class ChatBackgroundService : LifecycleService() {
         private const val TAG = "ChatBackgroundService"
         private const val NOTIFICATION_ID = 2001
         private const val CHANNEL_ID = "chat_background_service"
+        private const val PREFS_NAME = "parentwatch_prefs"
+        private const val PREF_CHAT_DESIRED = "chat_service_desired"
 
         const val ACTION_START_SERVICE = "ru.example.parentwatch.START_CHAT_SERVICE"
         const val ACTION_STOP_SERVICE = "ru.example.parentwatch.STOP_CHAT_SERVICE"
@@ -74,6 +78,9 @@ class ChatBackgroundService : LifecycleService() {
     }
     private var backgroundMessageSentListener: ((String, Boolean, Long) -> Unit)? = null
     private var backgroundListenerRegistered = false
+    private var connectionHealthJob: kotlinx.coroutines.Job? = null
+    @Volatile private var reconnectInProgress = false
+    private var stopRequested = false
     @Volatile private var lastStartStreamAtMs: Long = 0L
     @Volatile private var lastStartStreamRate: Int = 24_000
     @Volatile private var lastStartStreamRecording: Boolean = false
@@ -118,17 +125,22 @@ class ChatBackgroundService : LifecycleService() {
                         lastStartStreamRecording = recording
                         Log.d(
                             TAG,
-                            "Received start_audio_stream (recording=$recording, sampleRate=$sampleRate), starting AudioStreamingService"
+                            "Received start_audio_stream (recording=$recording, sampleRate=$sampleRate), delegating to LocationService"
                         )
                         runCatching {
-                            AudioStreamingService.startStreaming(this, id, url, recording, sampleRate)
+                            LocationService.requestAudioStart(this, recording, sampleRate)
                         }.onFailure { error ->
-                            Log.e(TAG, "Failed to start AudioStreamingService", error)
+                            Log.e(TAG, "Failed to delegate audio start to LocationService, falling back", error)
+                            runCatching {
+                                AudioStreamingService.startStreaming(this, id, url, recording, sampleRate)
+                            }.onFailure { fallbackError ->
+                                Log.e(TAG, "Fallback AudioStreamingService start failed", fallbackError)
+                            }
                             RemoteLogger.error(
                                 serverUrl = url,
                                 deviceId = id,
                                 source = TAG,
-                                message = "Failed to start AudioStreamingService",
+                                message = "Failed to delegate audio start to LocationService",
                                 throwable = error
                             )
                         }
@@ -138,7 +150,8 @@ class ChatBackgroundService : LifecycleService() {
                 }
             }
             "stop_audio_stream" -> {
-                Log.d(TAG, "Received stop_audio_stream, stopping AudioStreamingService")
+                Log.d(TAG, "Received stop_audio_stream, delegating stop to LocationService")
+                runCatching { LocationService.requestAudioStop(this) }
                 AudioStreamingService.stopStreaming(this)
             }
         }
@@ -202,9 +215,13 @@ class ChatBackgroundService : LifecycleService() {
                     Log.d(TAG, "ChatManagerAdapter initialized with deviceId: $deviceId")
                 }
 
+                stopRequested = false
+                markChatDesired(true)
                 startForegroundService(serverUrl, deviceId)
             }
             ACTION_STOP_SERVICE -> {
+                stopRequested = true
+                markChatDesired(false)
                 stopForegroundService()
             }
             else -> {
@@ -218,22 +235,29 @@ class ChatBackgroundService : LifecycleService() {
     }
 
     private fun startForegroundService(serverUrl: String, deviceId: String) {
+        if (reconnectInProgress) {
+            Log.d(TAG, "Chat reconnect already in progress, skipping duplicate start")
+            return
+        }
         Log.d(TAG, "Starting chat background service (isRunning=$isRunning)")
 
         // Start foreground with notification
         if (!isRunning) {
-            startForeground(NOTIFICATION_ID, createNotification("Подключение..."))
+            startForeground(NOTIFICATION_ID, createNotification(getString(R.string.chat_service_connecting)))
         }
 
         if (isRunning &&
             serverUrl == lastServerUrl &&
             deviceId == lastDeviceId &&
-            WebSocketManager.getClient() != null
+            WebSocketManager.getClient() != null &&
+            WebSocketManager.isConnected() &&
+            WebSocketManager.isReady()
         ) {
             WebSocketManager.ensureConnected(
-                onReady = { updateNotification("Чат активен") },
-                onError = { updateNotification("Ошибка подключения") }
+                onReady = { updateNotification(getString(R.string.chat_service_active)) },
+                onError = { updateNotification(getString(R.string.chat_service_error)) }
             )
+            startConnectionHealthLoop(serverUrl, deviceId)
             return
         }
         lastServerUrl = serverUrl
@@ -250,133 +274,142 @@ class ChatBackgroundService : LifecycleService() {
         backgroundListenerRegistered = false
 
         // Use coroutine for delayed connection with retry logic
+        reconnectInProgress = true
         lifecycleScope.launch {
             var attempt = 0
             val maxAttempts = 3
             var connected = false
 
-            while (attempt < maxAttempts && !connected) {
-                attempt++
-                Log.d(TAG, "WebSocket connection attempt $attempt/$maxAttempts")
+            try {
+                while (attempt < maxAttempts && !connected) {
+                    attempt++
+                    Log.d(TAG, "WebSocket connection attempt $attempt/$maxAttempts")
 
-                // Add delay before connection (longer for first attempt)
-                val delayMs = if (attempt == 1) 2000L else 1000L
-                delay(delayMs)
+                    val delayMs = if (attempt == 1) 2000L else 1000L
+                    delay(delayMs)
 
-                try {
-                    WebSocketManager.initialize(
-                        this@ChatBackgroundService,
-                        serverUrl,
-                        deviceId,
-                        onMissedMessages = { missed ->
-                            missed.forEach { msg ->
-                                if (::chatManagerAdapter.isInitialized) {
-                                    chatManagerAdapter.saveMessage(msg)
+                    try {
+                        WebSocketManager.initialize(
+                            this@ChatBackgroundService,
+                            serverUrl,
+                            deviceId,
+                            onMissedMessages = { missed ->
+                                missed.forEach { msg ->
+                                    val persistedMessage =
+                                        if (msg.sender == "parent" && !msg.isRead && msg.id.isNotEmpty()) {
+                                            msg.withStatus(ChatMessage.MessageStatus.DELIVERED)
+                                        } else {
+                                            msg
+                                        }
+                                    if (::chatManagerAdapter.isInitialized) {
+                                        chatManagerAdapter.saveMessage(persistedMessage)
+                                    }
+                                    if (msg.sender == "parent" && !msg.isRead && msg.id.isNotEmpty()) {
+                                        WebSocketManager.sendChatStatus(msg.id, "delivered", "child")
+                                    }
+                                    if (shouldShowIncomingChatNotification(msg.sender)) {
+                                        val senderName = if (msg.sender == "parent") "Parent" else "Child"
+                                        ru.example.parentwatch.utils.NotificationManager.showChatNotification(
+                                            context = this@ChatBackgroundService,
+                                            senderName = senderName,
+                                            messageText = msg.text,
+                                            timestamp = msg.timestamp
+                                        )
+                                    }
                                 }
-                                if (msg.sender == "parent" && !msg.isRead && msg.id.isNotEmpty()) {
-                                    chatManagerAdapter.updateMessageStatus(msg.id, ChatMessage.MessageStatus.DELIVERED)
-                                    WebSocketManager.sendChatStatus(msg.id, "delivered", "child")
-                                }
-                                if (shouldShowIncomingChatNotification(msg.sender)) {
-                                    val senderName = if (msg.sender == "parent") "Parent" else "Child"
-                                    ru.example.parentwatch.utils.NotificationManager.showChatNotification(
-                                        context = this@ChatBackgroundService,
-                                        senderName = senderName,
-                                        messageText = msg.text,
-                                        timestamp = msg.timestamp
+                            }
+                        )
+                        WebSocketManager.setChatStatusCallback { messageId, status, _ ->
+                            handleStatusUpdate(messageId, status)
+                        }
+                        if (backgroundMessageSentListener == null) {
+                            backgroundMessageSentListener = { messageId, delivered, _ ->
+                                handleMessageSentAck(messageId, delivered)
+                            }
+                            WebSocketManager.addChatMessageSentListener(backgroundMessageSentListener!!)
+                        }
+                        if (!backgroundListenerRegistered) {
+                            WebSocketManager.addChatMessageListener(backgroundListener)
+                            WebSocketManager.addCommandListener(commandListener)
+                            backgroundListenerRegistered = true
+                        }
+
+                        WebSocketManager.setPhotoRequestCallback { requestId, targetDevice, cameraFacing ->
+                            Log.d(TAG, "рџ“ё Photo request received (req=$requestId, target=$targetDevice)")
+                            PhotoCaptureService.dispatchPhotoRequest(
+                                this@ChatBackgroundService,
+                                serverUrl,
+                                deviceId,
+                                requestId,
+                                targetDevice,
+                                cameraFacing
+                            )
+                        }
+
+                        WebSocketManager.setParentLocationCallback { parentId, lat, lon, accuracy, timestamp, speed, bearing ->
+                            lifecycleScope.launch(Dispatchers.IO) {
+                                try {
+                                    val database = ru.example.parentwatch.database.ParentWatchDatabase.getInstance(this@ChatBackgroundService)
+                                    val location = ru.example.parentwatch.database.entity.ParentLocation(
+                                        parentId = parentId,
+                                        latitude = lat,
+                                        longitude = lon,
+                                        accuracy = accuracy,
+                                        timestamp = timestamp,
+                                        provider = "websocket",
+                                        speed = speed,
+                                        bearing = bearing
                                     )
+                                    database.parentLocationDao().insertLocation(location)
+                                    Log.d(TAG, "вњ… Parent location saved to DB: $lat, $lon")
+                                } catch (e: Exception) {
+                                    Log.e(TAG, "вќЊ Error saving parent location to DB", e)
                                 }
                             }
                         }
-                    )
-                    WebSocketManager.setChatStatusCallback { messageId, status, _ ->
-                        handleStatusUpdate(messageId, status)
-                    }
-                    if (backgroundMessageSentListener == null) {
-                        backgroundMessageSentListener = { messageId, delivered, _ ->
-                            handleMessageSentAck(messageId, delivered)
-                        }
-                        WebSocketManager.addChatMessageSentListener(backgroundMessageSentListener!!)
-                    }
-                    if (!backgroundListenerRegistered) {
-                        WebSocketManager.addChatMessageListener(backgroundListener)
-                        WebSocketManager.addCommandListener(commandListener)
-                        backgroundListenerRegistered = true
-                    }
 
-                    // Регистрируем callback запроса фото ДО connect
-                    WebSocketManager.setPhotoRequestCallback { requestId, targetDevice, cameraFacing ->
-                        Log.d(TAG, "📸 Photo request received (req=$requestId, target=$targetDevice)")
-                        // Запускаем сервис захвата фото если не запущен
-                        ensurePhotoCaptureService(serverUrl, deviceId)
-                        // Сервис сам обработает через PhotoCaptureService.setPhotoRequestCallback
-                    }
-                    
-                    // Setup parent location listener to save to DB
-                    WebSocketManager.setParentLocationCallback { parentId, lat, lon, accuracy, timestamp, speed, bearing ->
-                        lifecycleScope.launch(Dispatchers.IO) {
-                            try {
-                                val database = ru.example.parentwatch.database.ParentWatchDatabase.getInstance(this@ChatBackgroundService)
-                                val location = ru.example.parentwatch.database.entity.ParentLocation(
-                                    parentId = parentId,
-                                    latitude = lat,
-                                    longitude = lon,
-                                    accuracy = accuracy,
-                                    timestamp = timestamp,
-                                    provider = "websocket",
-                                    speed = speed,
-                                    bearing = bearing
-                                )
-                                database.parentLocationDao().insertLocation(location)
-                                Log.d(TAG, "✅ Parent location saved to DB: $lat, $lon")
-                            } catch (e: Exception) {
-                                Log.e(TAG, "❌ Error saving parent location to DB", e)
+                        WebSocketManager.connect(
+                            onConnected = {
+                                Log.d(TAG, "вњ… WebSocket connected successfully on attempt $attempt")
+                                updateNotification(getString(R.string.chat_service_active))
+                                try { WebSocketManager.getClient()?.startHeartbeat() } catch (_: Exception) {}
+                                ensurePhotoCaptureService(serverUrl, deviceId)
+                                connected = true
+                            },
+                            onError = { error ->
+                                Log.e(TAG, "вќЊ WebSocket connection error on attempt $attempt: $error")
+                                if (attempt >= maxAttempts) {
+                                    updateNotification(getString(R.string.chat_service_error))
+                                }
                             }
-                        }
-                    }
+                        )
 
-                    // Connect WebSocket
-                    WebSocketManager.connect(
-                        onConnected = {
-                            Log.d(TAG, "✅ WebSocket connected successfully on attempt $attempt")
-                            updateNotification("Чат активен")
-                            // Heartbeat для устойчивости
-                            try { WebSocketManager.getClient()?.startHeartbeat() } catch (_: Exception) {}
-                            // Автостарт сервиса фото (если разрешено)
-                            ensurePhotoCaptureService(serverUrl, deviceId)
+                        delay(1500)
+
+                        if (WebSocketManager.isConnected()) {
                             connected = true
-                        },
-                        onError = { error ->
-                            Log.e(TAG, "❌ WebSocket connection error on attempt $attempt: $error")
-                            if (attempt >= maxAttempts) {
-                                updateNotification("Ошибка подключения")
-                            }
+                            Log.d(TAG, "вњ… WebSocket connection verified on attempt $attempt")
                         }
-                    )
 
-                    // Wait a bit to see if connection succeeds
-                    delay(1500)
-
-                    if (WebSocketManager.isConnected()) {
-                        connected = true
-                        Log.d(TAG, "✅ WebSocket connection verified on attempt $attempt")
-                    }
-
-                } catch (e: Exception) {
-                    Log.e(TAG, "Exception during connection attempt $attempt", e)
-                    if (attempt >= maxAttempts) {
-                        updateNotification("Ошибка подключения")
+                    } catch (e: Exception) {
+                        Log.e(TAG, "Exception during connection attempt $attempt", e)
+                        if (attempt >= maxAttempts) {
+                            updateNotification(getString(R.string.chat_service_error))
+                        }
                     }
                 }
+            } finally {
+                reconnectInProgress = false
             }
 
             if (!connected) {
-                Log.e(TAG, "❌ Failed to connect WebSocket after $maxAttempts attempts")
-                updateNotification("Не удалось подключиться")
+                Log.e(TAG, "вќЊ Failed to connect WebSocket after $maxAttempts attempts")
+                updateNotification(getString(R.string.chat_service_unavailable))
             }
         }
 
         isRunning = true
+        startConnectionHealthLoop(serverUrl, deviceId)
     }
 
     private fun stopForegroundService() {
@@ -387,6 +420,8 @@ class ChatBackgroundService : LifecycleService() {
         backgroundMessageSentListener?.let { WebSocketManager.removeChatMessageSentListener(it) }
         backgroundMessageSentListener = null
         WebSocketManager.removeCommandListener(commandListener)
+        connectionHealthJob?.cancel()
+        connectionHealthJob = null
 
         // Stop foreground
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -406,35 +441,39 @@ class ChatBackgroundService : LifecycleService() {
     private fun handleIncomingMessage(messageId: String, text: String, sender: String, timestamp: Long) {
         Log.d(TAG, "Received message: $text from $sender")
 
-        // Сохраняем сообщение в БД в любом случае (даже если UI активен)
+        // РЎРѕС…СЂР°РЅСЏРµРј СЃРѕРѕР±С‰РµРЅРёРµ РІ Р‘Р” РІ Р»СЋР±РѕРј СЃР»СѓС‡Р°Рµ (РґР°Р¶Рµ РµСЃР»Рё UI Р°РєС‚РёРІРµРЅ)
         val message = ChatMessage(
             id = messageId,
             text = text,
             sender = sender,
             timestamp = timestamp,
-            isRead = false // Mark as unread
+            isRead = false,
+            status = if (sender == "parent") {
+                ChatMessage.MessageStatus.DELIVERED
+            } else {
+                ChatMessage.MessageStatus.SENT
+            }
         )
         if (::chatManagerAdapter.isInitialized) {
             chatManagerAdapter.saveMessage(message)
-            chatManagerAdapter.updateMessageStatus(messageId, ChatMessage.MessageStatus.DELIVERED)
         } else {
             Log.e(TAG, "ChatManagerAdapter not initialized, message not saved")
         }
 
-        // Отправляем подтверждение о доставке в любом случае
+        // РћС‚РїСЂР°РІР»СЏРµРј РїРѕРґС‚РІРµСЂР¶РґРµРЅРёРµ Рѕ РґРѕСЃС‚Р°РІРєРµ РІ Р»СЋР±РѕРј СЃР»СѓС‡Р°Рµ
         if (sender == "parent" && messageId.isNotEmpty()) {
             WebSocketManager.sendChatStatus(messageId, "delivered", "child")
             Log.d(TAG, "Sent delivered status for message: $messageId")
         }
 
-        // Проверяем активен ли UI чата - если да, то показываем уведомление
-        // Service НЕ должен показывать уведомление если UI активен
+        // РџСЂРѕРІРµСЂСЏРµРј Р°РєС‚РёРІРµРЅ Р»Рё UI С‡Р°С‚Р° - РµСЃР»Рё РґР°, С‚Рѕ РїРѕРєР°Р·С‹РІР°РµРј СѓРІРµРґРѕРјР»РµРЅРёРµ
+        // Service РќР• РґРѕР»Р¶РµРЅ РїРѕРєР°Р·С‹РІР°С‚СЊ СѓРІРµРґРѕРјР»РµРЅРёРµ РµСЃР»Рё UI Р°РєС‚РёРІРµРЅ
         if (ru.example.parentwatch.ChatActivity.isChatUiVisible) {
             Log.d(TAG, "Chat UI is visible, skipping notification")
             return
         }
 
-        // Показываем уведомление только если чат закрыт
+        // РџРѕРєР°Р·С‹РІР°РµРј СѓРІРµРґРѕРјР»РµРЅРёРµ С‚РѕР»СЊРєРѕ РµСЃР»Рё С‡Р°С‚ Р·Р°РєСЂС‹С‚
         if (shouldShowIncomingChatNotification(sender)) {
             val senderName = if (sender == "parent") "Parent" else "Child"
             ru.example.parentwatch.utils.NotificationManager.showChatNotification(
@@ -512,10 +551,10 @@ class ChatBackgroundService : LifecycleService() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Фоновый чат",
+                getString(R.string.chat_service_channel_name),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "Держит соединение для получения сообщений"
+                description = getString(R.string.chat_service_channel_description)
                 setShowBadge(false)
             }
 
@@ -538,7 +577,7 @@ class ChatBackgroundService : LifecycleService() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("ParentWatch - Чат")
+            .setContentTitle(getString(R.string.chat_service_title))
             .setContentText(contentText)
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
@@ -561,7 +600,7 @@ class ChatBackgroundService : LifecycleService() {
                 Log.d(TAG, "Remote photo disabled (allow_remote_photo=false)")
                 return
             }
-            // Простой признак: запущена ли нотификация сервиса (можно отслеживать глобальный static в PhotoCaptureService при расширении)
+            // РџСЂРѕСЃС‚РѕР№ РїСЂРёР·РЅР°Рє: Р·Р°РїСѓС‰РµРЅР° Р»Рё РЅРѕС‚РёС„РёРєР°С†РёСЏ СЃРµСЂРІРёСЃР° (РјРѕР¶РЅРѕ РѕС‚СЃР»РµР¶РёРІР°С‚СЊ РіР»РѕР±Р°Р»СЊРЅС‹Р№ static РІ PhotoCaptureService РїСЂРё СЂР°СЃС€РёСЂРµРЅРёРё)
             PhotoCaptureService.start(this, serverUrl, deviceId)
             Log.d(TAG, "PhotoCaptureService ensure start invoked")
         } catch (e: Exception) {
@@ -581,6 +620,38 @@ class ChatBackgroundService : LifecycleService() {
         backgroundMessageSentListener?.let { WebSocketManager.removeChatMessageSentListener(it) }
         backgroundMessageSentListener = null
         WebSocketManager.removeCommandListener(commandListener)
+        connectionHealthJob?.cancel()
+        connectionHealthJob = null
         isRunning = false
     }
+
+    private fun startConnectionHealthLoop(serverUrl: String, deviceId: String) {
+        connectionHealthJob?.cancel()
+        connectionHealthJob = lifecycleScope.launch {
+            while (isActive) {
+                delay(15_000L)
+                if (!isChatDesired() || stopRequested) continue
+
+                ensurePhotoCaptureService(serverUrl, deviceId)
+
+                val degraded = !WebSocketManager.isConnected() || !WebSocketManager.isReady()
+                if (degraded && !reconnectInProgress) {
+                    Log.w(TAG, "Chat health check detected degraded socket, forcing reconnect")
+                    startForegroundService(serverUrl, deviceId)
+                }
+            }
+        }
+    }
+
+    private fun markChatDesired(desired: Boolean) {
+        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
+            .putBoolean(PREF_CHAT_DESIRED, desired)
+            .apply()
+    }
+
+    private fun isChatDesired(): Boolean {
+        return getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            .getBoolean(PREF_CHAT_DESIRED, false)
+    }
 }
+

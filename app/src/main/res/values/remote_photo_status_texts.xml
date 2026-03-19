@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_photo_status_queued_front">Запрос принят, готовим снимок с фронтальной камеры...</string>
+    <string name="remote_photo_status_queued_back">Запрос принят, готовим снимок с основной камеры...</string>
+    <string name="remote_photo_status_delayed">Устройство приняло запрос, но снимок не пришел</string>
+    <string name="remote_photo_toast_delayed">Камера не прислала фото вовремя</string>
+</resources>

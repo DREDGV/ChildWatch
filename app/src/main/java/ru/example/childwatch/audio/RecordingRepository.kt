@@ -73,7 +73,9 @@ class RecordingRepository(private val context: Context) {
                         filePath = obj.getString("filePath"),
                         createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
                         durationMs = obj.optLong("durationMs", 0L),
-                        sizeBytes = obj.optLong("sizeBytes", 0L)
+                        sizeBytes = obj.optLong("sizeBytes", 0L),
+                        downloadUrl = obj.optString("downloadUrl").takeIf { it.isNotBlank() },
+                        remoteFileId = obj.optLong("remoteFileId").takeIf { it > 0L }
                     )
                 )
             }
@@ -96,11 +98,14 @@ class RecordingRepository(private val context: Context) {
                         put("createdAt", metadata.createdAt)
                         put("durationMs", metadata.durationMs)
                         put("sizeBytes", metadata.sizeBytes)
+                        metadata.downloadUrl?.let { put("downloadUrl", it) }
+                        metadata.remoteFileId?.let { put("remoteFileId", it) }
                     }
                 )
             }
-            if (!indexFile.parentFile.exists()) {
-                indexFile.parentFile?.mkdirs()
+            val parentDir = indexFile.parentFile
+            if (parentDir != null && !parentDir.exists()) {
+                parentDir.mkdirs()
             }
             indexFile.writeText(array.toString())
         } catch (e: Exception) {

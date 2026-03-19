@@ -163,6 +163,60 @@ class NetworkHelper(private val context: Context) {
     }
 
     /**
+     * Upload device status snapshot without creating a new location point.
+     */
+    suspend fun uploadDeviceStatus(
+        serverUrl: String,
+        deviceInfo: JSONObject
+    ): Boolean = withContext(Dispatchers.IO) {
+        val maxRetries = 3
+
+        repeat(maxRetries) { attempt ->
+            try {
+                val url = "${serverUrl.trimEnd('/')}/api/device/status"
+                val jsonData = JSONObject().apply {
+                    put("deviceInfo", deviceInfo)
+                }
+
+                val requestBody = jsonData.toString()
+                    .toRequestBody("application/json; charset=utf-8".toMediaType())
+
+                val request = Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .build()
+
+                if (attempt > 0) {
+                    Log.d(TAG, "Retry attempt $attempt: Uploading device status")
+                } else {
+                    Log.d(TAG, "Uploading device status snapshot")
+                }
+
+                client.newCall(request).execute().use { response ->
+                    if (response.isSuccessful) {
+                        prefs.edit()
+                            .putLong("last_status_update", System.currentTimeMillis())
+                            .apply()
+                        return@withContext true
+                    } else {
+                        Log.e(TAG, "Device status upload failed: ${response.code}")
+                        if (attempt < maxRetries - 1) {
+                            kotlinx.coroutines.delay(1000L * (attempt + 1))
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Device status upload error (attempt ${attempt + 1})", e)
+                if (attempt < maxRetries - 1) {
+                    kotlinx.coroutines.delay(1000L * (attempt + 1))
+                }
+            }
+        }
+
+        return@withContext false
+    }
+
+    /**
      * Upload location to server with retry (for network change resilience)
      */
     suspend fun uploadLocation(

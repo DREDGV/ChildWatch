@@ -5,6 +5,8 @@ import android.Manifest
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
@@ -14,9 +16,11 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import ru.example.parentwatch.MainActivity
 import ru.example.parentwatch.R
-import ru.example.parentwatch.network.NetworkHelper
+import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.network.WebSocketManager
+import java.io.ByteArrayOutputStream
 import java.io.File
+import java.util.ArrayDeque
 
 /**
  * Foreground Service for remote photo capture
@@ -33,11 +37,41 @@ class PhotoCaptureService : Service() {
         private const val TAG = "PhotoCaptureService"
         private const val NOTIFICATION_ID = 3001
         private const val CHANNEL_ID = "photo_capture_channel"
+        private const val EXTRA_SERVER_URL = "server_url"
+        private const val EXTRA_DEVICE_ID = "device_id"
+        private const val EXTRA_REQUEST_ID = "request_id"
+        private const val EXTRA_TARGET_DEVICE = "target_device"
+        private const val EXTRA_CAMERA_FACING = "camera_facing"
+        private const val MAX_PREVIEW_DIMENSION = 960
+        private const val PREVIEW_JPEG_QUALITY = 72
 
         fun start(context: Context, serverUrl: String, deviceId: String) {
             val intent = Intent(context, PhotoCaptureService::class.java).apply {
-                putExtra("server_url", serverUrl)
-                putExtra("device_id", deviceId)
+                putExtra(EXTRA_SERVER_URL, serverUrl)
+                putExtra(EXTRA_DEVICE_ID, deviceId)
+            }
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
+
+        fun dispatchPhotoRequest(
+            context: Context,
+            serverUrl: String,
+            deviceId: String,
+            requestId: String,
+            targetDevice: String,
+            cameraFacing: String
+        ) {
+            val intent = Intent(context, PhotoCaptureService::class.java).apply {
+                putExtra(EXTRA_SERVER_URL, serverUrl)
+                putExtra(EXTRA_DEVICE_ID, deviceId)
+                putExtra(EXTRA_REQUEST_ID, requestId)
+                putExtra(EXTRA_TARGET_DEVICE, targetDevice)
+                putExtra(EXTRA_CAMERA_FACING, cameraFacing)
             }
 
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -55,9 +89,14 @@ class PhotoCaptureService : Service() {
 
     private val serviceScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private var cameraService: CameraService? = null
-    private var networkHelper: NetworkHelper? = null
+    private var networkClient: NetworkClient? = null
     private var serverUrl: String? = null
     private var deviceId: String? = null
+    private var listenersRegistered = false
+    private val requestLock = Any()
+    private val activePhotoRequests = mutableSetOf<String>()
+    private val recentPhotoRequests = ArrayDeque<String>()
+    private val recentPhotoRequestSet = mutableSetOf<String>()
     private val commandListener: (String, JSONObject?) -> Unit = { command, data ->
         when (command) {
             "take_photo" -> {
@@ -76,20 +115,27 @@ class PhotoCaptureService : Service() {
         Log.d(TAG, "PhotoCaptureService created")
 
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification("РћР¶РёРґР°РЅРёРµ РєРѕРјР°РЅРґ..."))
+        startForeground(NOTIFICATION_ID, createNotification())
 
         cameraService = CameraService(this)
         cameraService?.initialize()
 
-        networkHelper = NetworkHelper(this)
+        networkClient = NetworkClient(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        serverUrl = intent?.getStringExtra("server_url")
-        deviceId = intent?.getStringExtra("device_id")
+        serverUrl = intent?.getStringExtra(EXTRA_SERVER_URL)
+        deviceId = intent?.getStringExtra(EXTRA_DEVICE_ID)
 
         if (serverUrl != null && deviceId != null) {
             setupWebSocketListener()
+        }
+
+        val requestId = intent?.getStringExtra(EXTRA_REQUEST_ID)
+        if (!requestId.isNullOrBlank()) {
+            val targetDevice = intent.getStringExtra(EXTRA_TARGET_DEVICE).orEmpty()
+            val cameraFacing = intent.getStringExtra(EXTRA_CAMERA_FACING).orEmpty().ifBlank { "back" }
+            handlePhotoRequest(requestId, targetDevice, cameraFacing)
         }
 
         return START_STICKY
@@ -99,18 +145,14 @@ class PhotoCaptureService : Service() {
      * Setup WebSocket listener for photo commands
      */
     private fun setupWebSocketListener() {
+        if (listenersRegistered) return
         try {
             // Add command listener to WebSocketManager
             WebSocketManager.addCommandListener(commandListener)
-
-            // Add photo request listener (for request_photo event)
-            WebSocketManager.setPhotoRequestCallback { requestId, targetDevice, cameraFacing ->
-                Log.d(TAG, "рџ“ё Received photo request: requestId=$requestId, target=$targetDevice, camera=$cameraFacing")
-                handlePhotoRequest(requestId, targetDevice, cameraFacing)
-            }
+            listenersRegistered = true
 
             Log.d(TAG, "Photo capture service ready - listening for commands")
-            updateNotification("Р“РѕС‚РѕРІ Рє Р·Р°С…РІР°С‚Сѓ С„РѕС‚Рѕ")
+            updateNotification(R.string.photo_capture_ready)
         } catch (e: Exception) {
             Log.e(TAG, "Error setting up listener", e)
         }
@@ -122,25 +164,36 @@ class PhotoCaptureService : Service() {
     fun handleTakePhotoCommand(cameraFacing: String = "front") {
         if (!hasCameraPermission()) {
             Log.e(TAG, "Camera permission not granted for take_photo command")
-            updateNotification("Нет доступа к камере")
+            updateNotification(R.string.photo_capture_no_camera_access)
             return
         }
 
-        Log.d(TAG, "Taking photo with $cameraFacing camera")
-        updateNotification("Р—Р°С…РІР°С‚ С„РѕС‚Рѕ...")
-
-        val facing = when (cameraFacing.lowercase()) {
-            "back" -> CameraService.CameraFacing.BACK
-            else -> CameraService.CameraFacing.FRONT
+        val service = cameraService
+        if (service == null) {
+            Log.e(TAG, "Camera service not initialized")
+            updateNotification(R.string.photo_capture_capture_error)
+            return
         }
 
-        cameraService?.capturePhoto(facing) { photoFile ->
+        val facing = resolveRequestedFacing(service, cameraFacing)
+        if (facing == null) {
+            Log.e(TAG, "No available camera for requested facing=$cameraFacing")
+            updateNotification(R.string.photo_capture_capture_error)
+            return
+        }
+
+        Log.d(TAG, "Taking photo with $facing camera")
+        AudioStreamingService.pauseCaptureForPhoto(this)
+        updateNotification(R.string.photo_capture_capturing)
+        service.capturePhoto(facing) { photoFile ->
             if (photoFile != null) {
                 Log.d(TAG, "Photo captured: ${photoFile.absolutePath}")
+                AudioStreamingService.resumeIfDesired(this)
                 uploadPhoto(photoFile)
             } else {
                 Log.e(TAG, "Photo capture failed")
-                updateNotification("РћС€РёР±РєР° Р·Р°С…РІР°С‚Р°")
+                AudioStreamingService.resumeIfDesired(this)
+                updateNotification(R.string.photo_capture_capture_error)
             }
         }
     }
@@ -148,7 +201,7 @@ class PhotoCaptureService : Service() {
     /**
      * Handle photo request from parent via WebSocket
      */
-        private fun handlePhotoRequest(requestId: String, targetDevice: String, cameraFacing: String) {
+    private fun handlePhotoRequest(requestId: String, targetDevice: String, cameraFacing: String) {
         Log.d(TAG, "Handling photo request: $requestId for device: $targetDevice")
 
         val myDeviceId = deviceId ?: ""
@@ -160,30 +213,51 @@ class PhotoCaptureService : Service() {
         if (!hasCameraPermission()) {
             Log.e(TAG, "Camera permission not granted for photo request")
             sendPhotoError(requestId, "Camera permission denied")
-            updateNotification("Нет доступа к камере")
+            updateNotification(R.string.photo_capture_no_camera_access)
             return
         }
 
-        updateNotification("Захват фото по запросу...")
+        if (!beginPhotoRequest(requestId)) {
+            Log.d(TAG, "Duplicate or already handled photo request ignored: $requestId")
+            return
+        }
 
-        capturePhotoWithFallback(preferredFacing = cameraFacing) { photoFile ->
+        val service = cameraService
+        if (service == null) {
+            Log.e(TAG, "Camera service not initialized for request: $requestId")
+            completePhotoRequestAfterError(requestId, "Camera service unavailable")
+            updateNotification(R.string.photo_capture_capture_error)
+            return
+        }
+
+        val requestedFacing = resolveRequestedFacing(service, cameraFacing)
+        if (requestedFacing == null) {
+            Log.e(TAG, "No camera available for request: $requestId")
+            completePhotoRequestAfterError(requestId, "Requested camera not available")
+            updateNotification(R.string.photo_capture_capture_error)
+            return
+        }
+
+        updateNotification(R.string.photo_capture_request_capturing)
+        AudioStreamingService.pauseCaptureForPhoto(this)
+
+        service.capturePhoto(requestedFacing) { photoFile ->
             if (photoFile != null) {
                 Log.d(TAG, "Photo captured for request: $requestId")
                 sendPhotoViaWebSocket(photoFile, requestId)
             } else {
                 Log.e(TAG, "Photo capture failed for request: $requestId")
-                sendPhotoError(requestId, "Failed to capture photo")
-                updateNotification("Ошибка захвата")
+                AudioStreamingService.resumeIfDesired(this)
+                completePhotoRequestAfterError(requestId, "Failed to capture photo")
+                updateNotification(R.string.photo_capture_capture_error)
             }
         }
     }
 
-    private fun capturePhotoWithFallback(preferredFacing: String = "back", onResult: (File?) -> Unit) {
-        val service = cameraService
-        if (service == null) {
-            onResult(null)
-            return
-        }
+    private fun resolveRequestedFacing(
+        service: CameraService,
+        preferredFacing: String
+    ): CameraService.CameraFacing? {
         val preferred = if (preferredFacing.equals("front", ignoreCase = true)) {
             CameraService.CameraFacing.FRONT
         } else {
@@ -195,16 +269,52 @@ class PhotoCaptureService : Service() {
             CameraService.CameraFacing.BACK
         }
 
-        service.capturePhoto(preferred) { primaryPhoto ->
-            if (primaryPhoto != null) {
-                onResult(primaryPhoto)
-                return@capturePhoto
+        return when {
+            service.hasCameraFacing(preferred) -> preferred
+            service.hasCameraFacing(fallback) -> {
+                Log.w(TAG, "Requested camera $preferredFacing is unavailable, using $fallback")
+                fallback
             }
+            else -> null
+        }
+    }
 
-            Log.w(TAG, "Primary camera capture failed ($preferred), retrying with $fallback")
-            service.capturePhoto(fallback) { secondaryPhoto ->
-                onResult(secondaryPhoto)
+    private fun beginPhotoRequest(requestId: String): Boolean {
+        synchronized(requestLock) {
+            if (requestId in activePhotoRequests || requestId in recentPhotoRequestSet) {
+                return false
             }
+            activePhotoRequests.add(requestId)
+            return true
+        }
+    }
+
+    private fun finishPhotoRequest(requestId: String) {
+        synchronized(requestLock) {
+            activePhotoRequests.remove(requestId)
+            if (requestId.isNotBlank()) {
+                recentPhotoRequestSet.add(requestId)
+                recentPhotoRequests.addLast(requestId)
+                while (recentPhotoRequests.size > 64) {
+                    val evicted = recentPhotoRequests.removeFirst()
+                    recentPhotoRequestSet.remove(evicted)
+                }
+            }
+        }
+    }
+
+    private fun abandonPhotoRequest(requestId: String) {
+        synchronized(requestLock) {
+            activePhotoRequests.remove(requestId)
+        }
+    }
+
+    private fun completePhotoRequestAfterError(requestId: String, error: String) {
+        val errorSent = sendPhotoError(requestId, error)
+        if (errorSent) {
+            finishPhotoRequest(requestId)
+        } else {
+            abandonPhotoRequest(requestId)
         }
     }
 
@@ -220,8 +330,13 @@ class PhotoCaptureService : Service() {
     private fun sendPhotoViaWebSocket(photoFile: File, requestId: String) {
         serviceScope.launch(Dispatchers.IO) {
             try {
-                val bytes = photoFile.readBytes()
-                val base64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                val client = WebSocketManager.getClient()
+                if (client == null || !client.isReady()) {
+                    throw IllegalStateException("WebSocket client is not ready")
+                }
+
+                val base64 = buildPreviewBase64(photoFile)
+                    ?: throw IllegalStateException("Failed to encode preview photo")
                 
                 val data = org.json.JSONObject().apply {
                     put("photo", base64)
@@ -230,43 +345,123 @@ class PhotoCaptureService : Service() {
                     put("deviceId", deviceId)
                 }
                 
-                WebSocketManager.getClient()?.emit("photo", data)
-                Log.d(TAG, "вњ… Photo sent via WebSocket: ${bytes.size} bytes, requestId=$requestId")
+                client.emit("photo", data)
+                Log.d(TAG, "Photo preview sent via WebSocket: requestId=$requestId, base64Length=${base64.length}")
                 
                 withContext(Dispatchers.Main) {
-                    updateNotification("Р¤РѕС‚Рѕ РѕС‚РїСЂР°РІР»РµРЅРѕ")
+                    updateNotification(R.string.photo_capture_sent)
+                }
+
+                val uploadSuccess = uploadPhotoForGallery(photoFile)
+                if (uploadSuccess) {
+                    Log.d(TAG, "Photo uploaded for gallery after preview send: requestId=$requestId")
+                } else {
+                    Log.w(TAG, "Photo preview delivered, but gallery upload failed: requestId=$requestId")
                 }
                 
                 // Clean up
                 photoFile.delete()
                 delay(2000)
-                updateNotification("Р“РѕС‚РѕРІ Рє Р·Р°С…РІР°С‚Сѓ С„РѕС‚Рѕ")
+                updateNotification(R.string.photo_capture_ready)
+                finishPhotoRequest(requestId)
+                AudioStreamingService.resumeIfDesired(this@PhotoCaptureService)
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending photo via WebSocket", e)
-                sendPhotoError(requestId, e.message ?: "Unknown error")
+                val errorSent = sendPhotoError(requestId, e.message ?: "Unknown error")
                 withContext(Dispatchers.Main) {
-                    updateNotification("РћС€РёР±РєР° РѕС‚РїСЂР°РІРєРё")
+                    updateNotification(R.string.photo_capture_send_error)
                 }
+                if (errorSent) {
+                    finishPhotoRequest(requestId)
+                } else {
+                    abandonPhotoRequest(requestId)
+                }
+                AudioStreamingService.resumeIfDesired(this@PhotoCaptureService)
             }
         }
+    }
+
+    private suspend fun uploadPhotoForGallery(photoFile: File): Boolean {
+        val safeServerUrl = serverUrl
+        if (safeServerUrl.isNullOrBlank()) {
+            return false
+        }
+
+        return networkClient?.uploadPhoto(safeServerUrl, photoFile) ?: false
+    }
+
+    private fun buildPreviewBase64(photoFile: File): String? {
+        val bounds = BitmapFactory.Options().apply {
+            inJustDecodeBounds = true
+        }
+        BitmapFactory.decodeFile(photoFile.absolutePath, bounds)
+
+        val sampleSize = calculateSampleSize(
+            bounds.outWidth,
+            bounds.outHeight,
+            MAX_PREVIEW_DIMENSION,
+            MAX_PREVIEW_DIMENSION
+        )
+
+        val options = BitmapFactory.Options().apply {
+            inPreferredConfig = Bitmap.Config.RGB_565
+            inSampleSize = sampleSize
+        }
+
+        val bitmap = BitmapFactory.decodeFile(photoFile.absolutePath, options)
+            ?: return if (photoFile.length() <= 512 * 1024) {
+                android.util.Base64.encodeToString(photoFile.readBytes(), android.util.Base64.NO_WRAP)
+            } else {
+                null
+            }
+
+        return try {
+            ByteArrayOutputStream().use { output ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, PREVIEW_JPEG_QUALITY, output)
+                android.util.Base64.encodeToString(output.toByteArray(), android.util.Base64.NO_WRAP)
+            }
+        } finally {
+            bitmap.recycle()
+        }
+    }
+
+    private fun calculateSampleSize(
+        width: Int,
+        height: Int,
+        reqWidth: Int,
+        reqHeight: Int
+    ): Int {
+        var inSampleSize = 1
+        while (width / inSampleSize > reqWidth * 2 || height / inSampleSize > reqHeight * 2) {
+            inSampleSize *= 2
+        }
+        return inSampleSize.coerceAtLeast(1)
     }
     
     /**
      * Send photo error via WebSocket
      */
-    private fun sendPhotoError(requestId: String, error: String) {
+    private fun sendPhotoError(requestId: String, error: String): Boolean {
         try {
+            val client = WebSocketManager.getClient()
+            if (client == null || !client.isReady()) {
+                Log.w(TAG, "Cannot send photo error, WebSocket client is not ready")
+                return false
+            }
+
             val data = org.json.JSONObject().apply {
                 put("requestId", requestId)
                 put("error", error)
                 put("deviceId", deviceId)
             }
             
-            WebSocketManager.getClient()?.emit("photo_error", data)
+            client.emit("photo_error", data)
             Log.d(TAG, "Photo error sent: $error")
+            return true
         } catch (e: Exception) {
             Log.e(TAG, "Error sending photo error", e)
+            return false
         }
     }
 
@@ -276,7 +471,7 @@ class PhotoCaptureService : Service() {
     private fun uploadPhoto(photoFile: File) {
         serviceScope.launch {
             try {
-                updateNotification("Р—Р°РіСЂСѓР·РєР° С„РѕС‚Рѕ...")
+                updateNotification(R.string.photo_capture_uploading)
 
                 val success = withContext(Dispatchers.IO) {
                     networkHelper?.uploadPhoto(
@@ -288,19 +483,24 @@ class PhotoCaptureService : Service() {
 
                 if (success) {
                     Log.d(TAG, "Photo uploaded successfully")
-                    updateNotification("Р¤РѕС‚Рѕ РѕС‚РїСЂР°РІР»РµРЅРѕ")
+                    updateNotification(R.string.photo_capture_sent)
                 } else {
                     Log.e(TAG, "Photo upload failed")
-                    updateNotification("РћС€РёР±РєР° Р·Р°РіСЂСѓР·РєРё")
+                    updateNotification(R.string.photo_capture_upload_error)
                 }
 
                 // Return to ready state after delay
                 delay(3000)
-                updateNotification("Р“РѕС‚РѕРІ Рє Р·Р°С…РІР°С‚Сѓ С„РѕС‚Рѕ")
+                updateNotification(R.string.photo_capture_ready)
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error uploading photo", e)
-                updateNotification("РћС€РёР±РєР°: ${e.message}")
+                updateNotification(
+                    getString(
+                        R.string.photo_capture_error_with_reason,
+                        e.message ?: getString(R.string.photo_capture_unknown_error)
+                    )
+                )
             }
         }
     }
@@ -309,6 +509,7 @@ class PhotoCaptureService : Service() {
         super.onDestroy()
         Log.d(TAG, "PhotoCaptureService destroyed")
         WebSocketManager.removeCommandListener(commandListener)
+        listenersRegistered = false
         cameraService?.release()
         cameraService = null
 
@@ -321,10 +522,10 @@ class PhotoCaptureService : Service() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(
                 CHANNEL_ID,
-                "Р—Р°С…РІР°С‚ С„РѕС‚Рѕ",
+                getString(R.string.photo_capture_channel_name),
                 NotificationManager.IMPORTANCE_LOW
             ).apply {
-                description = "РЈРІРµРґРѕРјР»РµРЅРёСЏ Рѕ Р·Р°С…РІР°С‚Рµ С„РѕС‚Рѕ"
+                description = getString(R.string.photo_capture_channel_description)
                 setShowBadge(false)
             }
 
@@ -333,7 +534,8 @@ class PhotoCaptureService : Service() {
         }
     }
 
-    private fun createNotification(contentText: String): Notification {
+    private fun createNotification(contentText: String? = null): Notification {
+        val resolvedContentText = contentText ?: getString(R.string.photo_capture_waiting_commands)
         val notificationIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this,
@@ -343,8 +545,8 @@ class PhotoCaptureService : Service() {
         )
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("ParentWatch - РљР°РјРµСЂР°")
-            .setContentText(contentText)
+            .setContentTitle(getString(R.string.photo_capture_notification_title))
+            .setContentText(resolvedContentText)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
@@ -356,5 +558,8 @@ class PhotoCaptureService : Service() {
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.notify(NOTIFICATION_ID, notification)
     }
-}
 
+    private fun updateNotification(messageRes: Int) {
+        updateNotification(getString(messageRes))
+    }
+}

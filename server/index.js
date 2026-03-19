@@ -191,9 +191,10 @@ app.post(
     },
   }),
   authMiddleware.rateLimit(60000, 10), // 10 requests per minute for registration
-  (req, res) => {
+  async (req, res) => {
     try {
       const { deviceId, deviceName, deviceType, appVersion } = req.body;
+      const sanitizedDeviceName = validator.sanitizeString(deviceName);
 
       if (!validator.validateDeviceIdFormat(deviceId)) {
         return res.status(400).json({
@@ -211,12 +212,22 @@ app.post(
 
       const result = authManager.registerDevice({
         deviceId,
-        deviceName: validator.sanitizeString(deviceName),
+        deviceName: sanitizedDeviceName,
         deviceType,
         appVersion,
       });
 
       if (result.success) {
+        try {
+          await dbManager.registerDevice(deviceId, {
+            device_name: sanitizedDeviceName,
+            device_type: deviceType,
+            app_version: appVersion,
+          });
+        } catch (dbError) {
+          console.error("Device DB registration error:", dbError);
+        }
+
         res.json({
           success: true,
           authToken: result.authToken,
@@ -323,6 +334,7 @@ app.post(
     try {
       const { latitude, longitude, accuracy, timestamp, deviceInfo } = req.body;
       const deviceId = req.deviceId;
+      const registeredDevice = req.deviceData || authManager.getDeviceInfo(deviceId);
 
       // Validate location data
       const validation = validator.validateLocationData({
@@ -423,6 +435,19 @@ app.post(
             raw: deviceInfo,
           };
 
+          await dbManager.registerDevice(deviceId, {
+            device_name:
+              registeredDevice?.deviceName ||
+              appName ||
+              deviceDetails.model ||
+              "Unknown Device",
+            device_type: registeredDevice?.deviceType || "android",
+            app_version:
+              registeredDevice?.appVersion ||
+              req.headers["user-agent"]?.replace(/^ChildWatch\//, "") ||
+              "unknown",
+          });
+
           await dbManager.saveDeviceStatus(deviceId, latestStatus);
           authManager.updateDeviceStatus(deviceId, latestStatus);
           console.log(
@@ -432,6 +457,18 @@ app.post(
           console.error("❌ Failed to persist device status:", statusError);
         }
       }
+
+      await dbManager.registerDevice(deviceId, {
+        device_name:
+          registeredDevice?.deviceName ||
+          deviceInfo?.device?.model ||
+          "Unknown Device",
+        device_type: registeredDevice?.deviceType || "android",
+        app_version:
+          registeredDevice?.appVersion ||
+          req.headers["user-agent"]?.replace(/^ChildWatch\//, "") ||
+          "unknown",
+      });
 
       // Save location to database
       await dbManager.saveLocation(deviceId, {
@@ -654,6 +691,98 @@ app.get(
   }
 );
 
+// Upload latest device status snapshot without requiring a location update (protected)
+app.post(
+  "/api/device/status",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 120),
+  async (req, res) => {
+    try {
+      const deviceId = req.deviceId;
+      const { deviceInfo } = req.body || {};
+      const registeredDevice = req.deviceData || authManager.getDeviceInfo(deviceId);
+
+      if (!deviceInfo || typeof deviceInfo !== "object") {
+        return res.status(400).json({
+          error: "deviceInfo payload is required",
+          code: "INVALID_DEVICE_STATUS_PAYLOAD",
+        });
+      }
+
+      const batteryInfo = deviceInfo.battery || {};
+      const deviceDetails = deviceInfo.device || {};
+      const currentAppInfo = deviceInfo.currentApp || {};
+
+      const appName =
+        currentAppInfo && !currentAppInfo.error
+          ? currentAppInfo.appName || null
+          : null;
+      const appPackage =
+        currentAppInfo && !currentAppInfo.error
+          ? currentAppInfo.packageName || null
+          : null;
+
+      const latestStatus = {
+        batteryLevel:
+          typeof batteryInfo.level === "number" ? batteryInfo.level : null,
+        isCharging:
+          typeof batteryInfo.isCharging === "boolean"
+            ? batteryInfo.isCharging
+            : null,
+        chargingType: batteryInfo.chargingType || null,
+        temperature:
+          typeof batteryInfo.temperature === "number"
+            ? batteryInfo.temperature
+            : null,
+        voltage:
+          typeof batteryInfo.voltage === "number" ? batteryInfo.voltage : null,
+        health: batteryInfo.health || null,
+        manufacturer: deviceDetails.manufacturer || null,
+        model: deviceDetails.model || null,
+        androidVersion: deviceDetails.androidVersion || null,
+        sdkVersion:
+          typeof deviceDetails.sdkVersion === "number"
+            ? deviceDetails.sdkVersion
+            : null,
+        currentAppName: appName,
+        currentAppPackage: appPackage,
+        timestamp:
+          typeof deviceInfo.timestamp === "number"
+            ? deviceInfo.timestamp
+            : Date.now(),
+        raw: deviceInfo,
+      };
+
+      await dbManager.registerDevice(deviceId, {
+        device_name:
+          registeredDevice?.deviceName ||
+          appName ||
+          deviceDetails.model ||
+          "Unknown Device",
+        device_type: registeredDevice?.deviceType || "android",
+        app_version:
+          registeredDevice?.appVersion ||
+          req.headers["user-agent"]?.replace(/^ChildWatch\//, "") ||
+          "unknown",
+      });
+      await dbManager.saveDeviceStatus(deviceId, latestStatus);
+      authManager.updateDeviceStatus(deviceId, latestStatus);
+
+      res.json({
+        success: true,
+        deviceId,
+        status: latestStatus,
+      });
+    } catch (error) {
+      console.error("Upload device status error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "DEVICE_STATUS_UPLOAD_ERROR",
+      });
+    }
+  }
+);
+
 // Get latest device status (protected)
 app.get(
   "/api/device/status/:deviceId?",
@@ -854,7 +983,7 @@ app.get(
         deviceId: targetDeviceId,
         count: messages.length,
         messages: messages.map((msg) => ({
-          id: msg.id,
+          id: String(msg.client_id || msg.client_message_id || msg.id),
           sender: msg.sender,
           message: msg.message,
           timestamp: msg.timestamp,

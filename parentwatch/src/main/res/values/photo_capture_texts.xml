@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="photo_capture_waiting_commands">Ожидание команд...</string>
+    <string name="photo_capture_ready">Готов к захвату фото</string>
+    <string name="photo_capture_no_camera_access">Нет доступа к камере</string>
+    <string name="photo_capture_capturing">Захват фото...</string>
+    <string name="photo_capture_capture_error">Ошибка захвата</string>
+    <string name="photo_capture_request_capturing">Захват фото по запросу...</string>
+    <string name="photo_capture_sent">Фото отправлено</string>
+    <string name="photo_capture_send_error">Ошибка отправки</string>
+    <string name="photo_capture_uploading">Загрузка фото...</string>
+    <string name="photo_capture_upload_error">Ошибка загрузки</string>
+    <string name="photo_capture_unknown_error">неизвестная ошибка</string>
+    <string name="photo_capture_error_with_reason">Ошибка: %1$s</string>
+    <string name="photo_capture_channel_name">Захват фото</string>
+    <string name="photo_capture_channel_description">Уведомления о захвате фото</string>
+    <string name="photo_capture_notification_title">ChildWatch - Камера</string>
+</resources>

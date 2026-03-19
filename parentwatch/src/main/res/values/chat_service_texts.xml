@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_service_channel_name">Фоновый чат</string>
+    <string name="chat_service_channel_description">Поддерживает соединение для чата и удалённых команд</string>
+    <string name="chat_service_title">ChildDevice - чат</string>
+    <string name="chat_service_connecting">Подключение…</string>
+    <string name="chat_service_active">Чат активен</string>
+    <string name="chat_service_error">Ошибка подключения</string>
+    <string name="chat_service_unavailable">Не удалось подключиться</string>
+</resources>

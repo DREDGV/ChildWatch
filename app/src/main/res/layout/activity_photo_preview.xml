@@ -1,11 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:background="@android:color/black">
 
-    <!-- Top Toolbar -->
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -16,13 +16,12 @@
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
             android:background="@android:color/transparent"
-            app:title="Remote Photo"
-            app:titleTextColor="@android:color/white"
-            app:navigationIcon="@drawable/ic_close" />
+            app:navigationIcon="@drawable/ic_close"
+            app:title="@string/photo_preview_title"
+            app:titleTextColor="@android:color/white" />
 
     </com.google.android.material.appbar.AppBarLayout>
 
-    <!-- Photo Container -->
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -33,16 +32,14 @@
             android:layout_width="match_parent"
             android:layout_height="match_parent">
 
-            <!-- Photo ImageView -->
             <ImageView
                 android:id="@+id/photoImageView"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
                 android:layout_gravity="center"
-                android:scaleType="fitCenter"
-                android:contentDescription="Remote photo preview" />
+                android:contentDescription="@string/photo_preview_content_description"
+                android:scaleType="fitCenter" />
 
-            <!-- Loading Indicator -->
             <ProgressBar
                 android:id="@+id/loadingProgress"
                 android:layout_width="wrap_content"
@@ -50,7 +47,6 @@
                 android:layout_gravity="center"
                 android:visibility="gone" />
 
-            <!-- Error Message -->
             <LinearLayout
                 android:id="@+id/errorLayout"
                 android:layout_width="match_parent"
@@ -64,27 +60,27 @@
                     android:layout_width="64dp"
                     android:layout_height="64dp"
                     android:layout_gravity="center_horizontal"
+                    android:layout_marginBottom="16dp"
                     android:src="@android:drawable/stat_notify_error"
-                    android:tint="@android:color/white"
-                    android:layout_marginBottom="16dp" />
+                    android:tint="@android:color/white" />
 
                 <TextView
                     android:id="@+id/errorText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Failed to load photo"
-                    android:textColor="@android:color/white"
-                    android:textSize="16sp"
+                    android:layout_marginBottom="16dp"
                     android:gravity="center"
-                    android:layout_marginBottom="16dp" />
+                    android:text="@string/photo_preview_error_default"
+                    android:textColor="@android:color/white"
+                    android:textSize="16sp" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/retryButton"
+                    style="@style/Widget.Material3.Button.TonalButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_gravity="center_horizontal"
-                    android:text="Retry"
-                    style="@style/Widget.Material3.Button.TonalButton" />
+                    android:text="@string/photo_preview_retry" />
 
             </LinearLayout>
 
@@ -92,16 +88,14 @@
 
     </androidx.core.widget.NestedScrollView>
 
-    <!-- Bottom Action Bar -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
-        android:orientation="horizontal"
         android:background="#80000000"
+        android:orientation="horizontal"
         android:padding="16dp">
 
-        <!-- Photo Info -->
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
@@ -112,39 +106,37 @@
                 android:id="@+id/photoTimestamp"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Just now"
                 android:textColor="@android:color/white"
                 android:textSize="14sp"
-                android:textStyle="bold" />
+                android:textStyle="bold"
+                tools:text="15.03.2026 18:42" />
 
             <TextView
                 android:id="@+id/photoDeviceName"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="Device name"
                 android:textColor="#CCFFFFFF"
-                android:textSize="12sp" />
+                android:textSize="12sp"
+                tools:text="Детское устройство" />
 
         </LinearLayout>
 
-        <!-- Share Button -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/shareButton"
+            style="@style/Widget.Material3.Button.TonalButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Share"
-            app:icon="@android:drawable/ic_menu_share"
-            style="@style/Widget.Material3.Button.TonalButton" />
+            android:text="@string/photo_preview_share_button"
+            app:icon="@android:drawable/ic_menu_share" />
 
-        <!-- Save Button -->
         <com.google.android.material.button.MaterialButton
             android:id="@+id/saveButton"
+            style="@style/Widget.Material3.Button"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="8dp"
-            android:text="Save"
-            app:icon="@android:drawable/ic_menu_save"
-            style="@style/Widget.Material3.Button" />
+            android:text="@string/photo_preview_save_button"
+            app:icon="@android:drawable/ic_menu_save" />
 
     </LinearLayout>
 

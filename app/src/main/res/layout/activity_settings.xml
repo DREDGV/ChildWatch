@@ -311,7 +311,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="📍 Делиться моей локацией"
+                        android:text="@string/settings_share_location_title"
                         android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
                         android:textColor="?attr/colorOnSurface" />
 
@@ -328,7 +328,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginStart="4dp"
                     android:layout_marginEnd="4dp"
-                    android:text="Позволить ребенку видеть, где вы находитесь (обновление каждые 60 секунд)"
+                    android:text="@string/settings_share_location_description"
                     android:textAppearance="@style/TextAppearance.Material3.BodySmall"
                     android:textColor="?attr/colorOnSurfaceVariant"
                     android:alpha="0.7" />
@@ -336,7 +336,6 @@
             </LinearLayout>
 
         </com.google.android.material.card.MaterialCardView>
-
         <!-- Notification Settings Card -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -355,7 +354,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
-                    android:text="🔔 Уведомления"
+                    android:text="@string/notification_settings_title"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
                     android:textColor="?attr/colorOnSurface"
                     android:textStyle="bold" />
@@ -363,54 +362,60 @@
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Длительность отображения"
-                    android:textSize="14sp"
                     android:layout_marginBottom="8dp"
-                    android:textColor="?android:attr/textColorSecondary" />
+                    android:text="@string/notification_duration_label"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="14sp" />
 
                 <com.google.android.material.slider.Slider
                     android:id="@+id/notificationDurationSlider"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:valueFrom="5"
-                    android:valueTo="30"
+                    android:layout_marginBottom="8dp"
                     android:stepSize="5"
                     android:value="10"
-                    android:layout_marginBottom="8dp" />
+                    android:valueFrom="5"
+                    android:valueTo="30" />
 
                 <TextView
                     android:id="@+id/durationValueText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="10 секунд"
-                    android:textSize="14sp"
                     android:layout_gravity="center"
-                    android:layout_marginBottom="16dp"
-                    android:textColor="?attr/colorPrimary" />
+                    android:layout_marginBottom="8dp"
+                    android:text="@string/notification_duration_default_value"
+                    android:textColor="?attr/colorPrimary"
+                    android:textSize="14sp" />
 
-                <!-- Notification Size Setting -->
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Размер уведомления"
-                    android:textSize="14sp"
-                    android:layout_marginTop="16dp"
+                    android:layout_marginBottom="16dp"
+                    android:text="@string/notification_duration_hint"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
                     android:layout_marginBottom="8dp"
-                    android:textColor="?android:attr/textColorSecondary" />
+                    android:text="@string/notification_size_label"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="14sp" />
 
                 <RadioGroup
                     android:id="@+id/notificationSizeGroup"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginBottom="16dp">
+                    android:layout_marginBottom="16dp"
+                    android:orientation="horizontal">
 
                     <com.google.android.material.radiobutton.MaterialRadioButton
                         android:id="@+id/notificationSizeCompact"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Компактный"
+                        android:text="@string/notification_size_compact"
                         android:textSize="12sp" />
 
                     <com.google.android.material.radiobutton.MaterialRadioButton
@@ -418,56 +423,55 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Расширенный"
-                        android:textSize="12sp"
-                        android:checked="true" />
+                        android:checked="true"
+                        android:text="@string/notification_size_expanded"
+                        android:textSize="12sp" />
 
                 </RadioGroup>
 
-                <!-- Notification Priority Setting -->
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Приоритет уведомлений"
-                    android:textSize="14sp"
                     android:layout_marginBottom="8dp"
-                    android:textColor="?android:attr/textColorSecondary" />
+                    android:text="@string/notification_priority_label"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="14sp" />
 
                 <com.google.android.material.slider.Slider
                     android:id="@+id/notificationPrioritySlider"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:valueFrom="0"
-                    android:valueTo="2"
+                    android:layout_marginBottom="8dp"
                     android:stepSize="1"
                     android:value="2"
-                    android:layout_marginBottom="8dp" />
+                    android:valueFrom="0"
+                    android:valueTo="2" />
 
                 <TextView
                     android:id="@+id/priorityValueText"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Высокий"
-                    android:textSize="14sp"
                     android:layout_gravity="center"
                     android:layout_marginBottom="16dp"
-                    android:textColor="?attr/colorPrimary" />
+                    android:text="@string/notification_priority_high"
+                    android:textColor="?attr/colorPrimary"
+                    android:textSize="14sp" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="ℹ️ Высокий приоритет делает уведомления более заметными и отображает их первыми."
-                    android:textSize="11sp"
-                    android:textColor="?android:attr/textColorSecondary" />
+                    android:layout_marginBottom="16dp"
+                    android:text="@string/notification_priority_hint"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="11sp" />
 
-                <!-- Notification Sound Toggle -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
+                    android:layout_marginBottom="8dp"
+                    android:layout_marginTop="8dp"
                     android:gravity="center_vertical"
-                    android:layout_marginTop="16dp"
-                    android:layout_marginBottom="8dp">
+                    android:orientation="horizontal">
 
                     <ImageView
                         android:layout_width="24dp"
@@ -480,7 +484,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Звук уведомлений"
+                        android:text="@string/notification_sound_label"
                         android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
                         android:textColor="?attr/colorOnSurface" />
 
@@ -492,13 +496,12 @@
 
                 </LinearLayout>
 
-                <!-- Notification Vibration Toggle -->
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal"
+                    android:layout_marginBottom="8dp"
                     android:gravity="center_vertical"
-                    android:layout_marginBottom="8dp">
+                    android:orientation="horizontal">
 
                     <ImageView
                         android:layout_width="24dp"
@@ -511,7 +514,7 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="Вибрация уведомлений"
+                        android:text="@string/notification_vibration_label"
                         android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
                         android:textColor="?attr/colorOnSurface" />
 
@@ -520,6 +523,179 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:checked="true" />
+
+                </LinearLayout>
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_marginEnd="12dp"
+                        android:src="@android:drawable/ic_menu_info_details"
+                        android:tint="?attr/colorPrimary" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/notification_badge_label"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+                        android:textColor="?attr/colorOnSurface" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/notificationBadgeSwitch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:checked="true" />
+
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:text="@string/notification_badge_hint"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="11sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:text="@string/notification_preview_label"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="14sp" />
+
+                <RadioGroup
+                    android:id="@+id/notificationPreviewGroup"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.radiobutton.MaterialRadioButton
+                        android:id="@+id/notificationPreviewPublic"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:checked="true"
+                        android:text="@string/notification_preview_public"
+                        android:textSize="12sp" />
+
+                    <com.google.android.material.radiobutton.MaterialRadioButton
+                        android:id="@+id/notificationPreviewPrivate"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/notification_preview_private"
+                        android:textSize="12sp" />
+
+                </RadioGroup>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:text="@string/notification_preview_hint"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="11sp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_marginEnd="12dp"
+                        android:src="@android:drawable/ic_lock_idle_alarm"
+                        android:tint="?attr/colorPrimary" />
+
+                    <TextView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/notification_quiet_hours_label"
+                        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
+                        android:textColor="?attr/colorOnSurface" />
+
+                    <com.google.android.material.switchmaterial.SwitchMaterial
+                        android:id="@+id/notificationQuietHoursSwitch"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" />
+
+                </LinearLayout>
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="12dp"
+                    android:text="@string/notification_quiet_hours_hint"
+                    android:textColor="?android:attr/textColorSecondary"
+                    android:textSize="11sp" />
+
+                <LinearLayout
+                    android:id="@+id/notificationQuietHoursButtons"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="16dp"
+                    android:gravity="center"
+                    android:orientation="horizontal"
+                    android:visibility="gone">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/quietHoursStartButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="4dp"
+                        android:layout_weight="1"
+                        android:textAllCaps="false" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/quietHoursEndButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        android:layout_weight="1"
+                        android:textAllCaps="false" />
+
+                </LinearLayout>
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/testNotificationButton"
+                        style="@style/Widget.Material3.Button.TonalButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginEnd="4dp"
+                        android:layout_weight="1"
+                        android:text="@string/notification_test_button"
+                        android:textAllCaps="false" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/openNotificationSettingsButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="4dp"
+                        android:layout_weight="1"
+                        android:text="@string/notification_system_button"
+                        android:textAllCaps="false" />
 
                 </LinearLayout>
 
@@ -596,7 +772,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="8dp"
-                    android:text="👨‍👩‍👧 Связь с детским устройством"
+                    android:text="@string/settings_link_child_title"
                     android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
                     android:textColor="?attr/colorOnSurface"
                     android:textStyle="bold" />
@@ -605,7 +781,7 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="16dp"
-                    android:text="Покажите QR-код детскому устройству для синхронизации на карте"
+                    android:text="@string/settings_link_child_description"
                     android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                     android:textColor="?attr/colorOnSurfaceVariant" />
 
@@ -613,7 +789,7 @@
                     android:id="@+id/showQrCodeBtn"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="📱 Показать QR-код"
+                    android:text="@string/settings_show_qr_button"
                     android:textSize="16sp"
                     app:icon="@android:drawable/ic_dialog_info"
                     app:iconGravity="textStart"
@@ -654,3 +830,4 @@
     </LinearLayout>
 
 </ScrollView>
+

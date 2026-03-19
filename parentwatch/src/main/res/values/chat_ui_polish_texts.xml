@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_empty_title">Диалог пока пуст</string>
+    <string name="chat_empty_hint">Напишите первое сообщение или используйте быстрые эмодзи ниже.</string>
+    <string name="chat_composer_hint_online">Связь в норме. Сообщение уйдет сразу.</string>
+    <string name="chat_composer_hint_connecting">Подключаемся к собеседнику. Очередь сохранит сообщение.</string>
+    <string name="chat_composer_hint_offline">Связь нестабильна. Сообщение отправится автоматически после восстановления.</string>
+    <string name="chat_composer_hint_typing">%1$d символов. Можно отправить сразу или добавить эмодзи.</string>
+</resources>

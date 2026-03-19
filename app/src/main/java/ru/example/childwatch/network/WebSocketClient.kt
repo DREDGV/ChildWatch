@@ -37,7 +37,7 @@ class WebSocketClient(
         val createdAt: Long
     )
 
-    private var onAudioChunkReceived: ((ByteArray, Int, Long, Int, Int) -> Unit)? = null
+    private var onAudioChunkReceived: ((ByteArray, Int, Long, Int, Int, Int?, Boolean?, Long?) -> Unit)? = null
     private var onChildConnected: (() -> Unit)? = null
     private var onChildDisconnected: (() -> Unit)? = null
     private var onCriticalAlertCallback: ((CriticalAlertMessage) -> Unit)? = null
@@ -48,6 +48,7 @@ class WebSocketClient(
     private var onChatStatusCallback: ((String, String, Long) -> Unit)? = null
     private var onChatStatusAckCallback: ((String, String, Long) -> Unit)? = null
     private var onRegisteredCallback: (() -> Unit)? = null
+    var onPhotoQueuedCallback: ((requestId: String, deviceId: String, camera: String, timestamp: Long) -> Unit)? = null
     var onPhotoReceived: ((photoBase64: String, requestId: String, timestamp: Long) -> Unit)? = null
     var onPhotoError: ((requestId: String, error: String) -> Unit)? = null
     private var onTypingCallback: ((isTyping: Boolean) -> Unit)? = null
@@ -157,6 +158,24 @@ class WebSocketClient(
                 val sourceDeviceId = metadata.optString("deviceId").trim()
                 val sampleRate = metadata.optInt("sampleRate", 24_000)
                 val channels = metadata.optInt("channels", 1)
+                val batteryLevel = when {
+                    metadata.has("batteryLevel") && !metadata.isNull("batteryLevel") ->
+                        metadata.optInt("batteryLevel")
+                    metadata.has("battery") && !metadata.isNull("battery") ->
+                        metadata.optInt("battery")
+                    else -> null
+                }?.takeIf { it in 0..100 }
+                val isCharging = if (metadata.has("isCharging") && !metadata.isNull("isCharging")) {
+                    metadata.optBoolean("isCharging")
+                } else {
+                    null
+                }
+                val deviceStatusTimestamp = when {
+                    metadata.has("deviceStatusTimestamp") && !metadata.isNull("deviceStatusTimestamp") ->
+                        metadata.optLong("deviceStatusTimestamp")
+                    batteryLevel != null -> timestamp
+                    else -> null
+                }
 
                 // Chunks are routed to this socket by server mapping, so keep stream alive even if
                 // local target ID drifted after contact migration.
@@ -186,7 +205,16 @@ class WebSocketClient(
                 lastProcessedSequence = sequence
                 Log.d(TAG, "Received audio chunk #$sequence (${binaryData.size} bytes)")
                 scope.launch {
-                    onAudioChunkReceived?.invoke(binaryData, sequence, timestamp, sampleRate, channels)
+                    onAudioChunkReceived?.invoke(
+                        binaryData,
+                        sequence,
+                        timestamp,
+                        sampleRate,
+                        channels,
+                        batteryLevel,
+                        isCharging,
+                        deviceStatusTimestamp
+                    )
                 }
             } else {
                 if (!audioPayloadTypeLogged) {
@@ -396,6 +424,23 @@ class WebSocketClient(
         }
     }
 
+    private val onPhotoRequestQueued = Emitter.Listener { args ->
+        try {
+            val data = args.getOrNull(0) as? JSONObject
+            val requestId = data?.optString("requestId") ?: ""
+            val deviceId = data?.optString("deviceId") ?: ""
+            val camera = data?.optString("camera", "back") ?: "back"
+            val timestamp = data?.optLong("timestamp") ?: System.currentTimeMillis()
+
+            if (requestId.isNotBlank()) {
+                Log.d(TAG, "рџ“ё Photo request queued: requestId=$requestId device=$deviceId camera=$camera")
+                onPhotoQueuedCallback?.invoke(requestId, deviceId, camera, timestamp)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "вќЊ Error handling photo_request_queued", e)
+        }
+    }
+
     private val onPhotoErrorEvent = Emitter.Listener { args ->
         try {
             val data = args.getOrNull(0) as? JSONObject
@@ -480,6 +525,7 @@ class WebSocketClient(
             socket?.on("chat_message_status", onChatMessageStatus)
             socket?.on("chat_message_status_ack", onChatMessageStatusAck)
             socket?.on("chat_message_error", onChatMessageError)
+            socket?.on("photo_request_queued", onPhotoRequestQueued)
             socket?.on("photo", onPhoto)
             socket?.on("photo_error", onPhotoErrorEvent)
             socket?.on("missed_messages", onMissedMessagesEvent)
@@ -517,7 +563,7 @@ class WebSocketClient(
     /**
      * Set callback for receiving audio chunks
      */
-    fun setAudioChunkCallback(callback: (ByteArray, Int, Long, Int, Int) -> Unit) {
+    fun setAudioChunkCallback(callback: (ByteArray, Int, Long, Int, Int, Int?, Boolean?, Long?) -> Unit) {
         onAudioChunkReceived = callback
     }
 

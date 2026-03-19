@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="consent_permission_name_fine_location">Точное местоположение</string>
+    <string name="consent_permission_name_coarse_location">Приблизительное местоположение</string>
+    <string name="consent_permission_name_background_location">Фоновое местоположение</string>
+    <string name="consent_permission_name_audio">Запись звука</string>
+    <string name="consent_permission_name_camera">Камера</string>
+
+    <string name="consent_permission_dialog_title">Необходимые разрешения</string>
+    <string name="consent_permission_dialog_intro">Для работы приложения нужны следующие разрешения:</string>
+    <string name="consent_permission_dialog_action">Нажмите «Разрешить», чтобы продолжить.</string>
+    <string name="consent_permission_allow">Разрешить</string>
+    <string name="consent_permission_cancel">Отмена</string>
+    <string name="consent_permission_required_exit">Приложение не может работать без этих разрешений</string>
+
+    <string name="consent_permission_denied_title">Разрешения отклонены</string>
+    <string name="consent_permission_denied_intro">Отклонены разрешения:</string>
+    <string name="consent_permission_denied_action">Без них приложение не сможет работать. Вы можете выдать их в настройках устройства.</string>
+    <string name="consent_permission_settings">Настройки</string>
+    <string name="consent_permission_retry">Попробовать снова</string>
+    <string name="consent_permission_exit">Выход</string>
+    <string name="consent_back_choice_required">Пожалуйста, выберите один из вариантов</string>
+</resources>

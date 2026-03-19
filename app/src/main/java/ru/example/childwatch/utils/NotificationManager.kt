@@ -1,8 +1,8 @@
 package ru.example.childwatch.utils
 
 import android.Manifest
+import android.app.Notification
 import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
@@ -18,32 +18,27 @@ import androidx.core.app.RemoteInput
 import ru.example.childwatch.MainActivity
 import ru.example.childwatch.R
 import ru.example.childwatch.receiver.NotificationReplyReceiver
+import java.util.Calendar
+import android.app.NotificationManager as AndroidNotificationManager
 
 /**
- * Notification Manager for ChildWatch (Parent App)
- * Handles chat notifications and other app notifications
+ * Notification manager for ParentMonitor chat and alerts.
  */
 object NotificationManager {
 
     private const val TAG = "NotificationManager"
     private const val CHAT_CHANNEL_ID = "chat_notifications"
-    private const val CHAT_CHANNEL_NAME = "Сообщения чата"
-    private const val CHAT_CHANNEL_DESCRIPTION = "Уведомления о новых сообщениях от ребенка"
-
     private const val GEOFENCE_CHANNEL_ID = "geofence_notifications"
-    private const val GEOFENCE_CHANNEL_NAME = "Геозоны"
-    private const val GEOFENCE_CHANNEL_DESCRIPTION = "Уведомления о входе/выходе из геозон"
-
     private const val CHAT_NOTIFICATION_ID = 4001
+    private const val CHAT_PREVIEW_NOTIFICATION_ID = 4002
     private const val CHAT_GROUP_KEY = "ru.example.childwatch.CHAT_GROUP"
     private const val GEOFENCE_NOTIFICATION_ID_BASE = 5000
-
-    // Counter for unread messages
-    private var unreadMessageCount = 0
-
-    // Message history for MessagingStyle (last 10 messages)
-    private val messageHistory = mutableListOf<NotificationMessage>()
     private const val MAX_HISTORY_SIZE = 10
+    private const val DEFAULT_QUIET_HOURS_START = "22:00"
+    private const val DEFAULT_QUIET_HOURS_END = "07:00"
+
+    private var unreadMessageCount = 0
+    private val messageHistory = mutableListOf<NotificationMessage>()
 
     data class NotificationMessage(
         val senderName: String,
@@ -51,69 +46,270 @@ object NotificationManager {
         val timestamp: Long
     )
 
-    /**
-     * Create notification channels for Android O and above
-     */
-    fun createNotificationChannels(context: Context) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+    data class ChatNotificationSettings(
+        val durationMs: Int,
+        val priority: Int,
+        val size: String,
+        val enableSound: Boolean,
+        val enableVibration: Boolean,
+        val showBadge: Boolean,
+        val previewMode: String,
+        val quietHoursEnabled: Boolean = false,
+        val quietHoursStart: String = DEFAULT_QUIET_HOURS_START,
+        val quietHoursEnd: String = DEFAULT_QUIET_HOURS_END
+    )
 
-            val prefs = context.getSharedPreferences("notification_prefs", Context.MODE_PRIVATE)
-            val enableSound = prefs.getBoolean("notification_sound", true)
-            val enableVibration = prefs.getBoolean("notification_vibration", true)
+    fun createNotificationChannels(
+        context: Context,
+        overrideSettings: ChatNotificationSettings? = null
+    ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            return
+        }
 
-            ensureChatChannel(context, enableSound, enableVibration)
-             
-            // Geofence notifications channel
-            val geofenceChannel = NotificationChannel(
-                GEOFENCE_CHANNEL_ID,
-                GEOFENCE_CHANNEL_NAME,
-                NotificationManager.IMPORTANCE_HIGH
-            ).apply {
-                description = GEOFENCE_CHANNEL_DESCRIPTION
-                enableLights(true)
-                lightColor = android.graphics.Color.RED
-                enableVibration(true)
-                setShowBadge(true)
-            }
+        val notificationManager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager
+        val settings = resolveEffectiveSettings(overrideSettings ?: readChatSettings(context))
 
-            notificationManager.createNotificationChannel(geofenceChannel)
+        ensureChatChannel(context, settings)
+
+        val geofenceChannel = NotificationChannel(
+            GEOFENCE_CHANNEL_ID,
+            context.getString(R.string.notification_channel_geofence_name),
+            AndroidNotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = context.getString(R.string.notification_channel_geofence_description)
+            enableLights(true)
+            lightColor = android.graphics.Color.RED
+            enableVibration(true)
+            setShowBadge(true)
+        }
+
+        notificationManager.createNotificationChannel(geofenceChannel)
+    }
+
+    fun showChatNotification(
+        context: Context,
+        senderName: String = context.getString(R.string.notification_preview_sender),
+        messageText: String,
+        timestamp: Long = System.currentTimeMillis()
+    ) {
+        unreadMessageCount++
+
+        messageHistory.add(NotificationMessage(senderName, messageText, timestamp))
+        if (messageHistory.size > MAX_HISTORY_SIZE) {
+            messageHistory.removeAt(0)
+        }
+
+        val settings = resolveEffectiveSettings(readChatSettings(context))
+        val builder = buildChatNotification(
+            context = context,
+            senderName = senderName,
+            messageText = messageText,
+            timestamp = timestamp,
+            settings = settings,
+            unreadCount = unreadMessageCount,
+            displayHistory = messageHistory.toList(),
+            includeReplyAction = true
+        )
+
+        notifySafely(context, CHAT_NOTIFICATION_ID, builder.build())
+    }
+
+    fun showPreviewNotification(
+        context: Context,
+        overrideSettings: ChatNotificationSettings? = null
+    ) {
+        val settings = resolveEffectiveSettings(overrideSettings ?: readChatSettings(context))
+        createNotificationChannels(context, settings)
+
+        val preview = NotificationMessage(
+            senderName = context.getString(R.string.notification_preview_sender),
+            text = context.getString(R.string.notification_preview_message),
+            timestamp = System.currentTimeMillis()
+        )
+
+        val builder = buildChatNotification(
+            context = context,
+            senderName = preview.senderName,
+            messageText = preview.text,
+            timestamp = preview.timestamp,
+            settings = settings,
+            unreadCount = 1,
+            displayHistory = listOf(preview),
+            includeReplyAction = false
+        )
+
+        notifySafely(context, CHAT_PREVIEW_NOTIFICATION_ID, builder.build())
+    }
+
+    fun cancelChatNotification(context: Context) {
+        with(NotificationManagerCompat.from(context)) {
+            cancel(CHAT_NOTIFICATION_ID)
+            cancel(CHAT_PREVIEW_NOTIFICATION_ID)
+        }
+        unreadMessageCount = 0
+        messageHistory.clear()
+    }
+
+    fun resetUnreadCount() {
+        unreadMessageCount = 0
+        messageHistory.clear()
+    }
+
+    fun getUnreadCount(): Int = unreadMessageCount
+
+    fun areNotificationsEnabled(context: Context): Boolean {
+        return NotificationManagerCompat.from(context).areNotificationsEnabled()
+    }
+
+    fun showGeofenceNotification(
+        context: Context,
+        title: String,
+        message: String,
+        isExit: Boolean
+    ) {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+
+        val pendingIntent = PendingIntent.getActivity(
+            context,
+            0,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+
+        val builder = NotificationCompat.Builder(context, GEOFENCE_CHANNEL_ID)
+            .setSmallIcon(
+                if (isExit) android.R.drawable.ic_dialog_alert else android.R.drawable.ic_dialog_info
+            )
+            .setContentTitle(title)
+            .setContentText(message)
+            .setPriority(
+                if (isExit) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_HIGH
+            )
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
+
+        if (isExit) {
+            builder.setVibrate(longArrayOf(0, 500, 200, 500))
+                .setColor(android.graphics.Color.RED)
+        }
+
+        notifySafely(context, GEOFENCE_NOTIFICATION_ID_BASE + title.hashCode(), builder.build())
+    }
+
+    private fun readChatSettings(context: Context): ChatNotificationSettings {
+        val prefs = context.getSharedPreferences("notification_prefs", Context.MODE_PRIVATE)
+        return ChatNotificationSettings(
+            durationMs = prefs.getInt("notification_duration", 10000),
+            priority = prefs.getInt("notification_priority", 2),
+            size = prefs.getString("notification_size", "expanded") ?: "expanded",
+            enableSound = prefs.getBoolean("notification_sound", true),
+            enableVibration = prefs.getBoolean("notification_vibration", true),
+            showBadge = prefs.getBoolean("notification_badge", true),
+            previewMode = prefs.getString("notification_preview", "public") ?: "public",
+            quietHoursEnabled = prefs.getBoolean("notification_quiet_hours_enabled", false),
+            quietHoursStart = prefs.getString(
+                "notification_quiet_hours_start",
+                DEFAULT_QUIET_HOURS_START
+            ) ?: DEFAULT_QUIET_HOURS_START,
+            quietHoursEnd = prefs.getString(
+                "notification_quiet_hours_end",
+                DEFAULT_QUIET_HOURS_END
+            ) ?: DEFAULT_QUIET_HOURS_END
+        )
+    }
+
+    private fun resolveEffectiveSettings(settings: ChatNotificationSettings): ChatNotificationSettings {
+        if (!isQuietHoursActive(settings)) {
+            return settings
+        }
+
+        return settings.copy(
+            enableSound = false,
+            enableVibration = false,
+            priority = settings.priority.coerceAtMost(1)
+        )
+    }
+
+    private fun isQuietHoursActive(settings: ChatNotificationSettings): Boolean {
+        if (!settings.quietHoursEnabled) {
+            return false
+        }
+
+        val startMinutes = parseTimeToMinutes(settings.quietHoursStart, DEFAULT_QUIET_HOURS_START)
+        val endMinutes = parseTimeToMinutes(settings.quietHoursEnd, DEFAULT_QUIET_HOURS_END)
+        if (startMinutes == endMinutes) {
+            return false
+        }
+
+        val now = Calendar.getInstance()
+        val currentMinutes = now.get(Calendar.HOUR_OF_DAY) * 60 + now.get(Calendar.MINUTE)
+        return if (startMinutes < endMinutes) {
+            currentMinutes in startMinutes until endMinutes
+        } else {
+            currentMinutes >= startMinutes || currentMinutes < endMinutes
         }
     }
 
-    private fun resolveChatChannelId(enableSound: Boolean, enableVibration: Boolean): String {
-        return when {
-            enableSound && enableVibration -> "${CHAT_CHANNEL_ID}_sv"
-            enableSound -> "${CHAT_CHANNEL_ID}_s"
-            enableVibration -> "${CHAT_CHANNEL_ID}_v"
-            else -> "${CHAT_CHANNEL_ID}_silent"
+    private fun parseTimeToMinutes(value: String, fallback: String): Int {
+        val normalized = value.takeIf { it.contains(':') } ?: fallback
+        val parts = normalized.split(":")
+        val hour = parts.getOrNull(0)?.toIntOrNull()?.coerceIn(0, 23) ?: 0
+        val minute = parts.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 59) ?: 0
+        return hour * 60 + minute
+    }
+
+    private fun resolveChatChannelId(settings: ChatNotificationSettings): String {
+        return buildString {
+            append(CHAT_CHANNEL_ID)
+            append("_p").append(settings.priority)
+            append("_b").append(if (settings.showBadge) 1 else 0)
+            append("_s").append(if (settings.enableSound) 1 else 0)
+            append("_v").append(if (settings.enableVibration) 1 else 0)
+            append("_l").append(if (settings.previewMode == "private") 0 else 1)
         }
     }
 
-    private fun ensureChatChannel(context: Context, enableSound: Boolean, enableVibration: Boolean): String {
+    private fun ensureChatChannel(
+        context: Context,
+        settings: ChatNotificationSettings
+    ): String {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
             return CHAT_CHANNEL_ID
         }
 
-        val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val channelId = resolveChatChannelId(enableSound, enableVibration)
-
+        val notificationManager =
+            context.getSystemService(Context.NOTIFICATION_SERVICE) as AndroidNotificationManager
+        val channelId = resolveChatChannelId(settings)
         if (notificationManager.getNotificationChannel(channelId) != null) {
             return channelId
         }
 
         val channel = NotificationChannel(
             channelId,
-            CHAT_CHANNEL_NAME,
-            NotificationManager.IMPORTANCE_HIGH
+            context.getString(R.string.notification_channel_chat_name),
+            mapChannelImportance(settings.priority)
         ).apply {
-            description = CHAT_CHANNEL_DESCRIPTION
+            description = context.getString(R.string.notification_channel_chat_description)
             enableLights(true)
-            setShowBadge(true)
-            enableVibration(enableVibration)
-            vibrationPattern = if (enableVibration) longArrayOf(0, 500, 200, 500) else null
+            setShowBadge(settings.showBadge)
+            enableVibration(settings.enableVibration)
+            vibrationPattern = if (settings.enableVibration) {
+                longArrayOf(0, 500, 200, 500)
+            } else {
+                null
+            }
+            lockscreenVisibility = if (settings.previewMode == "private") {
+                Notification.VISIBILITY_PRIVATE
+            } else {
+                Notification.VISIBILITY_PUBLIC
+            }
 
-            if (enableSound) {
+            if (settings.enableSound) {
                 val soundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
                 val audioAttributes = AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_NOTIFICATION)
@@ -128,77 +324,90 @@ object NotificationManager {
         return channelId
     }
 
-    /**
-     * Show chat notification for new message with MessagingStyle
-     */
-    fun showChatNotification(
+    private fun buildChatNotification(
         context: Context,
-        senderName: String = "Ребенок",
+        senderName: String,
         messageText: String,
-        timestamp: Long = System.currentTimeMillis()
-    ) {
-        // Increment unread counter
-        unreadMessageCount++
+        timestamp: Long,
+        settings: ChatNotificationSettings,
+        unreadCount: Int,
+        displayHistory: List<NotificationMessage>,
+        includeReplyAction: Boolean
+    ): NotificationCompat.Builder {
+        val channelId = ensureChatChannel(context, settings)
+        val pendingIntent = buildOpenChatPendingIntent(context)
+        val builder = NotificationCompat.Builder(context, channelId)
+            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setContentTitle(context.getString(R.string.notification_content_title))
+            .setContentText(messageText)
+            .setPriority(mapCompatPriority(settings.priority))
+            .setAutoCancel(true)
+            .setContentIntent(pendingIntent)
+            .setWhen(timestamp)
+            .setShowWhen(true)
+            .setGroup(CHAT_GROUP_KEY)
+            .setNumber(if (settings.showBadge) unreadCount else 0)
+            .setOnlyAlertOnce(false)
+            .setTimeoutAfter(settings.durationMs.toLong())
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE)
+            .setVisibility(
+                if (settings.previewMode == "private") {
+                    NotificationCompat.VISIBILITY_PRIVATE
+                } else {
+                    NotificationCompat.VISIBILITY_PUBLIC
+                }
+            )
 
-        // Add message to history
-        val message = NotificationMessage(senderName, messageText, timestamp)
-        messageHistory.add(message)
-        if (messageHistory.size > MAX_HISTORY_SIZE) {
-            messageHistory.removeAt(0) // Remove oldest message
+        if (settings.size == "expanded") {
+            val messagingStyle =
+                NotificationCompat.MessagingStyle(context.getString(R.string.notification_user_self))
+                    .setConversationTitle(context.getString(R.string.notification_conversation_title))
+            displayHistory.forEach { msg ->
+                messagingStyle.addMessage(
+                    NotificationCompat.MessagingStyle.Message(
+                        msg.text,
+                        msg.timestamp,
+                        msg.senderName
+                    )
+                )
+            }
+            builder.setStyle(messagingStyle)
+        } else {
+            builder.setSubText(senderName)
         }
 
-        // Get notification preferences
-        val prefs = context.getSharedPreferences("notification_prefs", Context.MODE_PRIVATE)
-        val durationMs = prefs.getInt("notification_duration", 10000)
-        val notificationPriority = prefs.getInt("notification_priority", 2)
-        val enableSound = prefs.getBoolean("notification_sound", true)
-        val enableVibration = prefs.getBoolean("notification_vibration", true)
-        val chatChannelId = ensureChatChannel(context, enableSound, enableVibration)
-
-        Log.d(TAG, "Notification settings: duration=${durationMs}ms, priority=$notificationPriority, sound=$enableSound, vibration=$enableVibration")
-
-        // Create intent to open chat when notification is tapped
-        val intent = Intent(context, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            putExtra("open_chat", true)
+        if (includeReplyAction) {
+            builder.addAction(buildReplyAction(context))
         }
 
-        val pendingIntent = PendingIntent.getActivity(
-            context,
-            0,
-            intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        if (settings.previewMode == "private") {
+            builder.setPublicVersion(buildPublicVersion(context, channelId, pendingIntent, timestamp))
+        }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
+            if (settings.enableSound) {
+                builder.setDefaults(NotificationCompat.DEFAULT_SOUND)
+            }
+            if (settings.enableVibration) {
+                builder.setVibrate(longArrayOf(0, 500, 200, 500))
+            }
+        }
+
+        Log.d(
+            TAG,
+            "Notification settings: duration=${settings.durationMs}ms, priority=${settings.priority}, " +
+                "size=${settings.size}, sound=${settings.enableSound}, vibration=${settings.enableVibration}, " +
+                "badge=${settings.showBadge}, preview=${settings.previewMode}"
         )
 
-        // Map priority value to NotificationCompat constant
-        val priority = when (notificationPriority) {
-            0 -> NotificationCompat.PRIORITY_LOW
-            1 -> NotificationCompat.PRIORITY_DEFAULT
-            2 -> NotificationCompat.PRIORITY_MAX
-            else -> NotificationCompat.PRIORITY_MAX
-        }
+        return builder
+    }
 
-        // Create MessagingStyle
-        val messagingStyle = NotificationCompat.MessagingStyle("Вы")
-            .setConversationTitle("Чат с ребёнком")
-
-        // Add all messages from history to MessagingStyle
-        messageHistory.forEach { msg ->
-            messagingStyle.addMessage(
-                NotificationCompat.MessagingStyle.Message(
-                    msg.text,
-                    msg.timestamp,
-                    msg.senderName
-                )
-            )
-        }
-
-        // Create RemoteInput for quick reply
+    private fun buildReplyAction(context: Context): NotificationCompat.Action {
         val remoteInput = RemoteInput.Builder(NotificationReplyReceiver.KEY_TEXT_REPLY)
-            .setLabel("Ответить...")
+            .setLabel(context.getString(R.string.notification_reply_hint))
             .build()
 
-        // Create reply action intent
         val replyIntent = Intent(context, NotificationReplyReceiver::class.java).apply {
             action = NotificationReplyReceiver.ACTION_REPLY
         }
@@ -207,136 +416,83 @@ object NotificationManager {
             context,
             0,
             replyIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE // Must be mutable for RemoteInput
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         )
 
-        // Create reply action
-        val replyAction = NotificationCompat.Action.Builder(
+        return NotificationCompat.Action.Builder(
             android.R.drawable.ic_menu_send,
-            "Ответить",
+            context.getString(R.string.notification_action_reply),
             replyPendingIntent
         )
             .addRemoteInput(remoteInput)
             .setAllowGeneratedReplies(true)
             .build()
+    }
 
-        // Build notification
-        val builder = NotificationCompat.Builder(context, chatChannelId)
+    private fun buildPublicVersion(
+        context: Context,
+        channelId: String,
+        pendingIntent: PendingIntent,
+        timestamp: Long
+    ): Notification {
+        return NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_launcher_foreground)
-            .setContentTitle("💬 Чат с ребёнком")
-            .setContentText(messageText)
-            .setPriority(priority)
+            .setContentTitle(context.getString(R.string.notification_content_title))
+            .setContentText(context.getString(R.string.notification_hidden_content))
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
             .setWhen(timestamp)
             .setShowWhen(true)
-            .setGroup(CHAT_GROUP_KEY)
-            .setNumber(unreadMessageCount)
-            .setOnlyAlertOnce(false)
-            .setTimeoutAfter(durationMs.toLong())
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
-            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC) // Show on lockscreen
-            .setStyle(messagingStyle)
-            .addAction(replyAction) // Add quick reply action
+            .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
+            .build()
+    }
 
-        // Configure sound based on preferences
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) {
-            if (enableSound) {
-                builder.setDefaults(NotificationCompat.DEFAULT_SOUND)
-            }
-            if (enableVibration) {
-                builder.setVibrate(longArrayOf(0, 500, 200, 500))
-            }
+    private fun buildOpenChatPendingIntent(context: Context): PendingIntent {
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            putExtra("open_chat", true)
         }
-
-        // Show notification
-        try {
-            with(NotificationManagerCompat.from(context)) {
-                notify(CHAT_NOTIFICATION_ID, builder.build())
-            }
-
-            android.util.Log.d("NotificationManager", "Chat notification shown with MessagingStyle: duration=${durationMs}ms, priority=$notificationPriority, sound=$enableSound, vibration=$enableVibration, history=${messageHistory.size} messages")
-        } catch (e: SecurityException) {
-            android.util.Log.e("NotificationManager", "Failed to show notification: ${e.message}")
-        }
-    }
-
-    /**
-     * Cancel chat notification and reset counter
-     */
-    fun cancelChatNotification(context: Context) {
-        with(NotificationManagerCompat.from(context)) {
-            cancel(CHAT_NOTIFICATION_ID)
-        }
-        unreadMessageCount = 0 // Reset counter when notifications dismissed
-        messageHistory.clear() // Clear message history
-    }
-
-    /**
-     * Reset unread message counter (call when user opens chat)
-     */
-    fun resetUnreadCount() {
-        unreadMessageCount = 0
-        messageHistory.clear() // Also clear history when chat is opened
-    }
-
-    /**
-     * Get current unread message count
-     */
-    fun getUnreadCount(): Int {
-        return unreadMessageCount
-    }
-
-    /**
-     * Check if notifications are enabled
-     */
-    fun areNotificationsEnabled(context: Context): Boolean {
-        return NotificationManagerCompat.from(context).areNotificationsEnabled()
-    }
-
-    /**
-     * Show geofence notification
-     */
-    fun showGeofenceNotification(
-        context: Context,
-        title: String,
-        message: String,
-        isExit: Boolean
-    ) {
-        val intent = Intent(context, ru.example.childwatch.MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
-        }
-        
-        val pendingIntent = PendingIntent.getActivity(
+        return PendingIntent.getActivity(
             context,
             0,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
-        
-        val builder = NotificationCompat.Builder(context, GEOFENCE_CHANNEL_ID)
-            .setSmallIcon(if (isExit) android.R.drawable.ic_dialog_alert else android.R.drawable.ic_dialog_info)
-            .setContentTitle(title)
-            .setContentText(message)
-            .setPriority(if (isExit) NotificationCompat.PRIORITY_MAX else NotificationCompat.PRIORITY_HIGH)
-            .setAutoCancel(true)
-            .setContentIntent(pendingIntent)
-            .setCategory(NotificationCompat.CATEGORY_ALARM)
-        
-        if (isExit) {
-            builder.setVibrate(longArrayOf(0, 500, 200, 500))
-                .setColor(android.graphics.Color.RED)
-        }
-        
-        val notificationManager = NotificationManagerCompat.from(context)
-        val notificationId = GEOFENCE_NOTIFICATION_ID_BASE + title.hashCode()
-        
-        if (ActivityCompat.checkSelfPermission(
+    }
+
+    private fun notifySafely(context: Context, notificationId: Int, notification: Notification) {
+        val permissionGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU ||
+            ActivityCompat.checkSelfPermission(
                 context,
                 Manifest.permission.POST_NOTIFICATIONS
             ) == PackageManager.PERMISSION_GRANTED
-        ) {
-            notificationManager.notify(notificationId, builder.build())
+
+        if (!permissionGranted) {
+            Log.w(TAG, "Skipping notification $notificationId: POST_NOTIFICATIONS not granted")
+            return
+        }
+
+        try {
+            NotificationManagerCompat.from(context).notify(notificationId, notification)
+        } catch (e: SecurityException) {
+            Log.e(TAG, "Failed to show notification: ${e.message}")
+        }
+    }
+
+    private fun mapChannelImportance(priority: Int): Int {
+        return when (priority) {
+            0 -> AndroidNotificationManager.IMPORTANCE_LOW
+            1 -> AndroidNotificationManager.IMPORTANCE_DEFAULT
+            else -> AndroidNotificationManager.IMPORTANCE_HIGH
+        }
+    }
+
+    private fun mapCompatPriority(priority: Int): Int {
+        return when (priority) {
+            0 -> NotificationCompat.PRIORITY_LOW
+            1 -> NotificationCompat.PRIORITY_DEFAULT
+            else -> NotificationCompat.PRIORITY_MAX
         }
     }
 }

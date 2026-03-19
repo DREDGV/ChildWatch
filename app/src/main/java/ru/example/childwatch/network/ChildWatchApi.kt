@@ -46,6 +46,16 @@ interface ChildWatchApi {
     ): Response<ChatHistoryResponse>
 
     /**
+     * Get archived audio recordings for a device
+     */
+    @GET("api/media/audio/{deviceId}")
+    suspend fun getAudioGallery(
+        @Path("deviceId") deviceId: String,
+        @Query("limit") limit: Int = 50,
+        @Query("offset") offset: Int = 0
+    ): Response<AudioGalleryResponse>
+
+    /**
      * Mark chat messages as read
      */
     @POST("api/chat/mark-read/{deviceId}")
@@ -131,7 +141,7 @@ data class ChatHistoryResponse(
 )
 
 data class ChatMessageData(
-    val id: Long,
+    val id: String,
     val sender: String,
     val message: String,
     val timestamp: Long,
@@ -162,4 +172,21 @@ data class PhotoFileData(
     val createdAt: String?,
     val downloadUrl: String,
     val thumbnailUrl: String?
+)
+
+data class AudioGalleryResponse(
+    val success: Boolean,
+    val audioFiles: List<AudioFileData> = emptyList(),
+    val count: Int = 0
+)
+
+data class AudioFileData(
+    val id: Long,
+    val filename: String,
+    val fileSize: Long,
+    val mimeType: String,
+    val duration: Long? = null,
+    val timestamp: Long,
+    val createdAt: String?,
+    val downloadUrl: String
 )

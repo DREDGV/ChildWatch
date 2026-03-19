@@ -406,11 +406,15 @@ object WebSocketManager {
     // Photo capture callbacks
     private var photoReceivedCallback: ((photoBase64: String, requestId: String, timestamp: Long) -> Unit)? = null
     private var photoErrorCallback: ((requestId: String, error: String) -> Unit)? = null
+    private var photoQueuedCallback: ((requestId: String, deviceId: String, camera: String, timestamp: Long) -> Unit)? = null
     private val photoReceivedListeners = java.util.Collections.synchronizedSet(
         mutableSetOf<(String, String, Long) -> Unit>()
     )
     private val photoErrorListeners = java.util.Collections.synchronizedSet(
         mutableSetOf<(String, String) -> Unit>()
+    )
+    private val photoQueuedListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(String, String, String, Long) -> Unit>()
     )
 
     /**
@@ -464,6 +468,13 @@ object WebSocketManager {
         }
     }
 
+    fun setPhotoQueuedCallback(callback: (requestId: String, deviceId: String, camera: String, timestamp: Long) -> Unit) {
+        photoQueuedCallback = callback
+        webSocketClient?.onPhotoQueuedCallback = { requestId, deviceId, camera, timestamp ->
+            dispatchPhotoQueued(requestId, deviceId, camera, timestamp)
+        }
+    }
+
     fun addPhotoReceivedListener(listener: (photoBase64: String, requestId: String, timestamp: Long) -> Unit) {
         photoReceivedListeners.add(listener)
         webSocketClient?.onPhotoReceived = { photoBase64, requestId, timestamp ->
@@ -484,6 +495,17 @@ object WebSocketManager {
 
     fun removePhotoErrorListener(listener: (requestId: String, error: String) -> Unit) {
         photoErrorListeners.remove(listener)
+    }
+
+    fun addPhotoQueuedListener(listener: (requestId: String, deviceId: String, camera: String, timestamp: Long) -> Unit) {
+        photoQueuedListeners.add(listener)
+        webSocketClient?.onPhotoQueuedCallback = { requestId, deviceId, camera, timestamp ->
+            dispatchPhotoQueued(requestId, deviceId, camera, timestamp)
+        }
+    }
+
+    fun removePhotoQueuedListener(listener: (requestId: String, deviceId: String, camera: String, timestamp: Long) -> Unit) {
+        photoQueuedListeners.remove(listener)
     }
 
     private fun dispatchPhotoReceived(photoBase64: String, requestId: String, timestamp: Long) {
@@ -510,6 +532,18 @@ object WebSocketManager {
         photoErrorCallback?.invoke(requestId, error)
     }
 
+    private fun dispatchPhotoQueued(requestId: String, deviceId: String, camera: String, timestamp: Long) {
+        val snapshot = synchronized(photoQueuedListeners) { photoQueuedListeners.toList() }
+        snapshot.forEach { listener ->
+            try {
+                listener(requestId, deviceId, camera, timestamp)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in photo queued listener", e)
+            }
+        }
+        photoQueuedCallback?.invoke(requestId, deviceId, camera, timestamp)
+    }
+
     /**
      * Cleanup resources
      */
@@ -528,7 +562,9 @@ object WebSocketManager {
         chatStatusListeners.clear()
         photoReceivedCallback = null
         photoErrorCallback = null
+        photoQueuedCallback = null
         photoReceivedListeners.clear()
         photoErrorListeners.clear()
+        photoQueuedListeners.clear()
     }
 }

@@ -257,12 +257,41 @@ class SecureSettingsManager(private val context: Context) {
 
     fun getLastDeviceStatus(): String? = securePrefs.getString(KEY_LAST_DEVICE_STATUS)
 
+    fun setLastDeviceStatusForDevice(deviceId: String, statusJson: String?) {
+        val normalizedId = deviceId.trim()
+        if (normalizedId.isBlank()) return
+        securePrefs.putString("${KEY_LAST_DEVICE_STATUS}_$normalizedId", statusJson)
+        Log.d(TAG, "Last device status updated for: $normalizedId")
+    }
+
+    fun getLastDeviceStatusForDevice(deviceId: String): String? {
+        val normalizedId = deviceId.trim()
+        if (normalizedId.isBlank()) return null
+        return securePrefs.getString("${KEY_LAST_DEVICE_STATUS}_$normalizedId")
+            ?: getLastDeviceStatus()
+    }
+
     fun setLastDeviceStatusTimestamp(timestamp: Long) {
         securePrefs.putLong(KEY_LAST_DEVICE_STATUS_TIMESTAMP, timestamp)
         Log.d(TAG, "Last device status timestamp set to: $timestamp")
     }
 
     fun getLastDeviceStatusTimestamp(): Long = securePrefs.getLong(KEY_LAST_DEVICE_STATUS_TIMESTAMP, 0L)
+
+    fun setLastDeviceStatusTimestampForDevice(deviceId: String, timestamp: Long) {
+        val normalizedId = deviceId.trim()
+        if (normalizedId.isBlank()) return
+        securePrefs.putLong("${KEY_LAST_DEVICE_STATUS_TIMESTAMP}_$normalizedId", timestamp)
+        Log.d(TAG, "Last device status timestamp set for $normalizedId: $timestamp")
+    }
+
+    fun getLastDeviceStatusTimestampForDevice(deviceId: String): Long {
+        val normalizedId = deviceId.trim()
+        if (normalizedId.isBlank()) return 0L
+        return securePrefs.getLong("${KEY_LAST_DEVICE_STATUS_TIMESTAMP}_$normalizedId", 0L)
+            .takeIf { it > 0L }
+            ?: getLastDeviceStatusTimestamp()
+    }
     
     // Privacy settings
     fun setPrivacyLevel(level: Int) {

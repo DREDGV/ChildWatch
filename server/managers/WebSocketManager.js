@@ -372,15 +372,15 @@ class WebSocketManager {
   handlePhotoRequest(socket, data) {
     try {
       const { targetDevice, requestId, camera } = data || {};
+      const normalizedTargetDevice = this.normalizeDeviceId(targetDevice);
       const mappedDeviceId = this.parentSockets.get(socket.id);
       let resolvedDeviceId = this.resolveConnectedChildDeviceId(
-        targetDevice,
+        normalizedTargetDevice,
         mappedDeviceId
       );
       if (!resolvedDeviceId) {
         resolvedDeviceId =
-          this.normalizeDeviceId(targetDevice) ||
-          this.normalizeDeviceId(mappedDeviceId);
+          normalizedTargetDevice || this.normalizeDeviceId(mappedDeviceId);
       }
       const reqId = requestId || `${Date.now()}_${Math.random().toString(16).slice(2)}`;
       const cameraFacing =
@@ -399,11 +399,13 @@ class WebSocketManager {
         return;
       }
 
-      this.pendingPhotoRequests.set(reqId, {
-        parentSocketId: socket.id,
-        deviceId: resolvedDeviceId,
-        createdAt: Date.now(),
-      });
+      if (normalizedTargetDevice && resolvedDeviceId !== normalizedTargetDevice) {
+        socket.emit("photo_error", {
+          requestId: reqId,
+          error: "Requested child device is not connected",
+        });
+        return;
+      }
 
       const childSocketId = this.childSockets.get(resolvedDeviceId);
       if (!childSocketId) {
@@ -425,9 +427,22 @@ class WebSocketManager {
         return;
       }
 
+      this.pendingPhotoRequests.set(reqId, {
+        parentSocketId: socket.id,
+        childSocketId,
+        deviceId: resolvedDeviceId,
+        createdAt: Date.now(),
+      });
+
       childSocket.emit("request_photo", {
         requestId: reqId,
         targetDevice: resolvedDeviceId,
+        camera: cameraFacing,
+        timestamp: Date.now(),
+      });
+      socket.emit("photo_request_queued", {
+        requestId: reqId,
+        deviceId: resolvedDeviceId,
         camera: cameraFacing,
         timestamp: Date.now(),
       });
@@ -463,6 +478,25 @@ class WebSocketManager {
         return;
       }
 
+      if (pending.childSocketId && pending.childSocketId !== socket.id) {
+        console.warn(
+          `Ignoring photo response from unexpected socket ${socket.id}; expected ${pending.childSocketId}`
+        );
+        return;
+      }
+
+      if (typeof photo !== "string" || !photo.trim()) {
+        const parentSocket = this.io.sockets.sockets.get(pending.parentSocketId);
+        if (parentSocket && parentSocket.connected) {
+          parentSocket.emit("photo_error", {
+            requestId,
+            error: "Received empty photo payload",
+          });
+        }
+        this.pendingPhotoRequests.delete(requestId);
+        return;
+      }
+
       const parentSocket = this.io.sockets.sockets.get(pending.parentSocketId);
       if (parentSocket && parentSocket.connected) {
         parentSocket.emit("photo", {
@@ -491,6 +525,13 @@ class WebSocketManager {
       console.warn(`рџ“ё Photo error: requestId=${requestId} error=${error || "unknown"}`);
       const pending = this.pendingPhotoRequests.get(requestId);
       if (!pending) {
+        return;
+      }
+
+      if (pending.childSocketId && pending.childSocketId !== socket.id) {
+        console.warn(
+          `Ignoring photo error from unexpected socket ${socket.id}; expected ${pending.childSocketId}`
+        );
         return;
       }
       const parentSocket = this.io.sockets.sockets.get(pending.parentSocketId);

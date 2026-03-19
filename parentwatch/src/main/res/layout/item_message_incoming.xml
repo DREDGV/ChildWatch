@@ -15,7 +15,7 @@
         android:layout_height="wrap_content"
         android:layout_marginStart="4dp"
         android:layout_marginBottom="2dp"
-        android:text="Родитель"
+        android:text="@string/chat_partner_parent"
         android:textColor="#4361EE"
         android:textSize="12sp"
         android:textStyle="bold" />

@@ -1,7 +1,8 @@
 package ru.example.parentwatch.chat
 
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
 /**
  * Data class representing a chat message with delivery/read status
@@ -36,7 +37,7 @@ data class ChatMessage(
     }
 
     fun getSenderName(): String = when (sender) {
-        "child" -> "Ребёнок"
+        "child" -> "Ребенок"
         "parent" -> "Родитель"
         else -> "Неизвестно"
     }

@@ -45,10 +45,14 @@ class RecordingsAdapter(
         fun bind(item: RecordingMetadata) {
             val context = binding.root.context
             val isPlaying = item.id == playingId
-            val fileExists = File(item.filePath).exists()
+            val fileExists = item.filePath.isNotBlank() && File(item.filePath).exists()
+            val hasArchiveCopy = !item.downloadUrl.isNullOrBlank()
+            val canPlay = fileExists || hasArchiveCopy
+            val canSave = fileExists || hasArchiveCopy
+            val canDelete = fileExists && !hasArchiveCopy
 
             binding.titleText.text = item.fileName
-            binding.infoText.text = buildInfoLine(context, item, fileExists)
+            binding.infoText.text = buildInfoLine(context, item, fileExists, hasArchiveCopy)
 
             val playIcon = ContextCompat.getDrawable(
                 context,
@@ -57,18 +61,20 @@ class RecordingsAdapter(
             binding.playPauseButton.apply {
                 text = if (isPlaying) context.getString(R.string.recording_stop) else context.getString(R.string.recording_play)
                 icon = playIcon
-                isEnabled = fileExists
+                isEnabled = canPlay
                 setOnClickListener { onPlayClicked(item) }
             }
 
             binding.deleteButton.apply {
                 icon = ContextCompat.getDrawable(context, android.R.drawable.ic_menu_delete)
+                isEnabled = canDelete
+                alpha = if (canDelete) 1f else 0.45f
                 setOnClickListener { onDeleteClicked(item) }
             }
 
             binding.saveButton.apply {
                 icon = ContextCompat.getDrawable(context, android.R.drawable.ic_menu_save)
-                isEnabled = fileExists
+                isEnabled = canSave
                 setOnClickListener { onSaveClicked(item) }
             }
 
@@ -77,12 +83,23 @@ class RecordingsAdapter(
             binding.root.strokeColor = strokeColor
         }
 
-        private fun buildInfoLine(context: Context, metadata: RecordingMetadata, fileExists: Boolean): String {
+        private fun buildInfoLine(
+            context: Context,
+            metadata: RecordingMetadata,
+            fileExists: Boolean,
+            hasArchiveCopy: Boolean
+        ): String {
             val dateString = DATE_FORMAT.format(Date(metadata.createdAt))
             val durationString = formatDuration(metadata.durationMs)
             val sizeString = Formatter.formatFileSize(context, metadata.sizeBytes)
             val base = "$dateString • $durationString • $sizeString"
-            return if (fileExists) base else "$base • файл отсутствует"
+            val storageState = when {
+                fileExists && hasArchiveCopy -> context.getString(R.string.recording_info_local_and_archive)
+                fileExists -> context.getString(R.string.recording_info_local_only)
+                hasArchiveCopy -> context.getString(R.string.recording_info_archive_only)
+                else -> context.getString(R.string.recording_info_missing_local)
+            }
+            return "$base • $storageState"
         }
 
         private fun formatDuration(durationMs: Long): String {

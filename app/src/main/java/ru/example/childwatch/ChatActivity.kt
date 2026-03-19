@@ -1,6 +1,8 @@
 ﻿package ru.example.childwatch
 
 import android.content.Context
+import android.content.SharedPreferences
+import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -9,11 +11,18 @@ import android.text.TextWatcher
 import android.util.Log
 import android.view.View
 import android.widget.Toast
+import android.widget.GridLayout
+import android.widget.LinearLayout
+import android.widget.TextView
+import androidx.annotation.StringRes
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.setPadding
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.google.android.material.bottomsheet.BottomSheetDialog
+import com.google.android.material.button.MaterialButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -21,17 +30,11 @@ import ru.example.childwatch.databinding.ActivityChatBinding
 import ru.example.childwatch.chat.ChatAdapter
 import ru.example.childwatch.chat.ChatMessage
 import ru.example.childwatch.chat.ChatManager
-import ru.example.childwatch.chat.ChatManagerAdapter
 import ru.example.childwatch.chat.withStatus
-import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.utils.SecurePreferences
 import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.viewmodel.ChatViewModel
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody
-import java.text.SimpleDateFormat
 import java.util.*
 
 /**
@@ -48,6 +51,9 @@ class ChatActivity : AppCompatActivity() {
     
     companion object {
         private const val TAG = "ChatActivity"
+        private const val KEY_RECENT_EMOJIS = "recent_emojis"
+        private const val MAX_RECENT_EMOJIS = 18
+        private const val EMOJI_DELIMITER = "|:|"
         
         /**
          * Глобальный флаг активности UI чата для использования в ChatBackgroundService
@@ -59,12 +65,10 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var binding: ActivityChatBinding
     private lateinit var chatAdapter: ChatAdapter
     private lateinit var chatManager: ChatManager
-    private lateinit var chatManagerAdapter: ChatManagerAdapter
-    private lateinit var networkClient: NetworkClient
     private lateinit var securePreferences: SecurePreferences
     private lateinit var messageQueue: ru.example.childwatch.chat.MessageQueue
     private val messages = mutableListOf<ChatMessage>()
-    private val currentUser = "parent" // ChildWatch - РїСЂРёР»РѕР¶РµРЅРёРµ СЂРѕРґРёС‚РµР»СЏ
+    private val currentUser = "parent" // ChildWatch - приложение родителя
 
 
     private val viewModel: ChatViewModel by viewModels()
@@ -77,6 +81,10 @@ class ChatActivity : AppCompatActivity() {
     private val readReceiptRetryRunnables = Collections.synchronizedMap(mutableMapOf<String, Runnable>())
     private var isChatUiActive = false
     private var chatUiListenersRegistered = false
+    private var currentConnectionStatus = ConnectionStatus.CONNECTING
+    private val emojiPrefs: SharedPreferences by lazy {
+        getSharedPreferences("chat_emoji_prefs", MODE_PRIVATE)
+    }
 
     private val typingHandler = Handler(Looper.getMainLooper())
     private var typingRunnable: Runnable? = null
@@ -84,6 +92,66 @@ class ChatActivity : AppCompatActivity() {
     private val TYPING_TIMEOUT = 5000L
     private val READ_RECEIPT_RETRY_MS = 4000L
     private val MAX_READ_RECEIPT_RETRIES = 3
+    private val defaultQuickEmojis by lazy {
+        listOf(
+            cp(0x2764, 0xFE0F), cp(0x1F44D), cp(0x1F60A), cp(0x1F602),
+            cp(0x1F44F), cp(0x1F389), cp(0x1F60D), cp(0x1F64F),
+            cp(0x1F970), cp(0x1F618), cp(0x1F525), cp(0x1F44C)
+        )
+    }
+    private val emojiCategories by lazy {
+        listOf(
+            EmojiCategory(
+                R.string.chat_emoji_category_smileys,
+                listOf(
+                    cp(0x1F60A), cp(0x1F603), cp(0x1F604), cp(0x1F601), cp(0x1F606), cp(0x1F609),
+                    cp(0x1F60D), cp(0x1F970), cp(0x1F618), cp(0x1F60E), cp(0x1F917), cp(0x1F914),
+                    cp(0x1F923), cp(0x1F602), cp(0x1F929), cp(0x1F60C), cp(0x1F61B), cp(0x1F61C)
+                )
+            ),
+            EmojiCategory(
+                R.string.chat_emoji_category_support,
+                listOf(
+                    cp(0x2764, 0xFE0F), cp(0x1F9E1), cp(0x1F49B), cp(0x1F49A), cp(0x1F499), cp(0x1F49C),
+                    cp(0x1F496), cp(0x2728), cp(0x1F44D), cp(0x1F44C), cp(0x1F44F), cp(0x1F64F),
+                    cp(0x1F90D), cp(0x1F90E), cp(0x1F495), cp(0x1F49E), cp(0x1F525), cp(0x1F4AF)
+                )
+            ),
+            EmojiCategory(
+                R.string.chat_emoji_category_family,
+                listOf(
+                    cp(0x1F476), cp(0x1F466), cp(0x1F467), cp(0x1F468), cp(0x1F469), cp(0x1F9D1),
+                    cp(0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467), cp(0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F466),
+                    cp(0x1F46A), cp(0x1F48F), cp(0x1F491), cp(0x1F3E0), cp(0x1F6CF, 0xFE0F), cp(0x1F6B8),
+                    cp(0x1F392), cp(0x1F4DA), cp(0x1F4D6), cp(0x1F381)
+                )
+            ),
+            EmojiCategory(
+                R.string.chat_emoji_category_activities,
+                listOf(
+                    cp(0x1F389), cp(0x1F38A), cp(0x1F381), cp(0x1F380), cp(0x1F3AE), cp(0x1F3B2),
+                    cp(0x26BD), cp(0x1F3C0), cp(0x1F3D0), cp(0x1F3A7), cp(0x1F3B5), cp(0x1F3B6),
+                    cp(0x1F3A4), cp(0x1F3A8), cp(0x1F4F7), cp(0x1F4F9), cp(0x2B50), cp(0x1F31F)
+                )
+            ),
+            EmojiCategory(
+                R.string.chat_emoji_category_food,
+                listOf(
+                    cp(0x1F34E), cp(0x1F34A), cp(0x1F353), cp(0x1F951), cp(0x1F355), cp(0x1F354),
+                    cp(0x1F35F), cp(0x1F32D), cp(0x1F36A), cp(0x1F370), cp(0x1F382), cp(0x1F369),
+                    cp(0x1F95B), cp(0x2615), cp(0x1F37F), cp(0x1F964), cp(0x1F36D), cp(0x1F36B)
+                )
+            ),
+            EmojiCategory(
+                R.string.chat_emoji_category_places,
+                listOf(
+                    cp(0x1F697), cp(0x1F699), cp(0x1F68C), cp(0x2708, 0xFE0F), cp(0x1F6B2), cp(0x1F6F4),
+                    cp(0x1F5FA, 0xFE0F), cp(0x1F3D5, 0xFE0F), cp(0x1F3D6, 0xFE0F), cp(0x1F30D), cp(0x1F30E), cp(0x1F30F),
+                    cp(0x1F4F1), cp(0x1F4BB), cp(0x1F4CD), cp(0x1F4A1), cp(0x23F0), cp(0x1F4E2)
+                )
+            )
+        )
+    }
 
     /**
      * Данные для повторной отправки read receipt
@@ -93,6 +161,7 @@ class ChatActivity : AppCompatActivity() {
         val attempts: Int = 0,
         val lastAttemptTime: Long = System.currentTimeMillis()
     )
+    private data class EmojiCategory(@StringRes val titleRes: Int, val emojis: List<String>)
     private val readReceiptRetries = Collections.synchronizedMap(mutableMapOf<String, ReadReceiptRetry>())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -115,10 +184,9 @@ class ChatActivity : AppCompatActivity() {
         }
         Log.d(TAG, "Resolved childDeviceId='$deviceId' (empty=${deviceId.isEmpty()})")
 
-        chatManagerAdapter = ChatManagerAdapter(this, deviceId)
-        viewModel.initialize(deviceId)
-
-        networkClient = NetworkClient(this)
+        if (deviceId.isNotBlank()) {
+            viewModel.initialize(deviceId)
+        }
         securePreferences = SecurePreferences(this, "childwatch_prefs")
 
         messageQueue = ru.example.childwatch.chat.MessageQueue(this)
@@ -132,7 +200,6 @@ class ChatActivity : AppCompatActivity() {
         setupUI()
         setupRecyclerView()
         setupViewModelObservers()
-        loadMessages()
 
         ru.example.childwatch.utils.NotificationManager.resetUnreadCount()
 
@@ -200,7 +267,7 @@ class ChatActivity : AppCompatActivity() {
         // Set up action bar
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
 
-        // Р—Р°РіСЂСѓР·РёС‚СЊ РёРјСЏ СЂРµР±РµРЅРєР° РёР· Р‘Р”
+        // Загрузить имя ребенка из БД
         loadChildName()
         
         // Configure input method for Cyrillic support
@@ -226,9 +293,50 @@ class ChatActivity : AppCompatActivity() {
         binding.emojiButton.setOnClickListener {
             showEmojiPicker()
         }
+
+        setupQuickEmojiStrip()
         
         // Setup typing indicator
         setupTypingIndicator()
+        updateComposerState()
+    }
+
+    private fun setupQuickEmojiStrip() {
+        val buttons = listOf(
+            binding.quickEmojiHeartButton,
+            binding.quickEmojiThumbButton,
+            binding.quickEmojiSmileButton,
+            binding.quickEmojiClapButton,
+            binding.quickEmojiCelebrateButton,
+            binding.quickEmojiLaughButton,
+            binding.quickEmojiSadButton,
+            binding.quickEmojiSurprisedButton,
+            binding.quickEmojiPrayerButton,
+            binding.quickEmojiThinkingButton,
+            binding.quickEmojiFireButton,
+            binding.quickEmojiLoveButton
+        )
+        val emojis = (getRecentEmojis() + defaultQuickEmojis).distinct().take(buttons.size)
+        buttons.zip(emojis).forEach { (button, emoji) ->
+            button.text = emoji
+            button.setOnClickListener { insertEmojiIntoInput(emoji) }
+        }
+    }
+
+    private fun insertEmojiIntoInput(emoji: String) {
+        val currentText = binding.messageInput.text?.toString().orEmpty()
+        val cursorPosition = binding.messageInput.selectionStart
+            .coerceAtLeast(0)
+            .coerceAtMost(currentText.length)
+        val newText = currentText.substring(0, cursorPosition) +
+            emoji +
+            currentText.substring(cursorPosition)
+
+        binding.messageInput.setText(newText)
+        binding.messageInput.setSelection((cursorPosition + emoji.length).coerceAtMost(newText.length))
+        binding.messageInput.requestFocus()
+        recordRecentEmoji(emoji)
+        setupQuickEmojiStrip()
     }
 
     /**
@@ -256,7 +364,7 @@ class ChatActivity : AppCompatActivity() {
                     // Start typing
                     isCurrentlyTyping = true
                     WebSocketManager.sendTypingStatus(true)
-                    Log.d(TAG, "рџ“ќ Started typing")
+                    Log.d(TAG, "Started typing")
                 }
                 
                 if (hasText) {
@@ -265,7 +373,7 @@ class ChatActivity : AppCompatActivity() {
                         if (isCurrentlyTyping) {
                             isCurrentlyTyping = false
                             WebSocketManager.sendTypingStatus(false)
-                            Log.d(TAG, "рџ“ќ Stopped typing (timeout)")
+                            Log.d(TAG, "Stopped typing (timeout)")
                         }
                     }
                     typingHandler.postDelayed(typingRunnable!!, TYPING_TIMEOUT)
@@ -273,8 +381,10 @@ class ChatActivity : AppCompatActivity() {
                     // Stop typing if field is empty
                     isCurrentlyTyping = false
                     WebSocketManager.sendTypingStatus(false)
-                    Log.d(TAG, "рџ“ќ Stopped typing (empty)")
+                    Log.d(TAG, "Stopped typing (empty)")
                 }
+
+                updateComposerState()
             }
             
             override fun afterTextChanged(s: Editable?) {}
@@ -282,55 +392,58 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun setupRecyclerView() {
-        chatAdapter = ChatAdapter(messages, currentUser) { message ->
+        chatAdapter = ChatAdapter(currentUser) { message ->
             retryFailedMessage(message)
         }
         binding.messagesRecyclerView.apply {
             layoutManager = LinearLayoutManager(this@ChatActivity).apply {
-                stackFromEnd = true // РџРѕРєР°Р·С‹РІР°РµРј РЅРѕРІС‹Рµ СЃРѕРѕР±С‰РµРЅРёСЏ СЃРЅРёР·Сѓ
+            stackFromEnd = true // Показываем новые сообщения снизу
             }
             adapter = chatAdapter
         }
     }
 
     /**
-     * РќР°СЃС‚СЂРѕР№РєР° РЅР°Р±Р»СЋРґР°С‚РµР»РµР№ Р·Р° ViewModel
+     * Настройка наблюдателей за ViewModel
      */
     private fun setupViewModelObservers() {
-        // РќР°Р±Р»СЋРґРµРЅРёРµ Р·Р° СЃРїРёСЃРєРѕРј СЃРѕРѕР±С‰РµРЅРёР№
+        // Наблюдение за списком сообщений
         viewModel.messages.observe(this) { messagesList ->
-            Log.d(TAG, "ViewModel: РїРѕР»СѓС‡РµРЅРѕ ${messagesList.size} СЃРѕРѕР±С‰РµРЅРёР№")
+            Log.d(TAG, "ViewModel: получено ${messagesList.size} сообщений")
+            val previousCount = messages.size
+            val shouldScrollToBottom = shouldAutoScroll(previousCount)
             messages.clear()
             messages.addAll(messagesList)
-            chatAdapter.notifyDataSetChanged()
-            if (messages.isNotEmpty()) {
+            chatAdapter.submitMessages(messagesList)
+            updateEmptyState()
+            if (messages.isNotEmpty() && shouldScrollToBottom) {
                 binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
             }
             sendReadReceiptsFor(messagesList)
         }
 
-        // РќР°Р±Р»СЋРґРµРЅРёРµ Р·Р° РЅРµРїСЂРѕС‡РёС‚Р°РЅРЅС‹РјРё СЃРѕРѕР±С‰РµРЅРёСЏРјРё
+        // Наблюдение за непрочитанными сообщениями
         viewModel.unreadCount.observe(this) { count ->
-            Log.d(TAG, "ViewModel: РЅРµРїСЂРѕС‡РёС‚Р°РЅРЅС‹С… СЃРѕРѕР±С‰РµРЅРёР№: $count")
-            // РњРѕР¶РЅРѕ РѕР±РЅРѕРІРёС‚СЊ СЃС‡РµС‚С‡РёРє РІ UI
+            Log.d(TAG, "ViewModel: непрочитанных сообщений: $count")
+            // Можно обновить счетчик в UI
         }
 
-        // РќР°Р±Р»СЋРґРµРЅРёРµ Р·Р° СЃРѕСЃС‚РѕСЏРЅРёРµРј Р·Р°РіСЂСѓР·РєРё
+        // Наблюдение за состоянием загрузки
         viewModel.isLoading.observe(this) { isLoading ->
             if (isLoading) {
                 binding.loadingIndicator.visibility = View.VISIBLE
                 binding.messagesRecyclerView.visibility = View.GONE
             } else {
                 binding.loadingIndicator.visibility = View.GONE
-                binding.messagesRecyclerView.visibility = View.VISIBLE
             }
-            Log.d(TAG, "ViewModel: Р·Р°РіСЂСѓР·РєР° = $isLoading")
+            updateEmptyState(isLoading)
+            Log.d(TAG, "ViewModel: загрузка = $isLoading")
         }
 
-        // РќР°Р±Р»СЋРґРµРЅРёРµ Р·Р° РѕС€РёР±РєР°РјРё
+        // Наблюдение за ошибками
         viewModel.error.observe(this) { errorMessage ->
             errorMessage?.let {
-                Toast.makeText(this, "РћС€РёР±РєР°: $it", Toast.LENGTH_SHORT).show()
+                Toast.makeText(this, "Ошибка: $it", Toast.LENGTH_SHORT).show()
                 viewModel.clearError()
             }
         }
@@ -350,7 +463,7 @@ class ChatActivity : AppCompatActivity() {
             typingRunnable?.let { typingHandler.removeCallbacks(it) }
         }
 
-        // РЎРѕР·РґР°РµРј СЃРѕРѕР±С‰РµРЅРёРµ РѕС‚ СЂРѕРґРёС‚РµР»СЏ (ChildWatch - СЌС‚Рѕ РїСЂРёР»РѕР¶РµРЅРёРµ СЂРѕРґРёС‚РµР»СЏ)
+        // Создаем сообщение от родителя (ChildWatch - это приложение родителя)
         val message = ChatMessage(
             id = System.currentTimeMillis().toString(),
             text = messageText,
@@ -360,23 +473,11 @@ class ChatActivity : AppCompatActivity() {
             status = ChatMessage.MessageStatus.SENDING
         )
         
-        // Р”РѕР±Р°РІР»СЏРµРј РІ СЃРїРёСЃРѕРє
-        messages.add(message)
-        val messagePosition = messages.size - 1
-        chatAdapter.notifyItemInserted(messagePosition)
-        
-        // РџСЂРѕРєСЂСѓС‡РёРІР°РµРј Рє РїРѕСЃР»РµРґРЅРµРјСѓ СЃРѕРѕР±С‰РµРЅРёСЋ
-        binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
-        
-        // РћС‡РёС‰Р°РµРј РїРѕР»Рµ РІРІРѕРґР°
         binding.messageInput.text?.clear()
+        updateEmptyState()
 
-        // РЎРѕС…СЂР°РЅСЏРµРј СЃРѕРѕР±С‰РµРЅРёРµ (РёСЃРїРѕР»СЊР·СѓРµРј РЅРѕРІС‹Р№ Р°РґР°РїС‚РµСЂ Рё ViewModel)
-        chatManager.saveMessage(message)
-        chatManagerAdapter.saveMessage(message)
         viewModel.sendMessage(message)
 
-        // Р”РѕР±Р°РІР»СЏРµРј РІ РѕС‡РµСЂРµРґСЊ РґР»СЏ РЅР°РґРµР¶РЅРѕР№ РѕС‚РїСЂР°РІРєРё
         messageQueue.enqueue(message)
 
         Log.d(TAG, "Message queued: $messageText, pending: ${messageQueue.size()}")
@@ -395,7 +496,7 @@ class ChatActivity : AppCompatActivity() {
             pendingReadReceiptIds.clear()
             WebSocketManager.ensureConnected(
                 onReady = {
-                    runOnUiThread { loadMessages() }
+                    runOnUiThread { sendReadReceiptsFor(messages.toList()) }
                 },
                 onError = { error ->
                     Log.w(TAG, "Read receipt retry waiting for ready state: $error")
@@ -427,7 +528,6 @@ class ChatActivity : AppCompatActivity() {
         readReceiptSentIds.add(messageId)
         updateMessageStatus(messageId, ChatMessage.MessageStatus.READ)
         viewModel.markAsRead(messageId)
-        chatManagerAdapter.markAsRead(messageId)
         chatManager.markAsRead(messageId)
         Log.d(TAG, "✅ Read receipt confirmed: $messageId")
     }
@@ -530,11 +630,11 @@ class ChatActivity : AppCompatActivity() {
 
     private fun sendTestMessage() {
         val testMessages = listOf(
-            "РџСЂРёРІРµС‚! РљР°Рє РґРµР»Р°?",
-            "РЇ РІ С€РєРѕР»Рµ, РІСЃРµ С…РѕСЂРѕС€Рѕ",
-            "РљРѕРіРґР° Р·Р°Р±РµСЂРµС€СЊ РјРµРЅСЏ?",
-            "РњРЅРµ РЅСѓР¶РЅР° РїРѕРјРѕС‰СЊ СЃ РґРѕРјР°С€РЅРёРј Р·Р°РґР°РЅРёРµРј",
-            "РЇ СѓР¶Рµ РґРѕРјР°"
+            "Привет! Как дела?",
+            "Я в школе, все хорошо",
+            "Когда заберешь меня?",
+            "Мне нужна помощь с домашним заданием",
+            "Я уже дома"
         )
         
         val randomMessage = testMessages.random()
@@ -545,57 +645,11 @@ class ChatActivity : AppCompatActivity() {
     private fun clearChat() {
         messages.clear()
         readReceiptSentIds.clear()
-        chatAdapter.notifyDataSetChanged()
-        chatManagerAdapter.clearAllMessages()
+        chatAdapter.submitMessages(emptyList())
+        chatManager.clearAllMessages()
         viewModel.clearAllMessages()
+        updateEmptyState(false)
         Toast.makeText(this, getString(R.string.chat_cleared), Toast.LENGTH_SHORT).show()
-    }
-
-    /**
-     * Загрузка сообщений из локальной БД
-     */
-    private fun loadMessages() {
-        // Показываем индикатор загрузки
-        binding.loadingIndicator.visibility = View.VISIBLE
-        binding.messagesRecyclerView.visibility = View.GONE
-        
-        lifecycleScope.launch {
-            try {
-                val savedMessages = withContext(Dispatchers.IO) {
-                    chatManagerAdapter.getAllMessagesAsync()
-                }
-                
-                if (isFinishing || isDestroyed) {
-                    Log.w(TAG, "Activity finishing, skipping message load")
-                    return@launch
-                }
-
-                messages.clear()
-                messages.addAll(savedMessages)
-                chatAdapter.notifyDataSetChanged()
-
-                if (messages.isNotEmpty()) {
-                    binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
-                }
-
-                sendReadReceiptsFor(savedMessages)
-                Log.d(TAG, "✅ Loaded ${messages.size} messages from local storage")
-                
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Error loading messages", e)
-                Toast.makeText(
-                    this@ChatActivity,
-                    "Ошибка загрузки сообщений: ${e.message ?: "Неизвестная ошибка"}",
-                    Toast.LENGTH_SHORT
-                ).show()
-            } finally {
-                // Скрываем индикатор загрузки в любом случае
-                if (!isFinishing && !isDestroyed) {
-                    binding.loadingIndicator.visibility = View.GONE
-                    binding.messagesRecyclerView.visibility = View.VISIBLE
-                }
-            }
-        }
     }
 
     private fun getRetrofitApi(serverUrl: String): ru.example.childwatch.network.ChildWatchApi {
@@ -627,13 +681,13 @@ class ChatActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 Log.d(TAG, "Syncing chat history from server for candidates: $candidateIds")
-                val api = getRetrofitApi(serverUrl)
+                val networkClient = ru.example.childwatch.network.NetworkClient(this@ChatActivity)
                 val existingIds = messages.map { it.id }.toHashSet()
                 val mergedById = linkedMapOf<String, ChatMessage>()
 
                 for (candidateId in candidateIds) {
                     try {
-                        val response = api.getChatHistory(candidateId, limit = 200)
+                        val response = networkClient.getChatHistory(candidateId, limit = 200)
                         if (!response.isSuccessful) {
                             Log.w(TAG, "Failed to sync chat history for $candidateId: ${response.code()}")
                             continue
@@ -645,13 +699,19 @@ class ChatActivity : AppCompatActivity() {
                         }
 
                         chatHistory.messages.forEach { msgData ->
-                            val messageId = msgData.id.toString()
+                            val messageId = msgData.id
+                            val status = when {
+                                msgData.isRead -> ChatMessage.MessageStatus.READ
+                                msgData.sender == currentUser -> ChatMessage.MessageStatus.SENT
+                                else -> ChatMessage.MessageStatus.DELIVERED
+                            }
                             val message = ChatMessage(
                                 id = messageId,
                                 text = msgData.message,
                                 sender = msgData.sender,
                                 timestamp = msgData.timestamp,
-                                isRead = msgData.isRead
+                                isRead = msgData.isRead,
+                                status = status
                             )
                             val existing = mergedById[messageId]
                             if (existing == null ||
@@ -671,17 +731,7 @@ class ChatActivity : AppCompatActivity() {
                     .sortedBy { it.timestamp }
 
                 if (newMessages.isNotEmpty()) {
-                    newMessages.forEach { message ->
-                        messages.add(message)
-                        chatManagerAdapter.saveMessage(message)
-                    }
-                    messages.sortBy { it.timestamp }
-
-                    runOnUiThread {
-                        chatAdapter.notifyDataSetChanged()
-                        binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
-                    }
-
+                    viewModel.saveMessages(newMessages)
                     Log.d(TAG, "Added ${newMessages.size} new messages from server")
                 } else {
                     Log.d(TAG, "No new messages from server")
@@ -751,35 +801,69 @@ class ChatActivity : AppCompatActivity() {
      * Connection status enum
      */
     private enum class ConnectionStatus {
-        CONNECTED,      // рџџў Green
-        CONNECTING,     // рџџЎ Yellow
-        DISCONNECTED    // рџ”ґ Red
+        CONNECTED,
+        CONNECTING,
+        DISCONNECTED
     }
 
     /**
      * Update connection status indicator
      */
     private fun updateConnectionStatus(status: ConnectionStatus) {
+        currentConnectionStatus = status
         when (status) {
             ConnectionStatus.CONNECTED -> {
-                binding.connectionStatusCard.visibility = View.GONE
+                binding.connectionStatusCard.visibility = View.VISIBLE
+                binding.connectionStatusCard.setCardBackgroundColor(Color.parseColor("#EAF8F0"))
                 binding.connectionStatusIcon.setBackgroundResource(R.drawable.status_connected)
                 binding.connectionStatusText.text = getString(R.string.chat_presence_online)
                 binding.connectionStatusText.setTextColor(getColor(android.R.color.holo_green_dark))
             }
             ConnectionStatus.CONNECTING -> {
                 binding.connectionStatusCard.visibility = View.VISIBLE
+                binding.connectionStatusCard.setCardBackgroundColor(Color.parseColor("#FFF4E5"))
                 binding.connectionStatusIcon.setBackgroundResource(R.drawable.status_connecting)
                 binding.connectionStatusText.text = getString(R.string.chat_presence_connecting)
                 binding.connectionStatusText.setTextColor(getColor(android.R.color.holo_orange_dark))
             }
             ConnectionStatus.DISCONNECTED -> {
                 binding.connectionStatusCard.visibility = View.VISIBLE
+                binding.connectionStatusCard.setCardBackgroundColor(Color.parseColor("#FDECEC"))
                 binding.connectionStatusIcon.setBackgroundResource(R.drawable.status_disconnected)
                 binding.connectionStatusText.text = getString(R.string.chat_presence_offline)
                 binding.connectionStatusText.setTextColor(getColor(android.R.color.holo_red_dark))
             }
         }
+        updateComposerState()
+    }
+
+    private fun updateComposerState() {
+        val length = binding.messageInput.text?.length ?: 0
+        val hasText = length > 0
+        binding.sendButton.isEnabled = hasText
+        binding.sendButton.alpha = if (hasText) 1f else 0.55f
+        binding.composerMetaText.text = when {
+            currentConnectionStatus == ConnectionStatus.DISCONNECTED ->
+                getString(R.string.chat_composer_hint_offline)
+            currentConnectionStatus == ConnectionStatus.CONNECTING ->
+                getString(R.string.chat_composer_hint_connecting)
+            hasText ->
+                getString(R.string.chat_composer_hint_typing, length)
+            else ->
+                getString(R.string.chat_composer_hint_online)
+        }
+    }
+
+    private fun updateEmptyState(isLoading: Boolean = binding.loadingIndicator.visibility == View.VISIBLE) {
+        val hasMessages = messages.isNotEmpty()
+        binding.emptyStateCard.visibility = if (!isLoading && !hasMessages) View.VISIBLE else View.GONE
+        binding.messagesRecyclerView.visibility = if (!isLoading && hasMessages) View.VISIBLE else View.GONE
+    }
+
+    private fun shouldAutoScroll(previousCount: Int): Boolean {
+        val layoutManager = binding.messagesRecyclerView.layoutManager as? LinearLayoutManager ?: return true
+        val lastVisible = layoutManager.findLastVisibleItemPosition()
+        return previousCount == 0 || lastVisible == RecyclerView.NO_POSITION || lastVisible >= previousCount - 2
     }
 
     /**
@@ -796,16 +880,14 @@ class ChatActivity : AppCompatActivity() {
             sender = message.sender,
             onSuccess = {
                 runOnUiThread {
-                    Log.d(TAG, "вњ… Message ${message.id} sent successfully")
-                    // Update message status to SENT
+                    Log.d(TAG, "Message ${message.id} sent successfully")
                     updateMessageStatus(message.id, ChatMessage.MessageStatus.SENT)
                     onSuccess?.invoke()
                 }
             },
             onError = { error ->
                 runOnUiThread {
-                    Log.e(TAG, "вќЊ Error sending message ${message.id}: $error")
-                    // Update message status to FAILED
+                    Log.e(TAG, "Error sending message ${message.id}: $error")
                     updateMessageStatus(message.id, ChatMessage.MessageStatus.FAILED)
                     onError?.invoke(error)
                 }
@@ -821,7 +903,6 @@ class ChatActivity : AppCompatActivity() {
         }
         updateMessageStatus(messageId, status)
         viewModel.updateMessageStatus(messageId, status)
-        chatManagerAdapter.updateMessageStatus(messageId, status)
         chatManager.updateMessageStatus(messageId, status)
     }
 
@@ -836,7 +917,6 @@ class ChatActivity : AppCompatActivity() {
 
         updateMessageStatus(messageId, mapped)
         viewModel.updateMessageStatus(messageId, mapped)
-        chatManagerAdapter.updateMessageStatus(messageId, mapped)
         chatManager.updateMessageStatus(messageId, mapped)
     }
 
@@ -851,7 +931,7 @@ class ChatActivity : AppCompatActivity() {
                 return
             }
             messages[index] = messages[index].withStatus(newStatus)
-            chatAdapter.notifyItemChanged(index)
+            chatAdapter.submitMessages(messages)
             Log.d(TAG, "Updated message $messageId status to $newStatus")
         }
     }
@@ -901,16 +981,7 @@ class ChatActivity : AppCompatActivity() {
             status = ChatMessage.MessageStatus.DELIVERED
         )
 
-        // Add to list
-        messages.add(message)
-        chatAdapter.notifyItemInserted(messages.size - 1)
-
-        // Scroll to last message
-        binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
-
-        // Save message (РёСЃРїРѕР»СЊР·СѓРµРј РЅРѕРІС‹Р№ Р°РґР°РїС‚РµСЂ)
-        chatManager.saveMessage(message)
-        chatManagerAdapter.saveMessage(message)
+        viewModel.saveMessage(message)
         sendReadReceiptsFor(listOf(message))
 
         Log.d(TAG, "Received message from $sender: $text")
@@ -963,80 +1034,128 @@ class ChatActivity : AppCompatActivity() {
      * Show emoji picker dialog
      */
     private fun showEmojiPicker() {
-        val emojis = listOf(
-            cp(0x1F60A), cp(0x1F602), cp(0x2764, 0xFE0F), cp(0x1F44D), cp(0x1F44B),
-            cp(0x1F64F), cp(0x1F60D), cp(0x1F622), cp(0x1F62D), cp(0x1F621),
-            cp(0x1F389), cp(0x1F38A), cp(0x1F380), cp(0x1F381), cp(0x2B50),
-            cp(0x2728), cp(0x1F525), cp(0x1F4AF), cp(0x2705), cp(0x274C),
-            cp(0x1F476), cp(0x1F466), cp(0x1F467), cp(0x1F468), cp(0x1F469),
-            cp(0x1F46A), cp(0x1F3E0), cp(0x1F3EB), cp(0x1F4DA), cp(0x270F, 0xFE0F),
-            cp(0x1F34E), cp(0x1F355), cp(0x1F370), cp(0x1F3AE), cp(0x26BD),
-            cp(0x1F3C0), cp(0x1F3B5), cp(0x1F4F1), cp(0x1F4BB), cp(0x1F697)
+        val dialog = BottomSheetDialog(this)
+        val container = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(20))
+        }
+
+        val titleView = TextView(this).apply {
+            text = getString(R.string.chat_emoji_picker_title)
+            setTextColor(Color.parseColor("#1F1F1F"))
+            textSize = 20f
+            setTypeface(typeface, android.graphics.Typeface.BOLD)
+        }
+        container.addView(titleView)
+
+        val subtitleView = TextView(this).apply {
+            text = getString(R.string.chat_emoji_picker_subtitle)
+            setTextColor(Color.parseColor("#6B7280"))
+            textSize = 13f
+            setPadding(0, dp(6), 0, dp(10))
+        }
+        container.addView(subtitleView)
+
+        val scrollView = android.widget.ScrollView(this).apply {
+            isFillViewport = true
+        }
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
+        val sections = buildList {
+            val recent = getRecentEmojis()
+            if (recent.isNotEmpty()) {
+                add(EmojiCategory(R.string.chat_emoji_category_recent, recent))
+            }
+            addAll(emojiCategories)
+        }
+
+        sections.forEachIndexed { index, category ->
+            val sectionTitle = TextView(this).apply {
+                text = getString(category.titleRes)
+                setTextColor(Color.parseColor("#374151"))
+                textSize = 13f
+                setTypeface(typeface, android.graphics.Typeface.BOLD)
+                setPadding(0, if (index == 0) 0 else dp(14), 0, dp(8))
+            }
+            content.addView(sectionTitle)
+
+            val grid = GridLayout(this).apply {
+                columnCount = 6
+            }
+            category.emojis.forEach { emoji ->
+                grid.addView(createEmojiButton(emoji) {
+                    insertEmojiIntoInput(emoji)
+                    dialog.dismiss()
+                })
+            }
+            content.addView(grid)
+        }
+
+        scrollView.addView(content)
+        container.addView(
+            scrollView,
+            LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                dp(460)
+            )
         )
 
-        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
-        builder.setTitle(getString(R.string.chat_emoji_picker_title))
-
-        // Create grid layout for emojis
-        val gridLayout = android.widget.GridLayout(this).apply {
-            columnCount = 5
-            setPadding(16, 16, 16, 16)
-        }
-
-        var dialogInstance: androidx.appcompat.app.AlertDialog? = null
-
-        emojis.forEach { emoji ->
-            val button = com.google.android.material.button.MaterialButton(
-                this,
-                null,
-                com.google.android.material.R.attr.materialButtonOutlinedStyle
-            ).apply {
-                text = emoji
-                textSize = 28f // РЈРІРµР»РёС‡РµРЅ СЂР°Р·РјРµСЂ emoji
-                minWidth = 0
-                minHeight = 0
-                minimumWidth = 0
-                minimumHeight = 0
-                setPadding(0, 0, 0, 0)
-                insetTop = 0
-                insetBottom = 0
-                iconPadding = 0
-
-                val size = (64 * resources.displayMetrics.density).toInt() // РЈРІРµР»РёС‡РµРЅ СЃ 48dp РґРѕ 64dp
-                layoutParams = android.widget.GridLayout.LayoutParams().apply {
-                    width = size
-                    height = size
-                    setMargins(4, 4, 4, 4)
-                }
-
-                setOnClickListener {
-                    // Insert emoji at cursor position
-                    val cursorPosition = binding.messageInput.selectionStart
-                    val currentText = binding.messageInput.text.toString()
-                    val newText = currentText.substring(0, cursorPosition) +
-                                 emoji +
-                                 currentText.substring(cursorPosition)
-                    binding.messageInput.setText(newText)
-                    binding.messageInput.setSelection(cursorPosition + emoji.length)
-
-                    // Close dialog
-                    dialogInstance?.dismiss()
-                }
-            }
-            gridLayout.addView(button)
-        }
-
-        builder.setView(gridLayout)
-        builder.setNegativeButton(getString(R.string.chat_close), null)
-        dialogInstance = builder.show()
+        dialog.setContentView(container)
+        dialog.show()
     }
+
+    private fun createEmojiButton(emoji: String, onClick: () -> Unit): MaterialButton {
+        return MaterialButton(
+            this,
+            null,
+            com.google.android.material.R.attr.materialButtonOutlinedStyle
+        ).apply {
+            text = emoji
+            textSize = 24f
+            minWidth = 0
+            minHeight = 0
+            minimumWidth = 0
+            minimumHeight = 0
+            setPadding(0, 0, 0, 0)
+            insetTop = 0
+            insetBottom = 0
+            iconPadding = 0
+            layoutParams = GridLayout.LayoutParams().apply {
+                width = dp(52)
+                height = dp(52)
+                setMargins(dp(4), dp(4), dp(4), dp(4))
+            }
+            setOnClickListener { onClick() }
+        }
+    }
+
+    private fun getRecentEmojis(): List<String> {
+        return emojiPrefs.getString(KEY_RECENT_EMOJIS, null)
+            ?.split(EMOJI_DELIMITER)
+            ?.map { it.trim() }
+            ?.filter { it.isNotBlank() }
+            .orEmpty()
+    }
+
+    private fun recordRecentEmoji(emoji: String) {
+        val updated = (listOf(emoji) + getRecentEmojis())
+            .distinct()
+            .take(MAX_RECENT_EMOJIS)
+        emojiPrefs.edit()
+            .putString(KEY_RECENT_EMOJIS, updated.joinToString(EMOJI_DELIMITER))
+            .apply()
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
     private fun cp(vararg codePoints: Int): String = buildString {
         codePoints.forEach { append(String(Character.toChars(it))) }
     }
 
     /**
-     * Р—Р°РіСЂСѓР·РёС‚СЊ РёРјСЏ СЂРµР±РµРЅРєР° РёР· Р‘Р” Рё СѓСЃС‚Р°РЅРѕРІРёС‚СЊ РІ Р·Р°РіРѕР»РѕРІРѕРє
+     * Загрузить имя ребенка из БД и установить в заголовок
      */
     private fun loadChildName() {
         lifecycleScope.launch {
@@ -1065,7 +1184,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     /**
-     * РџРѕРјРµС‚РёС‚СЊ СЃРѕРѕР±С‰РµРЅРёСЏ РєР°Рє РїСЂРѕС‡РёС‚Р°РЅРЅС‹Рµ РЅР° СЃРµСЂРІРµСЂРµ
+     * Mark messages as read on the server.
      */
     private fun markMessagesAsReadOnServer(messageIds: List<String>) {
         if (messageIds.isEmpty()) return
@@ -1101,15 +1220,15 @@ class ChatActivity : AppCompatActivity() {
     }
 
     /**
-     * РџРѕРІС‚РѕСЂРЅР°СЏ РѕС‚РїСЂР°РІРєР° РЅРµСѓРґР°РІС€РµРіРѕСЃСЏ СЃРѕРѕР±С‰РµРЅРёСЏ
+     * Повторная отправка неудавшегося сообщения
      */
     private fun retryFailedMessage(message: ChatMessage) {
-        Log.d(TAG, "РџРѕРІС‚РѕСЂРЅР°СЏ РѕС‚РїСЂР°РІРєР° СЃРѕРѕР±С‰РµРЅРёСЏ: ${message.id}")
-        
-        // РћР±РЅРѕРІР»СЏРµРј СЃС‚Р°С‚СѓСЃ РЅР° "РѕС‚РїСЂР°РІРєР°"
+        Log.d(TAG, "Повторная отправка сообщения: ${message.id}")
+
+        // Обновляем статус на "отправка"
         updateMessageStatus(message.id, ChatMessage.MessageStatus.SENDING)
         
-        // РџРѕРІС‚РѕСЂРЅРѕ РґРѕР±Р°РІР»СЏРµРј РІ РѕС‡РµСЂРµРґСЊ
+        // Повторно добавляем в очередь
         messageQueue.enqueue(message)
     }
 
@@ -1128,7 +1247,7 @@ class ChatActivity : AppCompatActivity() {
             .putBoolean("chat_open", true)
             .apply()
         registerChatUiListeners()
-        loadMessages()
+        sendReadReceiptsFor(messages.toList())
     }
 
     override fun onPause() {
@@ -1154,7 +1273,6 @@ class ChatActivity : AppCompatActivity() {
         clearPendingReadReceiptRetries()
         
         chatManager.cleanup()
-        chatManagerAdapter.cleanup()
         messageQueue.release()
         unregisterChatUiListeners()
         activityChatListener = null

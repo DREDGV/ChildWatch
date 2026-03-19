@@ -2,6 +2,7 @@ package ru.example.parentwatch
 
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import ru.example.parentwatch.databinding.ActivityStatsBinding
@@ -66,9 +67,9 @@ class StatsActivity : AppCompatActivity() {
                 }
                 binding.serviceStatusText.setTextColor(
                     if (isServiceRunning)
-                        getColor(android.R.color.holo_green_dark)
+                        ContextCompat.getColor(this@StatsActivity, android.R.color.holo_green_dark)
                     else
-                        getColor(android.R.color.holo_orange_dark)
+                        ContextCompat.getColor(this@StatsActivity, android.R.color.holo_orange_dark)
                 )
 
                 // Connection status

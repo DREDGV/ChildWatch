@@ -191,7 +191,7 @@ class MainActivity : AppCompatActivity() {
             if (otherId.isEmpty() || myId.isEmpty()) {
                 Toast.makeText(
                     this,
-                    "Открыт режим просмотра карты. Чтобы видеть второе устройство, свяжите устройства в настройках.",
+                    getString(R.string.map_limited_mode_subtitle),
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -573,11 +573,8 @@ class MainActivity : AppCompatActivity() {
         val resolved = listOf(
             prefs.getString("parent_device_id", null),
             prefs.getString("linked_parent_device_id", null),
-            prefs.getString("selected_device_id", null),
-            prefs.getString("child_device_id", null),
             legacyPrefs.getString("parent_device_id", null),
-            legacyPrefs.getString("selected_device_id", null),
-            legacyPrefs.getString("child_device_id", null)
+            legacyPrefs.getString("linked_parent_device_id", null)
         )
             .mapNotNull { it?.trim() }
             .firstOrNull { it.isNotBlank() && it != myDeviceId }
@@ -612,4 +609,3 @@ class MainActivity : AppCompatActivity() {
         photoIntegration = null
     }
 }
-

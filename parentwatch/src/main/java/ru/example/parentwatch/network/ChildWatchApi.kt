@@ -121,7 +121,7 @@ data class ChatHistoryResponse(
 )
 
 data class ChatMessageData(
-    val id: Long,
+    val id: String,
     val sender: String,
     val message: String,
     val timestamp: Long,

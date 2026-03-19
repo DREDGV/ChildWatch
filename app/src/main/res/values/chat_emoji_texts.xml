@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_emoji_picker_subtitle">Часто используемые наверху, остальные разбиты по разделам.</string>
+    <string name="chat_emoji_category_recent">Недавние</string>
+    <string name="chat_emoji_category_smileys">Эмоции</string>
+    <string name="chat_emoji_category_support">Поддержка и любовь</string>
+    <string name="chat_emoji_category_family">Семья и дом</string>
+    <string name="chat_emoji_category_activities">Активности</string>
+    <string name="chat_emoji_category_food">Еда и уют</string>
+    <string name="chat_emoji_category_places">Места и вещи</string>
+</resources>

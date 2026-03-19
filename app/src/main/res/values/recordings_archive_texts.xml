@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="recordings_empty_state">Пока нет сохраненных записей</string>
+    <string name="recording_info_local_only">только на этом телефоне</string>
+    <string name="recording_info_archive_only">в архиве сервера</string>
+    <string name="recording_info_local_and_archive">локально и в архиве</string>
+    <string name="recording_info_missing_local">локальная копия недоступна</string>
+    <string name="recording_archive_upload_failed">Запись сохранена локально, но не отправлена в архив</string>
+    <string name="recording_archive_loading_failed">Не удалось загрузить архив записей</string>
+    <string name="recording_archive_unavailable">Архивная копия недоступна</string>
+    <string name="recording_archive_downloading">Загружаю запись из архива…</string>
+    <string name="recording_archive_download_failed">Не удалось скачать запись из архива</string>
+    <string name="recording_archive_delete_disabled">Архивные записи не удаляются из приложения</string>
+</resources>

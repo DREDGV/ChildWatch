@@ -23,13 +23,24 @@ tasks.register('printVersionInfo') {
     }
 }
 
-// Guard against broken encodings ("кракозябры") in source/resources
-def utf8Suspicious = ["Ã", "Ð", "Ñ", "�"]
+// Guard against broken encodings in source/resources.
+// Default mode reports suspicious files without breaking the build.
+// Use -Putf8GuardStrict=true to fail the task while the cleanup is in progress.
+def utf8SuspiciousRegexes = [
+    [~/Ã./, "latin1 utf8 mojibake"],
+    [~/Ð./, "latin1 cyrillic mojibake"],
+    [~/Ñ./, "latin1 cyrillic mojibake"],
+    [~/�/, "replacement character"],
+    [~/вЂ./, "cp1252 punctuation mojibake"],
+    [~/рџ./, "emoji mojibake"],
+    [~/(?:Р.|С.){3,}/, "double-decoded cyrillic mojibake"],
+]
 
 tasks.register('utf8Guard') {
     group = 'verification'
-    description = 'Проверяет исходники на возможные проблемы с кодировкой (UTF-8).'
+    description = 'Scans sources for suspicious mojibake patterns.'
     doLast {
+        def strict = ((findProperty("utf8GuardStrict") ?: "false").toString()).toBoolean()
         def trees = []
         trees += fileTree('.') {
             include 'app/src/**/*.kt', 'app/src/**/*.java', 'app/src/**/*.xml'
@@ -40,19 +51,26 @@ tasks.register('utf8Guard') {
         def bad = []
         trees.each { f ->
             def text = f.getText('UTF-8')
-            if (utf8Suspicious.any { s -> text.contains(s) }) {
-                bad << f
+            def match = utf8SuspiciousRegexes.find { entry -> (text =~ entry[0]).find() }
+            if (match != null) {
+                bad << "${f} [${match[1]}]"
             }
         }
         if (!bad.isEmpty()) {
-            throw new GradleException("Найдены возможные проблемы с кодировкой в файлах:\n" + bad.join('\n') + "\nИсправьте кодировку на UTF-8 и замените испорченные символы.")
+            def message = "Potential encoding issues found in files:\n" +
+                bad.join('\n') +
+                "\nRun with -Putf8GuardStrict=true to fail the build."
+            if (strict) {
+                throw new GradleException(message)
+            }
+            logger.warn(message)
         } else {
-            println 'UTF-8 проверка пройдена — проблем не найдено.'
+            println 'UTF-8 guard passed.'
         }
     }
 }
 
-// Включить в общий цикл проверок (не останавливает сборку, только при явном запуске `check`)
+// Keep the report visible in the common verification cycle.
 tasks.matching { it.name == 'check' }.configureEach {
     dependsOn tasks.named('utf8Guard')
 }

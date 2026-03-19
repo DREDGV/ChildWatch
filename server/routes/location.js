@@ -8,6 +8,79 @@ const router = express.Router();
  * Handles location history and tracking data
  */
 
+// Get current parent+child snapshot in one response
+router.get("/pair", async (req, res) => {
+  try {
+    const { parentId, childId } = req.query;
+
+    if (!parentId || !childId) {
+      return res.status(400).json({
+        error: "parentId and childId are required",
+        code: "PAIR_IDS_REQUIRED",
+      });
+    }
+
+    const dbManager = new DatabaseManager();
+    await dbManager.initialize();
+
+    const [parentLocation, childLocation] = await Promise.all([
+      dbManager.get(
+        `
+          SELECT * FROM parent_locations
+          WHERE parent_id = ?
+          ORDER BY timestamp DESC
+          LIMIT 1
+        `,
+        [parentId]
+      ),
+      dbManager.getLatestLocation(childId),
+    ]);
+
+    await dbManager.close();
+
+    res.json({
+      success: true,
+      pair: {
+        parent: parentLocation
+          ? {
+              id: parentLocation.id,
+              parentId: parentLocation.parent_id,
+              latitude: parentLocation.latitude,
+              longitude: parentLocation.longitude,
+              accuracy: parentLocation.accuracy,
+              timestamp: parentLocation.timestamp,
+              battery: parentLocation.battery,
+              speed: parentLocation.speed,
+              bearing: parentLocation.bearing,
+              createdAt: parentLocation.created_at,
+            }
+          : null,
+        child: childLocation
+          ? {
+              deviceId: childId,
+              latitude: childLocation.latitude,
+              longitude: childLocation.longitude,
+              accuracy: childLocation.accuracy,
+              timestamp: childLocation.timestamp,
+              recordedAt: new Date(childLocation.timestamp).toISOString(),
+            }
+          : null,
+      },
+      requested: {
+        parentId,
+        childId,
+      },
+      serverTimestamp: Date.now(),
+    });
+  } catch (error) {
+    console.error("Get location pair error:", error);
+    res.status(500).json({
+      error: "Failed to get location pair",
+      code: "LOCATION_PAIR_ERROR",
+    });
+  }
+});
+
 // Get location history for a device
 router.get("/history/:deviceId", async (req, res) => {
   try {
@@ -329,25 +402,47 @@ router.get("/parent/latest/:parentId", async (req, res) => {
 router.get("/parent/history/:parentId", async (req, res) => {
   try {
     const { parentId } = req.params;
-    const { limit = 100, offset = 0 } = req.query;
+    const { limit = 100, offset = 0, from, to } = req.query;
 
     const dbManager = new DatabaseManager();
     await dbManager.initialize();
 
+    const parsedLimit = parseInt(limit, 10) || 100;
+    const parsedOffset = parseInt(offset, 10) || 0;
+    const parsedFrom = from !== undefined ? parseInt(from, 10) : null;
+    const parsedTo = to !== undefined ? parseInt(to, 10) : null;
+
+    const filters = ["parent_id = ?"];
+    const params = [parentId];
+
+    if (parsedFrom !== null && !Number.isNaN(parsedFrom)) {
+      filters.push("timestamp >= ?");
+      params.push(parsedFrom);
+    }
+    if (parsedTo !== null && !Number.isNaN(parsedTo)) {
+      filters.push("timestamp <= ?");
+      params.push(parsedTo);
+    }
+
+    params.push(parsedLimit, parsedOffset);
+
     const locations = await dbManager.all(
       `
             SELECT * FROM parent_locations 
-            WHERE parent_id = ? 
+            WHERE ${filters.join(" AND ")}
             ORDER BY timestamp DESC 
             LIMIT ? OFFSET ?
         `,
-      [parentId, parseInt(limit), parseInt(offset)]
+      params
     );
 
     await dbManager.close();
 
     res.json({
       success: true,
+      parentId,
+      limit: parsedLimit,
+      offset: parsedOffset,
       locations: locations.map((loc) => ({
         id: loc.id,
         parentId: loc.parent_id,

@@ -13,6 +13,12 @@ import ru.example.parentwatch.service.AppUsageTracker
  */
 object DeviceInfoCollector {
 
+    data class BatterySnapshot(
+        val level: Int?,
+        val isCharging: Boolean,
+        val timestamp: Long = System.currentTimeMillis()
+    )
+
     /**
      * Aggregate device status information as a JSON payload.
      */
@@ -54,16 +60,8 @@ object DeviceInfoCollector {
     }
 
     private fun getBatteryInfo(context: Context): JSONObject {
+        val snapshot = getBatterySnapshot(context)
         val statusIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-
-        val level = statusIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-        val scale = statusIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-        val percent = if (level >= 0 && scale > 0) level * 100 / scale else -1
-
-        val status = statusIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-        val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-            status == BatteryManager.BATTERY_STATUS_FULL
-
         val plugType = statusIntent?.getIntExtra(BatteryManager.EXTRA_PLUGGED, -1) ?: -1
         val chargingType = when (plugType) {
             BatteryManager.BATTERY_PLUGGED_USB -> "USB"
@@ -90,13 +88,30 @@ object DeviceInfoCollector {
         }
 
         return JSONObject().apply {
-            put("level", if (percent >= 0) percent else JSONObject.NULL)
-            put("isCharging", isCharging)
+            put("level", snapshot.level ?: JSONObject.NULL)
+            put("isCharging", snapshot.isCharging)
             put("chargingType", chargingType ?: JSONObject.NULL)
             put("temperature", temperatureC ?: JSONObject.NULL)
             put("voltage", voltageV ?: JSONObject.NULL)
             put("health", healthLabel)
         }
+    }
+
+    fun getBatterySnapshot(context: Context): BatterySnapshot {
+        val statusIntent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+
+        val level = statusIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale = statusIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        val percent = if (level >= 0 && scale > 0) level * 100 / scale else null
+
+        val status = statusIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
+        val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
+            status == BatteryManager.BATTERY_STATUS_FULL
+
+        return BatterySnapshot(
+            level = percent?.takeIf { it in 0..100 },
+            isCharging = isCharging
+        )
     }
 
     private fun getDeviceDetails(): JSONObject {
@@ -111,6 +126,10 @@ object DeviceInfoCollector {
     }
 
     fun getBatteryLevel(context: Context): Int {
+        val snapshot = getBatterySnapshot(context)
+        if (snapshot.level != null) {
+            return snapshot.level
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             val manager = context.getSystemService(Context.BATTERY_SERVICE) as? BatteryManager
             val capacity = manager?.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY) ?: -1
@@ -129,11 +148,9 @@ object DeviceInfoCollector {
     }
 
     fun getBatteryStatus(context: Context): String {
-        val level = getBatteryLevel(context)
-        val intent = context.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-        val status = intent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-        val isCharging = status == BatteryManager.BATTERY_STATUS_CHARGING ||
-            status == BatteryManager.BATTERY_STATUS_FULL
+        val snapshot = getBatterySnapshot(context)
+        val level = snapshot.level ?: getBatteryLevel(context)
+        val isCharging = snapshot.isCharging
 
         return when {
             isCharging && level >= 0 -> "Charging $level%"

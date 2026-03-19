@@ -2,22 +2,28 @@ package ru.example.childwatch
 
 import android.Manifest
 import android.app.Activity
+import android.app.TimePickerDialog
 import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
+import androidx.core.view.isVisible
 import ru.example.childwatch.databinding.ActivitySettingsBinding
+import ru.example.childwatch.utils.NotificationManager as ChatNotificationManager
 import ru.example.childwatch.utils.PermissionHelper
 import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.service.MonitorService
+import java.util.Locale
 
 /**
  * Settings Activity for monitoring configuration
@@ -52,11 +58,16 @@ class SettingsActivity : AppCompatActivity() {
         private const val KEY_AUDIO_ENABLED = "audio_enabled"
         private const val KEY_PHOTO_ENABLED = "photo_enabled"
         private const val KEY_SHARE_PARENT_LOCATION = "share_parent_location"
+        private const val NOTIFICATION_PREFS_NAME = "notification_prefs"
+        private const val DEFAULT_QUIET_HOURS_START = "22:00"
+        private const val DEFAULT_QUIET_HOURS_END = "07:00"
     }
     
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var prefs: SharedPreferences
     private lateinit var secureSettings: SecureSettingsManager
+    private var quietHoursStart = DEFAULT_QUIET_HOURS_START
+    private var quietHoursEnd = DEFAULT_QUIET_HOURS_END
 
     // QR Scanner result launcher
     private val qrScannerLauncher = registerForActivityResult(
@@ -66,7 +77,11 @@ class SettingsActivity : AppCompatActivity() {
             val scannedCode = result.data?.getStringExtra("SCANNED_QR_CODE")
             if (!scannedCode.isNullOrEmpty()) {
                 binding.childDeviceIdInput.setText(scannedCode)
-                Toast.makeText(this, "QR-код отсканирован: $scannedCode", Toast.LENGTH_SHORT).show()
+                Toast.makeText(
+                    this,
+                    getString(R.string.settings_scanned_qr, scannedCode),
+                    Toast.LENGTH_SHORT
+                ).show()
             }
         }
     }
@@ -84,75 +99,86 @@ class SettingsActivity : AppCompatActivity() {
     }
     
     private fun setupUI() {
-        // Notification duration slider listener
         binding.notificationDurationSlider.addOnChangeListener { _, value, _ ->
-            binding.durationValueText.text = "${value.toInt()} секунд"
+            binding.durationValueText.text = formatNotificationDuration(value.toInt())
         }
 
-        // Notification priority slider listener
         binding.notificationPrioritySlider.addOnChangeListener { _, value, _ ->
-            val priorityText = when (value.toInt()) {
-                0 -> "Низкий"
-                1 -> "Средний"
-                2 -> "Высокий"
-                else -> "Средний"
-            }
-            binding.priorityValueText.text = priorityText
+            binding.priorityValueText.text = notificationPriorityLabel(value.toInt())
         }
 
-        // Save settings button
+        binding.notificationQuietHoursSwitch.setOnCheckedChangeListener { _, isChecked ->
+            updateQuietHoursState(isChecked)
+        }
+
+        binding.quietHoursStartButton.setOnClickListener {
+            showTimePicker(quietHoursStart) { selectedTime ->
+                quietHoursStart = selectedTime
+                updateQuietHoursButtons()
+            }
+        }
+
+        binding.quietHoursEndButton.setOnClickListener {
+            showTimePicker(quietHoursEnd) { selectedTime ->
+                quietHoursEnd = selectedTime
+                updateQuietHoursButtons()
+            }
+        }
+
         binding.saveSettingsBtn.setOnClickListener {
             saveSettings()
         }
 
-        // QR Scanner button
         binding.scanQrButton.setOnClickListener {
             val intent = Intent(this, QrScannerActivity::class.java)
             qrScannerLauncher.launch(intent)
         }
 
-            // Show QR Code button
-            binding.showQrCodeBtn.setOnClickListener {
-                val intent = Intent(this, QrCodeActivity::class.java)
-                startActivity(intent)
-            }
+        binding.showQrCodeBtn.setOnClickListener {
+            val intent = Intent(this, QrCodeActivity::class.java)
+            startActivity(intent)
+        }
 
-        // Server URL preset buttons
         binding.useVpsBtn.setOnClickListener {
             binding.serverUrlInput.setText(VPS_URL)
-            Toast.makeText(this, "VPS URL установлен", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.settings_toast_vps_set, Toast.LENGTH_SHORT).show()
         }
 
         binding.useLocalhostBtn.setOnClickListener {
             binding.serverUrlInput.setText(LOCALHOST_URL)
-            Toast.makeText(this, "Localhost URL установлен", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.settings_toast_local_set, Toast.LENGTH_SHORT).show()
         }
 
-        // Reset settings button
         binding.resetSettingsBtn.setOnClickListener {
             showResetConfirmation()
         }
 
-        // Revoke consent button
         binding.revokeConsentBtn.setOnClickListener {
             showRevokeConsentConfirmation()
         }
 
-        // About button
         binding.aboutBtn.setOnClickListener {
             openAboutScreen()
         }
-        
-        // Share parent location switch with background permission check
+
+        binding.testNotificationButton.setOnClickListener {
+            ChatNotificationManager.showPreviewNotification(this, buildNotificationSettings())
+            Toast.makeText(this, getString(R.string.notification_preview_sent), Toast.LENGTH_SHORT)
+                .show()
+        }
+
+        binding.openNotificationSettingsButton.setOnClickListener {
+            openSystemNotificationSettings()
+        }
+
         binding.shareParentLocationSwitch.setOnCheckedChangeListener { _, isChecked ->
             if (isChecked) {
                 checkAndRequestBackgroundLocationPermission()
             }
         }
     }
-    
+
     private fun loadSettings() {
-        // Load monitoring settings
         val locationInterval = prefs.getInt(KEY_LOCATION_INTERVAL, DEFAULT_LOCATION_INTERVAL)
         val audioDuration = prefs.getInt(KEY_AUDIO_DURATION, DEFAULT_AUDIO_DURATION)
         val serverUrl = secureSettings.getServerUrl()
@@ -163,74 +189,80 @@ class SettingsActivity : AppCompatActivity() {
         binding.serverUrlInput.setText(serverUrl)
         binding.childDeviceIdInput.setText(childDeviceId)
 
-        // Load feature toggles
         binding.locationMonitoringSwitch.isChecked = prefs.getBoolean(KEY_LOCATION_ENABLED, true)
         binding.audioMonitoringSwitch.isChecked = prefs.getBoolean(KEY_AUDIO_ENABLED, true)
         binding.photoMonitoringSwitch.isChecked = prefs.getBoolean(KEY_PHOTO_ENABLED, false)
         binding.shareParentLocationSwitch.isChecked = prefs.getBoolean(KEY_SHARE_PARENT_LOCATION, true)
 
-        // Load notification settings
-        val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
-        val notificationDuration = notificationPrefs.getInt("notification_duration", 10000) / 1000 // Convert ms to seconds
+        val notificationPrefs = getSharedPreferences(NOTIFICATION_PREFS_NAME, MODE_PRIVATE)
+        val notificationDuration = notificationPrefs.getInt("notification_duration", 10000) / 1000
         val notificationSize = notificationPrefs.getString("notification_size", "expanded") ?: "expanded"
         val notificationPriority = notificationPrefs.getInt("notification_priority", 2)
         val notificationSound = notificationPrefs.getBoolean("notification_sound", true)
         val notificationVibration = notificationPrefs.getBoolean("notification_vibration", true)
+        val notificationBadge = notificationPrefs.getBoolean("notification_badge", true)
+        val notificationPreview = notificationPrefs.getString("notification_preview", "public") ?: "public"
+        val notificationQuietHoursEnabled =
+            notificationPrefs.getBoolean("notification_quiet_hours_enabled", false)
+        quietHoursStart =
+            notificationPrefs.getString(
+                "notification_quiet_hours_start",
+                DEFAULT_QUIET_HOURS_START
+            ) ?: DEFAULT_QUIET_HOURS_START
+        quietHoursEnd =
+            notificationPrefs.getString(
+                "notification_quiet_hours_end",
+                DEFAULT_QUIET_HOURS_END
+            ) ?: DEFAULT_QUIET_HOURS_END
 
         binding.notificationDurationSlider.value = notificationDuration.toFloat()
-        binding.durationValueText.text = "$notificationDuration секунд"
+        binding.durationValueText.text = formatNotificationDuration(notificationDuration)
+        binding.notificationPrioritySlider.value = notificationPriority.toFloat()
+        binding.priorityValueText.text = notificationPriorityLabel(notificationPriority)
+        binding.notificationSoundSwitch.isChecked = notificationSound
+        binding.notificationVibrationSwitch.isChecked = notificationVibration
+        binding.notificationBadgeSwitch.isChecked = notificationBadge
+        binding.notificationQuietHoursSwitch.isChecked = notificationQuietHoursEnabled
+        updateQuietHoursButtons()
+        updateQuietHoursState(notificationQuietHoursEnabled)
 
-        // Load notification size
         if (notificationSize == "compact") {
             binding.notificationSizeCompact.isChecked = true
         } else {
             binding.notificationSizeExpanded.isChecked = true
         }
 
-        // Load notification priority
-        binding.notificationPrioritySlider.value = notificationPriority.toFloat()
-        val priorityText = when (notificationPriority) {
-            0 -> "Низкий"
-            1 -> "Средний"
-            2 -> "Высокий"
-            else -> "Средний"
+        if (notificationPreview == "private") {
+            binding.notificationPreviewPrivate.isChecked = true
+        } else {
+            binding.notificationPreviewPublic.isChecked = true
         }
-        binding.priorityValueText.text = priorityText
-
-        // Load notification sound and vibration toggles
-        binding.notificationSoundSwitch.isChecked = notificationSound
-        binding.notificationVibrationSwitch.isChecked = notificationVibration
 
         Log.d(TAG, "Settings loaded")
     }
-    
+
     private fun saveSettings() {
         try {
-            // Validate and save monitoring settings
             val locationInterval = binding.locationIntervalInput.text.toString().toIntOrNull()
             val audioDuration = binding.audioDurationInput.text.toString().toIntOrNull()
             val serverUrl = binding.serverUrlInput.text.toString().trim()
             val childDeviceId = binding.childDeviceIdInput.text.toString().trim()
-            
-            // Validate location interval
+
             if (locationInterval == null || locationInterval < 10 || locationInterval > 300) {
-                Toast.makeText(this, "Интервал геолокации должен быть от 10 до 300 секунд", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, R.string.settings_validation_location_interval, Toast.LENGTH_LONG).show()
                 return
             }
-            
-            // Validate audio duration
+
             if (audioDuration == null || audioDuration < 5 || audioDuration > 60) {
-                Toast.makeText(this, "Длительность аудио должна быть от 5 до 60 секунд", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, R.string.settings_validation_audio_duration, Toast.LENGTH_LONG).show()
                 return
             }
-            
-            // Validate server URL
+
             if (serverUrl.isEmpty() || (!serverUrl.startsWith("http://") && !serverUrl.startsWith("https://"))) {
-                Toast.makeText(this, "Введите корректный URL сервера", Toast.LENGTH_LONG).show()
+                Toast.makeText(this, R.string.settings_validation_server_url, Toast.LENGTH_LONG).show()
                 return
             }
-            
-            // Save settings
+
             prefs.edit()
                 .putInt(KEY_LOCATION_INTERVAL, locationInterval)
                 .putInt(KEY_AUDIO_DURATION, audioDuration)
@@ -242,46 +274,49 @@ class SettingsActivity : AppCompatActivity() {
                 .putBoolean(KEY_SHARE_PARENT_LOCATION, binding.shareParentLocationSwitch.isChecked)
                 .apply()
 
-            // Save notification settings
-            val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
-            val notificationDurationSec = binding.notificationDurationSlider.value.toInt()
-            val notificationSize = if (binding.notificationSizeCompact.isChecked) "compact" else "expanded"
-            val notificationPriority = binding.notificationPrioritySlider.value.toInt()
-            val notificationSound = binding.notificationSoundSwitch.isChecked
-            val notificationVibration = binding.notificationVibrationSwitch.isChecked
-
+            val notificationPrefs = getSharedPreferences(NOTIFICATION_PREFS_NAME, MODE_PRIVATE)
+            val notificationSettings = buildNotificationSettings()
             notificationPrefs.edit()
-                .putInt("notification_duration", notificationDurationSec * 1000) // Convert to ms
-                .putString("notification_size", notificationSize)
-                .putInt("notification_priority", notificationPriority)
-                .putBoolean("notification_sound", notificationSound)
-                .putBoolean("notification_vibration", notificationVibration)
+                .putInt("notification_duration", notificationSettings.durationMs)
+                .putString("notification_size", notificationSettings.size)
+                .putInt("notification_priority", notificationSettings.priority)
+                .putBoolean("notification_sound", notificationSettings.enableSound)
+                .putBoolean("notification_vibration", notificationSettings.enableVibration)
+                .putBoolean("notification_badge", notificationSettings.showBadge)
+                .putString("notification_preview", notificationSettings.previewMode)
+                .putBoolean("notification_quiet_hours_enabled", notificationSettings.quietHoursEnabled)
+                .putString("notification_quiet_hours_start", notificationSettings.quietHoursStart)
+                .putString("notification_quiet_hours_end", notificationSettings.quietHoursEnd)
                 .apply()
 
-            ru.example.childwatch.utils.NotificationManager.createNotificationChannels(this)
-
+            ChatNotificationManager.createNotificationChannels(this, notificationSettings)
             secureSettings.setServerUrl(serverUrl)
 
-            Log.d(TAG, "Settings saved: interval=$locationInterval, audio=$audioDuration, url=$serverUrl, notif=$notificationDurationSec, size=$notificationSize, priority=$notificationPriority, sound=$notificationSound, vibration=$notificationVibration")
-            Toast.makeText(this, "Настройки сохранены", Toast.LENGTH_SHORT).show()
-            
-            // Finish activity
+            Log.d(
+                TAG,
+                "Settings saved: interval=$locationInterval, audio=$audioDuration, url=$serverUrl, " +
+                    "notif=${notificationSettings.durationMs}, size=${notificationSettings.size}, " +
+                    "priority=${notificationSettings.priority}, sound=${notificationSettings.enableSound}, " +
+                    "vibration=${notificationSettings.enableVibration}, badge=${notificationSettings.showBadge}, " +
+                    "preview=${notificationSettings.previewMode}"
+            )
+            Toast.makeText(this, getString(R.string.notification_settings_saved), Toast.LENGTH_SHORT)
+                .show()
             finish()
-            
         } catch (e: Exception) {
             Log.e(TAG, "Error saving settings", e)
-            Toast.makeText(this, "Ошибка при сохранении настроек", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, R.string.settings_save_error, Toast.LENGTH_LONG).show()
         }
     }
-    
+
     private fun showResetConfirmation() {
         AlertDialog.Builder(this)
-            .setTitle("Сброс настроек")
-            .setMessage("Вы уверены, что хотите сбросить все настройки к значениям по умолчанию?")
-            .setPositiveButton("Сбросить") { _, _ ->
+            .setTitle(R.string.settings_reset_title)
+            .setMessage(R.string.settings_reset_message)
+            .setPositiveButton(R.string.settings_reset_confirm) { _, _ ->
                 resetToDefaults()
             }
-            .setNegativeButton("Отмена", null)
+            .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
     
@@ -296,17 +331,17 @@ class SettingsActivity : AppCompatActivity() {
         binding.photoMonitoringSwitch.isChecked = false
         
         Log.d(TAG, "Settings reset to defaults")
-        Toast.makeText(this, "Настройки сброшены к умолчанию", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, R.string.settings_reset_done, Toast.LENGTH_SHORT).show()
     }
     
     private fun showRevokeConsentConfirmation() {
         AlertDialog.Builder(this)
-            .setTitle("Отзыв согласия")
-            .setMessage("Вы уверены, что хотите отозвать согласие на мониторинг? Это остановит все функции отслеживания.")
-            .setPositiveButton("Отозвать") { _, _ ->
+            .setTitle(R.string.settings_revoke_title)
+            .setMessage(R.string.settings_revoke_message)
+            .setPositiveButton(R.string.settings_revoke_confirm) { _, _ ->
                 revokeConsent()
             }
-            .setNegativeButton("Отмена", null)
+            .setNegativeButton(android.R.string.cancel, null)
             .show()
     }
     
@@ -321,7 +356,7 @@ class SettingsActivity : AppCompatActivity() {
         startService(intent)
         
         Log.d(TAG, "Consent revoked")
-        Toast.makeText(this, "Согласие отозвано", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, R.string.settings_revoke_done, Toast.LENGTH_LONG).show()
         
         // Return to consent screen
         val consentIntent = Intent(this, ConsentActivity::class.java)
@@ -334,7 +369,88 @@ class SettingsActivity : AppCompatActivity() {
         val intent = Intent(this, AboutActivity::class.java)
         startActivity(intent)
     }
-    
+
+    private fun buildNotificationSettings(): ChatNotificationManager.ChatNotificationSettings {
+        return ChatNotificationManager.ChatNotificationSettings(
+            durationMs = binding.notificationDurationSlider.value.toInt() * 1000,
+            priority = binding.notificationPrioritySlider.value.toInt(),
+            size = if (binding.notificationSizeCompact.isChecked) "compact" else "expanded",
+            enableSound = binding.notificationSoundSwitch.isChecked,
+            enableVibration = binding.notificationVibrationSwitch.isChecked,
+            showBadge = binding.notificationBadgeSwitch.isChecked,
+            previewMode = if (binding.notificationPreviewPrivate.isChecked) "private" else "public",
+            quietHoursEnabled = binding.notificationQuietHoursSwitch.isChecked,
+            quietHoursStart = quietHoursStart,
+            quietHoursEnd = quietHoursEnd
+        )
+    }
+
+    private fun updateQuietHoursState(enabled: Boolean) {
+        binding.notificationQuietHoursButtons.isVisible = enabled
+    }
+
+    private fun updateQuietHoursButtons() {
+        binding.quietHoursStartButton.text =
+            getString(R.string.notification_quiet_hours_start, quietHoursStart)
+        binding.quietHoursEndButton.text =
+            getString(R.string.notification_quiet_hours_end, quietHoursEnd)
+    }
+
+    private fun showTimePicker(initialValue: String, onSelected: (String) -> Unit) {
+        val (hour, minute) = parseQuietHoursTime(initialValue)
+        TimePickerDialog(
+            this,
+            { _, selectedHour, selectedMinute ->
+                onSelected(formatQuietHoursTime(selectedHour, selectedMinute))
+            },
+            hour,
+            minute,
+            true
+        ).show()
+    }
+
+    private fun parseQuietHoursTime(value: String): Pair<Int, Int> {
+        val parts = value.split(":")
+        val hour = parts.getOrNull(0)?.toIntOrNull()?.coerceIn(0, 23) ?: 22
+        val minute = parts.getOrNull(1)?.toIntOrNull()?.coerceIn(0, 59) ?: 0
+        return hour to minute
+    }
+
+    private fun formatQuietHoursTime(hour: Int, minute: Int): String {
+        return String.format(Locale.US, "%02d:%02d", hour, minute)
+    }
+
+    private fun formatNotificationDuration(seconds: Int): String {
+        return getString(R.string.notification_duration_value, seconds)
+    }
+
+    private fun notificationPriorityLabel(priority: Int): String {
+        return when (priority) {
+            0 -> getString(R.string.notification_priority_low)
+            1 -> getString(R.string.notification_priority_medium)
+            else -> getString(R.string.notification_priority_high)
+        }
+    }
+
+    private fun openSystemNotificationSettings() {
+        val intent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+            }
+        } else {
+            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                data = Uri.fromParts("package", packageName, null)
+            }
+        }
+
+        try {
+            startActivity(intent)
+        } catch (e: Exception) {
+            Toast.makeText(this, getString(R.string.notification_settings_open_error), Toast.LENGTH_SHORT)
+                .show()
+        }
+    }
+
     override fun onBackPressed() {
         // Check if settings were modified
         val currentLocationInterval = binding.locationIntervalInput.text.toString().toIntOrNull()
@@ -354,15 +470,15 @@ class SettingsActivity : AppCompatActivity() {
         
         if (settingsChanged) {
             AlertDialog.Builder(this)
-                .setTitle("Несохраненные изменения")
-                .setMessage("У вас есть несохраненные изменения. Сохранить их?")
-                .setPositiveButton("Сохранить") { _, _ ->
+                .setTitle(R.string.settings_unsaved_title)
+                .setMessage(R.string.settings_unsaved_message)
+                .setPositiveButton(R.string.settings_unsaved_save) { _, _ ->
                     saveSettings()
                 }
-                .setNegativeButton("Не сохранять") { _, _ ->
+                .setNegativeButton(R.string.settings_unsaved_discard) { _, _ ->
                     super.onBackPressed()
                 }
-                .setNeutralButton("Отмена", null)
+                .setNeutralButton(android.R.string.cancel, null)
                 .show()
         } else {
             super.onBackPressed()
@@ -377,16 +493,12 @@ class SettingsActivity : AppCompatActivity() {
             if (!PermissionHelper.hasBackgroundLocationPermission(this)) {
                 // Show explanation dialog first
                 AlertDialog.Builder(this)
-                    .setTitle("Требуется разрешение")
-                    .setMessage(
-                        "Для отслеживания вашей локации в фоновом режиме необходимо разрешение " +
-                        "\"Разрешить всегда\" в настройках локации.\n\n" +
-                        "Это позволит ребенку видеть где вы находитесь на карте."
-                    )
-                    .setPositiveButton("Предоставить") { _, _ ->
+                    .setTitle(R.string.settings_background_permission_title)
+                    .setMessage(R.string.settings_background_permission_message)
+                    .setPositiveButton(R.string.settings_background_permission_grant) { _, _ ->
                         requestBackgroundLocationPermission()
                     }
-                    .setNegativeButton("Отмена") { _, _ ->
+                    .setNegativeButton(android.R.string.cancel) { _, _ ->
                         // Disable switch if permission denied
                         binding.shareParentLocationSwitch.isChecked = false
                     }
@@ -420,7 +532,7 @@ class SettingsActivity : AppCompatActivity() {
             if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
                 Toast.makeText(
                     this,
-                    "Разрешение на фоновую локацию получено",
+                    R.string.settings_background_permission_granted,
                     Toast.LENGTH_SHORT
                 ).show()
             } else {
@@ -428,10 +540,15 @@ class SettingsActivity : AppCompatActivity() {
                 binding.shareParentLocationSwitch.isChecked = false
                 Toast.makeText(
                     this,
-                    "Без разрешения фоновой локации функция недоступна",
+                    R.string.settings_background_permission_denied,
                     Toast.LENGTH_LONG
                 ).show()
             }
         }
     }
 }
+
+
+
+
+

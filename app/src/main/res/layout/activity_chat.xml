@@ -6,7 +6,6 @@
     android:orientation="vertical"
     android:background="#ECF0F1">
 
-    <!-- Conversation header -->
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/connectionStatusCard"
         android:layout_width="match_parent"
@@ -91,8 +90,6 @@
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>
 
-
-    <!-- Typing Indicator -->
     <TextView
         android:id="@+id/typingIndicator"
         android:layout_width="match_parent"
@@ -108,7 +105,6 @@
         android:visibility="gone"
         android:gravity="start" />
 
-    <!-- Loading Indicator -->
     <LinearLayout
         android:id="@+id/loadingIndicator"
         android:layout_width="match_parent"
@@ -128,12 +124,50 @@
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="Загрузка сообщений..."
+            android:text="@string/chat_loading_messages"
             android:textColor="#757575"
             android:textSize="14sp" />
     </LinearLayout>
 
-    <!-- Messages RecyclerView -->
+    <com.google.android.material.card.MaterialCardView
+        android:id="@+id/emptyStateCard"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="16dp"
+        android:layout_marginTop="12dp"
+        android:layout_marginEnd="16dp"
+        android:layout_marginBottom="12dp"
+        android:visibility="gone"
+        app:cardCornerRadius="24dp"
+        app:cardElevation="2dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="18dp">
+
+            <TextView
+                android:id="@+id/emptyStateTitle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/chat_empty_title"
+                android:textColor="#1F1F1F"
+                android:textSize="18sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/emptyStateText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="@string/chat_empty_hint"
+                android:textColor="#6B7280"
+                android:textSize="14sp" />
+        </LinearLayout>
+
+    </com.google.android.material.card.MaterialCardView>
+
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/messagesRecyclerView"
         android:layout_width="match_parent"
@@ -146,20 +180,18 @@
         android:scrollbars="vertical"
         android:overScrollMode="never" />
 
-    <!-- Divider -->
     <View
         android:layout_width="match_parent"
         android:layout_height="1dp"
         android:background="#E0E0E0" />
 
-    <!-- Input Area -->
     <com.google.android.material.card.MaterialCardView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:layout_margin="0dp"
+        android:backgroundTint="#FFFFFF"
         app:cardCornerRadius="0dp"
-        app:cardElevation="8dp"
-        android:backgroundTint="#FFFFFF">
+        app:cardElevation="8dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -167,7 +199,6 @@
             android:orientation="vertical"
             android:padding="12dp">
 
-            <!-- Message Input -->
             <com.google.android.material.textfield.TextInputLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -180,29 +211,208 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:hint="@string/chat_input_hint"
+                    android:imeOptions="actionSend"
                     android:inputType="textCapSentences|textMultiLine|textNoSuggestions"
                     android:maxLines="3"
                     android:minLines="1"
-                    android:imeOptions="actionSend"
                     android:textDirection="anyRtl"
                     android:textLocale="ru_RU" />
 
             </com.google.android.material.textfield.TextInputLayout>
 
-            <!-- Action Buttons -->
+            <TextView
+                android:id="@+id/composerMetaText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="@string/chat_composer_hint_online"
+                android:textColor="#6B7280"
+                android:textSize="12sp" />
+
+            <HorizontalScrollView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:fadeScrollbars="false"
+                android:scrollbars="none">
+
+                <LinearLayout
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/quickEmojiHeartButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        android:contentDescription="@string/chat_quick_emoji_desc"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="48dp"
+                        android:text="&#x2764;&#xFE0F;"
+                        android:textSize="18sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/quickEmojiThumbButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        android:contentDescription="@string/chat_quick_emoji_desc"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="48dp"
+                        android:text="&#x1F44D;"
+                        android:textSize="18sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/quickEmojiSmileButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        android:contentDescription="@string/chat_quick_emoji_desc"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="48dp"
+                        android:text="&#x1F60A;"
+                        android:textSize="18sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/quickEmojiClapButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        android:contentDescription="@string/chat_quick_emoji_desc"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="48dp"
+                        android:text="&#x1F44F;"
+                        android:textSize="18sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/quickEmojiCelebrateButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        android:contentDescription="@string/chat_quick_emoji_desc"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="48dp"
+                        android:text="&#x1F389;"
+                        android:textSize="18sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/quickEmojiLaughButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        android:contentDescription="@string/chat_quick_emoji_desc"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="48dp"
+                        android:text="&#x1F602;"
+                        android:textSize="18sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/quickEmojiSadButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        android:contentDescription="@string/chat_quick_emoji_desc"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="48dp"
+                        android:text="&#x1F622;"
+                        android:textSize="18sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/quickEmojiSurprisedButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:contentDescription="@string/chat_quick_emoji_desc"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="48dp"
+                        android:text="&#x1F62E;"
+                        android:textSize="18sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/quickEmojiPrayerButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        android:contentDescription="@string/chat_quick_emoji_desc"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="48dp"
+                        android:text="&#x1F64F;"
+                        android:textSize="18sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/quickEmojiThinkingButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        android:contentDescription="@string/chat_quick_emoji_desc"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="48dp"
+                        android:text="&#x1F914;"
+                        android:textSize="18sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/quickEmojiFireButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        android:contentDescription="@string/chat_quick_emoji_desc"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="48dp"
+                        android:text="&#x1F525;"
+                        android:textSize="18sp" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/quickEmojiLoveButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        android:contentDescription="@string/chat_quick_emoji_desc"
+                        android:insetTop="0dp"
+                        android:insetBottom="0dp"
+                        android:minWidth="48dp"
+                        android:text="&#x1F60D;"
+                        android:textSize="18sp" />
+
+                </LinearLayout>
+
+            </HorizontalScrollView>
+
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
-                android:gravity="center_vertical">
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/emojiButton"
+                    style="@style/Widget.Material3.Button.TextButton"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="😊"
-                    android:textSize="20sp"
-                    style="@style/Widget.Material3.Button.TextButton" />
+                    android:text="@string/chat_more_emoji_button" />
 
                 <Space
                     android:layout_width="0dp"
@@ -216,11 +426,11 @@
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/clearButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginEnd="8dp"
-                        android:text="@string/chat_clear"
-                        style="@style/Widget.Material3.Button.OutlinedButton" />
+                        android:text="@string/chat_clear" />
 
                     <com.google.android.material.button.MaterialButton
                         android:id="@+id/sendButton"

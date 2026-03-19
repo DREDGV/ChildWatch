@@ -21,6 +21,7 @@ import ru.example.childwatch.databinding.ActivityMainMenuBinding
 import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.network.DeviceStatus
 import ru.example.childwatch.network.NetworkClient
+import ru.example.childwatch.remote.RemotePhotoCache
 import ru.example.childwatch.service.MonitorService
 import ru.example.childwatch.service.ChatBackgroundService
 import ru.example.childwatch.service.ParentLocationService
@@ -109,16 +110,15 @@ class MainActivity : AppCompatActivity() {
         setupUI()
         updateUIState()
         updateChatBadge()
-        
-        // Perform security checks
-        performSecurityChecks()
-        checkBatteryOptimizationStatus()
-        CriticalAlertSyncScheduler.schedule(this)
-        ensureChatBackgroundService()
-        ensureParentLocationService()
-        
-        // Initialize WebSocket for commands (remote camera, etc.)
-        initializeWebSocket()
+
+        // Non-critical subsystems should not be able to crash first launch.
+        binding.root.post {
+            runStartupTask("performSecurityChecks") { performSecurityChecks() }
+            runStartupTask("scheduleCriticalAlertSync") { CriticalAlertSyncScheduler.schedule(this) }
+            runStartupTask("ensureChatBackgroundService") { ensureChatBackgroundService() }
+            runStartupTask("ensureParentLocationService") { ensureParentLocationService() }
+            runStartupTask("initializeWebSocket") { initializeWebSocket() }
+        }
     }
     
     /**
@@ -140,7 +140,7 @@ class MainActivity : AppCompatActivity() {
                         Log.d(TAG, "WebSocket connected for target: $targetDeviceId")
                     },
                     onError = { error ->
-                        Log.e(TAG, "РІСњРЉ WebSocket connection error: $error")
+                        Log.e(TAG, "WebSocket connection error: $error")
                     }
                 )
             } else {
@@ -579,7 +579,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadCachedDeviceStatus(): DeviceStatus? {
-        val cachedJson = secureSettings.getLastDeviceStatus() ?: return null
+        val childDeviceId = resolveDeviceIdForStatus() ?: return null
+        val cachedJson = secureSettings.getLastDeviceStatusForDevice(childDeviceId) ?: return null
         return runCatching { gson.fromJson(cachedJson, DeviceStatus::class.java) }.getOrNull()
     }
 
@@ -587,7 +588,9 @@ class MainActivity : AppCompatActivity() {
         binding.deviceInfoProgress.isVisible = false
         binding.deviceInfoStatusMessage.isVisible = false
         binding.deviceInfoContent.isVisible = true
-        val statusTimestamp = normalizeEpochMillis(status.timestamp ?: secureSettings.getLastDeviceStatusTimestamp())
+        val childDeviceId = resolveDeviceIdForStatus()
+        val cachedTimestamp = childDeviceId?.let { secureSettings.getLastDeviceStatusTimestampForDevice(it) }
+        val statusTimestamp = normalizeEpochMillis(status.timestamp ?: cachedTimestamp ?: 0L)
         val isStale = statusTimestamp?.let { System.currentTimeMillis() - it > DEVICE_STATUS_STALE_MS } == true
         if (statusTimestamp == null) {
             Log.w(TAG, "Device status timestamp missing")
@@ -695,6 +698,8 @@ class MainActivity : AppCompatActivity() {
                             val normalizedStatus = status.copy(timestamp = normalizedTimestamp)
                             secureSettings.setLastDeviceStatus(gson.toJson(normalizedStatus))
                             secureSettings.setLastDeviceStatusTimestamp(normalizedTimestamp)
+                            secureSettings.setLastDeviceStatusForDevice(childDeviceId, gson.toJson(normalizedStatus))
+                            secureSettings.setLastDeviceStatusTimestampForDevice(childDeviceId, normalizedTimestamp)
                             applyDeviceStatus(normalizedStatus)
                             return@launch
                         }
@@ -863,16 +868,18 @@ class MainActivity : AppCompatActivity() {
         val consequences = PermissionHelper.getPermissionDenialConsequences(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
 
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Р В Р В°Р В·РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘Р Вµ Р Р…Р В° РЎвЂћР С•Р Р…Р С•Р Р†Р С•Р Вµ Р СР ВµРЎРѓРЎвЂљР С•Р С—Р С•Р В»Р С•Р В¶Р ВµР Р…Р С‘Р Вµ")
-            .setMessage("$explanation\n\n$consequences\n\nР СџРЎР‚Р ВµР Т‘Р С•РЎРѓРЎвЂљР В°Р Р†Р С‘РЎвЂљРЎРЉ?")
-            .setPositiveButton("Р В Р В°Р В·РЎР‚Р ВµРЎв‚¬Р С‘РЎвЂљРЎРЉ") { _, _ ->
+            .setTitle(R.string.main_background_location_title)
+            .setMessage(
+                "$explanation\n\n$consequences\n\n${getString(R.string.main_background_location_prompt_suffix)}"
+            )
+            .setPositiveButton(R.string.main_permission_allow) { _, _ ->
                 backgroundLocationLauncher.launch(Manifest.permission.ACCESS_BACKGROUND_LOCATION)
             }
-            .setNegativeButton("Р СџРЎР‚Р С•Р С—РЎС“РЎРѓРЎвЂљР С‘РЎвЂљРЎРЉ") { _, _ ->
-                showToast("Р СљР С•Р Р…Р С‘РЎвЂљР С•РЎР‚Р С‘Р Р…Р С– Р В±РЎС“Р Т‘Р ВµРЎвЂљ РЎР‚Р В°Р В±Р С•РЎвЂљР В°РЎвЂљРЎРЉ РЎвЂљР С•Р В»РЎРЉР С”Р С• Р С”Р С•Р С–Р Т‘Р В° Р С—РЎР‚Р С‘Р В»Р С•Р В¶Р ВµР Р…Р С‘Р Вµ Р С•РЎвЂљР С”РЎР‚РЎвЂ№РЎвЂљР С•")
+            .setNegativeButton(R.string.main_permission_skip) { _, _ ->
+                showToast(getString(R.string.main_background_location_denied_limited))
                 onAllPermissionsGranted()
             }
-            .setNeutralButton("Р СњР В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р С‘") { _, _ ->
+            .setNeutralButton(R.string.main_permission_settings) { _, _ ->
                 PermissionHelper.openAppSettings(this)
             }
             .show()
@@ -882,12 +889,12 @@ class MainActivity : AppCompatActivity() {
         val deniedPermissions = permissions.filter { !it.value }.keys
 
         if (deniedPermissions.isEmpty()) {
-            showToast("Р С›РЎРѓР Р…Р С•Р Р†Р Р…РЎвЂ№Р Вµ РЎР‚Р В°Р В·РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘РЎРЏ Р С—РЎР‚Р ВµР Т‘Р С•РЎРѓРЎвЂљР В°Р Р†Р В»Р ВµР Р…РЎвЂ№")
+            showToast(getString(R.string.main_permissions_basic_granted))
             // Now request background location permission
             requestBackgroundLocationPermission()
         } else {
             val deniedList = deniedPermissions.joinToString(", ")
-            showToast("Р С›РЎвЂљР С”Р В°Р В·Р В°Р Р…Р С• Р Р† РЎР‚Р В°Р В·РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘РЎРЏРЎвЂ¦: $deniedList")
+            showToast(getString(R.string.main_permissions_denied_list, deniedList))
 
             // Show explanation for denied permissions
             showPermissionDeniedExplanation(deniedPermissions)
@@ -896,16 +903,16 @@ class MainActivity : AppCompatActivity() {
 
     private fun handleBackgroundLocationResult(isGranted: Boolean) {
         if (isGranted) {
-            showToast("Р вЂ™РЎРѓР Вµ РЎР‚Р В°Р В·РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘РЎРЏ Р С—РЎР‚Р ВµР Т‘Р С•РЎРѓРЎвЂљР В°Р Р†Р В»Р ВµР Р…РЎвЂ№")
+            showToast(getString(R.string.main_permissions_all_granted))
             onAllPermissionsGranted()
         } else {
-            showToast("Р В¤Р С•Р Р…Р С•Р Р†Р С•Р Вµ Р СР ВµРЎРѓРЎвЂљР С•Р С—Р С•Р В»Р С•Р В¶Р ВµР Р…Р С‘Р Вµ Р С•РЎвЂљР С”Р В»Р С•Р Р…Р ВµР Р…Р С•. Р СљР С•Р Р…Р С‘РЎвЂљР С•РЎР‚Р С‘Р Р…Р С– Р В±РЎС“Р Т‘Р ВµРЎвЂљ РЎР‚Р В°Р В±Р С•РЎвЂљР В°РЎвЂљРЎРЉ РЎвЂљР С•Р В»РЎРЉР С”Р С• Р С”Р С•Р С–Р Т‘Р В° Р С—РЎР‚Р С‘Р В»Р С•Р В¶Р ВµР Р…Р С‘Р Вµ Р С•РЎвЂљР С”РЎР‚РЎвЂ№РЎвЂљР С•")
+            showToast(getString(R.string.main_background_location_denied))
             onAllPermissionsGranted() // Continue anyway
         }
     }
 
     private fun onAllPermissionsGranted() {
-        showToast("Р вЂ™РЎРѓР Вµ Р Р…Р ВµР С•Р В±РЎвЂ¦Р С•Р Т‘Р С‘Р СРЎвЂ№Р Вµ РЎР‚Р В°Р В·РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘РЎРЏ Р С—РЎР‚Р ВµР Т‘Р С•РЎРѓРЎвЂљР В°Р Р†Р В»Р ВµР Р…РЎвЂ№")
+        showToast(getString(R.string.main_permissions_all_granted))
         // Try to start monitoring if consent is given
         if (hasConsent) {
             startMonitoring()
@@ -967,17 +974,25 @@ class MainActivity : AppCompatActivity() {
         val message = explanations.joinToString("\n\n")
 
         androidx.appcompat.app.AlertDialog.Builder(this)
-            .setTitle("Р СњР ВµР С•Р В±РЎвЂ¦Р С•Р Т‘Р С‘Р СРЎвЂ№ РЎР‚Р В°Р В·РЎР‚Р ВµРЎв‚¬Р ВµР Р…Р С‘РЎРЏ")
+            .setTitle(R.string.main_permissions_required_title)
             .setMessage(message)
-            .setPositiveButton("Р СњР В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р С‘") { _, _ ->
+            .setPositiveButton(R.string.main_permission_settings) { _, _ ->
                 PermissionHelper.openAppSettings(this)
             }
-            .setNegativeButton("Р вЂ”Р В°Р С”РЎР‚РЎвЂ№РЎвЂљРЎРЉ") { _, _ -> }
+            .setNegativeButton(R.string.main_permission_close) { _, _ -> }
             .show()
     }
     
     private fun showToast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private inline fun runStartupTask(taskName: String, action: () -> Unit) {
+        try {
+            action()
+        } catch (error: Exception) {
+            Log.e(TAG, "Startup task failed: $taskName", error)
+        }
     }
 
     private fun resolveTargetDeviceId(): String? {
@@ -1114,15 +1129,15 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         prefs.edit().putBoolean("chat_open", false).apply()
-        updateUIState()
-        updateChatBadge()
-        startBadgeRefreshLoop()
-        refreshChildDeviceStatus(force = true)
-        startDeviceStatusRefreshLoop()
-        CriticalAlertSyncScheduler.triggerImmediate(this)
-        ensureChatBackgroundService()
-        ensureParentLocationService()
-        initializeWebSocket()
+        runStartupTask("updateUIState") { updateUIState() }
+        runStartupTask("updateChatBadge") { updateChatBadge() }
+        runStartupTask("startBadgeRefreshLoop") { startBadgeRefreshLoop() }
+        runStartupTask("refreshChildDeviceStatus") { refreshChildDeviceStatus(force = true) }
+        runStartupTask("startDeviceStatusRefreshLoop") { startDeviceStatusRefreshLoop() }
+        runStartupTask("triggerImmediateCriticalAlertSync") { CriticalAlertSyncScheduler.triggerImmediate(this) }
+        runStartupTask("ensureChatBackgroundService") { ensureChatBackgroundService() }
+        runStartupTask("ensureParentLocationService") { ensureParentLocationService() }
+        runStartupTask("initializeWebSocket") { initializeWebSocket() }
     }
 
     override fun onPause() {
@@ -1217,7 +1232,7 @@ class MainActivity : AppCompatActivity() {
                             binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
                         }
 
-                        Log.d(TAG, "Р вЂ”Р В°Р С–РЎР‚РЎС“Р В¶Р ВµР Р… Р С—РЎР‚Р С•РЎвЂћР С‘Р В»РЎРЉ РЎР‚Р ВµР В±Р ВµР Р…Р С”Р В°: ${child.name}")
+                        Log.d(TAG, "Selected child loaded: ${child.name}")
                     } else {
                         showDefaultChildSelection()
                     }
@@ -1225,7 +1240,7 @@ class MainActivity : AppCompatActivity() {
                     showDefaultChildSelection()
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Р С›РЎв‚¬Р С‘Р В±Р С”Р В° Р В·Р В°Р С–РЎР‚РЎС“Р В·Р С”Р С‘ Р С—РЎР‚Р С•РЎвЂћР С‘Р В»РЎРЏ РЎР‚Р ВµР В±Р ВµР Р…Р С”Р В°", e)
+                Log.e(TAG, "Failed to load selected child", e)
                 showDefaultChildSelection()
             }
         }
@@ -1277,7 +1292,7 @@ class MainActivity : AppCompatActivity() {
                     val now = System.currentTimeMillis()
                     val child = Child(
                         deviceId = legacyId,
-                        name = "Р В Р ВµР В±Р ВµР Р…Р С•Р С”",
+                        name = getString(R.string.main_default_child_name),
                         role = ContactRoles.CHILD,
                         iconId = ContactIcons.CHILD,
                         allowedFeatures = ContactFeatures.ALL,
@@ -1355,22 +1370,11 @@ class MainActivity : AppCompatActivity() {
             ).show()
             return
         }
-
-        MaterialAlertDialogBuilder(this@MainActivity)
-            .setTitle("Remote Camera")
-            .setMessage("Choose camera mode:")
-            .setPositiveButton("Capture Photo") { _, _ ->
-                val intent = Intent(this@MainActivity, RemoteCameraActivity::class.java).apply {
-                    putExtra(RemoteCameraActivity.EXTRA_CHILD_ID, targetDeviceId)
-                    putExtra(RemoteCameraActivity.EXTRA_CHILD_NAME, binding.selectedChildName.text?.toString().orEmpty())
-                }
-                startActivity(intent)
-            }
-            .setNegativeButton("Video Stream") { _, _ ->
-                openVideoStream(targetDeviceId)
-            }
-            .setNeutralButton("Cancel", null)
-            .show()
+        val intent = Intent(this@MainActivity, RemoteCameraActivity::class.java).apply {
+            putExtra(RemoteCameraActivity.EXTRA_CHILD_ID, targetDeviceId)
+            putExtra(RemoteCameraActivity.EXTRA_CHILD_NAME, binding.selectedChildName.text?.toString().orEmpty())
+        }
+        startActivity(intent)
     }
 
     /**
@@ -1378,13 +1382,13 @@ class MainActivity : AppCompatActivity() {
      */
     private fun requestRemotePhoto(childId: String) {
         if (!WebSocketManager.isConnected()) {
-            Toast.makeText(this, "Not connected to server", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, getString(R.string.remote_camera_server_unavailable), Toast.LENGTH_SHORT).show()
             return
         }
 
         val progressDialog = MaterialAlertDialogBuilder(this)
-            .setTitle("Requesting Photo")
-            .setMessage("Please wait...")
+            .setTitle(R.string.remote_camera_progress_title)
+            .setMessage(R.string.remote_camera_progress_message)
             .setCancelable(false)
             .create()
 
@@ -1394,7 +1398,7 @@ class MainActivity : AppCompatActivity() {
         val timeoutHandler = android.os.Handler(mainLooper)
         val timeoutRunnable = Runnable {
             progressDialog.dismiss()
-            Toast.makeText(this, "Photo request timeout", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, getString(R.string.remote_camera_progress_timeout), Toast.LENGTH_LONG).show()
         }
         timeoutHandler.postDelayed(timeoutRunnable, 30000) // 30 second timeout
 
@@ -1407,7 +1411,11 @@ class MainActivity : AppCompatActivity() {
             onError = { error ->
                 timeoutHandler.removeCallbacks(timeoutRunnable)
                 progressDialog.dismiss()
-                Toast.makeText(this, "Error: $error", Toast.LENGTH_LONG).show()
+                Toast.makeText(
+                    this,
+                    getString(R.string.remote_camera_error_format, error),
+                    Toast.LENGTH_LONG
+                ).show()
             }
         )
 
@@ -1430,7 +1438,11 @@ class MainActivity : AppCompatActivity() {
                 timeoutHandler.removeCallbacks(timeoutRunnable)
                 runOnUiThread {
                     progressDialog.dismiss()
-                    Toast.makeText(this, "Camera error: $error", Toast.LENGTH_LONG).show()
+                    Toast.makeText(
+                        this,
+                        getString(R.string.remote_camera_child_error, error),
+                        Toast.LENGTH_LONG
+                    ).show()
                 }
             }
         }
@@ -1450,47 +1462,29 @@ class MainActivity : AppCompatActivity() {
                 Log.e(TAG, "Error getting device name", e)
             }
 
+            val cachedFile = withContext(Dispatchers.IO) {
+                RemotePhotoCache.saveBase64PhotoToCache(
+                    this@MainActivity,
+                    photoBase64,
+                    timestamp
+                )
+            }
+
+            if (cachedFile == null) {
+                Toast.makeText(
+                    this@MainActivity,
+                    getString(R.string.remote_photo_preview_error),
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@launch
+            }
+
             val intent = Intent(this@MainActivity, PhotoPreviewActivity::class.java).apply {
-                putExtra(PhotoPreviewActivity.EXTRA_PHOTO_BASE64, photoBase64)
+                putExtra(PhotoPreviewActivity.EXTRA_PHOTO_FILE_PATH, cachedFile.absolutePath)
                 putExtra(PhotoPreviewActivity.EXTRA_PHOTO_TIMESTAMP, timestamp)
                 putExtra(PhotoPreviewActivity.EXTRA_DEVICE_NAME, deviceName)
             }
             startActivity(intent)
-        }
-    }
-
-    /**
-     * Open video stream activity
-     */
-    private fun openVideoStream(childId: String) {
-        lifecycleScope.launch {
-            var childName: String? = null
-            try {
-                val database = ChildWatchDatabase.getInstance(this@MainActivity)
-                val child = database.childDao().getByDeviceId(childId)
-                childName = child?.name
-            } catch (e: Exception) {
-                Log.e(TAG, "Error getting child name", e)
-            }
-
-            withContext(Dispatchers.Main) {
-                try {
-                    val intent = Intent(this@MainActivity, RemoteCameraActivity::class.java).apply {
-                        putExtra(RemoteCameraActivity.EXTRA_CHILD_ID, childId)
-                        if (childName != null) {
-                            putExtra(RemoteCameraActivity.EXTRA_CHILD_NAME, childName)
-                        }
-                    }
-                    startActivity(intent)
-                } catch (e: Exception) {
-                    Log.e(TAG, "Error opening RemoteCameraActivity", e)
-                    Toast.makeText(
-                        this@MainActivity,
-                        getString(R.string.main_toast_camera_open_error, e.message ?: "unknown"),
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-            }
         }
     }
 
@@ -1500,4 +1494,3 @@ class MainActivity : AppCompatActivity() {
         private const val DEVICE_STATUS_STALE_MS = 10 * 60 * 1000L
     }
 }
-

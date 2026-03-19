@@ -1,0 +1,110 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="listen_title">Прослушка</string>
+    <string name="listen_subtitle">Слушайте поток, следите за задержкой и сразу видьте свежий статус телефона ребенка.</string>
+    <string name="listen_device_unknown">Телефон ребенка</string>
+    <string name="listen_device_id">ID устройства: %1$s</string>
+
+    <string name="listen_metric_started">Старт</string>
+    <string name="listen_metric_duration">На линии</string>
+    <string name="listen_metric_chunks">Пакеты</string>
+    <string name="listen_metric_battery">Заряд ребенка</string>
+
+    <string name="listen_state_stopped">Не активна</string>
+    <string name="listen_state_running">Работает</string>
+    <string name="listen_toggle_start">Начать прослушку</string>
+    <string name="listen_toggle_stop">Остановить прослушку</string>
+
+    <string name="listen_connection_label">Качество соединения</string>
+    <string name="listen_connection_idle">Прослушка не запущена</string>
+    <string name="listen_connection_waiting">Ждем соединение</string>
+    <string name="listen_connection_stable">Связь стабильна</string>
+    <string name="listen_connection_delayed">Есть задержка сигнала</string>
+    <string name="listen_connection_reconnecting">Идет переподключение</string>
+    <string name="listen_connection_error">Ошибка соединения</string>
+
+    <string name="listen_section_options">Звук и запись</string>
+    <string name="listen_section_options_hint">Настройте громкость на этом телефоне, усиление входящего сигнала и локальную запись потока.</string>
+    <string name="listen_section_recording">Сохранять поток</string>
+    <string name="listen_record_toggle">Запись хранится на телефоне родителя</string>
+    <string name="listen_open_recordings">Открыть записи</string>
+    <string name="listen_playback_volume_title">Громкость на этом телефоне</string>
+    <string name="listen_gain_title">Усиление сигнала</string>
+    <string name="listen_gain_hint">Выберите комфортное усиление. x1 оставляет исходный уровень, x5 сильнее вытягивает очень тихий источник.</string>
+    <string name="listen_gain_x1">x1</string>
+    <string name="listen_gain_x2">x2</string>
+    <string name="listen_gain_x3">x3</string>
+    <string name="listen_gain_x4">x4</string>
+    <string name="listen_gain_x5">x5</string>
+    <string name="listen_gain_mode_quiet">x1. Без усиления, самый чистый сигнал.</string>
+    <string name="listen_gain_mode_normal">x2. Мягкое усиление для обычной комнаты.</string>
+    <string name="listen_gain_mode_loud">x3. Заметнее поднимает голос и фон.</string>
+    <string name="listen_gain_mode_boost">x4. Для очень тихого источника.</string>
+    <string name="listen_gain_mode_max">x5. Максимум, может сильнее подчеркнуть шум.</string>
+    <string name="listen_quality_label">Качество звука</string>
+
+    <string name="listen_section_visualizer">Индикатор сигнала</string>
+    <string name="listen_section_visualizer_hint">Одна универсальная шкала помогает быстро понять, идет ли живой звук.</string>
+    <string name="listen_visual_universal">Универсальная шкала</string>
+    <string name="listen_visual_universal_hint">Без переключателей и лишних режимов, только живой уровень входящего сигнала.</string>
+    <string name="listen_signal_label">Живой сигнал</string>
+
+    <string name="listen_section_diagnostics">Диагностика потока</string>
+    <string name="listen_section_diagnostics_hint">Показывает состояние соединения на телефоне родителя и свежесть статуса телефона ребенка.</string>
+    <string name="listen_hud_compact">Кратко</string>
+    <string name="listen_hud_expanded">Подробно</string>
+    <string name="listen_diag_connection">Связь</string>
+    <string name="listen_diag_latency">Задержка</string>
+    <string name="listen_diag_stream">Поток</string>
+    <string name="listen_diag_status">Статус ребенка</string>
+    <string name="listen_diag_no_data">Нет данных</string>
+    <string name="listen_filters_description">Фильтры пока скрыты, чтобы не мешать стабильности прослушки.</string>
+    <string name="listen_info_text">Нижняя панель нужна для быстрой диагностики: соединение, сеть, очередь и частота обновляются прямо во время прослушки.</string>
+
+    <string name="listen_battery_waiting">Ждем статус</string>
+    <string name="listen_battery_percent">%1$d%%</string>
+    <string name="listen_battery_charging">Заряжается · %1$d%%</string>
+    <string name="listen_battery_meta_waiting">Ждем свежий статус телефона ребенка</string>
+    <string name="listen_battery_meta_updated">Обновлено %1$s</string>
+    <string name="listen_battery_meta_stale">Статус устарел: %1$s</string>
+
+    <string name="listen_status_just_now">только что</string>
+    <string name="listen_status_seconds">%1$d с назад</string>
+    <string name="listen_status_minutes">%1$d мин назад</string>
+    <string name="listen_status_hours">%1$d ч назад</string>
+
+    <string name="listen_hint_idle">Нажмите кнопку ниже, чтобы начать прослушку.</string>
+    <string name="listen_hint_waiting">Подключаемся к ребенку и ждем первый звук.</string>
+    <string name="listen_hint_delayed">Есть задержка. Последний звук получен %1$s назад.</string>
+    <string name="listen_hint_active">Поток идет стабильно. Последний звук получен %1$s назад.</string>
+    <string name="listen_hint_active_stale_status">Поток идет, но статус телефона ребенка давно не обновлялся: %1$s.</string>
+    <string name="listen_hint_error">Проверьте сеть, телефон ребенка и сервер.</string>
+
+    <string name="listen_stream_kbps">%1$d КБ/с</string>
+    <string name="listen_stream_sample_rate">%1$d кГц</string>
+    <string name="listen_ping_value">%1$d мс</string>
+
+    <string name="listen_error_missing_device">Ошибка: не найден ID устройства</string>
+    <string name="listen_error_missing_server">Ошибка: не задан адрес сервера</string>
+    <string name="listen_quality_switching">Переключаем звук на %1$d кГц...</string>
+    <string name="listen_quality_applied">Качество применено: %1$d кГц</string>
+    <string name="listen_quality_fallback">Используется режим %1$d кГц</string>
+
+    <string name="listen_signal_no_data">Нет данных</string>
+    <string name="listen_signal_strong">Сильный</string>
+    <string name="listen_signal_medium">Средний</string>
+    <string name="listen_signal_weak">Слабый</string>
+    <string name="listen_signal_silence">Тишина</string>
+
+    <string name="listen_toast_recording_on">Сохранение потока включено</string>
+    <string name="listen_toast_recording_off">Сохранение потока выключено</string>
+    <string name="listen_status_active">Трансляция активна</string>
+    <string name="listen_status_recording">Идет запись</string>
+    <string name="listen_recording_saved_enabled">Запись потока включена</string>
+    <string name="listen_recording_start_failed">Не удалось начать запись потока</string>
+    <string name="listen_recording_saved_file">Запись сохранена: %1$s</string>
+    <string name="listen_recording_empty">Пока нет сохраненных записей</string>
+    <string name="listen_notification_channel">Прослушка</string>
+    <string name="listen_notification_channel_description">Уведомления для активной прослушки</string>
+    <string name="listen_notification_title">ChildWatch - активна прослушка</string>
+</resources>

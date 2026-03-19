@@ -279,22 +279,6 @@ class MonitorService : Service() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val audioIntent = Intent(this, MonitorService::class.java).apply {
-            action = if (isRecording) {
-                ACTION_STOP_AUDIO_CAPTURE
-            } else {
-                ACTION_START_AUDIO_CAPTURE
-            }
-
-            if (action == ACTION_START_AUDIO_CAPTURE) {
-                putExtra(EXTRA_AUDIO_DURATION, secureSettings.getAudioDuration())
-            }
-        }
-        val audioPendingIntent = PendingIntent.getService(
-            this, 3, audioIntent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
-        )
-
         val photoIntent = Intent(this, MonitorService::class.java).apply {
             action = ACTION_TAKE_PHOTO
         }
@@ -310,12 +294,6 @@ class MonitorService : Service() {
             getString(R.string.notification_last_update, timeString)
         } else {
             getString(R.string.notification_last_update, getString(R.string.notification_status_stopped))
-        }
-
-        val audioActionText = if (isRecording) {
-            getString(R.string.notification_action_stop)
-        } else {
-            getString(R.string.notification_action_audio)
         }
 
         val notificationStyle = NotificationCompat.BigTextStyle().bigText(statusText)
@@ -341,11 +319,6 @@ class MonitorService : Service() {
                 R.drawable.ic_notification,
                 getString(R.string.notification_action_location),
                 locationPendingIntent
-            )
-            .addAction(
-                R.drawable.ic_notification,
-                audioActionText,
-                audioPendingIntent
             )
             .addAction(
                 R.drawable.ic_notification,
@@ -442,10 +415,6 @@ class MonitorService : Service() {
         }
         
         startLocationUpdates()
-        
-        if (secureSettings.isAudioEnabled()) {
-            startPeriodicAudioRecording()
-        }
         
         // Start parent location tracking if enabled
         if (prefs.getBoolean("share_parent_location", true)) {

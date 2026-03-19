@@ -5,6 +5,7 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.abs
 import kotlin.math.pow
+import kotlin.math.tanh
 
 /**
  * Post-processing pipeline applied on the parent (listener) device.
@@ -15,6 +16,7 @@ class AudioEnhancer {
     companion object {
         private const val TAG = "AudioEnhancer"
         private const val MAX_AMPLITUDE = 32767
+        private const val SOFT_CLIP_DRIVE = 0.85
     }
 
     @Volatile
@@ -23,14 +25,15 @@ class AudioEnhancer {
     private val scratchBuffer = ThreadLocal.withInitial { ShortArray(0) }
 
     /**
-     * Volume boost presets. Values chosen empirically to avoid harsh clipping.
+     * Volume boost presets.
+     * The labels on the listener screen are x1..x5, so keep the actual gain curve aligned.
      */
     enum class VolumeMode {
         QUIET,   // 1.0x
-        NORMAL,  // 1.25x
-        LOUD,    // 1.6x
-        BOOST,   // 2.0x
-        MAX      // 2.6x
+        NORMAL,  // 2.0x
+        LOUD,    // 3.0x
+        BOOST,   // 4.0x
+        MAX      // 5.0x
     }
 
     data class Config(
@@ -44,10 +47,10 @@ class AudioEnhancer {
         val gainMultiplier: Float = 10.0f.pow(gainBoostDb / 20f)
         val volumeMultiplier: Float = when (volumeMode) {
             VolumeMode.QUIET -> 1.0f
-            VolumeMode.NORMAL -> 1.25f
-            VolumeMode.LOUD -> 1.6f
-            VolumeMode.BOOST -> 2.0f
-            VolumeMode.MAX -> 2.6f
+            VolumeMode.NORMAL -> 2.0f
+            VolumeMode.LOUD -> 3.0f
+            VolumeMode.BOOST -> 4.0f
+            VolumeMode.MAX -> 5.0f
         }
     }
 
@@ -199,16 +202,12 @@ class AudioEnhancer {
 
     private fun applyVolume(data: ShortArray, length: Int, multiplier: Float) {
         if (multiplier == 1.0f) return
-        val safeMultiplier = multiplier.coerceIn(1.0f, 2.6f)
-        val softLimit = MAX_AMPLITUDE * 0.82f
+        val safeMultiplier = multiplier.coerceIn(1.0f, 5.0f).toDouble()
+        val normalizer = tanh(SOFT_CLIP_DRIVE)
         for (i in 0 until length) {
-            val boosted = data[i] * safeMultiplier
-            val limited = when {
-                boosted > softLimit -> softLimit + (boosted - softLimit) * 0.18f
-                boosted < -softLimit -> -(softLimit + (abs(boosted) - softLimit) * 0.18f)
-                else -> boosted
-            }
-            data[i] = clamp(limited)
+            val normalized = (data[i] / MAX_AMPLITUDE.toDouble()) * safeMultiplier
+            val shaped = tanh(normalized * SOFT_CLIP_DRIVE) / normalizer
+            data[i] = clamp((shaped * MAX_AMPLITUDE).toFloat())
         }
     }
 

@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="main_background_location_title">Разрешение на фоновое местоположение</string>
+    <string name="main_background_location_prompt_suffix">Предоставить?</string>
+    <string name="main_permission_allow">Разрешить</string>
+    <string name="main_permission_skip">Пропустить</string>
+    <string name="main_permission_settings">Настройки</string>
+    <string name="main_background_location_denied_limited">Мониторинг будет работать только когда приложение открыто</string>
+    <string name="main_permissions_basic_granted">Основные разрешения предоставлены</string>
+    <string name="main_permissions_denied_list">Отказано в разрешениях: %1$s</string>
+    <string name="main_permissions_all_granted">Все разрешения предоставлены</string>
+    <string name="main_background_location_denied">Фоновое местоположение отклонено. Мониторинг будет работать только когда приложение открыто</string>
+    <string name="main_permissions_required_title">Необходимые разрешения</string>
+    <string name="main_permission_close">Закрыть</string>
+    <string name="main_default_child_name">Ребенок</string>
+</resources>

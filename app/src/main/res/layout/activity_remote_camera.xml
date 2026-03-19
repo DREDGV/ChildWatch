@@ -16,9 +16,10 @@
             android:id="@+id/toolbar"
             android:layout_width="match_parent"
             android:layout_height="?attr/actionBarSize"
+            android:paddingHorizontal="4dp"
             app:navigationIcon="@drawable/ic_arrow_back"
             app:navigationIconTint="@android:color/white"
-            app:title="Удаленная камера"
+            app:title="@string/remote_camera_title"
             app:titleCentered="true"
             app:titleTextColor="@android:color/white" />
 
@@ -27,48 +28,80 @@
     <androidx.core.widget.NestedScrollView
         android:layout_width="match_parent"
         android:layout_height="match_parent"
+        android:clipToPadding="false"
         android:fillViewport="true"
+        android:paddingBottom="24dp"
         app:layout_behavior="@string/appbar_scrolling_view_behavior">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:paddingStart="18dp"
+            android:paddingTop="12dp"
+            android:paddingEnd="18dp">
 
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="16dp"
-                app:cardBackgroundColor="#80000000"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="4dp">
+                app:cardBackgroundColor="#F2FFFFFF"
+                app:cardCornerRadius="28dp"
+                app:cardElevation="6dp"
+                app:strokeColor="#1F0F766E"
+                app:strokeWidth="1dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="22dp">
 
                     <TextView
-                        android:id="@+id/statusText"
-                        android:layout_width="match_parent"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:gravity="center"
-                        android:text="Готов к съемке"
-                        android:textColor="@android:color/white"
-                        android:textSize="16sp"
+                        android:alpha="0.78"
+                        android:letterSpacing="0.08"
+                        android:text="@string/remote_camera_header_eyebrow"
+                        android:textAllCaps="true"
+                        android:textColor="#335A5F"
+                        android:textSize="12sp"
                         android:textStyle="bold" />
 
                     <TextView
                         android:id="@+id/childNameText"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:gravity="center"
-                        android:textColor="#B0FFFFFF"
-                        android:textSize="14sp"
+                        android:layout_marginTop="10dp"
+                        android:textColor="#10292B"
+                        android:textSize="24sp"
+                        android:textStyle="bold"
                         tools:text="Устройство: Детский телефон" />
+
+                    <TextView
+                        android:id="@+id/statusText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:background="@drawable/bg_remote_photo_status_chip"
+                        android:paddingStart="14dp"
+                        android:paddingTop="8dp"
+                        android:paddingEnd="14dp"
+                        android:paddingBottom="8dp"
+                        android:text="@string/remote_camera_status_ready"
+                        android:textColor="@android:color/white"
+                        android:textSize="13sp"
+                        android:textStyle="bold"
+                        tools:text="Устройство на связи" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="14dp"
+                        android:lineSpacingExtra="2dp"
+                        android:text="@string/remote_camera_header_subtitle"
+                        android:textColor="#51686A"
+                        android:textSize="14sp" />
 
                 </LinearLayout>
 
@@ -78,31 +111,39 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="16dp"
-                app:cardBackgroundColor="#80000000"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="4dp">
+                app:cardBackgroundColor="#CC0C2628"
+                app:cardCornerRadius="28dp"
+                app:cardElevation="10dp"
+                app:strokeColor="#3327B1A2"
+                app:strokeWidth="1dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="24dp">
+                    android:padding="22dp">
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="16dp"
-                        android:gravity="center"
-                        android:text="Удаленный захват фото"
+                        android:text="@string/remote_camera_capture_title"
                         android:textColor="@android:color/white"
                         android:textSize="20sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="@string/remote_camera_capture_subtitle"
+                        android:textColor="#B6DAD7"
+                        android:textSize="13sp" />
 
                     <com.google.android.material.button.MaterialButtonToggleGroup
                         android:id="@+id/cameraToggleGroup"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="12dp"
+                        android:layout_marginTop="18dp"
                         app:selectionRequired="true"
                         app:singleSelection="true">
 
@@ -110,48 +151,82 @@
                             android:id="@+id/cameraBackButton"
                             style="@style/Widget.Material3.Button.OutlinedButton"
                             android:layout_width="0dp"
-                            android:layout_height="wrap_content"
+                            android:layout_height="56dp"
                             android:layout_weight="1"
-                            android:text="Основная"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:text="@string/remote_camera_back"
+                            android:textColor="@android:color/white"
                             app:icon="@android:drawable/ic_menu_camera"
                             app:iconGravity="textStart"
-                            app:iconPadding="8dp" />
+                            app:iconPadding="8dp"
+                            app:iconTint="@android:color/white"
+                            app:strokeColor="#40FFFFFF" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/cameraFrontButton"
                             style="@style/Widget.Material3.Button.OutlinedButton"
                             android:layout_width="0dp"
-                            android:layout_height="wrap_content"
+                            android:layout_height="56dp"
                             android:layout_weight="1"
-                            android:text="Фронтальная"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:text="@string/remote_camera_front"
+                            android:textColor="@android:color/white"
                             app:icon="@android:drawable/ic_menu_camera"
                             app:iconGravity="textStart"
-                            app:iconPadding="8dp" />
+                            app:iconPadding="8dp"
+                            app:iconTint="@android:color/white"
+                            app:strokeColor="#40FFFFFF" />
                     </com.google.android.material.button.MaterialButtonToggleGroup>
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/takePhotoButton"
-                        style="@style/Widget.Material3.Button.ElevatedButton"
+                    <LinearLayout
                         android:layout_width="match_parent"
-                        android:layout_height="64dp"
-                        android:text="Сделать фото"
-                        android:textSize="18sp"
-                        android:textStyle="bold"
-                        app:backgroundTint="#0F766E"
-                        app:cornerRadius="16dp"
-                        app:icon="@android:drawable/ic_menu_camera"
-                        app:iconSize="32dp"
-                        app:iconTint="@android:color/white"
-                        app:elevation="8dp" />
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="16dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/takePhotoButton"
+                            style="@style/Widget.Material3.Button"
+                            android:layout_width="0dp"
+                            android:layout_height="58dp"
+                            android:layout_weight="1"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:text="@string/remote_camera_take_photo"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            app:backgroundTint="#2AB3A3"
+                            app:cornerRadius="18dp"
+                            app:icon="@android:drawable/ic_menu_camera"
+                            app:iconPadding="10dp"
+                            app:iconTint="@android:color/white" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/refreshGalleryButton"
+                            style="@style/Widget.Material3.Button.TonalButton"
+                            android:layout_width="wrap_content"
+                            android:layout_height="58dp"
+                            android:layout_marginStart="10dp"
+                            android:insetTop="0dp"
+                            android:insetBottom="0dp"
+                            android:text="@string/remote_camera_refresh_gallery"
+                            android:textColor="@android:color/white"
+                            app:backgroundTint="#1FFFFFFF"
+                            app:cornerRadius="18dp"
+                            app:icon="@android:drawable/ic_popup_sync"
+                            app:iconTint="@android:color/white" />
+
+                    </LinearLayout>
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:alpha="0.7"
-                        android:gravity="center"
-                        android:text="Фото будет сделано основной камерой детского устройства"
-                        android:textColor="#80FFFFFF"
+                        android:layout_marginTop="14dp"
+                        android:text="@string/remote_camera_hint"
+                        android:textColor="#A8CDCA"
                         android:textSize="12sp" />
 
                 </LinearLayout>
@@ -161,45 +236,58 @@
             <com.google.android.material.card.MaterialCardView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                app:cardBackgroundColor="#80000000"
-                app:cardCornerRadius="16dp"
-                app:cardElevation="4dp">
+                app:cardBackgroundColor="#F6FFFFFF"
+                app:cardCornerRadius="28dp"
+                app:cardElevation="6dp"
+                app:strokeColor="#1F0F766E"
+                app:strokeWidth="1dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="vertical"
-                    android:padding="16dp">
+                    android:padding="18dp">
 
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginBottom="12dp"
-                        android:text="Галерея фотографий"
-                        android:textColor="@android:color/white"
-                        android:textSize="18sp"
+                        android:text="@string/remote_camera_gallery_title"
+                        android:textColor="#10292B"
+                        android:textSize="19sp"
                         android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/galleryMetaText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:text="@string/remote_camera_gallery_subtitle_empty"
+                        android:textColor="#627879"
+                        android:textSize="13sp"
+                        tools:text="Снимков: 6 • последнее обновление 15.03.2026 19:12" />
 
                     <com.google.android.material.progressindicator.CircularProgressIndicator
                         android:id="@+id/progressIndicator"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_gravity="center"
-                        android:layout_marginTop="16dp"
+                        android:layout_marginTop="20dp"
                         android:layout_marginBottom="16dp"
                         android:indeterminate="true"
                         android:visibility="gone"
                         app:indicatorColor="#0F766E"
-                        app:trackColor="#FFFFFF40" />
+                        app:trackColor="#D8ECEC" />
 
                     <androidx.recyclerview.widget.RecyclerView
                         android:id="@+id/photosRecyclerView"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:minHeight="200dp"
+                        android:clipToPadding="false"
+                        android:minHeight="220dp"
+                        android:paddingTop="10dp"
                         android:visibility="gone"
                         tools:itemCount="4"
-                        tools:listitem="@android:layout/simple_list_item_1"
+                        tools:listitem="@layout/item_remote_photo"
                         tools:visibility="visible" />
 
                     <LinearLayout
@@ -207,24 +295,36 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="16dp"
-                        android:layout_marginBottom="16dp"
+                        android:layout_marginBottom="10dp"
+                        android:background="#F2F8F8"
                         android:gravity="center"
                         android:orientation="vertical"
+                        android:padding="24dp"
                         android:visibility="visible">
 
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="📷"
-                            android:textSize="48sp" />
+                        <ImageView
+                            android:layout_width="56dp"
+                            android:layout_height="56dp"
+                            android:src="@android:drawable/ic_menu_gallery"
+                            android:tint="#4A7A77" />
 
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
-                            android:text="Пока нет фотографий"
-                            android:textColor="#B0FFFFFF"
-                            android:textSize="14sp" />
+                            android:layout_marginTop="14dp"
+                            android:text="@string/remote_camera_empty"
+                            android:textColor="#163234"
+                            android:textSize="16sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:gravity="center"
+                            android:text="@string/remote_camera_empty_hint"
+                            android:textColor="#65807F"
+                            android:textSize="13sp" />
 
                     </LinearLayout>
 
