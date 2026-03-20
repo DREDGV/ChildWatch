@@ -766,13 +766,32 @@ class NetworkClient(private val context: Context) {
     }
 
     private fun resolveChildDeviceId(): String {
-        val candidates = listOf(
-            parentPrefs.getString("child_device_id", null),
-            parentPrefs.getString("device_id", null),
-            legacyPrefs.getString("child_device_id", null),
-            legacyPrefs.getString("device_id", null)
+        val excluded = listOf(
+            parentPrefs.getString("parent_device_id", null),
+            parentPrefs.getString("linked_parent_device_id", null),
+            legacyPrefs.getString("parent_device_id", null),
+            legacyPrefs.getString("linked_parent_device_id", null)
         )
-        return candidates.firstOrNull { !it.isNullOrBlank() } ?: getDeviceId()
+            .mapNotNull { it?.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+
+        val resolved = listOf(
+            parentPrefs.getString("device_id", null),
+            parentPrefs.getString("child_device_id", null),
+            legacyPrefs.getString("device_id", null),
+            legacyPrefs.getString("child_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .firstOrNull { it.isNotBlank() && it !in excluded }
+
+        if (!resolved.isNullOrBlank()) {
+            return resolved
+        }
+
+        val fallback = getDeviceId()
+        Log.w(TAG, "Falling back to generated child device id for location upload: $fallback")
+        return fallback
     }
 
     private fun uploadLocationPayload(

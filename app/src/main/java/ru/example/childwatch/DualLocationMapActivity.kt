@@ -81,6 +81,17 @@ class DualLocationMapActivity : AppCompatActivity() {
             }
         }
     }
+
+    private enum class MapDiagnosticReason {
+        NONE,
+        PAIR_NOT_CONFIGURED,
+        CHILD_ID_MISSING,
+        PARENT_ID_MISSING,
+        ONLY_SELF_AVAILABLE,
+        NO_LINKED_SERVER_LOCATION,
+        USING_CACHED_LINKED,
+        LINKED_STALE
+    }
     
     private lateinit var binding: ActivityDualLocationMapBinding
     private lateinit var mapView: MapView
@@ -115,6 +126,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var lastOtherPoint: GeoPoint? = null
     private var resolvedParentId: String = ""
     private var resolvedOtherId: String = ""
+    private var currentDiagnosticReason: MapDiagnosticReason = MapDiagnosticReason.NONE
 
     private data class CachedLocation(
         val latitude: Double,
@@ -1045,8 +1057,15 @@ class DualLocationMapActivity : AppCompatActivity() {
                     }
 
                     binding.loadingIndicator.visibility = View.GONE
-                    binding.errorCard.visibility = View.VISIBLE
-                    binding.errorText.text = getString(R.string.map_limited_mode_subtitle)
+                    applyDiagnosticState(
+                        reason = missingLinkedReason(),
+                        linkedTimestamp = null,
+                        sourceRes = when {
+                            myLocation != null -> R.string.map_diag_source_gps
+                            cachedMy != null -> R.string.map_diag_source_cache
+                            else -> null
+                        }
+                    )
                 } catch (e: Exception) {
                     Log.e(TAG, "Error loading locations in limited mode", e)
                     binding.loadingIndicator.visibility = View.GONE
@@ -1168,6 +1187,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                 val myLonFinal = myLongitude ?: serverSelfLocation?.longitude ?: cachedMy?.longitude
                 val myTsFinal = myLocation?.time ?: serverSelfLocation?.timestamp ?: cachedMy?.timestamp
                 val otherFinal = otherLocation ?: cachedOther?.toParentLocationData(resolvedOtherId.ifBlank { otherId.ifBlank { "paired-device" } })
+                val usingCachedOther = otherLocation == null && otherFinal != null
+                val selfAvailable = myLatFinal != null && myLonFinal != null
                 
                 if (myLatFinal != null && myLonFinal != null || otherFinal != null) {
                     displayAvailableLocations(
@@ -1177,14 +1198,31 @@ class DualLocationMapActivity : AppCompatActivity() {
                         otherLocation = otherFinal
                     )
                     binding.loadingIndicator.visibility = View.GONE
-                    if (otherFinal == null && !limitedMode) {
-                        binding.errorCard.visibility = View.VISIBLE
-                        binding.errorText.text = otherLocationUnavailableMessage()
-                    }
+                    applyDiagnosticState(
+                        reason = resolveDiagnosticReason(
+                            selfAvailable = selfAvailable,
+                            linkedLocation = otherFinal,
+                            usingCachedLinked = usingCachedOther
+                        ),
+                        linkedTimestamp = otherFinal?.timestamp,
+                        sourceRes = when {
+                            usingCachedOther -> R.string.map_diag_source_cache
+                            otherLocation != null -> R.string.map_diag_source_server
+                            myLocation != null -> R.string.map_diag_source_gps
+                            else -> null
+                        }
+                    )
                 } else {
                     binding.loadingIndicator.visibility = View.GONE
-                    binding.errorCard.visibility = View.VISIBLE
-                    binding.errorText.text = otherLocationUnavailableMessage()
+                    applyDiagnosticState(
+                        reason = resolveDiagnosticReason(
+                            selfAvailable = false,
+                            linkedLocation = null,
+                            usingCachedLinked = false
+                        ),
+                        linkedTimestamp = null,
+                        sourceRes = null
+                    )
                 }
                 
             } catch (e: Exception) {
@@ -1402,6 +1440,74 @@ class DualLocationMapActivity : AppCompatActivity() {
             otherTimestamp = sanitizedOther?.timestamp
         )
         binding.errorCard.visibility = View.GONE
+    }
+
+    private fun resolveDiagnosticReason(
+        selfAvailable: Boolean,
+        linkedLocation: ParentLocationData?,
+        usingCachedLinked: Boolean
+    ): MapDiagnosticReason {
+        val linkedIdMissing = resolvedOtherId.isBlank() && otherId.isBlank()
+        return when {
+            limitedMode && linkedIdMissing -> missingLinkedReason()
+            limitedMode -> MapDiagnosticReason.PAIR_NOT_CONFIGURED
+            linkedLocation == null && selfAvailable -> MapDiagnosticReason.ONLY_SELF_AVAILABLE
+            linkedLocation == null -> MapDiagnosticReason.NO_LINKED_SERVER_LOCATION
+            usingCachedLinked -> {
+                if (linkedLocation.timestamp.let { isStale(it) }) {
+                    MapDiagnosticReason.LINKED_STALE
+                } else {
+                    MapDiagnosticReason.USING_CACHED_LINKED
+                }
+            }
+            isStale(linkedLocation.timestamp) -> MapDiagnosticReason.LINKED_STALE
+            else -> MapDiagnosticReason.NONE
+        }
+    }
+
+    private fun missingLinkedReason(): MapDiagnosticReason = when (myRole) {
+        ROLE_PARENT -> MapDiagnosticReason.CHILD_ID_MISSING
+        ROLE_CHILD -> MapDiagnosticReason.PARENT_ID_MISSING
+        else -> MapDiagnosticReason.PAIR_NOT_CONFIGURED
+    }
+
+    private fun applyDiagnosticState(
+        reason: MapDiagnosticReason,
+        linkedTimestamp: Long?,
+        sourceRes: Int?
+    ) {
+        currentDiagnosticReason = reason
+        logDiagnosticState(reason, linkedTimestamp, sourceRes)
+        if (showAllContacts || reason == MapDiagnosticReason.NONE) {
+            binding.errorCard.visibility = View.GONE
+            return
+        }
+
+        val baseText = when (reason) {
+            MapDiagnosticReason.PAIR_NOT_CONFIGURED -> getString(R.string.map_diag_pair_not_configured)
+            MapDiagnosticReason.CHILD_ID_MISSING -> getString(R.string.map_diag_child_id_missing)
+            MapDiagnosticReason.PARENT_ID_MISSING -> getString(R.string.map_diag_parent_id_missing)
+            MapDiagnosticReason.ONLY_SELF_AVAILABLE -> getString(R.string.map_diag_only_self_available)
+            MapDiagnosticReason.NO_LINKED_SERVER_LOCATION -> getString(R.string.map_diag_no_server_location)
+            MapDiagnosticReason.USING_CACHED_LINKED -> getString(R.string.map_diag_using_cached_location)
+            MapDiagnosticReason.LINKED_STALE -> getString(R.string.map_diag_linked_stale)
+            MapDiagnosticReason.NONE -> return
+        }
+
+        val sourceText = sourceRes?.let { getString(it) }
+        val freshnessText = linkedTimestamp
+            ?.takeIf { it > 0L }
+            ?.let { getString(R.string.map_diag_last_update, formatRelativeTimestamp(it)) }
+        binding.errorCard.visibility = View.VISIBLE
+        binding.errorText.text = listOfNotNull(baseText, sourceText, freshnessText).joinToString("\n")
+    }
+
+    private fun logDiagnosticState(reason: MapDiagnosticReason, linkedTimestamp: Long?, sourceRes: Int?) {
+        val source = sourceRes?.let { runCatching { getString(it) }.getOrNull() } ?: "none"
+        Log.d(
+            TAG,
+            "Map diagnostic role=$myRole myId=$myId otherId=$otherId resolvedParentId=$resolvedParentId resolvedOtherId=$resolvedOtherId limitedMode=$limitedMode reason=$reason source=$source linkedTimestamp=$linkedTimestamp"
+        )
     }
 
     private data class ContactPoint(

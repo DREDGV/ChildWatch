@@ -68,6 +68,17 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
     }
 
+    private enum class MapDiagnosticReason {
+        NONE,
+        PAIR_NOT_CONFIGURED,
+        CHILD_ID_MISSING,
+        PARENT_ID_MISSING,
+        ONLY_SELF_AVAILABLE,
+        NO_LINKED_SERVER_LOCATION,
+        USING_CACHED_LINKED,
+        LINKED_STALE
+    }
+
     private lateinit var binding: ActivityDualLocationMapBinding
     private lateinit var mapView: MapView
     private lateinit var prefs: SharedPreferences
@@ -96,6 +107,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var lastOtherPoint: GeoPoint? = null
     private var resolvedParentId: String = ""
     private var resolvedOtherId: String = ""
+    private var currentDiagnosticReason: MapDiagnosticReason = MapDiagnosticReason.NONE
 
     private data class CachedLocation(val latitude: Double, val longitude: Double, val timestamp: Long, val speed: Float?)
     private data class SanitizedPoint(val latitude: Double, val longitude: Double, val timestamp: Long?)
@@ -116,9 +128,10 @@ class DualLocationMapActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        binding = ActivityDualLocationMapBinding.inflate(layoutInflater)
-        setContentView(binding.root)
+        configureOsmdroidEarly()
         try {
+            binding = ActivityDualLocationMapBinding.inflate(layoutInflater)
+            setContentView(binding.root)
             myRole = intent.getStringExtra(EXTRA_MY_ROLE) ?: ROLE_PARENT
             myId = intent.getStringExtra(EXTRA_MY_ID)?.trim().orEmpty()
             otherId = intent.getStringExtra(EXTRA_OTHER_ID)?.trim().orEmpty()
@@ -138,10 +151,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             }
             resolvedParentId = if (myRole == ROLE_PARENT) myId else otherId
             resolvedOtherId = otherId
-            limitedMode = otherId.isBlank() && myRole != ROLE_CHILD
-
-            Configuration.getInstance().load(this, getSharedPreferences("osmdroid", MODE_PRIVATE))
-            Configuration.getInstance().userAgentValue = packageName
+            limitedMode = otherId.isBlank()
 
             prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
             database = ParentWatchDatabase.getInstance(this)
@@ -197,20 +207,30 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun setupMap() {
-        mapView = binding.mapView
-        mapView.setTileSource(TileSourceFactory.MAPNIK)
-        mapView.setMultiTouchControls(true)
-        mapView.controller.setZoom(15.0)
-        mapView.setOnTouchListener { _, event ->
-            if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_MOVE) {
-                if (autoFitEnabled) {
-                    autoFitEnabled = false
-                    updateAutoFitUi()
+        try {
+            mapView = binding.mapView
+            mapView.setTileSource(TileSourceFactory.MAPNIK)
+            mapView.setMultiTouchControls(true)
+            mapView.controller.setZoom(15.0)
+            mapView.setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_MOVE) {
+                    if (autoFitEnabled) {
+                        autoFitEnabled = false
+                        updateAutoFitUi()
+                    }
                 }
+                false
             }
-            false
+            isMapReady = true
+        } catch (e: Exception) {
+            isMapReady = false
+            Log.e(TAG, "Map view init failed", e)
+            binding.errorCard.visibility = View.VISIBLE
+            binding.errorText.text = getString(
+                R.string.map_init_failed_with_reason,
+                e.message ?: getString(R.string.map_unknown_error)
+            )
         }
-        isMapReady = true
     }
 
     private fun setupRefreshButton() { binding.refreshButton.setOnClickListener { loadLocations() } }
@@ -553,24 +573,37 @@ class DualLocationMapActivity : AppCompatActivity() {
                 val myLonFinal = currentMyValid?.longitude ?: serverSelfLocation?.longitude ?: cachedMy?.longitude
                 val myTsFinal = currentMyValid?.time ?: serverSelfLocation?.timestamp ?: cachedMy?.timestamp
                 val otherFinal = otherLocation ?: cachedOther?.toParentLocationData(resolvedOtherId.ifBlank { otherId.ifBlank { "paired-device" } })
+                val usingCachedOther = otherLocation == null && otherFinal != null
+                val selfAvailable = myLatFinal != null && myLonFinal != null
 
                 if ((myLatFinal != null && myLonFinal != null) || otherFinal != null) {
                     displayAvailableLocations(myLatFinal, myLonFinal, myTsFinal, otherFinal)
                     binding.loadingIndicator.visibility = View.GONE
-                    when {
-                        limitedMode -> {
-                            binding.errorCard.visibility = View.VISIBLE
-                            binding.errorText.text = getString(R.string.map_limited_mode_subtitle)
+                    applyDiagnosticState(
+                        resolveDiagnosticReason(
+                            selfAvailable = selfAvailable,
+                            linkedLocation = otherFinal,
+                            usingCachedLinked = usingCachedOther
+                        ),
+                        linkedTimestamp = otherFinal?.timestamp,
+                        sourceRes = when {
+                            usingCachedOther -> R.string.map_diag_source_cache
+                            otherLocation != null -> R.string.map_diag_source_server
+                            myLocation != null -> R.string.map_diag_source_gps
+                            else -> null
                         }
-                        otherFinal == null -> {
-                            binding.errorCard.visibility = View.VISIBLE
-                            binding.errorText.text = otherLocationUnavailableMessage()
-                        }
-                    }
+                    )
                 } else {
                     binding.loadingIndicator.visibility = View.GONE
-                    binding.errorCard.visibility = View.VISIBLE
-                    binding.errorText.text = if (limitedMode) getString(R.string.map_limited_mode_subtitle) else otherLocationUnavailableMessage()
+                    applyDiagnosticState(
+                        resolveDiagnosticReason(
+                            selfAvailable = false,
+                            linkedLocation = null,
+                            usingCachedLinked = false
+                        ),
+                        linkedTimestamp = null,
+                        sourceRes = null
+                    )
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading locations", e)
@@ -673,6 +706,74 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
         updateLiveSubtitle(sanitizedMy?.timestamp, sanitizedOther?.timestamp)
         binding.errorCard.visibility = View.GONE
+    }
+
+    private fun resolveDiagnosticReason(
+        selfAvailable: Boolean,
+        linkedLocation: ParentLocationData?,
+        usingCachedLinked: Boolean
+    ): MapDiagnosticReason {
+        val linkedIdMissing = resolvedOtherId.isBlank() && otherId.isBlank()
+        return when {
+            limitedMode && linkedIdMissing -> missingLinkedReason()
+            limitedMode -> MapDiagnosticReason.PAIR_NOT_CONFIGURED
+            linkedLocation == null && selfAvailable -> MapDiagnosticReason.ONLY_SELF_AVAILABLE
+            linkedLocation == null -> MapDiagnosticReason.NO_LINKED_SERVER_LOCATION
+            usingCachedLinked -> {
+                if ((linkedLocation.timestamp).let { isStale(it) }) {
+                    MapDiagnosticReason.LINKED_STALE
+                } else {
+                    MapDiagnosticReason.USING_CACHED_LINKED
+                }
+            }
+            isStale(linkedLocation.timestamp) -> MapDiagnosticReason.LINKED_STALE
+            else -> MapDiagnosticReason.NONE
+        }
+    }
+
+    private fun missingLinkedReason(): MapDiagnosticReason = when (myRole) {
+        ROLE_PARENT -> MapDiagnosticReason.CHILD_ID_MISSING
+        ROLE_CHILD -> MapDiagnosticReason.PARENT_ID_MISSING
+        else -> MapDiagnosticReason.PAIR_NOT_CONFIGURED
+    }
+
+    private fun applyDiagnosticState(
+        reason: MapDiagnosticReason,
+        linkedTimestamp: Long?,
+        sourceRes: Int?
+    ) {
+        currentDiagnosticReason = reason
+        logDiagnosticState(reason, linkedTimestamp, sourceRes)
+        if (reason == MapDiagnosticReason.NONE) {
+            binding.errorCard.visibility = View.GONE
+            return
+        }
+
+        val baseText = when (reason) {
+            MapDiagnosticReason.PAIR_NOT_CONFIGURED -> getString(R.string.map_diag_pair_not_configured)
+            MapDiagnosticReason.CHILD_ID_MISSING -> getString(R.string.map_diag_child_id_missing)
+            MapDiagnosticReason.PARENT_ID_MISSING -> getString(R.string.map_diag_parent_id_missing)
+            MapDiagnosticReason.ONLY_SELF_AVAILABLE -> getString(R.string.map_diag_only_self_available)
+            MapDiagnosticReason.NO_LINKED_SERVER_LOCATION -> getString(R.string.map_diag_no_server_location)
+            MapDiagnosticReason.USING_CACHED_LINKED -> getString(R.string.map_diag_using_cached_location)
+            MapDiagnosticReason.LINKED_STALE -> getString(R.string.map_diag_linked_stale)
+            MapDiagnosticReason.NONE -> return
+        }
+
+        val sourceText = sourceRes?.let { getString(it) }
+        val freshnessText = linkedTimestamp
+            ?.takeIf { it > 0L }
+            ?.let { getString(R.string.map_diag_last_update, formatRelativeTimestamp(it)) }
+        binding.errorCard.visibility = View.VISIBLE
+        binding.errorText.text = listOfNotNull(baseText, sourceText, freshnessText).joinToString("\n")
+    }
+
+    private fun logDiagnosticState(reason: MapDiagnosticReason, linkedTimestamp: Long?, sourceRes: Int?) {
+        val source = sourceRes?.let { runCatching { getString(it) }.getOrNull() } ?: "none"
+        Log.d(
+            TAG,
+            "Map diagnostic role=$myRole myId=$myId otherId=$otherId resolvedParentId=$resolvedParentId resolvedOtherId=$resolvedOtherId limitedMode=$limitedMode reason=$reason source=$source linkedTimestamp=$linkedTimestamp"
+        )
     }
 
     private fun normalizeTimestampMillis(raw: Long?): Long? {
@@ -791,6 +892,20 @@ class DualLocationMapActivity : AppCompatActivity() {
             return snapshot
         }
         return null
+    }
+
+    private fun configureOsmdroidEarly() {
+        runCatching {
+            val basePath = java.io.File(filesDir, "osmdroid").apply { mkdirs() }
+            val tileCachePath = java.io.File(cacheDir, "osmdroid_tiles").apply { mkdirs() }
+            val config = Configuration.getInstance()
+            config.osmdroidBasePath = basePath
+            config.osmdroidTileCache = tileCachePath
+            config.load(applicationContext, getSharedPreferences("osmdroid", MODE_PRIVATE))
+            config.userAgentValue = packageName
+        }.onFailure {
+            Log.w(TAG, "OSMdroid early init failed, fallback to defaults: ${it.message}")
+        }
     }
 
     private fun cacheKeyMy(): String = "${MAP_CACHE_MY}_${myRole}"
@@ -936,8 +1051,34 @@ class DualLocationMapActivity : AppCompatActivity() {
             mapView.controller.setZoom(17.0)
             return
         }
-        val bounds = BoundingBox.fromGeoPoints(listOf(GeoPoint(lat1, lon1), GeoPoint(lat2, lon2)))
-        mapView.zoomToBoundingBox(bounds, true, 100)
+        safeZoomToBoundingBox(
+            listOf(GeoPoint(lat1, lon1), GeoPoint(lat2, lon2)),
+            GeoPoint(lat1, lon1)
+        )
+    }
+
+    private fun safeZoomToBoundingBox(points: List<GeoPoint>, fallback: GeoPoint?) {
+        if (!::mapView.isInitialized || points.isEmpty()) return
+        val validPoints = points.filter { isValidCoordinate(it.latitude, it.longitude) }
+        if (validPoints.isEmpty()) return
+        try {
+            if (validPoints.size == 1) {
+                val point = validPoints.first()
+                mapView.controller.setCenter(point)
+                mapView.controller.setZoom(16.0)
+                return
+            }
+            val bounds = BoundingBox.fromGeoPoints(validPoints)
+            mapView.zoomToBoundingBox(bounds, true, 100)
+        } catch (e: Exception) {
+            Log.w(TAG, "Failed to zoom map bounds", e)
+            fallback?.let {
+                runCatching {
+                    mapView.controller.setCenter(it)
+                    mapView.controller.setZoom(15.0)
+                }
+            }
+        }
     }
 
     private fun isValidCoordinate(lat: Double, lon: Double): Boolean {

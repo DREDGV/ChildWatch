@@ -3,6 +3,18 @@ const DatabaseManager = require("../database/DatabaseManager");
 
 const router = express.Router();
 
+function formatLocationTimestamp(timestamp) {
+  if (!timestamp || Number.isNaN(Number(timestamp))) {
+    return null;
+  }
+
+  try {
+    return new Date(Number(timestamp)).toISOString();
+  } catch (_) {
+    return String(timestamp);
+  }
+}
+
 /**
  * Location API Routes
  * Handles location history and tracking data
@@ -12,6 +24,7 @@ const router = express.Router();
 router.get("/pair", async (req, res) => {
   try {
     const { parentId, childId } = req.query;
+    console.info("[location/pair] lookup", { parentId, childId });
 
     if (!parentId || !childId) {
       return res.status(400).json({
@@ -37,6 +50,15 @@ router.get("/pair", async (req, res) => {
     ]);
 
     await dbManager.close();
+
+    console.info("[location/pair] result", {
+      parentId,
+      childId,
+      hasParent: Boolean(parentLocation),
+      hasChild: Boolean(childLocation),
+      parentTimestamp: formatLocationTimestamp(parentLocation?.timestamp),
+      childTimestamp: formatLocationTimestamp(childLocation?.timestamp),
+    });
 
     res.json({
       success: true,
@@ -86,6 +108,7 @@ router.get("/history/:deviceId", async (req, res) => {
   try {
     const { deviceId } = req.params;
     const { limit = 100, offset = 0, from, to } = req.query;
+    console.info("[location/history] lookup", { deviceId, limit, offset, from, to });
 
     const dbManager = new DatabaseManager();
     await dbManager.initialize();
@@ -104,6 +127,13 @@ router.get("/history/:deviceId", async (req, res) => {
     );
 
     await dbManager.close();
+
+    console.info("[location/history] result", {
+      deviceId,
+      count: locations.length,
+      firstTimestamp: formatLocationTimestamp(locations[0]?.timestamp),
+      lastTimestamp: formatLocationTimestamp(locations[locations.length - 1]?.timestamp),
+    });
 
     res.json({
       success: true,
@@ -132,6 +162,7 @@ router.get("/history/:deviceId", async (req, res) => {
 router.get("/latest/:deviceId", async (req, res) => {
   try {
     const { deviceId } = req.params;
+    console.info("[location/latest] lookup", { deviceId });
 
     const dbManager = new DatabaseManager();
     await dbManager.initialize();
@@ -141,11 +172,18 @@ router.get("/latest/:deviceId", async (req, res) => {
     await dbManager.close();
 
     if (!location) {
+      console.info("[location/latest] result", { deviceId, found: false });
       return res.status(404).json({
         error: "No location data found for device",
         code: "NO_LOCATION_DATA",
       });
     }
+
+    console.info("[location/latest] result", {
+      deviceId,
+      found: true,
+      timestamp: formatLocationTimestamp(location.timestamp),
+    });
 
     res.json({
       success: true,
@@ -252,6 +290,12 @@ router.post("/parent/:parentId", async (req, res) => {
       speed,
       bearing,
     } = req.body;
+    console.info("[location/parent/upload] incoming", {
+      parentId,
+      latitude,
+      longitude,
+      timestamp: formatLocationTimestamp(timestamp),
+    });
 
     // Validate required fields
     if (latitude === undefined || latitude === null || longitude === undefined || longitude === null) {
@@ -348,6 +392,7 @@ router.post("/parent/:parentId", async (req, res) => {
 router.get("/parent/latest/:parentId", async (req, res) => {
   try {
     const { parentId } = req.params;
+    console.info("[location/parent/latest] lookup", { parentId });
 
     const dbManager = new DatabaseManager();
     await dbManager.initialize();
@@ -365,11 +410,18 @@ router.get("/parent/latest/:parentId", async (req, res) => {
     await dbManager.close();
 
     if (!location) {
+      console.info("[location/parent/latest] result", { parentId, found: false });
       return res.status(404).json({
         error: "No location data found for parent",
         code: "NO_PARENT_LOCATION",
       });
     }
+
+    console.info("[location/parent/latest] result", {
+      parentId,
+      found: true,
+      timestamp: formatLocationTimestamp(location.timestamp),
+    });
 
     res.json({
       success: true,
@@ -403,6 +455,7 @@ router.get("/parent/history/:parentId", async (req, res) => {
   try {
     const { parentId } = req.params;
     const { limit = 100, offset = 0, from, to } = req.query;
+    console.info("[location/parent/history] lookup", { parentId, limit, offset, from, to });
 
     const dbManager = new DatabaseManager();
     await dbManager.initialize();
@@ -437,6 +490,13 @@ router.get("/parent/history/:parentId", async (req, res) => {
     );
 
     await dbManager.close();
+
+    console.info("[location/parent/history] result", {
+      parentId,
+      count: locations.length,
+      firstTimestamp: formatLocationTimestamp(locations[0]?.timestamp),
+      lastTimestamp: formatLocationTimestamp(locations[locations.length - 1]?.timestamp),
+    });
 
     res.json({
       success: true,
