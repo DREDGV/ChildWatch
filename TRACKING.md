@@ -1,249 +1,114 @@
-# ChildWatch Development Tracking
+# ChildWatch Tracking
 
-## Текущий спринт: Карты + Чат
-**Начало:** 2026-03-09
-**Цель:** Исправить критические проблемы карт и чата
-**Статус:** 🔄 В работе
+## Source Of Truth
 
----
+This file is the current status of the project for active work.
 
-## 🐛 НАЙДЕННЫЕ ПРОБЛЕМЫ (тестирование 2026-03-10)
+If old README sections, archived docs, changelogs, or feature notes disagree with the code, trust in this order:
 
-### 🔴 КРИТИЧЕСКИЕ:
+1. current code in `main`
+2. this `TRACKING.md`
+3. feature-specific docs only when they clearly match the code
 
-1. **Чат подвисает и теряет сообщения**
-   - Симптомы: сообщения не приходят от родителя к ребенку
-   - Через время восстанавливается, но потерянные сообщения не доставляются
-   - Статус "прочитано" не проставляется даже при открытом чате
+## Module Mapping
 
-2. **Карта: кракозябры в ParentMonitor**
-   - Симптомы: текст из кракозябр по центру экрана
-   - Кривой текст в верхней панели
+- `app/` = `ParentMonitor`
+- `parentwatch/` = `ChildDevice`
+- `server/` = backend used by both Android apps
 
-3. **Карта: "локация устарела" в ChildDevice**
-   - Симптомы: сообщение по центру экрана
-   - Локация не отправляется
+The repository naming is historical and does not match the real product roles.
 
-### 🟡 ВАЖНЫЕ:
+## Current State
 
-4. **Прослушка: не всегда включается с первого раза**
-   - Симптомы: нужно нажимать несколько раз
+The project is active and partially stabilized after several waves of refactoring.
 
-5. **Прослушка: плохое качество звука**
-   - Симптомы: хрустит, хрипит звук
+The key practical rule for anyone entering the repo now:
 
----
+- documentation quality is uneven
+- some docs describe past architecture
+- current behavior must be checked against code and recent device testing
 
-## 📋 ПЛАН ИСПРАВЛЕНИЙ
+## What Is Already Improved
 
-### Фаза 1: Критические проблемы чата (2-3 часа)
-- [ ] **Задача FIX-1:** Диагностика потери сообщений
-- [ ] **Задача FIX-2:** Исправление read receipts
-- [ ] **Задача FIX-3:** Тестирование чата
+### Chat
 
-### Фаза 2: Проблемы карт (2-3 часа)
-- [ ] **Задача FIX-4:** Исправление кракозябр (кодировка)
-- [ ] **Задача FIX-5:** Исправление отправки локации
+- delivery path is more stable than before
+- duplicate UI and service handling was reduced
+- chat UI was modernized
+- emoji flow was expanded
+- notification settings became more complete
 
-### Фаза 3: Проблемы прослушки (2-3 часа)
-- [ ] **Задача FIX-6:** Исправление запуска прослушки
-- [ ] **Задача FIX-7:** Улучшение качества звука
+### Remote Photo
 
----
+- remote photo works noticeably better than before
+- parent preview crash path was reduced
+- child-side capture flow was hardened
+- gallery and history still need more real-world verification
 
-## ✅ ВЫПОЛНЕНО
+### Listening
 
-### [2026-03-10] Задача FIX-4: Исправление кракозябр на картах
-**Файлы:**
-- `app/src/main/res/values/strings.xml` - добавлены string resources
-- `parentwatch/src/main/res/values/strings.xml` - добавлены string resources
-- `app/src/main/res/layout/activity_dual_location_map.xml`
-- `parentwatch/src/main/res/layout/activity_dual_location_map.xml`
-- `app/src/main/java/ru/example/childwatch/DualLocationMapActivity.kt`
-- `parentwatch/src/main/java/ru/example/parentwatch/DualLocationMapActivity.kt`
+- parent-side UI was refreshed
+- gain buttons `x1-x5` were fixed visually
+- start path was hardened on both parent and child sides
+- live child battery during listening was improved
+- listening works better than before, but still requires repeated real-device testing
 
-**Статус:** ✅ Завершено
+### Map
 
-**Что сделано:**
-- ✅ Добавлены string resources для всех текстов карт
-- ✅ Заменен хардкод русского текста на @string/... в layout
-- ✅ Исправлены все hardcoded строки в коде Kotlin
-- ✅ Кракозябры должны исчезнуть
+- map screens were refactored several times
+- stale-data handling is better than before
+- pair-based logic exists in code
+- route and device-id compatibility were improved
 
-**Коммит:** `f19b95e` - [FIX-MAPS] Fix encoding issues
+Map is still one of the least trustworthy parts of the project and must be validated against the real server and real devices.
 
----
+### Battery
 
-### [2026-03-10] Задача FIX-1: Исправление потери сообщений в чате
-**Файлы:**
-- `app/src/main/java/ru/example/childwatch/service/ChatBackgroundService.kt`
-- `parentwatch/src/main/java/ru/example/parentwatch/service/ChatBackgroundService.kt`
+- child-side power usage was reduced in code
+- location became more adaptive
+- command polling became less aggressive
+- unnecessary background work was reduced
 
-**Статус:** ✅ Завершено
+This area still needs real device measurement.
 
-**Что сделано:**
-- ✅ Исправлена критическая ошибка: сообщения сохранялись ВСЕГДА
-- ✅ Подтверждение о доставке отправляется ВСЕГДА
-- ✅ Уведомление показывается только когда UI не активен
-- ✅ Добавлено логирование отправки подтверждений
+## Known Problem Areas
 
-**Коммит:** `1169cdd` - [FIX-CHAT] Fix message loss when UI is visible
+### High Priority
 
----
-**Файлы:**
-- `app/src/main/java/ru/example/childwatch/ChatActivity.kt`
-- `app/src/main/java/ru/example/childwatch/service/ChatBackgroundService.kt`
-- `parentwatch/src/main/java/ru/example/parentwatch/ChatActivity.kt`
-- `parentwatch/src/main/java/ru/example/parentwatch/service/ChatBackgroundService.kt`
+- map can still show missing, stale, or mismatched location data depending on server and device-id state
+- listening can regress under background, reconnect, or device-sleep conditions
+- remote photo history and gallery still need more validation than the live preview path
+- long-term data retention is only partially improved and remains ongoing work
 
-**Статус:** ✅ Завершено
+### Medium Priority
 
-**Что сделано:**
-- ✅ Добавлен глобальный флаг `isChatUiVisible` в ChatActivity (оба модуля)
-- ✅ Флаг устанавливается в `onResume()` / сбрасывается в `onPause()`
-- ✅ ChatBackgroundService проверяет флаг перед обработкой сообщений
-- ✅ Предотвращено дублирование обработки между Activity и Service
+- some screens still contain old wording or legacy layout choices
+- UI polish is uneven because fixes were done in urgent passes
+- server and client protocol compatibility must always be checked for map, listening, and photo flows
 
-**Коммит:** `f3d54c3` - [CHAT-1.3] Coordinate Service + Activity listeners
+### Documentation
 
-**Технические детали:**
-- Статический companion object var isChatUiVisible
-- Проверка в handleIncomingMessage()
-- Логирование при пропуске обработки
-- Синхронизация с флагом chat_open
+- old docs in `docs/`, `archive/`, and older changelogs may describe obsolete behavior
+- `README.md` is useful for orientation, but not every implementation detail there is current
+- this file should be updated whenever priorities or architecture change materially
 
----
+## Current Working Assumptions
 
-### [2026-03-09] Задача 1.2: Подтверждение доставки read receipts
-**Файлы:**
-- `app/src/main/java/ru/example/childwatch/ChatActivity.kt`
-- `parentwatch/src/main/java/ru/example/parentwatch/ChatActivity.kt`
+- `main` should represent the latest sharable project state
+- a new engineer or AI opening the GitHub repo by default should read `README.md` and then this file
+- local folders like `.android`, `.idea`, and `.codex-logs` are not part of the product state and should not be treated as documentation
 
-**Статус:** ✅ Завершено
-
-**Что сделано:**
-- ✅ Анализ инфраструктуры - уже существовала (chat_message_status_ack)
-- ✅ Добавлен ReadReceiptRetry data class для отслеживания попыток
-- ✅ Добавлен лимит MAX_READ_RECEIPT_RETRIES = 3
-- ✅ Улучшена sendReadReceiptsFor() с обработкой ошибок
-- ✅ Улучшена handleReadReceiptAck() с логированием
-- ✅ Новая scheduleReadReceiptRetryWithBackoff() с exponential backoff
-- ✅ Экспоненциальная задержка: 4s, 8s, 16s между попытками
-- ✅ Улучшена очистка pending read receipts
-
-**Коммит:** `cce1bf7` - [CHAT-1.2] Improve read receipts delivery with retry logic
-
-**Технические детали:**
-- Проверка подтверждения перед retry
-- Проверка isChatUiActive перед отправкой
-- Логирование каждого этапа доставки
-- Очистка retry очереди после подтверждения
-- Максимум 3 попытки отправки
-
----
-
-### [2026-03-09] Задача 1.1: Неблокирующая загрузка сообщений
-**Файлы:**
-- `app/src/main/java/ru/example/childwatch/ChatActivity.kt`
-- `parentwatch/src/main/java/ru/example/parentwatch/ChatActivity.kt`
-- `app/src/main/res/layout/activity_chat.xml`
-- `parentwatch/src/main/res/layout/activity_chat.xml`
-
-**Статус:** ✅ Завершено
-
-**Что сделано:**
-- ✅ Анализ текущего кода - loadMessages() уже использовал getAllMessagesAsync() в app
-- ✅ Найдена проблема: parentwatch использовал блокирующий getAllMessages()
-- ✅ Добавлен индикатор загрузки в layout (оба модуля)
-- ✅ Обновлен loadMessages() с индикатором и обработкой ошибок (оба модуля)
-- ✅ Подключен isLoading из ViewModel к индикатору (app)
-- ✅ Добавлены импорты coroutine (parentwatch)
-
-**Коммит:** `1d9e3c8` - [CHAT-1.1] Неблокирующая загрузка сообщений с индикатором
-
----
-
-## 🔄 ТЕКУЩАЯ ЗАДАЧА
-
-### Задача 1.4: Тестирование Итерации 1
-**Файлы:** Все измененные файлы Итерации 1
-
-**Статус:** 🔄 В работе (0%)
-
-**План:**
-1. [ ] Протестировать Задачу 1.1 - индикатор загрузки
-2. [ ] Протестировать Задачу 1.2 - read receipts с retry
-3. [ ] Протестировать Задачу 1.3 - отсутствие дубликатов
-4. [ ] Задокументировать результаты
-
-**Чек-лист тестирования:**
-- [ ] Открыть чат с 100+ сообщениями → индикатор показывается
-- [ ] UI не подвисает при загрузке
-- [ ] Отправить сообщение при плохом интернете → статус доставлен
-- [ ] Проверить логи read receipts → 3 попытки max
-- [ ] Открыть чат → сообщения не дублируются в Service
-- [ ] Получить сообщение в фоне → пришло уведомление
-
-**Блокеры:** Нет
-
-**Коммиты:** *(пока нет)*
-
----
-
-## ⏳ СЛЕДУЮЩИЕ ЗАДАЧИ
-
-1. **Задача 2.1** - Загрузка имен из БД (Итерация 2: Персонализация)
-2. **Задача 2.2** - Обновление ChatAdapter (Итерация 2)
-3. **Задача 3.1** - Удаление Google Maps API (Итерация 3: Карты)
-
----
-
-## 📝 ВАЖНЫЕ РЕШЕНИЯ
-
-*(Пока пусто - будем записывать в процессе)*
-
----
-
-## 🐛 НАЙДЕННЫЕ ПРОБЛЕМЫ
-
-*(Пока пусто - будем записывать в процессе)*
-
----
-
-## 🔍 КОНТЕКСТ
-
-### Известные проблемы из анализа:
-1. **Блокирующий вызов getAllMessages()** - UI подвисает при загрузке
-2. **Потеря сообщений при разрыве соединения** - нет подтверждения доставки
-3. **Дублирование обработчиков сообщений** - Service + Activity оба слушают
-4. **Hardcoded имена** - "Родитель"/"Ребенок" вместо реальных имен
-5. **Google Maps API не используется** - ключ в репозитории, но используется OSMdroid
-6. **Утечки памяти MapView** - нет onDestroy()
-
-### Архитектурные заметки:
-- **app/** = ParentMonitor (родительское приложение)
-- **parentwatch/** = ChildDevice (детское приложение)
-- **OSMdroid** используется для карт (НЕ Google Maps)
-- **Room Database** для хранения сообщений (ChatMessageEntity)
-- **WebSocket** для реальной коммуникации
-
----
-
-## 📊 МЕТРИКИ УСПЕХА
-
-### Чат:
-- [ ] Загрузка 100+ сообщений без подвисания UI
-- [ ] 0% потерь сообщений при нестабильном интернете
-- [ ] Нет дубликатов сообщений в UI
-- [ ] Reальные имена вместо "Родитель"/"Ребенок"
-
-### Карты:
-- [ ] Карта отображается корректно
-- [ ] Нет утечек памяти при повороте экрана
-- [ ] Маркеры обновляются плавно
-- [ ] Понятные сообщения об ошибках
-
----
-
-**Последнее обновление:** 2026-03-09  
-**Следующий шаг:** Задача 1.1 - Анализ текущего кода ChatActivity
+## Recommended Workflow For New Contributors
+
+1. Read `README.md`.
+2. Read this `TRACKING.md`.
+3. Confirm module mapping: `app = ParentMonitor`, `parentwatch = ChildDevice`.
+4. Inspect the specific feature code before trusting older docs.
+5. Treat maps, listening, and remote photo as integration-heavy features that depend on both apps and the server.
+
+## Immediate Priorities
+
+1. Continue real-device stabilization of maps, listening, remote photo, and chat.
+2. Keep removing mojibake and prevent new encoding regressions.
+3. Avoid drift between server behavior, Android code, and documentation.
+4. Prefer updating this file over creating another roadmap document unless a separate spec is truly needed.

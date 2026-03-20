@@ -1,5 +1,19 @@
 ﻿# ChildWatch - Family Safety Monitoring System
 
+## Current Project Status
+
+Before relying on older docs in this repository, read [TRACKING.md](./TRACKING.md).
+
+`TRACKING.md` is the current high-level status file for active work and recent reality-checked behavior.
+
+Important repository mapping:
+
+- `app/` = `ParentMonitor`
+- `parentwatch/` = `ChildDevice`
+- these names are historical and do not match the real product roles
+
+Some older documentation in this repository may describe past architecture or outdated behavior. For active work, prefer current code plus `TRACKING.md`.
+
 **⚠️ ВАЖНО: Названия приложений перепутаны с их назначением!**
 
 ## Структура проекта:
