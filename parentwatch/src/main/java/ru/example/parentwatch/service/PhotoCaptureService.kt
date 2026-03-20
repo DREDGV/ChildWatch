@@ -474,11 +474,7 @@ class PhotoCaptureService : Service() {
                 updateNotification(R.string.photo_capture_uploading)
 
                 val success = withContext(Dispatchers.IO) {
-                    networkHelper?.uploadPhoto(
-                        serverUrl!!,
-                        deviceId!!,
-                        photoFile
-                    ) ?: false
+                    uploadPhotoForGallery(photoFile)
                 }
 
                 if (success) {

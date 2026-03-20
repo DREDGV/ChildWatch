@@ -35,9 +35,16 @@ class LocationService : Service() {
         private const val TAG = "LocationService"
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "location_tracking"
-        private const val LOCATION_UPDATE_INTERVAL = 30000L // 30 seconds
-        private const val LOCATION_FASTEST_INTERVAL = 15000L // 15 seconds
-        private const val COMMAND_CHECK_INTERVAL = 5000L // 5 seconds - quick response for audio streaming
+        private const val LOCATION_UPDATE_INTERVAL_BALANCED = 60_000L
+        private const val LOCATION_FASTEST_INTERVAL_BALANCED = 30_000L
+        private const val LOCATION_UPDATE_INTERVAL_ACTIVE = 30_000L
+        private const val LOCATION_FASTEST_INTERVAL_ACTIVE = 15_000L
+        private const val LOCATION_UPLOAD_INTERVAL_BALANCED = 90_000L
+        private const val LOCATION_UPLOAD_INTERVAL_ACTIVE = 25_000L
+        private const val LOCATION_UPLOAD_DISTANCE_BALANCED_METERS = 35f
+        private const val LOCATION_UPLOAD_DISTANCE_ACTIVE_METERS = 10f
+        private const val COMMAND_CHECK_INTERVAL_WS_HEALTHY = 60_000L
+        private const val COMMAND_CHECK_INTERVAL_WS_DEGRADED = 10_000L
 
         const val ACTION_START = "start"
         const val ACTION_STOP = "stop"
@@ -69,7 +76,6 @@ class LocationService : Service() {
     private lateinit var networkHelper: NetworkHelper
     private lateinit var audioRecorder: AudioStreamRecorder
     private lateinit var prefs: SharedPreferences
-    private lateinit var appUsageTracker: AppUsageTracker
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var isTracking = false
@@ -79,6 +85,10 @@ class LocationService : Service() {
     private var commandCheckJob: Job? = null
     private var registrationJob: Job? = null
     private var locationUpdatesStarted = false
+    private val locationUploadStateLock = Any()
+    private var lastUploadedLocation: Location? = null
+    private var lastLocationUploadAt: Long = 0L
+    private var locationUploadInFlight = false
 
     override fun onCreate() {
         super.onCreate()
@@ -89,7 +99,6 @@ class LocationService : Service() {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         networkHelper = NetworkHelper(this)
         audioRecorder = AudioStreamRecorder(this, networkHelper)
-        appUsageTracker = AppUsageTracker(this)
 
         createNotificationChannel()
         setupLocationCallback()
@@ -105,12 +114,29 @@ class LocationService : Service() {
             ACTION_STOP -> stopTracking()
             ACTION_EMERGENCY_STOP -> emergencyStopAll()
             ACTION_START_AUDIO_STREAM -> {
-                if (!isTracking) {
-                    Log.w(TAG, "Ignoring audio start: monitoring service is not active")
-                    return START_STICKY
-                }
                 val recording = intent.getBooleanExtra(EXTRA_AUDIO_RECORDING, false)
                 val sampleRate = intent.getIntExtra(EXTRA_AUDIO_SAMPLE_RATE, 24_000)
+                if (!isTracking) {
+                    Log.w(TAG, "Audio start requested while monitoring is inactive, attempting recovery")
+                    startTracking(null)
+                }
+                if (!isTracking) {
+                    val fallbackDeviceId = prefs.getString("device_id", null)?.takeIf { !it.isNullOrBlank() }
+                    val fallbackServerUrl = ServerUrlResolver.getServerUrl(this)
+                    if (!fallbackDeviceId.isNullOrBlank() && !fallbackServerUrl.isNullOrBlank()) {
+                        Log.w(TAG, "Monitoring service still inactive, falling back to AudioStreamingService")
+                        AudioStreamingService.startStreaming(
+                            this,
+                            fallbackDeviceId,
+                            fallbackServerUrl,
+                            recording,
+                            sampleRate
+                        )
+                    } else {
+                        Log.w(TAG, "Cannot recover audio start: missing monitoring context")
+                    }
+                    return START_STICKY
+                }
                 startAudioStreaming(recording = recording, sampleRate = sampleRate)
             }
             ACTION_STOP_AUDIO_STREAM -> {
@@ -175,8 +201,12 @@ class LocationService : Service() {
 
         isTracking = true
         locationUpdatesStarted = false
+        synchronized(locationUploadStateLock) {
+            lastUploadedLocation = null
+            lastLocationUploadAt = 0L
+            locationUploadInFlight = false
+        }
         ChatBackgroundService.start(this, serverUrl!!, deviceId!!)
-        PhotoCaptureService.start(this, serverUrl!!, deviceId!!)
         // Register device with retries (network may be unavailable right after boot)
         startRegistrationLoop()
         prefs.edit().putBoolean("service_running", true).apply()
@@ -229,6 +259,11 @@ class LocationService : Service() {
 
         isTracking = false
         locationUpdatesStarted = false
+        synchronized(locationUploadStateLock) {
+            lastUploadedLocation = null
+            lastLocationUploadAt = 0L
+            locationUploadInFlight = false
+        }
         prefs.edit().putBoolean("service_running", false).apply()
 
         Log.d(TAG, "Tracking stopped")
@@ -255,12 +290,7 @@ class LocationService : Service() {
             return
         }
 
-        val locationRequest = LocationRequest.Builder(
-            Priority.PRIORITY_HIGH_ACCURACY,
-            LOCATION_UPDATE_INTERVAL
-        )
-            .setMinUpdateIntervalMillis(LOCATION_FASTEST_INTERVAL)
-            .build()
+        val locationRequest = buildLocationRequest()
 
         fusedLocationClient.requestLocationUpdates(
             locationRequest,
@@ -277,10 +307,17 @@ class LocationService : Service() {
     private fun handleLocationUpdate(location: Location) {
         Log.d(TAG, "Location update: ${location.latitude}, ${location.longitude}")
 
+        if (!beginLocationUpload(location)) {
+            return
+        }
+
         // Upload to server with device info
         serviceScope.launch {
             // Collect device info
-            val deviceInfo = DeviceInfoCollector.getDeviceInfo(this@LocationService)
+            val deviceInfo = DeviceInfoCollector.getDeviceInfo(
+                this@LocationService,
+                includeCurrentApp = false
+            )
 
             val success = networkHelper.uploadLocationWithDeviceInfo(
                 serverUrl!!,
@@ -289,6 +326,8 @@ class LocationService : Service() {
                 location.accuracy,
                 deviceInfo
             )
+
+            finishLocationUpload(location, success)
 
             if (success) {
                 val batteryStatus = DeviceInfoCollector.getBatteryStatus(this@LocationService)
@@ -365,7 +404,7 @@ class LocationService : Service() {
                 } catch (e: Exception) {
                     Log.e(TAG, "Error checking commands", e)
                 }
-                delay(COMMAND_CHECK_INTERVAL)
+                delay(resolveCommandCheckInterval())
             }
         }
     }
@@ -522,6 +561,7 @@ class LocationService : Service() {
 
         audioRecorder.startStreaming(deviceId, serverUrl, recording, sampleRate)
         isStreamingAudio = true
+        restartLocationUpdatesForCurrentMode()
         updateNotification(getString(R.string.location_service_notification_active_with_battery, DeviceInfoCollector.getBatteryStatus(this)))
 
         Log.d(TAG, "Audio streaming started (silent mode)")
@@ -547,6 +587,7 @@ class LocationService : Service() {
 
         audioRecorder.stopStreaming()
         isStreamingAudio = false
+        restartLocationUpdatesForCurrentMode()
         updateNotification(getString(R.string.location_service_notification_active))
 
         Log.d(TAG, "Audio streaming stopped (silent mode)")
@@ -570,10 +611,119 @@ class LocationService : Service() {
         if (AudioStreamingService.isStreamingDesired(this)) {
             AudioStreamingService.resumeIfDesired(this)
         }
+    }
 
-        val allowRemotePhoto = prefs.getBoolean("allow_remote_photo", true)
-        if (allowRemotePhoto) {
-            PhotoCaptureService.start(this, serverUrl, deviceId)
+    private fun buildLocationRequest(): LocationRequest {
+        val activeAudio = isStreamingAudio || AudioStreamingService.isStreamingDesired(this)
+        val priority = if (activeAudio) {
+            Priority.PRIORITY_HIGH_ACCURACY
+        } else {
+            Priority.PRIORITY_BALANCED_POWER_ACCURACY
+        }
+        val interval = if (activeAudio) {
+            LOCATION_UPDATE_INTERVAL_ACTIVE
+        } else {
+            LOCATION_UPDATE_INTERVAL_BALANCED
+        }
+        val fastest = if (activeAudio) {
+            LOCATION_FASTEST_INTERVAL_ACTIVE
+        } else {
+            LOCATION_FASTEST_INTERVAL_BALANCED
+        }
+        return LocationRequest.Builder(priority, interval)
+            .setMinUpdateIntervalMillis(fastest)
+            .setMinUpdateDistanceMeters(
+                if (activeAudio) {
+                    LOCATION_UPLOAD_DISTANCE_ACTIVE_METERS
+                } else {
+                    LOCATION_UPLOAD_DISTANCE_BALANCED_METERS
+                }
+            )
+            .build()
+    }
+
+    private fun resolveCommandCheckInterval(): Long {
+        val socketHealthy = ChatBackgroundService.isRunning &&
+            ru.example.parentwatch.network.WebSocketManager.isConnected() &&
+            ru.example.parentwatch.network.WebSocketManager.isReady()
+        return if (socketHealthy) {
+            COMMAND_CHECK_INTERVAL_WS_HEALTHY
+        } else {
+            COMMAND_CHECK_INTERVAL_WS_DEGRADED
+        }
+    }
+
+    private fun restartLocationUpdatesForCurrentMode() {
+        if (!locationUpdatesStarted || !isTracking) return
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        runCatching {
+            fusedLocationClient.removeLocationUpdates(locationCallback)
+            fusedLocationClient.requestLocationUpdates(
+                buildLocationRequest(),
+                locationCallback,
+                Looper.getMainLooper()
+            )
+            Log.d(TAG, "Location request updated for current power mode")
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to restart location updates for power mode change", error)
+        }
+    }
+
+    private fun beginLocationUpload(location: Location): Boolean {
+        synchronized(locationUploadStateLock) {
+            if (locationUploadInFlight) {
+                return false
+            }
+            if (!shouldUploadLocationLocked(location)) {
+                return false
+            }
+            locationUploadInFlight = true
+            return true
+        }
+    }
+
+    private fun shouldUploadLocationLocked(location: Location): Boolean {
+        val lastLocation = lastUploadedLocation ?: return true
+        val activeAudio = isStreamingAudio || AudioStreamingService.isStreamingDesired(this)
+        val minInterval = if (activeAudio) {
+            LOCATION_UPLOAD_INTERVAL_ACTIVE
+        } else {
+            LOCATION_UPLOAD_INTERVAL_BALANCED
+        }
+        val minDistance = if (activeAudio) {
+            LOCATION_UPLOAD_DISTANCE_ACTIVE_METERS
+        } else {
+            LOCATION_UPLOAD_DISTANCE_BALANCED_METERS
+        }
+
+        val elapsed = System.currentTimeMillis() - lastLocationUploadAt
+        if (elapsed >= minInterval) {
+            return true
+        }
+
+        val distance = location.distanceTo(lastLocation)
+        if (distance >= minDistance) {
+            return true
+        }
+
+        val currentAccuracy = location.accuracy.takeIf { it > 0f } ?: Float.MAX_VALUE
+        val previousAccuracy = lastLocation.accuracy.takeIf { it > 0f } ?: Float.MAX_VALUE
+        return elapsed >= (minInterval / 2) && currentAccuracy + 15f < previousAccuracy
+    }
+
+    private fun finishLocationUpload(location: Location, success: Boolean) {
+        synchronized(locationUploadStateLock) {
+            locationUploadInFlight = false
+            if (success) {
+                lastUploadedLocation = Location(location)
+                lastLocationUploadAt = System.currentTimeMillis()
+            }
         }
     }
 

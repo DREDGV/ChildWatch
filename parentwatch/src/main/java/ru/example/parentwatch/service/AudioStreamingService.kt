@@ -42,6 +42,7 @@ class AudioStreamingService : Service() {
         private const val PREF_AUDIO_SERVER_URL = "audio_stream_server_url"
         private const val PREF_AUDIO_RECORDING = "audio_stream_recording"
         private const val PREF_AUDIO_SAMPLE_RATE = "audio_stream_sample_rate"
+        private const val DEVICE_STATUS_SYNC_INTERVAL_MS = 30_000L
 
         const val ACTION_START_STREAMING = "ru.example.parentwatch.START_STREAMING"
         const val ACTION_STOP_STREAMING = "ru.example.parentwatch.STOP_STREAMING"
@@ -346,7 +347,7 @@ class AudioStreamingService : Service() {
         deviceStatusSyncJob = serviceScope.launch {
             uploadDeviceStatusSnapshot(serverUrl)
             while (isActive && isStreaming) {
-                delay(15_000L)
+                delay(DEVICE_STATUS_SYNC_INTERVAL_MS)
                 uploadDeviceStatusSnapshot(serverUrl)
             }
         }
@@ -360,7 +361,10 @@ class AudioStreamingService : Service() {
     private suspend fun uploadDeviceStatusSnapshot(serverUrl: String) {
         val helper = networkHelper ?: return
         runCatching {
-            helper.uploadDeviceStatus(serverUrl, DeviceInfoCollector.getDeviceInfo(this))
+            helper.uploadDeviceStatus(
+                serverUrl,
+                DeviceInfoCollector.getDeviceInfo(this, includeCurrentApp = false)
+            )
         }.onFailure { error ->
             Log.w(TAG, "Device status sync failed during listening", error)
         }

@@ -7,7 +7,6 @@ import android.os.Build
 import android.util.Log
 import ru.example.parentwatch.service.LocationService
 import ru.example.parentwatch.service.ChatBackgroundService
-import ru.example.parentwatch.service.PhotoCaptureService
 import ru.example.parentwatch.utils.ServerUrlResolver
 
 /**
@@ -64,7 +63,6 @@ class BootReceiver : BroadcastReceiver() {
                 }
 
                 ChatBackgroundService.start(context, serverUrl, deviceId!!)
-                PhotoCaptureService.start(context, serverUrl, deviceId)
                 Log.d(TAG, "Background services restarted after boot")
             }
         }

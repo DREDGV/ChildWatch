@@ -63,6 +63,8 @@ class WebSocketClient(
         private const val RECONNECTION_DELAY = 500L // 0.5 second (faster initial retry)
         private const val RECONNECTION_DELAY_MAX = 10000L // 10 seconds max (increased from 5)
         private const val PING_INTERVAL = 25000L // 25 seconds (heartbeat)
+        private const val REREGISTRATION_INITIAL_DELAY_MS = 10_000L
+        private const val REREGISTRATION_INTERVAL_MS = 60_000L
         private const val MAX_RECONNECT_ATTEMPTS_BEFORE_WARNING = 3 // Warn user after 3 failed attempts
         private const val CHAT_ACK_TIMEOUT = 10000L
     }
@@ -75,7 +77,7 @@ class WebSocketClient(
 
     // Connection event handlers
     private val onConnect = Emitter.Listener {
-        Log.d(TAG, "рџџў WebSocket connected")
+        Log.d(TAG, "WebSocket connected")
         scope.launch {
             isConnected = true
             isRegistered = false
@@ -88,7 +90,7 @@ class WebSocketClient(
     }
 
     private val onDisconnect = Emitter.Listener { args ->
-        Log.d(TAG, "рџ”ґ WebSocket disconnected. Reason: ${args.getOrNull(0)}")
+        Log.d(TAG, "WebSocket disconnected. Reason: ${args.getOrNull(0)}")
         isConnected = false
         isRegistered = false
         registeredDeviceId = childDeviceId
@@ -100,7 +102,7 @@ class WebSocketClient(
 
     private val onConnectError = Emitter.Listener { args ->
         val error = args.getOrNull(0)
-        Log.e(TAG, "вќЊ WebSocket connection error: $error")
+        Log.e(TAG, "WebSocket connection error: $error")
         isConnected = false
         isRegistered = false
         registeredDeviceId = childDeviceId
@@ -134,7 +136,7 @@ class WebSocketClient(
             onRegisteredCallback?.invoke()
             requestMissedMessagesViaSocket()
         } else {
-            Log.e(TAG, "вќЊ Parent registration failed for device: $childDeviceId")
+            Log.e(TAG, "Parent registration failed for device: $childDeviceId")
         }
     }
 
@@ -162,12 +164,12 @@ class WebSocketClient(
                     if (sequence < lastProcessedSequence) {
                         Log.d(TAG, "Detected sequence reset ($sequence < $lastProcessedSequence). Accepting new stream.")
                     } else if (sequence == lastProcessedSequence) {
-                        Log.d(TAG, "вЏ­пёЏ Skipped duplicate chunk #$sequence")
+                        Log.d(TAG, "Skipped duplicate chunk #$sequence")
                         return@Listener
                     }
 
                     lastProcessedSequence = sequence
-                    Log.d(TAG, "рџЋ§ Received audio chunk #$sequence (${binaryData.size} bytes)")
+                    Log.d(TAG, "Received audio chunk #$sequence (${binaryData.size} bytes)")
                     scope.launch {
                         onAudioChunkReceived?.invoke(binaryData, sequence, timestamp)
                     }
@@ -293,7 +295,7 @@ class WebSocketClient(
     }
 
     private val onPong = Emitter.Listener {
-        Log.d(TAG, "рџЏ“ Pong received")
+        Log.d(TAG, "Pong received")
     }
 
     private val onCommand = Emitter.Listener { args ->
@@ -304,14 +306,14 @@ class WebSocketClient(
                 val data = commandData.optJSONObject("data")
                 val timestamp = commandData.optLong("timestamp", System.currentTimeMillis())
 
-                Log.d(TAG, "рџ“Ґ Command received: type=$type, timestamp=$timestamp")
+                Log.d(TAG, "Command received: type=$type, timestamp=$timestamp")
 
                 scope.launch {
                     onCommandCallback?.invoke(type, data)
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Error handling command", e)
+            Log.e(TAG, "Error handling command", e)
         }
     }
 
@@ -324,14 +326,14 @@ class WebSocketClient(
                 val sender = messageData.optString("sender", "")
                 val timestamp = messageData.optLong("timestamp", System.currentTimeMillis())
 
-                Log.d(TAG, "рџ’¬ Chat message received: from=$sender, text=$text")
+                Log.d(TAG, "Chat message received: from=$sender, text=$text")
 
                 scope.launch {
                     onChatMessageCallback?.invoke(messageId, text, sender, timestamp)
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Error handling chat message", e)
+            Log.e(TAG, "Error handling chat message", e)
         }
     }
 
@@ -344,11 +346,11 @@ class WebSocketClient(
             val timestamp = data.optLong("timestamp", System.currentTimeMillis())
             val delivered = data.optBoolean("delivered", false)
 
-            Log.d(TAG, "вњ… Chat message sent confirmation: id=$messageId, delivered=$delivered")
+            Log.d(TAG, "Chat message sent confirmation: id=$messageId, delivered=$delivered")
             pendingChatCallbacks.remove(messageId)?.onSuccess?.invoke()
             onChatMessageSentCallback?.invoke(messageId, delivered, timestamp)
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Error handling chat message sent confirmation", e)
+            Log.e(TAG, "Error handling chat message sent confirmation", e)
         }
     }
 
@@ -359,10 +361,10 @@ class WebSocketClient(
             val status = data.optString("status")
             if (messageId.isNullOrEmpty() || status.isNullOrEmpty()) return@Listener
             val timestamp = data.optLong("timestamp", System.currentTimeMillis())
-            Log.d(TAG, "рџ“¬ Chat status update: id=$messageId status=$status")
+            Log.d(TAG, "Chat status update: id=$messageId status=$status")
             onChatStatusCallback?.invoke(messageId, status, timestamp)
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Error handling chat status update", e)
+            Log.e(TAG, "Error handling chat status update", e)
         }
     }
 
@@ -373,10 +375,10 @@ class WebSocketClient(
             val status = data.optString("status")
             if (messageId.isNullOrEmpty() || status.isNullOrEmpty()) return@Listener
             val timestamp = data.optLong("timestamp", System.currentTimeMillis())
-            Log.d(TAG, "вњ… Chat status ack: id=$messageId status=$status")
+            Log.d(TAG, "Chat status ack: id=$messageId status=$status")
             onChatStatusAckCallback?.invoke(messageId, status, timestamp)
         } catch (e: Exception) {
-            Log.e(TAG, "РІСњРЉ Error handling chat status ack", e)
+            Log.e(TAG, "Error handling chat status ack", e)
         }
     }
 
@@ -385,9 +387,9 @@ class WebSocketClient(
             val data = args.getOrNull(0) as? JSONObject
             val error = data?.optString("error") ?: "Unknown error"
 
-            Log.e(TAG, "вќЊ Chat message error: $error")
+            Log.e(TAG, "Chat message error: $error")
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Error handling chat message error", e)
+            Log.e(TAG, "Error handling chat message error", e)
         }
     }
 
@@ -398,12 +400,12 @@ class WebSocketClient(
             val targetDevice = data?.optString("targetDevice") ?: ""
             val cameraFacing = data?.optString("camera", "back") ?: "back"
 
-            Log.d(TAG, "рџ“ё Received photo request: requestId=$requestId, targetDevice=$targetDevice")
+            Log.d(TAG, "Received photo request: requestId=$requestId, targetDevice=$targetDevice")
 
             // Forward to PhotoIntegration via callback
             onRequestPhotoCallback?.invoke(requestId, targetDevice, cameraFacing)
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Error handling photo request", e)
+            Log.e(TAG, "Error handling photo request", e)
         }
     }
 
@@ -417,11 +419,11 @@ class WebSocketClient(
             
             // Only process if it's NOT from this child device (it's from parent)
             if (deviceId != childDeviceId) {
-                Log.d(TAG, "рџ“ќ Parent started typing")
+                Log.d(TAG, "Parent started typing")
                 onTypingCallback?.invoke(true)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Error handling typing_start", e)
+            Log.e(TAG, "Error handling typing_start", e)
         }
     }
 
@@ -432,11 +434,11 @@ class WebSocketClient(
             
             // Only process if it's NOT from this child device (it's from parent)
             if (deviceId != childDeviceId) {
-                Log.d(TAG, "рџ“ќ Parent stopped typing")
+                Log.d(TAG, "Parent stopped typing")
                 onTypingCallback?.invoke(false)
             }
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Error handling typing_stop", e)
+            Log.e(TAG, "Error handling typing_stop", e)
         }
     }
 
@@ -451,12 +453,12 @@ class WebSocketClient(
             val speed = data.optDouble("speed", 0.0).toFloat()
             val bearing = data.optDouble("bearing", 0.0).toFloat()
             
-            Log.d(TAG, "рџ“Ќ Received parent location: $latitude, $longitude")
+            Log.d(TAG, "Received parent location: $latitude, $longitude")
             
             // Save to local database
             onParentLocationCallback?.invoke(parentId, latitude, longitude, accuracy, timestamp, speed, bearing)
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Error handling parent_location", e)
+            Log.e(TAG, "Error handling parent_location", e)
         }
     }
 
@@ -568,18 +570,18 @@ class WebSocketClient(
             }
 
             socket?.emit("register_child", registrationData) // ParentWatch IS the child device!
-            Log.d(TAG, "рџ“¤ Child device registration sent: $childDeviceId, socketId: ${socket?.id()}")
+            Log.d(TAG, "Child device registration sent: $childDeviceId, socketId: ${socket?.id()}")
 
             // Retry registration after 2 seconds to ensure it's received
             scope.launch {
                 delay(2000)
                 if (isConnected && socket != null) {
                     socket?.emit("register_child", registrationData)
-                    Log.d(TAG, "рџ“¤ Child device registration RETRY sent: $childDeviceId")
+                    Log.d(TAG, "Child device registration retry sent: $childDeviceId")
                 }
             }
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Error registering as child device", e)
+            Log.e(TAG, "Error registering as child device", e)
         }
     }
 
@@ -662,7 +664,7 @@ class WebSocketClient(
             }
 
             socket?.emit("command", commandData)
-            Log.d(TAG, "рџ“¤ Command sent: $commandType to device: ${registeredDeviceId.ifBlank { childDeviceId }}")
+            Log.d(TAG, "Command sent: $commandType to device: ${registeredDeviceId.ifBlank { childDeviceId }}")
             onSuccess()
         } catch (e: Exception) {
             Log.e(TAG, "Error sending command", e)
@@ -675,7 +677,7 @@ class WebSocketClient(
      */
     fun setChatMessageCallback(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
         onChatMessageCallback = callback
-        Log.d(TAG, "вњ… Chat message callback registered")
+        Log.d(TAG, "Chat message callback registered")
     }
 
     fun setChatMessageSentCallback(callback: (messageId: String, delivered: Boolean, timestamp: Long) -> Unit) {
@@ -695,7 +697,7 @@ class WebSocketClient(
      */
     fun setTypingCallback(callback: (isTyping: Boolean) -> Unit) {
         onTypingCallback = callback
-        Log.d(TAG, "вњ… Typing indicator callback registered")
+        Log.d(TAG, "Typing indicator callback registered")
     }
 
     /**
@@ -732,7 +734,7 @@ class WebSocketClient(
             socket?.emit("chat_message_status", payload)
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Failed to send chat status", e)
+            Log.e(TAG, "Failed to send chat status", e)
             return false
         }
     }
@@ -824,20 +826,20 @@ class WebSocketClient(
     }
 
     /**
-     * Periodically re-register as parent every 30 seconds
+     * Periodically re-register as parent to refresh server-side presence.
      */
     private fun startPeriodicReregistration() {
         reregistrationJob?.cancel()
         reregistrationJob = scope.launch {
-            delay(5000) // Wait 5 seconds before first re-registration
+            delay(REREGISTRATION_INITIAL_DELAY_MS)
             while (isActive && isConnected) {
                 try {
                     registerAsParent()
-                    Log.d(TAG, "рџ”„ Periodic parent re-registration triggered")
+                    Log.d(TAG, "Periodic parent re-registration triggered")
                 } catch (e: Exception) {
                     Log.e(TAG, "Periodic re-registration failed", e)
                 }
-                delay(30000) // Re-register every 30 seconds
+                delay(REREGISTRATION_INTERVAL_MS)
             }
         }
     }
@@ -965,9 +967,6 @@ class WebSocketClient(
         }
     }
 }
-
-
-
 
 
 

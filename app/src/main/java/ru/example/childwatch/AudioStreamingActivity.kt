@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.ServiceConnection
 import android.content.SharedPreferences
+import android.content.res.ColorStateList
 import android.os.BatteryManager
 import android.os.Bundle
 import android.os.IBinder
@@ -37,6 +38,8 @@ import ru.example.childwatch.recordings.RecordingsLibraryActivity
 import ru.example.childwatch.service.AudioPlaybackService
 import ru.example.childwatch.ui.AdvancedAudioVisualizer
 import ru.example.childwatch.utils.SecureSettingsManager
+import com.google.android.material.button.MaterialButton
+import com.google.android.material.color.MaterialColors
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -93,6 +96,7 @@ class AudioStreamingActivity : AppCompatActivity() {
     private var metricsCollectorJob: Job? = null
     private var uiUpdateJob: Job? = null
     private var transitionResetJob: Job? = null
+    private var startVerificationJob: Job? = null
     private var streamingActionInProgress = false
     private var desiredRecordingEnabled = false
 
@@ -104,7 +108,7 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private enum class HudMode { COMPACT, EXPANDED }
-    private var hudMode = HudMode.EXPANDED
+    private var hudMode = HudMode.COMPACT
 
     private val serviceConnection = object : ServiceConnection {
         override fun onServiceConnected(name: ComponentName?, service: IBinder?) {
@@ -248,11 +252,11 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
         selectedSampleRate = sanitizeSampleRate(audioPrefs.getInt("audio_quality_hz", DEFAULT_SAMPLE_RATE))
 
-        val savedHudMode = audioPrefs.getString("hud_mode", HudMode.EXPANDED.name)
+        val savedHudMode = audioPrefs.getString("hud_mode", HudMode.COMPACT.name)
         hudMode = try {
-            HudMode.valueOf(savedHudMode ?: HudMode.EXPANDED.name)
+            HudMode.valueOf(savedHudMode ?: HudMode.COMPACT.name)
         } catch (e: IllegalArgumentException) {
-            HudMode.EXPANDED
+            HudMode.COMPACT
         }
     }
 
@@ -532,14 +536,10 @@ class AudioStreamingActivity : AppCompatActivity() {
 
     private fun formatChildBatteryText(): String {
         val batteryDisplay = childBatteryLevel?.takeIf { it in 0..100 }
-        val ageSuffix = statusAgeMs()
-            ?.takeIf { it > CHILD_STATUS_FRESH_MS }
-            ?.let { " · ${formatStatusAgeCompact(it)}" }
-            .orEmpty()
         return when {
             batteryDisplay == null -> getString(R.string.listen_battery_waiting)
-            childCharging == true -> getString(R.string.listen_battery_charging, batteryDisplay) + ageSuffix
-            else -> getString(R.string.listen_battery_percent, batteryDisplay) + ageSuffix
+            childCharging == true -> getString(R.string.listen_battery_charging, batteryDisplay)
+            else -> getString(R.string.listen_battery_percent, batteryDisplay)
         }
     }
 
@@ -639,8 +639,42 @@ class AudioStreamingActivity : AppCompatActivity() {
             VolumeMode.BOOST -> R.string.listen_gain_mode_boost
             VolumeMode.MAX -> R.string.listen_gain_mode_max
         }
-        binding.gainModeGroup.check(checkedButtonId)
+        listOf(
+            binding.gainX1Button,
+            binding.gainX2Button,
+            binding.gainX3Button,
+            binding.gainX4Button,
+            binding.gainX5Button
+        ).forEach { button ->
+            styleGainButton(button, button.id == checkedButtonId)
+        }
         binding.volumeModeCaptionText.text = getString(captionRes)
+    }
+
+    private fun styleGainButton(button: MaterialButton, selected: Boolean) {
+        val selectedColor = getColor(R.color.emerald_primary)
+        val defaultBackground = MaterialColors.getColor(
+            binding.root,
+            com.google.android.material.R.attr.colorSurfaceVariant
+        )
+        val defaultText = MaterialColors.getColor(
+            binding.root,
+            com.google.android.material.R.attr.colorOnSurface
+        )
+        val outlineColor = MaterialColors.getColor(
+            binding.root,
+            com.google.android.material.R.attr.colorOutline
+        )
+
+        button.isChecked = selected
+        button.backgroundTintList = ColorStateList.valueOf(
+            if (selected) selectedColor else defaultBackground
+        )
+        button.strokeWidth = if (selected) 0 else 2
+        button.strokeColor = ColorStateList.valueOf(
+            if (selected) selectedColor else outlineColor
+        )
+        button.setTextColor(if (selected) Color.WHITE else defaultText)
     }
 
     private fun setFilterMode(mode: FilterMode) {
@@ -796,16 +830,15 @@ class AudioStreamingActivity : AppCompatActivity() {
         // Start visualizer
         binding.advancedAudioVisualizer.start()
 
-        val intent = Intent(this, AudioPlaybackService::class.java).apply {
-            action = AudioPlaybackService.ACTION_START_PLAYBACK
-            putExtra(AudioPlaybackService.EXTRA_DEVICE_ID, deviceId)
-            putExtra(AudioPlaybackService.EXTRA_SERVER_URL, serverUrl)
-            putExtra(AudioPlaybackService.EXTRA_RECORDING, desiredRecordingEnabled)
-            putExtra(AudioPlaybackService.EXTRA_SAMPLE_RATE, selectedSampleRate)
-        }
-
-        startForegroundService(intent)
+        AudioPlaybackService.startPlayback(
+            context = this,
+            deviceId = deviceId,
+            serverUrl = serverUrl,
+            recording = desiredRecordingEnabled,
+            sampleRate = selectedSampleRate
+        )
         bindPlaybackService()
+        scheduleStreamingStartVerification()
 
         streamingStartTime = System.currentTimeMillis()
         updateUI()
@@ -831,9 +864,29 @@ class AudioStreamingActivity : AppCompatActivity() {
             serviceBound = false
         }
 
+        startVerificationJob?.cancel()
         syncRecordingSwitch(false)
         desiredRecordingEnabled = false
         updateUI()
+    }
+
+    private fun scheduleStreamingStartVerification() {
+        startVerificationJob?.cancel()
+        startVerificationJob = lifecycleScope.launch {
+            delay(1600L)
+            if (isDestroyed || isFinishing) return@launch
+            if (!AudioPlaybackService.isPlaying) {
+                Log.w(TAG, "Playback service did not confirm start quickly, reasserting start request")
+                AudioPlaybackService.startPlayback(
+                    context = this@AudioStreamingActivity,
+                    deviceId = deviceId,
+                    serverUrl = serverUrl,
+                    recording = desiredRecordingEnabled,
+                    sampleRate = selectedSampleRate
+                )
+                bindPlaybackService()
+            }
+        }
     }
 
     private fun toggleRecording(recording: Boolean) {
@@ -877,6 +930,18 @@ class AudioStreamingActivity : AppCompatActivity() {
             if (isPlaying) R.string.listen_toggle_stop else R.string.listen_toggle_start
         )
         binding.toggleStreamingBtn.isEnabled = !streamingActionInProgress
+        binding.toggleStreamingBtn.backgroundTintList = ColorStateList.valueOf(
+            if (isPlaying) Color.parseColor("#FFE7D9D6") else Color.WHITE
+        )
+        binding.toggleStreamingBtn.setTextColor(
+            if (isPlaying) Color.parseColor("#8C1D18") else getColor(R.color.emerald_primary)
+        )
+        binding.toggleStreamingBtn.iconTint = ColorStateList.valueOf(
+            if (isPlaying) Color.parseColor("#8C1D18") else getColor(R.color.emerald_primary)
+        )
+        binding.toggleStreamingBtn.icon = getDrawable(
+            if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_btn_speak_now
+        )
 
         binding.statusText.text = getString(
             if (isPlaying) R.string.listen_state_running else R.string.listen_state_stopped
@@ -947,6 +1012,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         metricsCollectorJob?.cancel()
         uiUpdateJob?.cancel()
         transitionResetJob?.cancel()
+        startVerificationJob?.cancel()
         if (serviceBound) {
             unbindService(serviceConnection)
             serviceBound = false
@@ -968,14 +1034,13 @@ class AudioStreamingActivity : AppCompatActivity() {
         val dash = getString(R.string.audio_monitor_placeholder_dash)
 
         val wsLabel = when (metrics.wsStatus) {
-            WsStatus.CONNECTED -> "Сокет онлайн"
-            WsStatus.CONNECTING -> "Подключение"
+            WsStatus.CONNECTED -> "Онлайн"
+            WsStatus.CONNECTING -> "Подкл."
             WsStatus.RETRYING -> "Повтор"
             WsStatus.ERROR -> "Ошибка"
             else -> "Оффлайн"
         }
-        val duration = formatDuration(metrics.connectionDuration)
-        binding.hudWsStatus.text = "$wsLabel $duration"
+        binding.hudWsStatus.text = wsLabel
 
         val networkLabel = if (metrics.networkName.isNotEmpty() && metrics.networkName != "Wi-Fi") {
             metrics.networkName.take(5)
@@ -1042,7 +1107,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         binding.hudTotalData.text = totalText
 
         val sampleRateKHz = metrics.sampleRate / 1000.0
-        binding.hudSampleRate.text = "%.1f кГц".format(sampleRateKHz)
+        binding.hudSampleRate.text = getString(R.string.listen_stream_sample_rate_decimal, sampleRateKHz)
         binding.hudRow2.isVisible = hudMode == HudMode.EXPANDED
         updateDiagnosticsSummary(metrics)
     }
@@ -1064,23 +1129,6 @@ class AudioStreamingActivity : AppCompatActivity() {
 
     private fun updateDiagnosticsSummary(metrics: AudioStreamMetrics) {
         val dash = getString(R.string.listen_diag_no_data)
-        binding.diagConnectionValue.text = buildConnectionHeadline(
-            AudioPlaybackService.isPlaying,
-            AudioPlaybackService.audioTrackInitError,
-            if (AudioPlaybackService.lastChunkTimestamp > 0L) {
-                (System.currentTimeMillis() - AudioPlaybackService.lastChunkTimestamp).coerceAtLeast(0L)
-            } else {
-                -1L
-            }
-        )
-        binding.diagConnectionValue.setTextColor(
-            when {
-                AudioPlaybackService.audioTrackInitError != null -> Color.parseColor("#B3261E")
-                !AudioPlaybackService.isPlaying -> Color.parseColor("#6B7280")
-                else -> Color.parseColor("#0F766E")
-            }
-        )
-
         val latencyMs = resolveLatencyMs(metrics)
         binding.diagLatencyValue.text = if (latencyMs > 0) {
             getString(R.string.listen_ping_value, latencyMs.toInt())
@@ -1100,15 +1148,8 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
 
         val freshnessAge = statusAgeMs()
-        val batteryDisplay = childBatteryLevel?.takeIf { it in 0..100 }
         binding.diagFreshnessValue.text = when {
-            freshnessAge == null && batteryDisplay == null -> dash
-            freshnessAge == null && batteryDisplay != null ->
-                if (childCharging == true) "${batteryDisplay}% ⚡" else "${batteryDisplay}%"
-            freshnessAge != null && batteryDisplay != null -> {
-                val batteryText = if (childCharging == true) "${batteryDisplay}% ⚡" else "${batteryDisplay}%"
-                "$batteryText · ${formatStatusAgeCompact(freshnessAge)}"
-            }
+            freshnessAge == null -> dash
             else -> formatStatusAgeCompact(freshnessAge ?: 0L)
         }
         binding.diagFreshnessValue.setTextColor(

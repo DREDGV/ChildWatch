@@ -12,6 +12,24 @@ import ru.example.parentwatch.service.AppUsageTracker
  * Collects device battery and hardware information for ParentWatch uploads.
  */
 object DeviceInfoCollector {
+    private const val CURRENT_APP_CACHE_TTL_MS = 2 * 60 * 1000L
+
+    @Volatile
+    private var cachedCurrentAppJson: String? = null
+
+    @Volatile
+    private var cachedCurrentAppAt: Long = 0L
+
+    private val cachedDeviceDetailsJson by lazy {
+        JSONObject().apply {
+            put("manufacturer", Build.MANUFACTURER)
+            put("model", Build.MODEL)
+            put("androidVersion", Build.VERSION.RELEASE)
+            put("sdkVersion", Build.VERSION.SDK_INT)
+            put("device", Build.DEVICE)
+            put("brand", Build.BRAND)
+        }.toString()
+    }
 
     data class BatterySnapshot(
         val level: Int?,
@@ -22,11 +40,13 @@ object DeviceInfoCollector {
     /**
      * Aggregate device status information as a JSON payload.
      */
-    fun getDeviceInfo(context: Context): JSONObject {
+    fun getDeviceInfo(context: Context, includeCurrentApp: Boolean = true): JSONObject {
         return JSONObject().apply {
             put("battery", getBatteryInfo(context))
             put("device", getDeviceDetails())
-            put("currentApp", getCurrentAppInfo(context))
+            if (includeCurrentApp) {
+                put("currentApp", getCurrentAppInfo(context))
+            }
             put("timestamp", System.currentTimeMillis())
         }
     }
@@ -35,9 +55,14 @@ object DeviceInfoCollector {
      * Get current foreground app information
      */
     private fun getCurrentAppInfo(context: Context): JSONObject {
+        val now = System.currentTimeMillis()
+        cachedCurrentAppJson?.takeIf { (now - cachedCurrentAppAt) < CURRENT_APP_CACHE_TTL_MS }?.let {
+            return JSONObject(it)
+        }
+
         val appUsageTracker = AppUsageTracker(context)
 
-        return if (appUsageTracker.hasUsageStatsPermission()) {
+        val result = if (appUsageTracker.hasUsageStatsPermission()) {
             val currentApp = appUsageTracker.getCurrentApp()
             if (currentApp != null) {
                 JSONObject().apply {
@@ -57,6 +82,9 @@ object DeviceInfoCollector {
                 put("permissionRequired", "PACKAGE_USAGE_STATS")
             }
         }
+        cachedCurrentAppJson = result.toString()
+        cachedCurrentAppAt = now
+        return result
     }
 
     private fun getBatteryInfo(context: Context): JSONObject {
@@ -115,14 +143,7 @@ object DeviceInfoCollector {
     }
 
     private fun getDeviceDetails(): JSONObject {
-        return JSONObject().apply {
-            put("manufacturer", Build.MANUFACTURER)
-            put("model", Build.MODEL)
-            put("androidVersion", Build.VERSION.RELEASE)
-            put("sdkVersion", Build.VERSION.SDK_INT)
-            put("device", Build.DEVICE)
-            put("brand", Build.BRAND)
-        }
+        return JSONObject(cachedDeviceDetailsJson)
     }
 
     fun getBatteryLevel(context: Context): Int {

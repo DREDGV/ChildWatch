@@ -450,7 +450,41 @@ class AudioPlaybackService : LifecycleService() {
     private fun startPlayback(deviceId: String, serverUrl: String, recording: Boolean) {
         try {
             if (isPlaying) {
-                Log.w(TAG, "Already playing")
+                Log.w(TAG, "Already playing, reasserting active session")
+                this.deviceId = deviceId
+                this.serverUrl = serverUrl
+                this.isRecording = recording
+                persistSession(deviceId, serverUrl, recording, requestedSampleRate)
+
+                if (recording) {
+                    startLocalRecording()
+                } else {
+                    stopLocalRecording(save = false)
+                }
+
+                if (audioTrack == null) {
+                    initializeAudioTrack()
+                }
+                if (playbackJob?.isActive != true) {
+                    startPlaybackJob()
+                }
+
+                val socketReady = webSocketClient?.isReady() == true
+                if (!socketReady) {
+                    webSocketClient?.cleanup()
+                    webSocketClient = null
+                    connectWebSocket()
+                } else {
+                    lifecycleScope.launch {
+                        sendStartCommand("manual_reassert")
+                        startStartCommandRepeater()
+                    }
+                }
+
+                startStreamWatchdog()
+                updateNotification(getString(R.string.listen_status_active))
+                currentStatus = getString(R.string.listen_status_active)
+                AudioPlaybackService.currentStatus = currentStatus
                 return
             }
 

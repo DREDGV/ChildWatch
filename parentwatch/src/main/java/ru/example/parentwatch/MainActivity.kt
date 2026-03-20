@@ -109,10 +109,10 @@ class MainActivity : AppCompatActivity() {
 
         prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
 
-        // РЎРѕР·РґР°РµРј РєР°РЅР°Р»С‹ СѓРІРµРґРѕРјР»РµРЅРёР№
+        // Create notification channels
         NotificationManager.createNotificationChannels(this)
 
-        // РЎРёРЅС…СЂРѕРЅРёР·РёСЂСѓРµРј device_id СЃ child_device_id РґР»СЏ СЃРѕРІРјРµСЃС‚РёРјРѕСЃС‚Рё
+        // Keep legacy device identifiers in sync
         syncDeviceIds()
         val ensuredDeviceId = getUniqueDeviceId()
         chatManagerAdapter = ChatManagerAdapter(this, ensuredDeviceId)
@@ -127,7 +127,7 @@ class MainActivity : AppCompatActivity() {
         // PhotoIntegration is deprecated - RemotePhotoService now handles this via WebSocketManager
         // initializePhotoIntegration()
         
-        // РџСЂРѕРІРµСЂСЏРµРј, РЅСѓР¶РЅРѕ Р»Рё РѕС‚РєСЂС‹С‚СЊ С‡Р°С‚
+        // Open chat directly when launched from a notification
         if (intent.getBooleanExtra("open_chat", false)) {
             NotificationManager.resetUnreadCount()
             updateChatBadge()
@@ -354,22 +354,10 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun ensurePhotoCaptureService() {
-        val serverUrl = ServerUrlResolver.getServerUrl(this)
-        val deviceId = prefs.getString("device_id", null)
-        if (!deviceId.isNullOrEmpty() && !serverUrl.isNullOrBlank()) {
-            PhotoCaptureService.start(this, serverUrl, deviceId)
-        } else if (serverUrl.isNullOrBlank()) {
-            Log.w("MainActivity", "PhotoCaptureService not started: server URL missing")
-        }
-    }
-
-
     override fun onResume() {
         super.onResume()
         prefs.edit().putBoolean("chat_open", false).apply()
         ensureChatBackgroundService()
-        ensurePhotoCaptureService()
         updateChatBadge()
         startBadgeRefreshLoop()
     }
@@ -445,7 +433,6 @@ class MainActivity : AppCompatActivity() {
                 ContextCompat.startForegroundService(this, serviceIntent)
 
                 ensureChatBackgroundService()
-                ensurePhotoCaptureService()
                 
             isServiceRunning = true
             prefs.edit().putBoolean("service_running", true).apply()
@@ -555,13 +542,13 @@ class MainActivity : AppCompatActivity() {
         val childDeviceId = prefs.getString("child_device_id", null)
         
         if (deviceId != null && childDeviceId == null) {
-            // Р•СЃР»Рё РµСЃС‚СЊ device_id, РЅРѕ РЅРµС‚ child_device_id - СЃРёРЅС…СЂРѕРЅРёР·РёСЂСѓРµРј
+            // Keep child_device_id populated for legacy flows
             prefs.edit().putString("child_device_id", deviceId).apply()
-            Log.d("MainActivity", "РЎРёРЅС…СЂРѕРЅРёР·РёСЂРѕРІР°РЅ device_id СЃ child_device_id: $deviceId")
+            Log.d("MainActivity", "Synced child_device_id from device_id: $deviceId")
         } else if (deviceId == null && childDeviceId != null) {
-            // Р•СЃР»Рё РµСЃС‚СЊ child_device_id, РЅРѕ РЅРµС‚ device_id - СЃРёРЅС…СЂРѕРЅРёР·РёСЂСѓРµРј
+            // Restore device_id from legacy child_device_id when needed
             prefs.edit().putString("device_id", childDeviceId).apply()
-            Log.d("MainActivity", "РЎРёРЅС…СЂРѕРЅРёР·РёСЂРѕРІР°РЅ child_device_id СЃ device_id: $childDeviceId")
+            Log.d("MainActivity", "Synced device_id from child_device_id: $childDeviceId")
         } else if (!deviceId.isNullOrBlank() && !childDeviceId.isNullOrBlank() && deviceId != childDeviceId) {
             // Recover from broken pairing migration where child_device_id was overwritten by parent ID.
             prefs.edit().putString("child_device_id", deviceId).apply()

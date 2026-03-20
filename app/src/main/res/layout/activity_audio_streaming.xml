@@ -22,11 +22,7 @@
             android:background="@android:color/transparent"
             android:minHeight="56dp"
             app:navigationIcon="@android:drawable/ic_media_previous"
-            app:navigationIconTint="?attr/colorOnSurface"
-            app:subtitle="@string/listen_subtitle"
-            app:subtitleTextColor="?attr/colorOnSurfaceVariant"
-            app:title="@string/listen_title"
-            app:titleTextColor="?attr/colorOnSurface" />
+            app:navigationIconTint="?attr/colorOnSurface" />
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
@@ -345,20 +341,17 @@
                     android:textColor="?attr/colorOnSurface"
                     android:textStyle="bold" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:layout_marginBottom="16dp"
-                    android:text="@string/listen_section_options_hint"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textSize="13sp" />
-
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:background="@drawable/bg_listen_setting_row"
                     android:gravity="center_vertical"
-                    android:orientation="horizontal">
+                    android:orientation="horizontal"
+                    android:paddingStart="16dp"
+                    android:paddingTop="14dp"
+                    android:paddingEnd="16dp"
+                    android:paddingBottom="14dp">
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -388,7 +381,11 @@
                         android:id="@+id/recordingSwitch"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:enabled="false" />
+                        android:enabled="false"
+                        android:scaleX="1.08"
+                        android:scaleY="1.08"
+                        android:splitTrack="false"
+                        app:useMaterialThemeColors="true" />
 
                 </LinearLayout>
 
@@ -398,7 +395,12 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="14dp"
+                    android:minHeight="54dp"
                     android:text="@string/listen_open_recordings"
+                    android:textAllCaps="false"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    app:cornerRadius="18dp"
                     app:icon="@android:drawable/ic_menu_save"
                     app:iconGravity="textStart"
                     app:iconPadding="10dp" />
@@ -464,78 +466,117 @@
                         android:textSize="14sp"
                         android:textStyle="bold" />
 
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:text="@string/listen_gain_hint"
-                        android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="12sp" />
-
-                    <com.google.android.material.button.MaterialButtonToggleGroup
+                    <LinearLayout
                         android:id="@+id/gainModeGroup"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        app:selectionRequired="true"
-                        app:singleSelection="true">
+                        android:layout_marginTop="10dp"
+                        android:orientation="vertical">
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/gainX1Button"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
+                        <LinearLayout
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:minHeight="56dp"
-                            android:text="@string/listen_gain_x1"
-                            android:textSize="16sp"
-                            android:textStyle="bold" />
+                            android:orientation="horizontal"
+                            android:weightSum="3">
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/gainX2Button"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/gainX1Button"
+                                style="@style/Widget.Material3.Button.OutlinedButton"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginEnd="6dp"
+                                android:layout_weight="1"
+                                android:checkable="true"
+                                android:maxLines="1"
+                                android:minHeight="56dp"
+                                android:minWidth="0dp"
+                                android:paddingStart="0dp"
+                                android:paddingEnd="0dp"
+                                android:text="@string/listen_gain_x1"
+                                android:textSize="17sp"
+                                android:textStyle="bold" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/gainX2Button"
+                                style="@style/Widget.Material3.Button.OutlinedButton"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="3dp"
+                                android:layout_marginEnd="3dp"
+                                android:layout_weight="1"
+                                android:checkable="true"
+                                android:maxLines="1"
+                                android:minHeight="56dp"
+                                android:minWidth="0dp"
+                                android:paddingStart="0dp"
+                                android:paddingEnd="0dp"
+                                android:text="@string/listen_gain_x2"
+                                android:textSize="17sp"
+                                android:textStyle="bold" />
+
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/gainX3Button"
+                                style="@style/Widget.Material3.Button.OutlinedButton"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="6dp"
+                                android:layout_weight="1"
+                                android:checkable="true"
+                                android:maxLines="1"
+                                android:minHeight="56dp"
+                                android:minWidth="0dp"
+                                android:paddingStart="0dp"
+                                android:paddingEnd="0dp"
+                                android:text="@string/listen_gain_x3"
+                                android:textSize="17sp"
+                                android:textStyle="bold" />
+
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:minHeight="56dp"
-                            android:text="@string/listen_gain_x2"
-                            android:textSize="16sp"
-                            android:textStyle="bold" />
+                            android:layout_marginTop="8dp"
+                            android:orientation="horizontal"
+                            android:weightSum="2">
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/gainX3Button"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:minHeight="56dp"
-                            android:text="@string/listen_gain_x3"
-                            android:textSize="16sp"
-                            android:textStyle="bold" />
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/gainX4Button"
+                                style="@style/Widget.Material3.Button.OutlinedButton"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginEnd="6dp"
+                                android:layout_weight="1"
+                                android:checkable="true"
+                                android:maxLines="1"
+                                android:minHeight="56dp"
+                                android:minWidth="0dp"
+                                android:paddingStart="0dp"
+                                android:paddingEnd="0dp"
+                                android:text="@string/listen_gain_x4"
+                                android:textSize="17sp"
+                                android:textStyle="bold" />
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/gainX4Button"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:minHeight="56dp"
-                            android:text="@string/listen_gain_x4"
-                            android:textSize="16sp"
-                            android:textStyle="bold" />
+                            <com.google.android.material.button.MaterialButton
+                                android:id="@+id/gainX5Button"
+                                style="@style/Widget.Material3.Button.OutlinedButton"
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_marginStart="6dp"
+                                android:layout_weight="1"
+                                android:checkable="true"
+                                android:maxLines="1"
+                                android:minHeight="56dp"
+                                android:minWidth="0dp"
+                                android:paddingStart="0dp"
+                                android:paddingEnd="0dp"
+                                android:text="@string/listen_gain_x5"
+                                android:textSize="17sp"
+                                android:textStyle="bold" />
 
-                        <com.google.android.material.button.MaterialButton
-                            android:id="@+id/gainX5Button"
-                            style="@style/Widget.Material3.Button.OutlinedButton"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:minHeight="56dp"
-                            android:text="@string/listen_gain_x5"
-                            android:textSize="16sp"
-                            android:textStyle="bold" />
+                        </LinearLayout>
 
-                    </com.google.android.material.button.MaterialButtonToggleGroup>
+                    </LinearLayout>
 
                     <TextView
                         android:id="@+id/volumeModeCaptionText"
@@ -617,121 +658,43 @@
                 android:orientation="vertical"
                 android:padding="20dp">
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/listen_section_visualizer"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="@string/listen_section_visualizer_hint"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textSize="13sp" />
-
-                <com.google.android.material.card.MaterialCardView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    app:cardBackgroundColor="?attr/colorSurfaceVariant"
-                    app:cardCornerRadius="18dp"
-                    app:cardElevation="0dp">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal"
-                        android:paddingStart="14dp"
-                        android:paddingTop="12dp"
-                        android:paddingEnd="14dp"
-                        android:paddingBottom="12dp">
-
-                        <ImageView
-                            android:layout_width="18dp"
-                            android:layout_height="18dp"
-                            android:contentDescription="@string/listen_visual_universal"
-                            android:src="@android:drawable/ic_media_play"
-                            android:tint="?attr/colorPrimary" />
-
-                        <LinearLayout
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="10dp"
-                            android:layout_weight="1"
-                            android:orientation="vertical">
-
-                            <TextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:text="@string/listen_visual_universal"
-                                android:textColor="?attr/colorOnSurface"
-                                android:textSize="14sp"
-                                android:textStyle="bold" />
-
-                            <TextView
-                                android:layout_width="match_parent"
-                                android:layout_height="wrap_content"
-                                android:layout_marginTop="2dp"
-                                android:text="@string/listen_visual_universal_hint"
-                                android:textColor="?attr/colorOnSurfaceVariant"
-                                android:textSize="12sp" />
-
-                        </LinearLayout>
-
-                    </LinearLayout>
-
-                </com.google.android.material.card.MaterialCardView>
-
-                <ru.example.childwatch.ui.AdvancedAudioVisualizer
-                    android:id="@+id/advancedAudioVisualizer"
-                    android:layout_width="match_parent"
-                    android:layout_height="128dp"
-                    android:layout_marginTop="16dp"
-                    android:background="#FF020617" />
-
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:background="?attr/colorSurfaceVariant"
                     android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:paddingStart="12dp"
-                    android:paddingTop="10dp"
-                    android:paddingEnd="12dp"
-                    android:paddingBottom="10dp">
-
-                    <ImageView
-                        android:layout_width="18dp"
-                        android:layout_height="18dp"
-                        android:contentDescription="@string/listen_signal_label"
-                        android:src="@android:drawable/ic_lock_silent_mode_off"
-                        android:tint="?attr/colorPrimary" />
+                    android:orientation="horizontal">
 
                     <TextView
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
                         android:layout_weight="1"
-                        android:text="@string/listen_signal_label"
+                        android:text="@string/listen_section_visualizer"
+                        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
                         android:textColor="?attr/colorOnSurface"
-                        android:textSize="13sp" />
+                        android:textStyle="bold" />
 
                     <TextView
                         android:id="@+id/signalLevelText"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="@string/audio_monitor_placeholder_dash"
-                        android:textColor="?attr/colorOnSurface"
+                        android:background="@drawable/bg_listen_signal_chip"
+                        android:paddingStart="12dp"
+                        android:paddingTop="7dp"
+                        android:paddingEnd="12dp"
+                        android:paddingBottom="7dp"
+                        android:text="@string/listen_signal_no_data"
+                        android:textColor="@color/emerald_primary"
                         android:textSize="13sp"
                         android:textStyle="bold" />
 
                 </LinearLayout>
+
+                <ru.example.childwatch.ui.AdvancedAudioVisualizer
+                    android:id="@+id/advancedAudioVisualizer"
+                    android:layout_width="match_parent"
+                    android:layout_height="144dp"
+                    android:layout_marginTop="14dp"
+                    android:background="#FF020617" />
 
             </LinearLayout>
 
@@ -758,19 +721,11 @@
                     android:textColor="?attr/colorOnSurface"
                     android:textStyle="bold" />
 
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="2dp"
-                    android:text="@string/listen_section_diagnostics_hint"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:textSize="13sp" />
-
                 <com.google.android.material.button.MaterialButtonToggleGroup
                     android:id="@+id/hudModeGroup"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
+                    android:layout_marginTop="12dp"
                     app:selectionRequired="true"
                     app:singleSelection="true">
 
@@ -780,9 +735,9 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:minHeight="48dp"
+                        android:minHeight="46dp"
                         android:text="@string/listen_hud_compact"
-                        android:textSize="14sp"
+                        android:textSize="13sp"
                         android:textStyle="bold" />
 
                     <com.google.android.material.button.MaterialButton
@@ -791,9 +746,9 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:minHeight="48dp"
+                        android:minHeight="46dp"
                         android:text="@string/listen_hud_expanded"
-                        android:textSize="14sp"
+                        android:textSize="13sp"
                         android:textStyle="bold" />
 
                 </com.google.android.material.button.MaterialButtonToggleGroup>
@@ -802,168 +757,117 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
-                    android:orientation="vertical">
+                    android:orientation="horizontal"
+                    android:weightSum="3">
 
-                    <LinearLayout
-                        android:layout_width="match_parent"
+                    <com.google.android.material.card.MaterialCardView
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:weightSum="2">
+                        android:layout_marginEnd="6dp"
+                        android:layout_weight="1"
+                        app:cardBackgroundColor="?attr/colorSurfaceVariant"
+                        app:cardCornerRadius="18dp"
+                        app:cardElevation="0dp">
 
-                        <com.google.android.material.card.MaterialCardView
-                            android:layout_width="0dp"
+                        <LinearLayout
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginEnd="8dp"
-                            android:layout_weight="1"
-                            app:cardBackgroundColor="?attr/colorSurfaceVariant"
-                            app:cardCornerRadius="18dp"
-                            app:cardElevation="0dp">
+                            android:orientation="vertical"
+                            android:padding="12dp">
 
-                            <LinearLayout
+                            <TextView
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:orientation="vertical"
-                                android:padding="14dp">
+                                android:text="@string/listen_diag_latency"
+                                android:textColor="?attr/colorOnSurfaceVariant"
+                                android:textSize="11sp" />
 
-                                <TextView
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:text="@string/listen_diag_connection"
-                                    android:textColor="?attr/colorOnSurfaceVariant"
-                                    android:textSize="12sp" />
-
-                                <TextView
-                                    android:id="@+id/diagConnectionValue"
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:layout_marginTop="6dp"
-                                    android:text="@string/listen_diag_no_data"
-                                    android:textColor="?attr/colorOnSurface"
-                                    android:textSize="16sp"
-                                    android:textStyle="bold" />
-
-                            </LinearLayout>
-
-                        </com.google.android.material.card.MaterialCardView>
-
-                        <com.google.android.material.card.MaterialCardView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:layout_weight="1"
-                            app:cardBackgroundColor="?attr/colorSurfaceVariant"
-                            app:cardCornerRadius="18dp"
-                            app:cardElevation="0dp">
-
-                            <LinearLayout
+                            <TextView
+                                android:id="@+id/diagLatencyValue"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:orientation="vertical"
-                                android:padding="14dp">
+                                android:layout_marginTop="6dp"
+                                android:text="@string/listen_diag_no_data"
+                                android:textColor="?attr/colorOnSurface"
+                                android:textSize="15sp"
+                                android:textStyle="bold" />
 
-                                <TextView
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:text="@string/listen_diag_latency"
-                                    android:textColor="?attr/colorOnSurfaceVariant"
-                                    android:textSize="12sp" />
+                        </LinearLayout>
 
-                                <TextView
-                                    android:id="@+id/diagLatencyValue"
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:layout_marginTop="6dp"
-                                    android:text="@string/listen_diag_no_data"
-                                    android:textColor="?attr/colorOnSurface"
-                                    android:textSize="16sp"
-                                    android:textStyle="bold" />
+                    </com.google.android.material.card.MaterialCardView>
 
-                            </LinearLayout>
-
-                        </com.google.android.material.card.MaterialCardView>
-
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
+                    <com.google.android.material.card.MaterialCardView
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp"
-                        android:orientation="horizontal"
-                        android:weightSum="2">
+                        android:layout_marginStart="3dp"
+                        android:layout_marginEnd="3dp"
+                        android:layout_weight="1"
+                        app:cardBackgroundColor="?attr/colorSurfaceVariant"
+                        app:cardCornerRadius="18dp"
+                        app:cardElevation="0dp">
 
-                        <com.google.android.material.card.MaterialCardView
-                            android:layout_width="0dp"
+                        <LinearLayout
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginEnd="8dp"
-                            android:layout_weight="1"
-                            app:cardBackgroundColor="?attr/colorSurfaceVariant"
-                            app:cardCornerRadius="18dp"
-                            app:cardElevation="0dp">
+                            android:orientation="vertical"
+                            android:padding="12dp">
 
-                            <LinearLayout
+                            <TextView
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:orientation="vertical"
-                                android:padding="14dp">
+                                android:text="@string/listen_diag_stream"
+                                android:textColor="?attr/colorOnSurfaceVariant"
+                                android:textSize="11sp" />
 
-                                <TextView
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:text="@string/listen_diag_stream"
-                                    android:textColor="?attr/colorOnSurfaceVariant"
-                                    android:textSize="12sp" />
-
-                                <TextView
-                                    android:id="@+id/diagStreamValue"
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:layout_marginTop="6dp"
-                                    android:text="@string/listen_diag_no_data"
-                                    android:textColor="?attr/colorOnSurface"
-                                    android:textSize="16sp"
-                                    android:textStyle="bold" />
-
-                            </LinearLayout>
-
-                        </com.google.android.material.card.MaterialCardView>
-
-                        <com.google.android.material.card.MaterialCardView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_marginStart="8dp"
-                            android:layout_weight="1"
-                            app:cardBackgroundColor="?attr/colorSurfaceVariant"
-                            app:cardCornerRadius="18dp"
-                            app:cardElevation="0dp">
-
-                            <LinearLayout
+                            <TextView
+                                android:id="@+id/diagStreamValue"
                                 android:layout_width="match_parent"
                                 android:layout_height="wrap_content"
-                                android:orientation="vertical"
-                                android:padding="14dp">
+                                android:layout_marginTop="6dp"
+                                android:text="@string/listen_diag_no_data"
+                                android:textColor="?attr/colorOnSurface"
+                                android:textSize="15sp"
+                                android:textStyle="bold" />
 
-                                <TextView
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:text="@string/listen_diag_status"
-                                    android:textColor="?attr/colorOnSurfaceVariant"
-                                    android:textSize="12sp" />
+                        </LinearLayout>
 
-                                <TextView
-                                    android:id="@+id/diagFreshnessValue"
-                                    android:layout_width="match_parent"
-                                    android:layout_height="wrap_content"
-                                    android:layout_marginTop="6dp"
-                                    android:text="@string/listen_diag_no_data"
-                                    android:textColor="?attr/colorOnSurface"
-                                    android:textSize="16sp"
-                                    android:textStyle="bold" />
+                    </com.google.android.material.card.MaterialCardView>
 
-                            </LinearLayout>
+                    <com.google.android.material.card.MaterialCardView
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:layout_weight="1"
+                        app:cardBackgroundColor="?attr/colorSurfaceVariant"
+                        app:cardCornerRadius="18dp"
+                        app:cardElevation="0dp">
 
-                        </com.google.android.material.card.MaterialCardView>
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="vertical"
+                            android:padding="12dp">
 
-                    </LinearLayout>
+                            <TextView
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:text="@string/listen_diag_status"
+                                android:textColor="?attr/colorOnSurfaceVariant"
+                                android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/diagFreshnessValue"
+                                android:layout_width="match_parent"
+                                android:layout_height="wrap_content"
+                                android:layout_marginTop="6dp"
+                                android:text="@string/listen_diag_no_data"
+                                android:textColor="?attr/colorOnSurface"
+                                android:textSize="15sp"
+                                android:textStyle="bold" />
+
+                        </LinearLayout>
+
+                    </com.google.android.material.card.MaterialCardView>
 
                 </LinearLayout>
 
@@ -1147,15 +1051,6 @@
             </LinearLayout>
 
         </com.google.android.material.card.MaterialCardView>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:gravity="center"
-                    android:text="@string/listen_info_text"
-            android:textColor="?attr/colorOnSurfaceVariant"
-            android:textSize="12sp" />
 
     </LinearLayout>
 

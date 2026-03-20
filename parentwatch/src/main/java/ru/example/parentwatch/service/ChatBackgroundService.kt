@@ -41,6 +41,8 @@ class ChatBackgroundService : LifecycleService() {
         private const val CHANNEL_ID = "chat_background_service"
         private const val PREFS_NAME = "parentwatch_prefs"
         private const val PREF_CHAT_DESIRED = "chat_service_desired"
+        private const val CONNECTION_HEALTH_INTERVAL_HEALTHY_MS = 45_000L
+        private const val CONNECTION_HEALTH_INTERVAL_DEGRADED_MS = 15_000L
 
         const val ACTION_START_SERVICE = "ru.example.parentwatch.START_CHAT_SERVICE"
         const val ACTION_STOP_SERVICE = "ru.example.parentwatch.STOP_CHAT_SERVICE"
@@ -153,6 +155,27 @@ class ChatBackgroundService : LifecycleService() {
                 Log.d(TAG, "Received stop_audio_stream, delegating stop to LocationService")
                 runCatching { LocationService.requestAudioStop(this) }
                 AudioStreamingService.stopStreaming(this)
+            }
+            "take_photo" -> {
+                val url = lastServerUrl
+                val id = lastDeviceId
+                if (!url.isNullOrBlank() && !id.isNullOrBlank()) {
+                    val cameraFacing = data?.optString("camera", "front").orEmpty().ifBlank { "front" }
+                    val requestId = data?.optString("requestId", "").orEmpty()
+                        .ifBlank { "legacy-photo-${System.currentTimeMillis()}" }
+                    val targetDevice = data?.optString("targetDevice", "").orEmpty().ifBlank { id }
+                    Log.d(TAG, "Dispatching legacy take_photo via on-demand PhotoCaptureService")
+                    PhotoCaptureService.dispatchPhotoRequest(
+                        this,
+                        url,
+                        id,
+                        requestId,
+                        targetDevice,
+                        cameraFacing
+                    )
+                } else {
+                    Log.w(TAG, "Ignoring take_photo: missing server/device context")
+                }
             }
         }
     }
@@ -335,7 +358,7 @@ class ChatBackgroundService : LifecycleService() {
                         }
 
                         WebSocketManager.setPhotoRequestCallback { requestId, targetDevice, cameraFacing ->
-                            Log.d(TAG, "рџ“ё Photo request received (req=$requestId, target=$targetDevice)")
+                            Log.d(TAG, "Photo request received (req=$requestId, target=$targetDevice)")
                             PhotoCaptureService.dispatchPhotoRequest(
                                 this@ChatBackgroundService,
                                 serverUrl,
@@ -361,23 +384,22 @@ class ChatBackgroundService : LifecycleService() {
                                         bearing = bearing
                                     )
                                     database.parentLocationDao().insertLocation(location)
-                                    Log.d(TAG, "вњ… Parent location saved to DB: $lat, $lon")
+                                    Log.d(TAG, "Parent location saved to DB: $lat, $lon")
                                 } catch (e: Exception) {
-                                    Log.e(TAG, "вќЊ Error saving parent location to DB", e)
+                                    Log.e(TAG, "Error saving parent location to DB", e)
                                 }
                             }
                         }
 
                         WebSocketManager.connect(
                             onConnected = {
-                                Log.d(TAG, "вњ… WebSocket connected successfully on attempt $attempt")
+                                Log.d(TAG, "WebSocket connected successfully on attempt $attempt")
                                 updateNotification(getString(R.string.chat_service_active))
                                 try { WebSocketManager.getClient()?.startHeartbeat() } catch (_: Exception) {}
-                                ensurePhotoCaptureService(serverUrl, deviceId)
                                 connected = true
                             },
                             onError = { error ->
-                                Log.e(TAG, "вќЊ WebSocket connection error on attempt $attempt: $error")
+                                Log.e(TAG, "WebSocket connection error on attempt $attempt: $error")
                                 if (attempt >= maxAttempts) {
                                     updateNotification(getString(R.string.chat_service_error))
                                 }
@@ -388,7 +410,7 @@ class ChatBackgroundService : LifecycleService() {
 
                         if (WebSocketManager.isConnected()) {
                             connected = true
-                            Log.d(TAG, "вњ… WebSocket connection verified on attempt $attempt")
+                            Log.d(TAG, "WebSocket connection verified on attempt $attempt")
                         }
 
                     } catch (e: Exception) {
@@ -403,7 +425,7 @@ class ChatBackgroundService : LifecycleService() {
             }
 
             if (!connected) {
-                Log.e(TAG, "вќЊ Failed to connect WebSocket after $maxAttempts attempts")
+                Log.e(TAG, "Failed to connect WebSocket after $maxAttempts attempts")
                 updateNotification(getString(R.string.chat_service_unavailable))
             }
         }
@@ -441,7 +463,7 @@ class ChatBackgroundService : LifecycleService() {
     private fun handleIncomingMessage(messageId: String, text: String, sender: String, timestamp: Long) {
         Log.d(TAG, "Received message: $text from $sender")
 
-        // РЎРѕС…СЂР°РЅСЏРµРј СЃРѕРѕР±С‰РµРЅРёРµ РІ Р‘Р” РІ Р»СЋР±РѕРј СЃР»СѓС‡Р°Рµ (РґР°Р¶Рµ РµСЃР»Рё UI Р°РєС‚РёРІРµРЅ)
+        // Persist incoming message even when the chat UI is open
         val message = ChatMessage(
             id = messageId,
             text = text,
@@ -460,20 +482,19 @@ class ChatBackgroundService : LifecycleService() {
             Log.e(TAG, "ChatManagerAdapter not initialized, message not saved")
         }
 
-        // РћС‚РїСЂР°РІР»СЏРµРј РїРѕРґС‚РІРµСЂР¶РґРµРЅРёРµ Рѕ РґРѕСЃС‚Р°РІРєРµ РІ Р»СЋР±РѕРј СЃР»СѓС‡Р°Рµ
+        // Always acknowledge delivery for parent-originated messages
         if (sender == "parent" && messageId.isNotEmpty()) {
             WebSocketManager.sendChatStatus(messageId, "delivered", "child")
             Log.d(TAG, "Sent delivered status for message: $messageId")
         }
 
-        // РџСЂРѕРІРµСЂСЏРµРј Р°РєС‚РёРІРµРЅ Р»Рё UI С‡Р°С‚Р° - РµСЃР»Рё РґР°, С‚Рѕ РїРѕРєР°Р·С‹РІР°РµРј СѓРІРµРґРѕРјР»РµРЅРёРµ
-        // Service РќР• РґРѕР»Р¶РµРЅ РїРѕРєР°Р·С‹РІР°С‚СЊ СѓРІРµРґРѕРјР»РµРЅРёРµ РµСЃР»Рё UI Р°РєС‚РёРІРµРЅ
+        // Skip notifications while the chat screen is already visible
         if (ru.example.parentwatch.ChatActivity.isChatUiVisible) {
             Log.d(TAG, "Chat UI is visible, skipping notification")
             return
         }
 
-        // РџРѕРєР°Р·С‹РІР°РµРј СѓРІРµРґРѕРјР»РµРЅРёРµ С‚РѕР»СЊРєРѕ РµСЃР»Рё С‡Р°С‚ Р·Р°РєСЂС‹С‚
+        // Show notifications only when the chat is not open
         if (shouldShowIncomingChatNotification(sender)) {
             val senderName = if (sender == "parent") "Parent" else "Child"
             ru.example.parentwatch.utils.NotificationManager.showChatNotification(
@@ -592,22 +613,6 @@ class ChatBackgroundService : LifecycleService() {
         notificationManager.notify(NOTIFICATION_ID, createNotification(contentText))
     }
 
-    private fun ensurePhotoCaptureService(serverUrl: String, deviceId: String) {
-        try {
-            val prefs = getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
-            val enabled = prefs.getBoolean("allow_remote_photo", true)
-            if (!enabled) {
-                Log.d(TAG, "Remote photo disabled (allow_remote_photo=false)")
-                return
-            }
-            // РџСЂРѕСЃС‚РѕР№ РїСЂРёР·РЅР°Рє: Р·Р°РїСѓС‰РµРЅР° Р»Рё РЅРѕС‚РёС„РёРєР°С†РёСЏ СЃРµСЂРІРёСЃР° (РјРѕР¶РЅРѕ РѕС‚СЃР»РµР¶РёРІР°С‚СЊ РіР»РѕР±Р°Р»СЊРЅС‹Р№ static РІ PhotoCaptureService РїСЂРё СЂР°СЃС€РёСЂРµРЅРёРё)
-            PhotoCaptureService.start(this, serverUrl, deviceId)
-            Log.d(TAG, "PhotoCaptureService ensure start invoked")
-        } catch (e: Exception) {
-            Log.e(TAG, "Failed to start PhotoCaptureService", e)
-        }
-    }
-
     override fun onBind(intent: Intent): IBinder? {
         super.onBind(intent)
         return null
@@ -629,10 +634,8 @@ class ChatBackgroundService : LifecycleService() {
         connectionHealthJob?.cancel()
         connectionHealthJob = lifecycleScope.launch {
             while (isActive) {
-                delay(15_000L)
+                delay(resolveConnectionHealthInterval())
                 if (!isChatDesired() || stopRequested) continue
-
-                ensurePhotoCaptureService(serverUrl, deviceId)
 
                 val degraded = !WebSocketManager.isConnected() || !WebSocketManager.isReady()
                 if (degraded && !reconnectInProgress) {
@@ -640,6 +643,14 @@ class ChatBackgroundService : LifecycleService() {
                     startForegroundService(serverUrl, deviceId)
                 }
             }
+        }
+    }
+
+    private fun resolveConnectionHealthInterval(): Long {
+        return if (WebSocketManager.isConnected() && WebSocketManager.isReady()) {
+            CONNECTION_HEALTH_INTERVAL_HEALTHY_MS
+        } else {
+            CONNECTION_HEALTH_INTERVAL_DEGRADED_MS
         }
     }
 
