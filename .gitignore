@@ -120,3 +120,12 @@ Thumbs.db
 
 .vs/
 nul
+
+# Local Android Studio / Codex state
+.android/
+.android-user/
+.codex-logs/
+backup-childwatch/
+.idea/
+.idea/deploymentTargetSelector.xml
+.idea/kotlinc.xml
