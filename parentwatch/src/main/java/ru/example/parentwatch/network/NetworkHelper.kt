@@ -11,6 +11,7 @@ import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
+import ru.example.parentwatch.session.ChildEffectiveContextResolver
 import java.io.File
 import java.util.concurrent.TimeUnit
 
@@ -25,6 +26,7 @@ class NetworkHelper(private val context: Context) {
     }
 
     private val prefs = context.getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
+    private val effectiveContextResolver = ChildEffectiveContextResolver(context)
     private val refreshLock = Any()
     @Volatile private var isRefreshingToken = false
 
@@ -33,7 +35,7 @@ class NetworkHelper(private val context: Context) {
         .readTimeout(30, TimeUnit.SECONDS)
         .writeTimeout(30, TimeUnit.SECONDS)
         .addInterceptor(HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = HttpLoggingInterceptor.Level.BASIC
         })
         .build()
 
@@ -43,7 +45,7 @@ class NetworkHelper(private val context: Context) {
         .writeTimeout(30, TimeUnit.SECONDS)
         .addInterceptor(AuthInterceptor())
         .addInterceptor(HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = HttpLoggingInterceptor.Level.BASIC
         })
         .build()
 
@@ -53,12 +55,13 @@ class NetworkHelper(private val context: Context) {
     suspend fun registerDevice(serverUrl: String, deviceId: String): Boolean = withContext(Dispatchers.IO) {
         try {
             val url = "${serverUrl.trimEnd('/')}/api/auth/register"
+            val versionName = sanitizeVersionName(BuildConfig.VERSION_NAME)
 
             val jsonData = JSONObject().apply {
                 put("deviceId", deviceId)
                 put("deviceName", android.os.Build.MODEL)
                 put("deviceType", "android")
-                put("appVersion", BuildConfig.VERSION_NAME)
+                put("appVersion", versionName)
             }
 
             val requestBody = jsonData.toString()
@@ -422,8 +425,9 @@ class NetworkHelper(private val context: Context) {
     }
 
     private fun resolveDeviceId(): String? {
-        return prefs.getString("device_id", null)
+        return effectiveContextResolver.resolveChildDeviceId().takeIf { it.isNotBlank() }
             ?: prefs.getString("child_device_id", null)
+            ?: prefs.getString("device_id", null)
     }
 
     private fun extractServerUrl(url: String): String? {
@@ -499,11 +503,12 @@ class NetworkHelper(private val context: Context) {
     private fun registerDeviceBlocking(serverUrl: String, deviceId: String): String? {
         try {
             val url = "${serverUrl.trimEnd('/')}/api/auth/register"
+            val versionName = sanitizeVersionName(BuildConfig.VERSION_NAME)
             val jsonData = JSONObject().apply {
                 put("deviceId", deviceId)
                 put("deviceName", android.os.Build.MODEL)
                 put("deviceType", "android")
-                put("appVersion", BuildConfig.VERSION_NAME)
+                put("appVersion", versionName)
             }
             val requestBody = jsonData.toString()
                 .toRequestBody("application/json; charset=utf-8".toMediaType())
@@ -531,6 +536,11 @@ class NetworkHelper(private val context: Context) {
             Log.e(TAG, "Re-register error", e)
         }
         return null
+    }
+
+    private fun sanitizeVersionName(versionName: String): String {
+        val match = Regex("""\d+\.\d+\.\d+(?:\.\d+)?""").find(versionName)
+        return match?.value ?: versionName
     }
 
     /**

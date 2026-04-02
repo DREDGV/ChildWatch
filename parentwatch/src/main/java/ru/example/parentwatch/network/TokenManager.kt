@@ -258,8 +258,20 @@ class TokenManager(private val context: Context) {
             .remove(KEY_REFRESH_TOKEN)
             .remove(KEY_TOKEN_EXPIRY)
             .apply()
-        
+
         Log.d(TAG, "All tokens cleared")
+    }
+
+    fun setDeviceId(deviceId: String?) {
+        prefs.edit().apply {
+            if (deviceId.isNullOrBlank()) {
+                remove(KEY_DEVICE_ID)
+            } else {
+                putString(KEY_DEVICE_ID, deviceId.trim())
+            }
+        }.apply()
+
+        Log.d(TAG, "TokenManager device ID ${if (deviceId.isNullOrBlank()) "cleared" else "set to ${deviceId.trim()}"}")
     }
     
     /**

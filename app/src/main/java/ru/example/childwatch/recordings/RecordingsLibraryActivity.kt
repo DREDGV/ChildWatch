@@ -21,6 +21,7 @@ import ru.example.childwatch.audio.RecordingMetadata
 import ru.example.childwatch.audio.RecordingRepository
 import ru.example.childwatch.databinding.ActivityRecordingsLibraryBinding
 import ru.example.childwatch.network.NetworkClient
+import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.utils.SecureSettingsManager
 import java.io.File
 import java.io.InputStream
@@ -35,6 +36,7 @@ class RecordingsLibraryActivity : AppCompatActivity() {
     private lateinit var repository: RecordingRepository
     private lateinit var networkClient: NetworkClient
     private lateinit var secureSettings: SecureSettingsManager
+    private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
     private val recordingsAdapter by lazy {
         RecordingsAdapter(
             onPlayClicked = ::handlePlayClicked,
@@ -74,6 +76,7 @@ class RecordingsLibraryActivity : AppCompatActivity() {
         repository = RecordingRepository(this)
         networkClient = NetworkClient(this)
         secureSettings = SecureSettingsManager(this)
+        effectiveContextResolver = ParentEffectiveContextResolver(this)
 
         binding.recordingsRecyclerView.apply {
             layoutManager = LinearLayoutManager(this@RecordingsLibraryActivity)
@@ -148,7 +151,9 @@ class RecordingsLibraryActivity : AppCompatActivity() {
     }
 
     private suspend fun fetchRemoteRecordings(): List<RecordingMetadata> {
-        val serverUrl = secureSettings.getServerUrl().trim()
+        val serverUrl = effectiveContextResolver.resolveServerUrl().ifBlank {
+            secureSettings.getServerUrl().trim()
+        }
         val deviceId = resolveOwnDeviceId()
         if (serverUrl.isBlank() || deviceId.isBlank()) {
             return emptyList()
@@ -185,10 +190,9 @@ class RecordingsLibraryActivity : AppCompatActivity() {
     }
 
     private fun resolveOwnDeviceId(): String {
-        val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         val candidates = listOf(
-            secureSettings.getDeviceId(),
-            prefs.getString("device_id", null)
+            effectiveContextResolver.resolveOwnParentId(),
+            secureSettings.getDeviceId()
         )
         return candidates.firstOrNull { !it.isNullOrBlank() }?.trim().orEmpty()
     }

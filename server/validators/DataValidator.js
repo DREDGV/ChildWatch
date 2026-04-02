@@ -47,8 +47,8 @@ class DataValidator {
         
         if (!data.appVersion || typeof data.appVersion !== 'string') {
             errors.push('App version is required and must be a string');
-        } else if (!/^\d+\.\d+\.\d+$/.test(data.appVersion)) {
-            errors.push('App version must be in format x.y.z');
+        } else if (!/^\d+\.\d+\.\d+(?:\.\d+)?(?:[-/][A-Za-z0-9._]+)?$/.test(data.appVersion)) {
+            errors.push('App version must be in format x.y.z or x.y.z.build');
         }
         
         if (data.timestamp && typeof data.timestamp !== 'number') {
@@ -229,7 +229,7 @@ class DataValidator {
         }
 
         // Accept semantic versions with optional pre-release/build suffixes (e.g., 5.2.0 or 5.2.0-debug)
-        return /^\d+\.\d+\.\d+([-/][A-Za-z0-9._]+)?$/.test(version);
+        return /^\d+\.\d+\.\d+(?:\.\d+)?(?:[-/][A-Za-z0-9._]+)?$/.test(version);
     }
     
     /**

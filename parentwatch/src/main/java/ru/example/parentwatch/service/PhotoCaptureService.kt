@@ -4,20 +4,23 @@ import android.app.*
 import android.Manifest
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
 import android.os.IBinder
 import android.util.Log
-import androidx.core.content.ContextCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.app.ServiceCompat
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import ru.example.parentwatch.MainActivity
 import ru.example.parentwatch.R
 import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.network.WebSocketManager
+import ru.example.parentwatch.session.ChildEffectiveContextResolver
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.ArrayDeque
@@ -92,6 +95,7 @@ class PhotoCaptureService : Service() {
     private var networkClient: NetworkClient? = null
     private var serverUrl: String? = null
     private var deviceId: String? = null
+    private lateinit var effectiveContextResolver: ChildEffectiveContextResolver
     private var listenersRegistered = false
     private val requestLock = Any()
     private val activePhotoRequests = mutableSetOf<String>()
@@ -115,17 +119,35 @@ class PhotoCaptureService : Service() {
         Log.d(TAG, "PhotoCaptureService created")
 
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification())
+        val notification = createNotification()
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            ServiceCompat.startForeground(
+                this,
+                NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            )
+        } else {
+            startForeground(NOTIFICATION_ID, notification)
+        }
 
         cameraService = CameraService(this)
         cameraService?.initialize()
 
         networkClient = NetworkClient(this)
+        effectiveContextResolver = ChildEffectiveContextResolver(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val effectiveContext = effectiveContextResolver.resolveEffectiveContext()
         serverUrl = intent?.getStringExtra(EXTRA_SERVER_URL)
+            ?.takeIf { it.isNotBlank() }
+            ?: effectiveContext?.serverUrl?.takeIf { it.isNotBlank() }
+            ?: serverUrl
         deviceId = intent?.getStringExtra(EXTRA_DEVICE_ID)
+            ?.takeIf { it.isNotBlank() }
+            ?: effectiveContext?.ownChildDeviceId?.takeIf { it.isNotBlank() }
+            ?: deviceId
 
         if (serverUrl != null && deviceId != null) {
             setupWebSocketListener()
@@ -183,16 +205,16 @@ class PhotoCaptureService : Service() {
         }
 
         Log.d(TAG, "Taking photo with $facing camera")
-        AudioStreamingService.pauseCaptureForPhoto(this)
+        pauseAudioForPhoto()
         updateNotification(R.string.photo_capture_capturing)
         service.capturePhoto(facing) { photoFile ->
             if (photoFile != null) {
                 Log.d(TAG, "Photo captured: ${photoFile.absolutePath}")
-                AudioStreamingService.resumeIfDesired(this)
+                resumeAudioAfterPhoto()
                 uploadPhoto(photoFile)
             } else {
                 Log.e(TAG, "Photo capture failed")
-                AudioStreamingService.resumeIfDesired(this)
+                resumeAudioAfterPhoto()
                 updateNotification(R.string.photo_capture_capture_error)
             }
         }
@@ -239,7 +261,7 @@ class PhotoCaptureService : Service() {
         }
 
         updateNotification(R.string.photo_capture_request_capturing)
-        AudioStreamingService.pauseCaptureForPhoto(this)
+        pauseAudioForPhoto()
 
         service.capturePhoto(requestedFacing) { photoFile ->
             if (photoFile != null) {
@@ -247,7 +269,7 @@ class PhotoCaptureService : Service() {
                 sendPhotoViaWebSocket(photoFile, requestId)
             } else {
                 Log.e(TAG, "Photo capture failed for request: $requestId")
-                AudioStreamingService.resumeIfDesired(this)
+                resumeAudioAfterPhoto()
                 completePhotoRequestAfterError(requestId, "Failed to capture photo")
                 updateNotification(R.string.photo_capture_capture_error)
             }
@@ -364,7 +386,7 @@ class PhotoCaptureService : Service() {
                 delay(2000)
                 updateNotification(R.string.photo_capture_ready)
                 finishPhotoRequest(requestId)
-                AudioStreamingService.resumeIfDesired(this@PhotoCaptureService)
+                resumeAudioAfterPhoto()
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending photo via WebSocket", e)
@@ -377,7 +399,7 @@ class PhotoCaptureService : Service() {
                 } else {
                     abandonPhotoRequest(requestId)
                 }
-                AudioStreamingService.resumeIfDesired(this@PhotoCaptureService)
+                resumeAudioAfterPhoto()
             }
         }
     }
@@ -513,6 +535,16 @@ class PhotoCaptureService : Service() {
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    private fun pauseAudioForPhoto() {
+        LocationService.pauseAudioCaptureForPhoto(this)
+        AudioStreamingService.pauseCaptureForPhoto(this)
+    }
+
+    private fun resumeAudioAfterPhoto() {
+        LocationService.resumeAudioCaptureAfterPhoto(this)
+        AudioStreamingService.resumeIfDesired(this)
+    }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {

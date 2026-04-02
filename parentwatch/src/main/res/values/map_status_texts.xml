@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="map_distance_meters_clean">%1$d м</string>
+    <string name="map_distance_km_clean">%1$.1f км</string>
+    <string name="map_eta_stationary_parent">Родитель на месте</string>
+    <string name="map_eta_stationary_child">Ребенок на месте</string>
+    <string name="map_eta_stationary_other">Устройство на месте</string>
+    <string name="map_eta_unknown_clean">Неизвестно</string>
+    <string name="map_eta_under_minute_clean">Меньше минуты</string>
+    <string name="map_eta_minutes_clean">%1$d мин</string>
+    <string name="map_eta_hours_minutes_clean">%1$d ч %2$d мин</string>
+</resources>

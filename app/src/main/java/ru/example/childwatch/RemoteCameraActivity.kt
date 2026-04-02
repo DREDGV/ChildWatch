@@ -31,6 +31,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import ru.example.childwatch.profile.ParentEffectiveContextResolver
+import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.service.AudioPlaybackService
 
 /**
@@ -47,6 +49,7 @@ class RemoteCameraActivity : AppCompatActivity() {
         private const val TAG = "RemoteCameraActivity"
         const val EXTRA_CHILD_ID = "childId"
         const val EXTRA_CHILD_NAME = "childName"
+        private const val PHOTO_RESPONSE_TIMEOUT_MS = 30_000L
     }
 
     private lateinit var toolbar: MaterialToolbar
@@ -70,18 +73,24 @@ class RemoteCameraActivity : AppCompatActivity() {
     private var photoReceivedListener: ((String, String, Long) -> Unit)? = null
     private var photoErrorListener: ((String, String) -> Unit)? = null
     private var photoQueuedListener: ((String, String, String, Long) -> Unit)? = null
+    private var photoBusyListener: ((String, String, String, String, Long) -> Unit)? = null
     private var retryJob: Job? = null
     private var responseTimeoutJob: Job? = null
     private var pendingRequestId: String? = null
     private var selectedCameraFacing: String = "back"
     private var resolvedGalleryDeviceId: String? = null
+    private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
+    private lateinit var activeSessionStore: ParentActiveSessionStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_remote_camera)
+        effectiveContextResolver = ParentEffectiveContextResolver(this)
+        activeSessionStore = ParentActiveSessionStore(this)
 
         // Get child device info from intent
-        childId = intent.getStringExtra(EXTRA_CHILD_ID)
+        childId = intent.getStringExtra(EXTRA_CHILD_ID)?.takeIf { it.isNotBlank() }
+            ?: effectiveContextResolver.resolveFocusedChildId().takeIf { it.isNotBlank() }
         childName = intent.getStringExtra(EXTRA_CHILD_NAME)
 
         if (childId == null) {
@@ -89,6 +98,7 @@ class RemoteCameraActivity : AppCompatActivity() {
             finish()
             return
         }
+        activeSessionStore.updateFocusedChildId(childId!!)
 
         initViews()
         setupToolbar()
@@ -183,7 +193,8 @@ class RemoteCameraActivity : AppCompatActivity() {
 
     private fun ensureWebSocketReady(onReady: () -> Unit = {}) {
         val targetId = childId ?: return
-        val serverUrl = SecureSettingsManager(this).getServerUrl().trim()
+        val serverUrl = effectiveContextResolver.resolveServerUrl()
+            .ifBlank { SecureSettingsManager(this).getServerUrl().trim() }
         if (serverUrl.isBlank()) {
             updateStatus(getString(R.string.server_url_missing))
             Toast.makeText(this, getString(R.string.server_url_missing), Toast.LENGTH_SHORT).show()
@@ -264,6 +275,27 @@ class RemoteCameraActivity : AppCompatActivity() {
             }
             WebSocketManager.addPhotoQueuedListener(photoQueuedListener!!)
         }
+
+        if (photoBusyListener == null) {
+            photoBusyListener = photoBusyListener@{ requestId, _, _, ownerDisplayName, _ ->
+                if (pendingRequestId != requestId) return@photoBusyListener
+                clearPendingRequest()
+                runOnUiThread {
+                    val ownerLabel = ownerDisplayName.ifBlank {
+                        getString(R.string.remote_camera_other_parent_fallback)
+                    }
+                    updateStatus(getString(R.string.remote_camera_busy_status, ownerLabel))
+                    AudioPlaybackService.restoreIfNeeded(this@RemoteCameraActivity)
+                    Toast.makeText(
+                        this@RemoteCameraActivity,
+                        getString(R.string.remote_camera_busy_status, ownerLabel),
+                        Toast.LENGTH_LONG
+                    ).show()
+                    enableButtons()
+                }
+            }
+            WebSocketManager.addPhotoBusyListener(photoBusyListener!!)
+        }
     }
 
     private fun sendPhotoRequestWithRetry() {
@@ -278,6 +310,7 @@ class RemoteCameraActivity : AppCompatActivity() {
         )
 
         val delays = listOf(0L, 3000L, 7000L)
+        startResponseTimeout(requestId)
         retryJob?.cancel()
         retryJob = lifecycleScope.launch {
             for ((index, delayMs) in delays.withIndex()) {
@@ -298,25 +331,13 @@ class RemoteCameraActivity : AppCompatActivity() {
                     }
                 )
             }
-            if (pendingRequestId != null) {
-                clearPendingRequest()
-                runOnUiThread {
-                    updateStatus(getString(R.string.remote_camera_request_timeout))
-                    Toast.makeText(
-                        this@RemoteCameraActivity,
-                        getString(R.string.remote_camera_no_response),
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    enableButtons()
-                }
-            }
         }
     }
 
     private fun startResponseTimeout(requestId: String) {
         responseTimeoutJob?.cancel()
         responseTimeoutJob = lifecycleScope.launch {
-            delay(20000L)
+            delay(PHOTO_RESPONSE_TIMEOUT_MS)
             if (pendingRequestId != requestId) return@launch
             clearPendingRequest()
             runOnUiThread {
@@ -518,21 +539,10 @@ class RemoteCameraActivity : AppCompatActivity() {
     }
 
     private fun resolveGalleryDeviceIds(): List<String> {
-        val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-        val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-        val secureSettings = SecureSettingsManager(this)
-
-        return buildList {
-            resolvedGalleryDeviceId?.let(::add)
-            childId?.let(::add)
-            secureSettings.getChildDeviceId()?.let(::add)
-            prefs.getString("child_device_id", null)?.let(::add)
-            prefs.getString("selected_device_id", null)?.let(::add)
-            legacyPrefs.getString("child_device_id", null)?.let(::add)
-            legacyPrefs.getString("selected_device_id", null)?.let(::add)
-        }.map { it.trim() }
-            .filter { it.isNotBlank() }
-            .distinct()
+        return effectiveContextResolver.resolveTargetDeviceCandidates(
+            resolvedGalleryDeviceId,
+            childId
+        )
     }
 
     override fun onDestroy() {
@@ -544,6 +554,8 @@ class RemoteCameraActivity : AppCompatActivity() {
         photoErrorListener = null
         photoQueuedListener?.let { WebSocketManager.removePhotoQueuedListener(it) }
         photoQueuedListener = null
+        photoBusyListener?.let { WebSocketManager.removePhotoBusyListener(it) }
+        photoBusyListener = null
         Log.d(TAG, "RemoteCameraActivity destroyed")
     }
 

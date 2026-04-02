@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.CriticalAlert
+import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.utils.AlertNotifier
 import ru.example.childwatch.utils.SecureSettingsManager
 
@@ -23,14 +24,20 @@ class CriticalAlertWorker(
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
             val secureSettings = SecureSettingsManager(applicationContext)
-            val childDeviceId = secureSettings.getChildDeviceId()
-            val deviceId = childDeviceId ?: secureSettings.getDeviceId()
-            if (deviceId.isNullOrBlank()) {
+            val effectiveContext = ParentEffectiveContextResolver(applicationContext).resolve()
+            val deviceId = effectiveContext.linkedChildDeviceId.ifBlank {
+                secureSettings.getChildDeviceId().orEmpty()
+            }
+            if (deviceId.isBlank()) {
                 Log.w(TAG, "Skipping alert sync: deviceId missing")
                 return@withContext Result.success()
             }
 
-            val serverUrl = secureSettings.getServerUrl()
+            val serverUrl = effectiveContext.serverUrl.ifBlank { secureSettings.getServerUrl().trim() }
+            if (serverUrl.isBlank()) {
+                Log.w(TAG, "Skipping alert sync: serverUrl missing")
+                return@withContext Result.success()
+            }
             val networkClient = NetworkClient(applicationContext)
             val alerts = networkClient.fetchCriticalAlerts(serverUrl, deviceId)
 

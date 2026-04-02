@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="device_usage_open_button">Активность приложений</string>
+    <string name="device_usage_title">Активность устройства</string>
+    <string name="device_usage_loading">Загружаю активность приложений…</string>
+    <string name="device_usage_refresh">Обновить</string>
+    <string name="device_usage_device_id">Ребенок: %1$s</string>
+    <string name="device_usage_current_section">Сейчас открыто</string>
+    <string name="device_usage_recent_section">Недавние приложения</string>
+    <string name="device_usage_history_section">История переключений</string>
+    <string name="device_usage_current_unknown">Нет данных о текущем приложении</string>
+    <string name="device_usage_permission_missing">На ChildDevice не выдан доступ к статистике использования.</string>
+    <string name="device_usage_recent_empty">Недавние приложения пока не поступили.</string>
+    <string name="device_usage_history_empty">История активности пока пуста.</string>
+    <string name="device_usage_status_unavailable">Не удалось загрузить активность приложений.</string>
+    <string name="device_usage_pairing_required">Сначала выберите ребенка для просмотра активности.</string>
+    <string name="device_usage_last_seen">Обновлено: %1$s</string>
+    <string name="device_usage_battery">Батарея: %1$s</string>
+    <string name="device_usage_battery_unknown">Батарея: неизвестно</string>
+    <string name="device_usage_foreground_time">На экране: %1$s</string>
+    <string name="device_usage_last_used">Последний запуск: %1$s</string>
+    <string name="device_usage_history_line">%1$s • %2$s</string>
+    <string name="device_usage_open_error">Не удалось открыть экран активности приложений</string>
+</resources>

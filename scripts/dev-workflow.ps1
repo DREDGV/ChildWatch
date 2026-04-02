@@ -1,340 +1,732 @@
-# 🎯 Скрипт для работы с двумя приложениями одновременно
-# ChildWatch (детское) + ParentWatch (родительское)
-
+[CmdletBinding()]
 param(
-    [Parameter(Mandatory = $false)]
-    [ValidateSet("setup", "start", "build", "deploy", "test", "cleanup")]
-    [string]$Action = "start",
-    
-    [switch]$UseEmulator,
-    [switch]$DualMode
+    [ValidateSet("status", "devices", "studio", "build", "deploy", "watch", "cleanup", "setup", "start", "test")]
+    [string]$Action = "status",
+
+    [ValidateSet("app", "parentwatch", "both")]
+    [string]$Target = "both",
+
+    [string]$AppSerial,
+    [string]$ParentwatchSerial,
+    [switch]$PreferSeparateDevices,
+    [switch]$SkipInitialDeploy,
+    [int]$DebounceMs = 1200
 )
 
-# Цвета для вывода
-$colors = @{
-    Success = "Green"
-    Error   = "Red"
-    Info    = "Cyan"
-    Warning = "Yellow"
-}
+$ErrorActionPreference = "Stop"
+$script:ProjectRoot = (Resolve-Path (Join-Path $PSScriptRoot "..")).Path
+$script:LocalPropertiesPath = Join-Path $script:ProjectRoot "local.properties"
+$script:RootWatchFiles = @("build.gradle", "settings.gradle", "gradle.properties")
+$script:IgnorePathFragments = @(
+    "\.git\",
+    "\.gradle\",
+    "\.idea\",
+    "\.android\",
+    "\.android-user\",
+    "\build\",
+    "\out\"
+)
 
-function Write-ColorOutput {
-    param([string]$Message, [string]$Color = "White")
-    Write-Host $Message -ForegroundColor $Color
-}
-
-# Конфигурация устройств
-$realDevice = "PT19655KA1280800674"  # Nokia G21 - РОДИТЕЛЬ
-$emulatorSerial = "emulator-5554"    # Pixel 8 - РЕБЕНОК
-$emulatorAVD = "Pixel_8_API_35"
-
-# Пути
-$sdkPath = "C:\Users\dr-ed\AppData\Local\Android\Sdk"
-$emulatorExe = "$sdkPath\emulator\emulator.exe"
-$projectRoot = "C:\Users\dr-ed\ChildWatch"
-
-function Test-DeviceConnected {
-    param([string]$Serial)
-    
-    $devices = adb devices | Select-String -Pattern "$Serial\s+device$"
-    return $null -ne $devices
-}
-
-function Start-Emulator {
-    Write-ColorOutput "🚀 Запуск эмулятора $emulatorAVD..." $colors.Info
-    
-    Start-Process -FilePath $emulatorExe -ArgumentList "-avd $emulatorAVD" -WindowStyle Hidden
-    
-    Write-ColorOutput "⏳ Ожидание загрузки эмулятора (это может занять 30-60 секунд)..." $colors.Warning
-    
-    $timeout = 120
-    $elapsed = 0
-    
-    while (-not (Test-DeviceConnected $emulatorSerial) -and $elapsed -lt $timeout) {
-        Start-Sleep -Seconds 5
-        $elapsed += 5
-        Write-Host "." -NoNewline
+$script:Targets = @{
+    app = [pscustomobject]@{
+        Key = "app"
+        Module = "app"
+        DisplayName = "ParentMonitor"
+        PackageName = "ru.example.childwatch"
+        SourceRoot = Join-Path $script:ProjectRoot "app\src"
+        ModuleRoot = Join-Path $script:ProjectRoot "app"
+        ModuleWatchFiles = @("build.gradle", "proguard-rules.pro")
     }
-    
-    Write-Host ""
-    
-    if (Test-DeviceConnected $emulatorSerial) {
-        Write-ColorOutput "✅ Эмулятор запущен и подключен!" $colors.Success
-        
-        # Ждем полной загрузки
-        Start-Sleep -Seconds 10
-        
-        # Оптимизация для разработки
-        Write-ColorOutput "⚙️  Настройка эмулятора для разработки..." $colors.Info
-        adb -s $emulatorSerial shell settings put global window_animation_scale 0 2>$null
-        adb -s $emulatorSerial shell settings put global transition_animation_scale 0 2>$null
-        adb -s $emulatorSerial shell settings put global animator_duration_scale 0 2>$null
-        
-        return $true
-    }
-    else {
-        Write-ColorOutput "❌ Не удалось запустить эмулятор за $timeout секунд" $colors.Error
-        return $false
+    parentwatch = [pscustomobject]@{
+        Key = "parentwatch"
+        Module = "parentwatch"
+        DisplayName = "ChildDevice"
+        PackageName = "ru.example.parentwatch.debug"
+        SourceRoot = Join-Path $script:ProjectRoot "parentwatch\src"
+        ModuleRoot = Join-Path $script:ProjectRoot "parentwatch"
+        ModuleWatchFiles = @("build.gradle", "proguard-rules.pro")
     }
 }
 
-function Start-LivePreview {
-    param([string]$DeviceSerial, [string]$AppName, [int]$WindowX = 0)
-    
-    Write-ColorOutput "🔴 Запуск live preview для $AppName на $DeviceSerial..." $colors.Info
-    
-    $args = @(
-        "--serial", $DeviceSerial,
-        "--max-size", "1024",
-        "--video-bit-rate", "2M",
-        "--window-title", $AppName,
-        "--window-x", $WindowX,
-        "--window-y", "0"
+function Write-Info {
+    param([string]$Message)
+    Write-Host $Message -ForegroundColor Cyan
+}
+
+function Write-Ok {
+    param([string]$Message)
+    Write-Host $Message -ForegroundColor Green
+}
+
+function Write-WarnLine {
+    param([string]$Message)
+    Write-Host $Message -ForegroundColor Yellow
+}
+
+function Write-ErrLine {
+    param([string]$Message)
+    Write-Host $Message -ForegroundColor Red
+}
+
+function Get-SdkDir {
+    if (Test-Path $script:LocalPropertiesPath) {
+        $line = Get-Content $script:LocalPropertiesPath | Where-Object { $_ -like "sdk.dir=*" } | Select-Object -First 1
+        if ($line) {
+            return ($line -replace "^sdk.dir=", "").Replace("\\", "\")
+        }
+    }
+
+    if ($env:ANDROID_HOME) {
+        return $env:ANDROID_HOME
+    }
+
+    if ($env:ANDROID_SDK_ROOT) {
+        return $env:ANDROID_SDK_ROOT
+    }
+
+    return $null
+}
+
+function Resolve-ToolPath {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$CommandName,
+
+        [string[]]$FallbackPaths = @()
     )
-    
-    if ($AppName -like "*Child*") {
-        $args += "--always-on-top"
+
+    $command = Get-Command $CommandName -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
     }
-    
-    Start-Process scrcpy -ArgumentList $args
+
+    foreach ($path in $FallbackPaths) {
+        if ($path -and (Test-Path $path)) {
+            return $path
+        }
+    }
+
+    return $null
 }
 
-function Build-Applications {
-    Write-ColorOutput "🔨 Сборка приложений..." $colors.Info
-    
-    Push-Location $projectRoot
-    
-    try {
-        # Сборка обоих приложений
-        Write-ColorOutput "  📦 Сборка ChildWatch..." $colors.Info
-        .\gradlew.bat :app:assembleDebug --quiet
-        
-        Write-ColorOutput "  📦 Сборка ParentWatch..." $colors.Info
-        .\gradlew.bat :parentwatch:assembleDebug --quiet
-        
-        Write-ColorOutput "✅ Сборка завершена!" $colors.Success
-        return $true
+function Get-AdbPath {
+    $sdkDir = Get-SdkDir
+    $fallbacks = @()
+
+    if ($sdkDir) {
+        $fallbacks += (Join-Path $sdkDir "platform-tools\adb.exe")
     }
-    catch {
-        Write-ColorOutput "❌ Ошибка сборки: $_" $colors.Error
-        return $false
+
+    return Resolve-ToolPath -CommandName "adb" -FallbackPaths $fallbacks
+}
+
+function Get-EmulatorPath {
+    $sdkDir = Get-SdkDir
+    if (-not $sdkDir) {
+        return $null
+    }
+
+    $emulatorPath = Join-Path $sdkDir "emulator\emulator.exe"
+    if (Test-Path $emulatorPath) {
+        return $emulatorPath
+    }
+
+    return $null
+}
+
+function Get-AndroidStudioPath {
+    $candidates = @(
+        "C:\Program Files\Android\Android Studio\bin\studio64.exe",
+        "C:\Users\$env:USERNAME\AppData\Local\Programs\Android Studio\bin\studio64.exe"
+    )
+
+    foreach ($candidate in $candidates) {
+        if (Test-Path $candidate) {
+            return $candidate
+        }
+    }
+
+    return $null
+}
+
+function Get-ConnectedDevices {
+    $adbPath = Get-AdbPath
+    if (-not $adbPath) {
+        throw "adb was not found. Install Android platform-tools or Android Studio."
+    }
+
+    $lines = & $adbPath devices -l
+    if ($LASTEXITCODE -ne 0) {
+        throw "Failed to run adb devices."
+    }
+
+    $devices = @()
+    foreach ($line in $lines) {
+        if ($line -match "^(?<serial>\S+)\s+device\b") {
+            $serial = $matches.serial
+            $isEmulator = $serial -like "emulator-*"
+            $model = ""
+            if ($line -match "model:(?<model>\S+)") {
+                $model = $matches.model
+            }
+
+            $devices += [pscustomobject]@{
+                Serial = $serial
+                IsEmulator = $isEmulator
+                Model = $model
+            }
+        }
+    }
+
+    return $devices
+}
+
+function Get-TargetKeys {
+    param([string]$SelectedTarget)
+
+    switch ($SelectedTarget) {
+        "app" { return @("app") }
+        "parentwatch" { return @("parentwatch") }
+        default { return @("app", "parentwatch") }
+    }
+}
+
+function Resolve-DeviceForTarget {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetKey,
+
+        [Parameter(Mandatory = $true)]
+        [object[]]$Devices,
+
+        [string]$ExplicitSerial,
+        [string]$AlreadyAssignedSerial
+    )
+
+    if ($ExplicitSerial) {
+        $explicit = $Devices | Where-Object { $_.Serial -eq $ExplicitSerial } | Select-Object -First 1
+        if (-not $explicit) {
+            throw "Requested device '$ExplicitSerial' for target '$TargetKey' is not connected."
+        }
+
+        return $explicit
+    }
+
+    $emulators = @($Devices | Where-Object { $_.IsEmulator })
+    $physical = @($Devices | Where-Object { -not $_.IsEmulator })
+
+    if (-not $PreferSeparateDevices) {
+        if ($emulators.Count -gt 0) {
+            return $emulators[0]
+        }
+
+        if ($Devices.Count -gt 0) {
+            return $Devices[0]
+        }
+    }
+
+    $preferred = @($emulators + $physical)
+    if ($AlreadyAssignedSerial) {
+        $otherDevice = $preferred | Where-Object { $_.Serial -ne $AlreadyAssignedSerial } | Select-Object -First 1
+        if ($otherDevice) {
+            return $otherDevice
+        }
+    }
+
+    if ($preferred.Count -gt 0) {
+        return $preferred[0]
+    }
+
+    throw "No connected devices were found."
+}
+
+function Resolve-DeploymentPlan {
+    param([string[]]$TargetKeys)
+
+    $devices = Get-ConnectedDevices
+    if ($devices.Count -eq 0) {
+        throw "No running device or emulator found. Start an emulator in Android Studio Device Manager first."
+    }
+
+    $plan = @{}
+    $appDevice = $null
+
+    foreach ($targetKey in $TargetKeys) {
+        $explicitSerial = switch ($targetKey) {
+            "app" { $AppSerial }
+            "parentwatch" { $ParentwatchSerial }
+            default { $null }
+        }
+
+        $assignedDevice = Resolve-DeviceForTarget `
+            -TargetKey $targetKey `
+            -Devices $devices `
+            -ExplicitSerial $explicitSerial `
+            -AlreadyAssignedSerial $appDevice
+
+        $plan[$targetKey] = $assignedDevice
+
+        if ($targetKey -eq "app") {
+            $appDevice = $assignedDevice.Serial
+        }
+    }
+
+    return $plan
+}
+
+function Invoke-Gradle {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string[]]$Arguments
+    )
+
+    $gradlePath = Join-Path $script:ProjectRoot "gradlew.bat"
+    if (-not (Test-Path $gradlePath)) {
+        throw "gradlew.bat was not found in the project root."
+    }
+
+    Push-Location $script:ProjectRoot
+    try {
+        & $gradlePath @Arguments
+        if ($LASTEXITCODE -ne 0) {
+            throw "Gradle failed with exit code $LASTEXITCODE."
+        }
     }
     finally {
         Pop-Location
     }
 }
 
-function Install-App {
-    param([string]$DeviceSerial, [string]$ApkPath, [string]$PackageName)
-    
-    Write-ColorOutput "📲 Установка на $DeviceSerial..." $colors.Info
-    
-    $apkFile = Get-ChildItem -Path $ApkPath -Filter "*.apk" | Select-Object -First 1
-    
-    if ($null -eq $apkFile) {
-        Write-ColorOutput "❌ APK не найден: $ApkPath" $colors.Error
-        return $false
+function Build-Target {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetKey
+    )
+
+    $target = $script:Targets[$TargetKey]
+    Write-Info "Building $($target.DisplayName) ($($target.Module))..."
+    Invoke-Gradle -Arguments @(":$($target.Module):assembleDebug", "--console=plain")
+}
+
+function Get-LatestApk {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetKey
+    )
+
+    $target = $script:Targets[$TargetKey]
+    $apkDir = Join-Path $script:ProjectRoot "$($target.Module)\build\outputs\apk\debug"
+    if (-not (Test-Path $apkDir)) {
+        throw "APK directory was not found: $apkDir"
     }
-    
-    adb -s $DeviceSerial install -r $apkFile.FullName 2>&1 | Out-Null
-    
-    if ($LASTEXITCODE -eq 0) {
-        Write-ColorOutput "✅ Установлено: $($apkFile.Name)" $colors.Success
-        
-        # Определяем правильный package name для debug версии
-        $debugPackage = if ($PackageName -eq "ru.example.parentwatch") { 
-            "ru.example.parentwatch.debug" 
-        }
-        else { 
-            $PackageName 
-        }
-        
-        # Перезапуск приложения
-        adb -s $DeviceSerial shell am force-stop $debugPackage 2>$null
-        Start-Sleep -Milliseconds 500
-        
-        # Пробуем запустить через monkey, если не получается - через am start
-        $monkeyOutput = adb -s $DeviceSerial shell monkey -p $debugPackage -c android.intent.category.LAUNCHER 1 2>&1
-        if ($monkeyOutput -like "*No activities found*") {
-            # Запускаем явно через MainActivity
-            $activityName = if ($debugPackage -eq "ru.example.parentwatch.debug") {
-                "$debugPackage/ru.example.parentwatch.MainActivity"
-            }
-            else {
-                "$debugPackage/ru.example.childwatch.MainActivity"
-            }
-            adb -s $DeviceSerial shell am start -n $activityName 2>&1 | Out-Null
-        }
-        
-        return $true
+
+    $apk = Get-ChildItem $apkDir -Recurse -Filter *.apk |
+        Sort-Object LastWriteTimeUtc -Descending |
+        Select-Object -First 1
+
+    if (-not $apk) {
+        throw "No debug APK was produced for target '$TargetKey'."
     }
-    else {
-        Write-ColorOutput "❌ Ошибка установки" $colors.Error
-        return $false
+
+    return $apk.FullName
+}
+
+function Install-Apk {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Serial,
+
+        [Parameter(Mandatory = $true)]
+        [string]$ApkPath
+    )
+
+    $adbPath = Get-AdbPath
+    Write-Info "Installing $(Split-Path $ApkPath -Leaf) on $Serial..."
+    & $adbPath -s $Serial install -r $ApkPath
+    if ($LASTEXITCODE -ne 0) {
+        throw "adb install failed for $ApkPath on $Serial."
     }
 }
 
-function Show-DeviceInfo {
-    Write-ColorOutput "`n📱 Подключенные устройства:" $colors.Info
-    
-    $devices = adb devices -l | Select-String -Pattern "device\s+"
-    
-    if ($devices) {
-        $devices | ForEach-Object {
-            $line = $_ -split '\s+'
-            $serial = $line[0]
-            $model = if ($_ -match "model:(\S+)") { $matches[1] } else { "Unknown" }
-            
-            $icon = if ($serial -like "emulator-*") { "🖥️" } else { "📱" }
-            Write-ColorOutput "  $icon $serial - $model" "White"
+function Resolve-LauncherComponent {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Serial,
+
+        [Parameter(Mandatory = $true)]
+        [string]$PackageName
+    )
+
+    $adbPath = Get-AdbPath
+    $output = & $adbPath -s $Serial shell cmd package resolve-activity --brief $PackageName 2>$null
+    foreach ($line in $output) {
+        $trimmed = $line.Trim()
+        if ($trimmed -like "*/*") {
+            return $trimmed
         }
     }
-    else {
-        Write-ColorOutput "  ⚠️  Нет подключенных устройств" $colors.Warning
+
+    return $null
+}
+
+function Launch-Target {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetKey,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Serial
+    )
+
+    $adbPath = Get-AdbPath
+    $target = $script:Targets[$TargetKey]
+
+    & $adbPath -s $Serial shell am force-stop $target.PackageName 2>$null | Out-Null
+    Start-Sleep -Milliseconds 400
+
+    $monkeyOutput = & $adbPath -s $Serial shell monkey -p $target.PackageName -c android.intent.category.LAUNCHER 1 2>&1
+    if ($LASTEXITCODE -eq 0 -and -not ($monkeyOutput -join "`n" -match "No activities found")) {
+        return
     }
+
+    $component = Resolve-LauncherComponent -Serial $Serial -PackageName $target.PackageName
+    if ($component) {
+        & $adbPath -s $Serial shell am start -n $component | Out-Null
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+    }
+
+    throw "Unable to launch package $($target.PackageName) on $Serial."
+}
+
+function Deploy-Target {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$TargetKey,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Serial
+    )
+
+    $target = $script:Targets[$TargetKey]
+    Build-Target -TargetKey $TargetKey
+    $apkPath = Get-LatestApk -TargetKey $TargetKey
+    Install-Apk -Serial $Serial -ApkPath $apkPath
+    Launch-Target -TargetKey $TargetKey -Serial $Serial
+    Write-Ok "Ready: $($target.DisplayName) on $Serial"
+}
+
+function Show-ConnectedDevices {
+    $devices = Get-ConnectedDevices
+    if ($devices.Count -eq 0) {
+        Write-WarnLine "No devices detected. Start an emulator from Android Studio Device Manager."
+        return
+    }
+
     Write-Host ""
+    Write-Info "Connected devices:"
+    foreach ($device in $devices) {
+        $kind = if ($device.IsEmulator) { "emulator" } else { "physical" }
+        $model = if ($device.Model) { $device.Model } else { "unknown-model" }
+        Write-Host "  $($device.Serial)  [$kind]  $model"
+    }
 }
 
-# ============================================
-# Основная логика
-# ============================================
+function Show-Status {
+    param([string[]]$TargetKeys)
 
-Write-ColorOutput "`n🎯 ChildWatch + ParentWatch Developer Tool`n" $colors.Success
+    $adbPath = Get-AdbPath
+    $studioPath = Get-AndroidStudioPath
+    $emulatorPath = Get-EmulatorPath
 
-switch ($Action) {
-    "setup" {
-        Write-ColorOutput "🔧 Настройка окружения для разработки двух приложений...`n" $colors.Info
-        
-        # Проверка реального устройства
-        if (Test-DeviceConnected $realDevice) {
-            Write-ColorOutput "✅ Nokia G21 подключен ($realDevice)" $colors.Success
-        }
-        else {
-            Write-ColorOutput "⚠️  Nokia G21 не подключен - ParentWatch будет недоступен" $colors.Warning
-        }
-        
-        # Проверка/запуск эмулятора
-        if (-not (Test-DeviceConnected $emulatorSerial)) {
-            Write-ColorOutput "⚠️  Эмулятор не запущен" $colors.Warning
-            $response = Read-Host "Запустить эмулятор? (y/n)"
-            if ($response -eq "y") {
-                Start-Emulator
-            }
-        }
-        else {
-            Write-ColorOutput "✅ Эмулятор уже запущен ($emulatorSerial)" $colors.Success
-        }
-        
-        Show-DeviceInfo
-    }
-    
-    "start" {
-        Write-ColorOutput "🚀 Запуск live preview...`n" $colors.Info
-        
-        # Проверяем устройства
-        $realConnected = Test-DeviceConnected $realDevice
-        $emulatorConnected = Test-DeviceConnected $emulatorSerial
-        
-        if (-not $emulatorConnected -and $UseEmulator) {
-            Write-ColorOutput "Эмулятор не запущен. Запускаем..." $colors.Warning
-            if (-not (Start-Emulator)) {
-                exit 1
-            }
-            $emulatorConnected = $true
-        }
-        
-        # Запуск scrcpy для устройств
-        if ($DualMode) {
-            if ($realConnected) {
-                Start-LivePreview -DeviceSerial $realDevice -AppName "ParentWatch (Nokia)" -WindowX 0
-                Start-Sleep -Seconds 2
-            }
-            if ($emulatorConnected) {
-                Start-LivePreview -DeviceSerial $emulatorSerial -AppName "ChildWatch (Pixel 8)" -WindowX 550
-            }
-        }
-        else {
-            if ($realConnected) {
-                Start-LivePreview -DeviceSerial $realDevice -AppName "ParentWatch (Nokia)" -WindowX 0
-            }
-            elseif ($emulatorConnected) {
-                Start-LivePreview -DeviceSerial $emulatorSerial -AppName "ChildWatch (Pixel 8)" -WindowX 0
-            }
-        }
-        
-        Write-ColorOutput "`n✅ Live preview запущен!" $colors.Success
-    }
-    
-    "build" {
-        Build-Applications
-    }
-    
-    "deploy" {
-        Write-ColorOutput "🚀 Развертывание приложений...`n" $colors.Info
-        
-        # Сборка
-        if (-not (Build-Applications)) {
-            exit 1
-        }
-        
+    Write-Host ""
+    Write-Info "Environment:"
+    Write-Host "  project:   $script:ProjectRoot"
+    Write-Host "  adb:       $(if ($adbPath) { $adbPath } else { 'missing' })"
+    Write-Host "  studio:    $(if ($studioPath) { $studioPath } else { 'missing' })"
+    Write-Host "  emulator:  $(if ($emulatorPath) { $emulatorPath } else { 'missing' })"
+
+    Show-ConnectedDevices
+
+    try {
+        $plan = Resolve-DeploymentPlan -TargetKeys $TargetKeys
         Write-Host ""
-        
-        # Установка ChildWatch (РОДИТЕЛЬСКОЕ) на реальное устройство (Nokia)
-        if (Test-DeviceConnected $realDevice) {
-            Install-App -DeviceSerial $realDevice `
-                -ApkPath "$projectRoot\app\build\outputs\apk\debug" `
-                -PackageName "ru.example.childwatch"
+        Write-Info "Current preview mapping:"
+        foreach ($targetKey in $TargetKeys) {
+            $target = $script:Targets[$targetKey]
+            $serial = $plan[$targetKey].Serial
+            Write-Host "  $($target.Module) -> $serial"
         }
-        else {
-            Write-ColorOutput "⚠️  Nokia G21 не подключен - ChildWatch (родительское) пропущен" $colors.Warning
-        }
-        
-        # Установка ParentWatch/ChildDevice (ДЕТСКОЕ) на эмулятор
-        if (Test-DeviceConnected $emulatorSerial) {
-            Install-App -DeviceSerial $emulatorSerial `
-                -ApkPath "$projectRoot\parentwatch\build\outputs\apk\debug" `
-                -PackageName "ru.example.parentwatch"
-        }
-        else {
-            Write-ColorOutput "⚠️  Эмулятор не подключен - ChildWatch пропущен" $colors.Warning
-        }
-        
-        Write-ColorOutput "`n✅ Развертывание завершено!" $colors.Success
     }
-    
-    "test" {
-        Write-ColorOutput "🧪 Запуск полного тестового цикла...`n" $colors.Info
-        
-        # 1. Проверка устройств
-        Show-DeviceInfo
-        
-        # 2. Сборка
-        if (-not (Build-Applications)) {
-            exit 1
-        }
-        
-        # 3. Установка
-        & $PSCommandPath -Action deploy
-        
-        # 4. Запуск live preview
-        Start-Sleep -Seconds 3
-        & $PSCommandPath -Action start -DualMode
+    catch {
+        Write-Host ""
+        Write-WarnLine $_.Exception.Message
     }
-    
-    "cleanup" {
-        Write-ColorOutput "🧹 Очистка...`n" $colors.Info
-        
-        # Закрыть все scrcpy процессы
-        Get-Process scrcpy -ErrorAction SilentlyContinue | Stop-Process -Force
-        Write-ColorOutput "✅ scrcpy процессы остановлены" $colors.Success
-        
-        # Опционально: остановка эмулятора
-        $response = Read-Host "Остановить эмулятор? (y/n)"
-        if ($response -eq "y") {
-            adb -s $emulatorSerial emu kill 2>$null
-            Write-ColorOutput "✅ Эмулятор остановлен" $colors.Success
+
+    Write-Host ""
+    Write-Host "Recommended Android Studio workflow:"
+    Write-Host "  1. Open Device Manager and start an emulator."
+    Write-Host "  2. Run the needed module once."
+    Write-Host "  3. Use Apply Changes for small UI/code updates."
+    Write-Host "  4. Use this script or VS Code tasks for rebuild+install when needed."
+}
+
+function Open-AndroidStudio {
+    $studioPath = Get-AndroidStudioPath
+    if (-not $studioPath) {
+        throw "Android Studio was not found on this machine."
+    }
+
+    Write-Info "Opening Android Studio..."
+    Start-Process -FilePath $studioPath -ArgumentList "`"$script:ProjectRoot`""
+}
+
+function Should-IgnorePath {
+    param([string]$Path)
+
+    foreach ($fragment in $script:IgnorePathFragments) {
+        if ($Path.IndexOf($fragment, [System.StringComparison]::OrdinalIgnoreCase) -ge 0) {
+            return $true
         }
+    }
+
+    return $false
+}
+
+function Get-TargetsForChangedPath {
+    param([string]$Path)
+
+    $fullPath = [System.IO.Path]::GetFullPath($Path)
+    if (Should-IgnorePath -Path $fullPath) {
+        return @()
+    }
+
+    $hits = New-Object System.Collections.Generic.List[string]
+
+    foreach ($rootFile in $script:RootWatchFiles) {
+        $rootFilePath = Join-Path $script:ProjectRoot $rootFile
+        if ($fullPath.Equals($rootFilePath, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $hits.Add("app")
+            $hits.Add("parentwatch")
+            return $hits | Select-Object -Unique
+        }
+    }
+
+    foreach ($targetKey in $script:Targets.Keys) {
+        $sourceRoot = $script:Targets[$targetKey].SourceRoot
+        if ($fullPath.StartsWith($sourceRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+            $hits.Add($targetKey)
+            continue
+        }
+
+        foreach ($moduleFile in $script:Targets[$targetKey].ModuleWatchFiles) {
+            $moduleFilePath = Join-Path $script:Targets[$targetKey].ModuleRoot $moduleFile
+            if ($fullPath.Equals($moduleFilePath, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $hits.Add($targetKey)
+                break
+            }
+        }
+    }
+
+    return $hits | Select-Object -Unique
+}
+
+function Register-Watchers {
+    $watchers = New-Object System.Collections.Generic.List[object]
+
+    foreach ($target in $script:Targets.Values) {
+        $watcher = New-Object System.IO.FileSystemWatcher
+        $watcher.Path = $target.SourceRoot
+        $watcher.IncludeSubdirectories = $true
+        $watcher.NotifyFilter = [System.IO.NotifyFilters]"FileName, DirectoryName, LastWrite"
+        $watcher.EnableRaisingEvents = $true
+
+        foreach ($eventName in @("Changed", "Created", "Deleted", "Renamed")) {
+            Register-ObjectEvent -InputObject $watcher -EventName $eventName -SourceIdentifier "cw.$($target.Key).$eventName" -Action {
+                $path = $Event.SourceEventArgs.FullPath
+                New-Event -SourceIdentifier "cw.source" -MessageData $path | Out-Null
+            } | Out-Null
+        }
+
+        $watchers.Add($watcher) | Out-Null
+
+        foreach ($moduleFile in $target.ModuleWatchFiles) {
+            $fileWatcher = New-Object System.IO.FileSystemWatcher
+            $fileWatcher.Path = $target.ModuleRoot
+            $fileWatcher.Filter = $moduleFile
+            $fileWatcher.IncludeSubdirectories = $false
+            $fileWatcher.NotifyFilter = [System.IO.NotifyFilters]"FileName, LastWrite"
+            $fileWatcher.EnableRaisingEvents = $true
+
+            foreach ($eventName in @("Changed", "Created", "Deleted", "Renamed")) {
+                Register-ObjectEvent -InputObject $fileWatcher -EventName $eventName -SourceIdentifier "cw.$($target.Key).$moduleFile.$eventName" -Action {
+                    $path = $Event.SourceEventArgs.FullPath
+                    New-Event -SourceIdentifier "cw.source" -MessageData $path | Out-Null
+                } | Out-Null
+            }
+
+            $watchers.Add($fileWatcher) | Out-Null
+        }
+    }
+
+    foreach ($rootFile in $script:RootWatchFiles) {
+        $rootWatcher = New-Object System.IO.FileSystemWatcher
+        $rootWatcher.Path = $script:ProjectRoot
+        $rootWatcher.Filter = $rootFile
+        $rootWatcher.IncludeSubdirectories = $false
+        $rootWatcher.NotifyFilter = [System.IO.NotifyFilters]"FileName, LastWrite"
+        $rootWatcher.EnableRaisingEvents = $true
+
+        foreach ($eventName in @("Changed", "Created", "Deleted", "Renamed")) {
+            Register-ObjectEvent -InputObject $rootWatcher -EventName $eventName -SourceIdentifier "cw.root.$rootFile.$eventName" -Action {
+                $path = $Event.SourceEventArgs.FullPath
+                New-Event -SourceIdentifier "cw.source" -MessageData $path | Out-Null
+            } | Out-Null
+        }
+
+        $watchers.Add($rootWatcher) | Out-Null
+    }
+
+    return $watchers
+}
+
+function Unregister-Watchers {
+    Get-EventSubscriber | Where-Object { $_.SourceIdentifier -like "cw.*" } | Unregister-Event
+    Get-Event | Where-Object { $_.SourceIdentifier -like "cw.*" } | Remove-Event
+}
+
+function Watch-Targets {
+    param([string[]]$TargetKeys)
+
+    $plan = Resolve-DeploymentPlan -TargetKeys $TargetKeys
+
+    if (-not $SkipInitialDeploy) {
+        foreach ($targetKey in $TargetKeys) {
+            Deploy-Target -TargetKey $targetKey -Serial $plan[$targetKey].Serial
+        }
+    }
+
+    Write-Host ""
+    Write-Info "Watching for file changes. Press Ctrl+C to stop."
+
+    $pending = @{}
+    $watchers = Register-Watchers
+
+    try {
+        while ($true) {
+            $events = @(Get-Event -SourceIdentifier "cw.source" -ErrorAction SilentlyContinue)
+            foreach ($event in $events) {
+                $changedPath = [string]$event.MessageData
+                Remove-Event -EventIdentifier $event.EventIdentifier
+
+                $changedTargets = Get-TargetsForChangedPath -Path $changedPath
+                foreach ($targetKey in $changedTargets) {
+                    if ($TargetKeys -contains $targetKey) {
+                        $pending[$targetKey] = Get-Date
+                    }
+                }
+
+                if ($changedTargets.Count -gt 0) {
+                    $relativePath = Resolve-Path -LiteralPath $changedPath -ErrorAction SilentlyContinue
+                    $shownPath = if ($relativePath) { $relativePath.Path.Replace($script:ProjectRoot + "\", "") } else { $changedPath }
+                    Write-Info "Change detected: $shownPath"
+                }
+            }
+
+            $now = Get-Date
+            $readyTargets = @(
+                $pending.GetEnumerator() |
+                Where-Object { ($now - $_.Value).TotalMilliseconds -ge $DebounceMs } |
+                ForEach-Object { $_.Key }
+            )
+
+            foreach ($targetKey in $readyTargets) {
+                Write-Host ""
+                Deploy-Target -TargetKey $targetKey -Serial $plan[$targetKey].Serial
+                $pending.Remove($targetKey)
+            }
+
+            Start-Sleep -Milliseconds 350
+        }
+    }
+    finally {
+        foreach ($watcher in $watchers) {
+            $watcher.EnableRaisingEvents = $false
+            $watcher.Dispose()
+        }
+
+        Unregister-Watchers
     }
 }
 
-Write-ColorOutput "`n✨ Готово!`n" $colors.Success
+function Invoke-BuildOnly {
+    param([string[]]$TargetKeys)
+
+    foreach ($targetKey in $TargetKeys) {
+        Build-Target -TargetKey $targetKey
+        Write-Ok "Built: $targetKey"
+    }
+}
+
+function Invoke-Deploy {
+    param([string[]]$TargetKeys)
+
+    $plan = Resolve-DeploymentPlan -TargetKeys $TargetKeys
+
+    Write-Host ""
+    Write-Info "Deployment plan:"
+    foreach ($targetKey in $TargetKeys) {
+        $target = $script:Targets[$targetKey]
+        Write-Host "  $($target.Module) -> $($plan[$targetKey].Serial)"
+    }
+
+    Write-Host ""
+    foreach ($targetKey in $TargetKeys) {
+        Deploy-Target -TargetKey $targetKey -Serial $plan[$targetKey].Serial
+    }
+}
+
+function Invoke-Cleanup {
+    $scrcpy = Get-Command scrcpy -ErrorAction SilentlyContinue
+    if ($scrcpy) {
+        Get-Process scrcpy -ErrorAction SilentlyContinue | Stop-Process -Force
+        Write-Ok "Closed running scrcpy windows."
+    }
+    else {
+        Write-Info "Nothing to clean up."
+    }
+}
+
+$normalizedAction = switch ($Action) {
+    "setup" { "status" }
+    "start" { "status" }
+    "test" { "deploy" }
+    default { $Action }
+}
+
+$selectedTargets = Get-TargetKeys -SelectedTarget $Target
+
+switch ($normalizedAction) {
+    "status" {
+        Show-Status -TargetKeys $selectedTargets
+    }
+    "devices" {
+        Show-ConnectedDevices
+    }
+    "studio" {
+        Open-AndroidStudio
+    }
+    "build" {
+        Invoke-BuildOnly -TargetKeys $selectedTargets
+    }
+    "deploy" {
+        Invoke-Deploy -TargetKeys $selectedTargets
+    }
+    "watch" {
+        Watch-Targets -TargetKeys $selectedTargets
+    }
+    "cleanup" {
+        Invoke-Cleanup
+    }
+}

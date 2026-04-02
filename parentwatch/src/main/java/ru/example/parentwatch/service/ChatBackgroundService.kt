@@ -23,8 +23,11 @@ import ru.example.parentwatch.MainActivity
 import ru.example.parentwatch.R
 import ru.example.parentwatch.chat.ChatManager
 import ru.example.parentwatch.chat.ChatMessage
+import ru.example.parentwatch.chat.ChatMessageRuntimeRegistry
 import ru.example.parentwatch.chat.withStatus
 import ru.example.parentwatch.network.WebSocketManager
+import ru.example.parentwatch.session.ChildActiveSessionStore
+import ru.example.parentwatch.session.ChildEffectiveContextResolver
 import ru.example.parentwatch.utils.RemoteLogger
 import ru.example.parentwatch.utils.ServerUrlResolver
 import java.util.Locale
@@ -81,6 +84,8 @@ class ChatBackgroundService : LifecycleService() {
     private var backgroundMessageSentListener: ((String, Boolean, Long) -> Unit)? = null
     private var backgroundListenerRegistered = false
     private var connectionHealthJob: kotlinx.coroutines.Job? = null
+    private lateinit var effectiveContextResolver: ChildEffectiveContextResolver
+    private lateinit var activeSessionStore: ChildActiveSessionStore
     @Volatile private var reconnectInProgress = false
     private var stopRequested = false
     @Volatile private var lastStartStreamAtMs: Long = 0L
@@ -185,6 +190,8 @@ class ChatBackgroundService : LifecycleService() {
         super.onCreate()
         Log.d(TAG, "ChatBackgroundService created")
 
+        effectiveContextResolver = ChildEffectiveContextResolver(this)
+        activeSessionStore = ChildActiveSessionStore(this)
         // Initialize ChatManagerAdapter - will be fully initialized in onStartCommand with deviceId
         createNotificationChannel()
         ru.example.parentwatch.utils.NotificationManager.createNotificationChannels(this)
@@ -197,26 +204,25 @@ class ChatBackgroundService : LifecycleService() {
 
         // Service may be relaunched by the system with null intent; recover configuration from prefs
         if (intent == null) {
-            val prefs = getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
-            val serverUrl = ServerUrlResolver.getServerUrl(this)
-            val deviceId = listOf(
-                prefs.getString("device_id", null),
-                prefs.getString("child_device_id", null)
-            )
-                .mapNotNull { it?.trim() }
-                .firstOrNull { it.isNotBlank() }
+            val effectiveContext = effectiveContextResolver.resolveEffectiveContext()
+            val serverUrl = effectiveContext?.serverUrl?.takeIf { it.isNotBlank() }
+                ?: activeSessionStore.resolveCurrentServerUrl().takeIf { it.isNotBlank() }
+                ?: ServerUrlResolver.getServerUrl(this)
+            val deviceId = effectiveContext?.ownChildDeviceId?.takeIf { it.isNotBlank() }
+                ?: activeSessionStore.resolveCurrentChildId().takeIf { it.isNotBlank() }
 
             if (!serverUrl.isNullOrBlank() && !deviceId.isNullOrBlank()) {
+                applyRuntimeSession(serverUrl, deviceId)
                 if (!::chatManagerAdapter.isInitialized) {
                     chatManagerAdapter = ru.example.parentwatch.chat.ChatManagerAdapter(this, deviceId)
                     Log.d(TAG, "ChatManagerAdapter recovered with deviceId: $deviceId")
                 }
-                Log.d(TAG, "Restarting ChatBackgroundService after kill (from prefs)")
+                Log.d(TAG, "Restarting ChatBackgroundService after kill (from effective context)")
                 startForegroundService(serverUrl, deviceId)
                 return START_STICKY
             }
 
-            Log.w(TAG, "Cannot restart ChatBackgroundService after kill: missing prefs (serverUrl=$serverUrl, deviceId=$deviceId)")
+            Log.w(TAG, "Cannot restart ChatBackgroundService after kill: missing effective context (serverUrl=$serverUrl, deviceId=$deviceId)")
             stopSelf()
             return START_NOT_STICKY
         }
@@ -231,6 +237,8 @@ class ChatBackgroundService : LifecycleService() {
                     stopSelf()
                     return START_NOT_STICKY
                 }
+
+                applyRuntimeSession(serverUrl, deviceId)
 
                 // Initialize ChatManagerAdapter with current deviceId
                 if (!::chatManagerAdapter.isInitialized || lastDeviceId != deviceId) {
@@ -255,6 +263,25 @@ class ChatBackgroundService : LifecycleService() {
         }
 
         return START_STICKY
+    }
+
+    private fun applyRuntimeSession(serverUrl: String, deviceId: String) {
+        val trimmedServerUrl = serverUrl.trim()
+        val trimmedDeviceId = deviceId.trim()
+        if (trimmedServerUrl.isEmpty() || trimmedDeviceId.isEmpty()) return
+
+        val current = activeSessionStore.getActiveSession()
+        activeSessionStore.applySession(
+            activeSessionStore.buildSession(
+                name = current?.name?.takeIf { it.isNotBlank() }
+                    ?: getString(R.string.profile_switch_current_name),
+                serverUrl = trimmedServerUrl,
+                ownChildDeviceId = trimmedDeviceId,
+                linkedParentDeviceId = current?.linkedParentDeviceId
+                    ?.takeIf { it.isNotBlank() }
+                    ?: activeSessionStore.resolveCurrentParentId()
+            )
+        )
     }
 
     private fun startForegroundService(serverUrl: String, deviceId: String) {
@@ -318,8 +345,9 @@ class ChatBackgroundService : LifecycleService() {
                             deviceId,
                             onMissedMessages = { missed ->
                                 missed.forEach { msg ->
+                                    ChatMessageRuntimeRegistry.remember(msg)
                                     val persistedMessage =
-                                        if (msg.sender == "parent" && !msg.isRead && msg.id.isNotEmpty()) {
+                                        if (msg.isIncoming("child", resolveOwnChildDeviceId()) && !msg.isRead && msg.id.isNotEmpty()) {
                                             msg.withStatus(ChatMessage.MessageStatus.DELIVERED)
                                         } else {
                                             msg
@@ -327,14 +355,13 @@ class ChatBackgroundService : LifecycleService() {
                                     if (::chatManagerAdapter.isInitialized) {
                                         chatManagerAdapter.saveMessage(persistedMessage)
                                     }
-                                    if (msg.sender == "parent" && !msg.isRead && msg.id.isNotEmpty()) {
+                                    if (msg.isIncoming("child", resolveOwnChildDeviceId()) && !msg.isRead && msg.id.isNotEmpty()) {
                                         WebSocketManager.sendChatStatus(msg.id, "delivered", "child")
                                     }
-                                    if (shouldShowIncomingChatNotification(msg.sender)) {
-                                        val senderName = if (msg.sender == "parent") "Parent" else "Child"
+                                    if (shouldShowIncomingChatNotification(msg)) {
                                         ru.example.parentwatch.utils.NotificationManager.showChatNotification(
                                             context = this@ChatBackgroundService,
-                                            senderName = senderName,
+                                            senderName = msg.getSenderName(),
                                             messageText = msg.text,
                                             timestamp = msg.timestamp
                                         )
@@ -464,18 +491,20 @@ class ChatBackgroundService : LifecycleService() {
         Log.d(TAG, "Received message: $text from $sender")
 
         // Persist incoming message even when the chat UI is open
-        val message = ChatMessage(
+        val fallbackMessage = ChatMessage(
             id = messageId,
             text = text,
             sender = sender,
             timestamp = timestamp,
-            isRead = false,
-            status = if (sender == "parent") {
-                ChatMessage.MessageStatus.DELIVERED
-            } else {
-                ChatMessage.MessageStatus.SENT
-            }
+            isRead = false
         )
+        val message = (ChatMessageRuntimeRegistry.find(messageId) ?: fallbackMessage).let { candidate ->
+            if (candidate.isIncoming("child", resolveOwnChildDeviceId())) {
+                candidate.withStatus(ChatMessage.MessageStatus.DELIVERED)
+            } else {
+                candidate.withStatus(ChatMessage.MessageStatus.SENT)
+            }
+        }
         if (::chatManagerAdapter.isInitialized) {
             chatManagerAdapter.saveMessage(message)
         } else {
@@ -483,7 +512,7 @@ class ChatBackgroundService : LifecycleService() {
         }
 
         // Always acknowledge delivery for parent-originated messages
-        if (sender == "parent" && messageId.isNotEmpty()) {
+        if (message.isIncoming("child", resolveOwnChildDeviceId()) && messageId.isNotEmpty()) {
             WebSocketManager.sendChatStatus(messageId, "delivered", "child")
             Log.d(TAG, "Sent delivered status for message: $messageId")
         }
@@ -495,11 +524,10 @@ class ChatBackgroundService : LifecycleService() {
         }
 
         // Show notifications only when the chat is not open
-        if (shouldShowIncomingChatNotification(sender)) {
-            val senderName = if (sender == "parent") "Parent" else "Child"
+        if (shouldShowIncomingChatNotification(message)) {
             ru.example.parentwatch.utils.NotificationManager.showChatNotification(
                 context = this,
-                senderName = senderName,
+                senderName = message.getSenderName(),
                 messageText = text,
                 timestamp = timestamp
             )
@@ -562,10 +590,16 @@ class ChatBackgroundService : LifecycleService() {
         }
     }
 
-    private fun shouldShowIncomingChatNotification(sender: String): Boolean {
-        if (sender != "parent") return false
+    private fun shouldShowIncomingChatNotification(message: ChatMessage): Boolean {
+        if (!message.isIncoming("child", resolveOwnChildDeviceId())) return false
         val prefs = getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
         return !prefs.getBoolean("chat_open", false)
+    }
+
+    private fun resolveOwnChildDeviceId(): String {
+        return effectiveContextResolver.resolveChildDeviceId().ifBlank {
+            activeSessionStore.resolveCurrentChildId()
+        }
     }
 
     private fun createNotificationChannel() {

@@ -1,5 +1,6 @@
 ﻿package ru.example.parentwatch.network
 
+import android.content.Context
 import android.util.Log
 import android.util.Base64
 import io.socket.client.IO
@@ -9,7 +10,9 @@ import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
 import ru.example.parentwatch.chat.ChatMessage
+import ru.example.parentwatch.chat.ChatMessageRuntimeRegistry
 import java.nio.ByteBuffer
+import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -19,13 +22,17 @@ import java.util.concurrent.ConcurrentHashMap
 class WebSocketClient(
     private val serverUrl: String,
     private val childDeviceId: String,
-    private val onMissedMessages: ((List<ChatMessage>) -> Unit)? = null
+    private val onMissedMessages: ((List<ChatMessage>) -> Unit)? = null,
+    context: Context? = null
 ) {
     private var socket: Socket? = null
     private var isConnected = false
     private var isRegistered = false
     private var registeredDeviceId: String = childDeviceId
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val appContext = context?.applicationContext
+    private val syncPrefs =
+        appContext?.getSharedPreferences("chat_sync_state", Context.MODE_PRIVATE)
 
     // Callbacks
     data class CriticalAlertMessage(
@@ -56,6 +63,19 @@ class WebSocketClient(
     private var heartbeatJob: Job? = null
     private var reregistrationJob: Job? = null
     private val pendingChatCallbacks = ConcurrentHashMap<String, PendingChatCallback>()
+    private val recentChatIds =
+        object : LinkedHashMap<String, Long>(256, 0.75f, true) {
+            override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>?): Boolean {
+                return size > 200
+            }
+        }
+    @Volatile
+    private var shouldRequestMissedMessagesAfterRegistration = true
+    private var lastChatSyncTimestamp: Long
+        get() = syncPrefs?.getLong(syncKey(), 0L) ?: 0L
+        set(value) {
+            syncPrefs?.edit()?.putLong(syncKey(), value)?.apply()
+        }
 
     companion object {
         private const val TAG = "WebSocketClient"
@@ -75,6 +95,39 @@ class WebSocketClient(
         val createdAt: Long = System.currentTimeMillis()
     )
 
+    private fun syncKey(): String = "last_chat_sync_${childDeviceId.trim()}"
+
+    private fun normalizeChatEventId(
+        primaryId: String?,
+        timestamp: Long,
+        sender: String,
+        text: String
+    ): String {
+        val normalized = primaryId?.trim().orEmpty()
+        return if (normalized.isNotEmpty()) normalized else "$sender|$timestamp|${text.hashCode()}"
+    }
+
+    @Synchronized
+    private fun shouldAcceptChatEvent(messageId: String, timestamp: Long): Boolean {
+        if (messageId.isBlank()) return false
+        if (recentChatIds.containsKey(messageId)) return false
+        recentChatIds[messageId] = timestamp
+        if (timestamp > lastChatSyncTimestamp) {
+            lastChatSyncTimestamp = timestamp
+        }
+        return true
+    }
+
+    @Synchronized
+    private fun rememberChatEvent(messageId: String, timestamp: Long) {
+        if (messageId.isNotBlank()) {
+            recentChatIds[messageId] = timestamp
+        }
+        if (timestamp > lastChatSyncTimestamp) {
+            lastChatSyncTimestamp = timestamp
+        }
+    }
+
     // Connection event handlers
     private val onConnect = Emitter.Listener {
         Log.d(TAG, "WebSocket connected")
@@ -84,6 +137,7 @@ class WebSocketClient(
             registeredDeviceId = childDeviceId
             lastProcessedSequence = -1
             audioPayloadTypeLogged = false
+            shouldRequestMissedMessagesAfterRegistration = true
             registerAsParent()
             onConnectedCallback?.invoke()
         }
@@ -96,6 +150,7 @@ class WebSocketClient(
         registeredDeviceId = childDeviceId
         stopHeartbeat()
         lastProcessedSequence = -1
+        shouldRequestMissedMessagesAfterRegistration = true
         failPendingChat("Disconnected")
         onChildDisconnected?.invoke()
     }
@@ -106,6 +161,7 @@ class WebSocketClient(
         isConnected = false
         isRegistered = false
         registeredDeviceId = childDeviceId
+        shouldRequestMissedMessagesAfterRegistration = true
         failPendingChat(error?.toString() ?: "Connection error")
         scope.launch {
             onErrorCallback?.invoke(error?.toString() ?: "Connection error")
@@ -134,7 +190,12 @@ class WebSocketClient(
             }
             isRegistered = true
             onRegisteredCallback?.invoke()
-            requestMissedMessagesViaSocket()
+            if (shouldRequestMissedMessagesAfterRegistration) {
+                shouldRequestMissedMessagesAfterRegistration = false
+                requestMissedMessagesViaSocket()
+            } else {
+                Log.d(TAG, "Skipping missed messages request on periodic re-registration")
+            }
         } else {
             Log.e(TAG, "Parent registration failed for device: $childDeviceId")
         }
@@ -246,7 +307,12 @@ class WebSocketClient(
             val restored = mutableListOf<ChatMessage>()
             for (i in 0 until items.length()) {
                 val obj = items.optJSONObject(i) ?: continue
-                mapJsonToChatMessage(obj)?.let(restored::add)
+                mapJsonToChatMessage(obj)
+                    ?.takeIf { shouldAcceptChatEvent(it.id, it.timestamp) }
+                    ?.let {
+                        ChatMessageRuntimeRegistry.remember(it)
+                        restored.add(it)
+                    }
             }
             if (restored.isNotEmpty()) {
                 scope.launch {
@@ -259,14 +325,24 @@ class WebSocketClient(
     }
 
     private fun mapJsonToChatMessage(obj: JSONObject): ChatMessage? {
-        val messageId = obj.optString("id", obj.optString("client_id", obj.optString("clientMessageId", "")))
-        if (messageId.isEmpty()) return null
         val textValue = obj.optString("message", obj.optString("text", ""))
         if (textValue.isEmpty()) return null
-        val sender = obj.optString("sender", "")
+        val sender = obj.optString("senderRole", obj.optString("sender", ""))
+        val authorDeviceId = obj.optString("senderDeviceId").takeIf { it.isNotBlank() }
+        val authorDisplayName = obj.optString("senderDisplayName").takeIf { it.isNotBlank() }
         val timestamp = obj.optLong("timestamp", System.currentTimeMillis())
+        val messageId = normalizeChatEventId(
+            obj.optString("clientMessageId", obj.optString("client_id", obj.optString("id", ""))),
+            timestamp,
+            sender,
+            textValue
+        )
         val isRead = obj.optBoolean("isRead", false)
-        val isIncoming = sender != "child"
+        val isIncoming = when (sender) {
+            "parent" -> true
+            "child" -> false
+            else -> true
+        }
         val status = when {
             isRead -> ChatMessage.MessageStatus.READ
             isIncoming -> ChatMessage.MessageStatus.DELIVERED
@@ -276,6 +352,8 @@ class WebSocketClient(
             id = messageId,
             text = textValue,
             sender = sender,
+            authorDeviceId = authorDeviceId,
+            authorDisplayName = authorDisplayName,
             timestamp = timestamp,
             isRead = isRead,
             status = status
@@ -284,11 +362,13 @@ class WebSocketClient(
 
     private fun requestMissedMessagesViaSocket() {
         try {
+            val sinceTimestamp = lastChatSyncTimestamp
             val payload = JSONObject().apply {
                 put("deviceId", registeredDeviceId.ifBlank { childDeviceId })
+                put("sinceTimestamp", sinceTimestamp)
             }
             socket?.emit("get_missed_messages", payload)
-            Log.d(TAG, "Requested missed messages via WebSocket")
+            Log.d(TAG, "Requested missed messages via WebSocket since=$sinceTimestamp")
         } catch (e: Exception) {
             Log.e(TAG, "Failed to request missed messages", e)
         }
@@ -321,11 +401,21 @@ class WebSocketClient(
         try {
             val messageData = args.getOrNull(0) as? JSONObject
             if (messageData != null) {
-                val messageId = messageData.optString("id", "")
-                val text = messageData.optString("text", "")
-                val sender = messageData.optString("sender", "")
-                val timestamp = messageData.optLong("timestamp", System.currentTimeMillis())
+                val message = mapJsonToChatMessage(messageData)
+                if (message == null) {
+                    return@Listener
+                }
+                val text = message.text
+                val sender = message.sender
+                val timestamp = message.timestamp
+                val messageId = message.id
 
+                if (!shouldAcceptChatEvent(messageId, timestamp)) {
+                    Log.d(TAG, "Skipped duplicate chat event id=$messageId")
+                    return@Listener
+                }
+
+                ChatMessageRuntimeRegistry.remember(message)
                 Log.d(TAG, "Chat message received: from=$sender, text=$text")
 
                 scope.launch {
@@ -340,12 +430,17 @@ class WebSocketClient(
     private val onChatMessageSent = Emitter.Listener { args ->
         try {
             val data = args.getOrNull(0) as? JSONObject ?: return@Listener
-            val messageId = data.optString("id")
-            if (messageId.isNullOrEmpty()) return@Listener
-
             val timestamp = data.optLong("timestamp", System.currentTimeMillis())
+            val messageId = normalizeChatEventId(
+                data.optString("clientMessageId", data.optString("id", "")),
+                timestamp,
+                "child",
+                ""
+            )
+            if (messageId.isEmpty()) return@Listener
             val delivered = data.optBoolean("delivered", false)
 
+            rememberChatEvent(messageId, timestamp)
             Log.d(TAG, "Chat message sent confirmation: id=$messageId, delivered=$delivered")
             pendingChatCallbacks.remove(messageId)?.onSuccess?.invoke()
             onChatMessageSentCallback?.invoke(messageId, delivered, timestamp)
@@ -603,6 +698,8 @@ class WebSocketClient(
         messageId: String,
         text: String,
         sender: String,
+        authorDeviceId: String? = null,
+        authorDisplayName: String? = null,
         onSuccess: () -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
@@ -622,6 +719,12 @@ class WebSocketClient(
                 put("sender", sender)
                 put("deviceId", registeredDeviceId.ifBlank { childDeviceId })
                 put("timestamp", System.currentTimeMillis())
+                authorDeviceId?.takeIf { it.isNotBlank() }?.let {
+                    put("authorDeviceId", it)
+                }
+                authorDisplayName?.takeIf { it.isNotBlank() }?.let {
+                    put("authorDisplayName", it)
+                }
             }
 
             pendingChatCallbacks[messageId] = PendingChatCallback(onSuccess, onError)
@@ -967,8 +1070,3 @@ class WebSocketClient(
         }
     }
 }
-
-
-
-
-

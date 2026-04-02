@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="profile_switch_title">Профили</string>
+    <string name="profile_switch_no_active">Активный профиль не выбран</string>
+    <string name="profile_switch_save">Сохранить профиль</string>
+    <string name="profile_switch_save_current">Сохранить текущий</string>
+    <string name="profile_switch_manage">Управление</string>
+    <string name="profile_switch_manage_title">Управление профилями</string>
+    <string name="profile_switch_actions_title">Действия с профилем</string>
+    <string name="profile_switch_apply">Применить</string>
+    <string name="profile_switch_edit">Изменить</string>
+    <string name="profile_switch_delete">Удалить</string>
+    <string name="profile_switch_saved">Профиль сохранен</string>
+    <string name="profile_switch_updated">Профиль обновлен</string>
+    <string name="profile_switch_deleted">Профиль удален</string>
+    <string name="profile_switch_applied">Профиль применен</string>
+    <string name="profile_switch_empty">Сначала сохраните хотя бы один профиль</string>
+    <string name="profile_switch_name_title">Новый профиль</string>
+    <string name="profile_switch_edit_title">Изменить профиль</string>
+    <string name="profile_switch_name_hint">Название профиля</string>
+    <string name="profile_switch_server_hint">Сервер</string>
+    <string name="profile_switch_own_child_id_hint">ID этого телефона</string>
+    <string name="profile_switch_linked_parent_id_hint">ID родителя</string>
+    <string name="profile_switch_select_title">Быстрое переключение</string>
+    <string name="profile_switch_delete_title">Удалить профиль</string>
+    <string name="profile_switch_delete_message">Удалить профиль "%1$s"?</string>
+    <string name="profile_switch_validation_name">Введите название профиля</string>
+    <string name="profile_switch_validation_server">Введите корректный URL сервера</string>
+    <string name="profile_switch_validation_own_id">Введите ID этого телефона</string>
+    <string name="profile_switch_summary_format">%1$s\nСервер: %2$s\nРебенок: %3$s\nРодитель: %4$s</string>
+    <string name="profile_switch_source_line">Контекст: %1$s</string>
+    <string name="profile_switch_status_line">Статус: %1$s</string>
+    <string name="profile_switch_source_session">сессия</string>
+    <string name="profile_switch_source_current">текущее состояние</string>
+    <string name="profile_switch_source_legacy">legacy prefs</string>
+    <string name="profile_switch_source_unknown">неизвестно</string>
+    <string name="profile_switch_status_saved">сохраненный профиль</string>
+    <string name="profile_switch_status_runtime_only">только текущий контекст</string>
+    <string name="profile_switch_unknown_link">не задан</string>
+    <string name="profile_switch_current_name">Текущий профиль</string>
+    <string name="profile_switch_default_name_format">Ребенок %1$s -&gt; %2$s</string>
+    <string name="profile_switch_no_link_short">без связи</string>
+    <string name="profile_switch_warning_mismatch">Внимание: текущий контекст отличается от сохраненного профиля</string>
+</resources>

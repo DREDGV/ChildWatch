@@ -20,9 +20,12 @@ import ru.example.parentwatch.databinding.ActivityChatBinding
 import ru.example.parentwatch.chat.ChatAdapter
 import ru.example.parentwatch.chat.ChatMessage
 import ru.example.parentwatch.chat.ChatManagerAdapter
+import ru.example.parentwatch.chat.ChatMessageRuntimeRegistry
 import ru.example.parentwatch.chat.withStatus
 import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.network.WebSocketManager
+import ru.example.parentwatch.session.ChildActiveSessionStore
+import ru.example.parentwatch.session.ChildEffectiveContextResolver
 import ru.example.parentwatch.utils.NotificationManager
 import ru.example.parentwatch.utils.ServerUrlResolver
 
@@ -49,12 +52,22 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private lateinit var binding: ActivityChatBinding
+    private lateinit var effectiveContextResolver: ChildEffectiveContextResolver
+    private lateinit var activeSessionStore: ChildActiveSessionStore
     private lateinit var chatAdapter: ChatAdapter
     private lateinit var chatManagerAdapter: ChatManagerAdapter
     private lateinit var networkClient: NetworkClient
     private lateinit var messageQueue: ru.example.parentwatch.chat.MessageQueue
     private val messages = mutableListOf<ChatMessage>()
     private val currentUser = "child"
+    private val ownChildDeviceId: String by lazy {
+        effectiveContextResolver.resolveChildDeviceId()
+            .ifBlank { activeSessionStore.resolveCurrentChildId() }
+            .ifBlank {
+                getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+                    .getString("device_id", "")?.trim().orEmpty()
+            }
+    }
     private val chatListener: (String, String, String, Long) -> Unit = { messageId, text, sender, timestamp ->
         runOnUiThread {
             receiveMessage(messageId, text, sender, timestamp)
@@ -94,9 +107,14 @@ class ChatActivity : AppCompatActivity() {
         binding = ActivityChatBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        effectiveContextResolver = ChildEffectiveContextResolver(this)
+        activeSessionStore = ChildActiveSessionStore(this)
         // Get device ID for ChatManagerAdapter initialization
         val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
-        val deviceId = prefs.getString("device_id", "") ?: ""
+        val deviceId = effectiveContextResolver.resolveChildDeviceId()
+            .ifBlank { activeSessionStore.resolveCurrentChildId() }
+            .ifBlank { prefs.getString("child_device_id", "") ?: "" }
+            .ifBlank { prefs.getString("device_id", "") ?: "" }
         val partnerId = if (deviceId.isBlank()) {
             getString(R.string.chat_partner_unknown_id)
         } else {
@@ -113,6 +131,10 @@ class ChatActivity : AppCompatActivity() {
             Toast.makeText(this, getString(R.string.chat_error_device_not_registered), Toast.LENGTH_LONG).show()
             finish()
             return
+        }
+
+        if (deviceId.isNotBlank()) {
+            activeSessionStore.getActiveSession()?.let { activeSessionStore.applySession(it) }
         }
 
         // Initialize chat manager (Room-based, replaces old JSON ChatManager)
@@ -259,7 +281,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun setupRecyclerView() {
-        chatAdapter = ChatAdapter(currentUser) { message ->
+        chatAdapter = ChatAdapter(currentUser, ownChildDeviceId) { message ->
             retryFailedMessage(message)
         }
         binding.messagesRecyclerView.apply {
@@ -289,6 +311,8 @@ class ChatActivity : AppCompatActivity() {
             id = System.currentTimeMillis().toString(),
             text = messageText,
             sender = "child",
+            authorDeviceId = ownChildDeviceId.ifBlank { null },
+            authorDisplayName = "Ребенок",
             timestamp = System.currentTimeMillis(),
             isRead = false,
             status = ChatMessage.MessageStatus.SENDING
@@ -319,7 +343,7 @@ class ChatActivity : AppCompatActivity() {
     private fun sendReadReceiptsFor(messageList: List<ChatMessage>) {
         if (!isChatUiActive) return
         val pendingMessages = messageList
-            .filter { it.sender != currentUser && !it.isRead && it.status != ChatMessage.MessageStatus.READ }
+            .filter { it.isIncoming(currentUser, ownChildDeviceId) && !it.isRead && it.status != ChatMessage.MessageStatus.READ }
             .filter { it.id !in readReceiptSentIds && it.id !in pendingReadReceiptIds }
 
         if (pendingMessages.isEmpty()) return
@@ -544,19 +568,24 @@ class ChatActivity : AppCompatActivity() {
 
                 val existingIds = messages.map { it.id }.toHashSet()
                 val newMessages = chatHistory.messages.map { msgData ->
-                    val status = when {
-                        msgData.isRead -> ChatMessage.MessageStatus.READ
-                        msgData.sender == currentUser -> ChatMessage.MessageStatus.SENT
-                        else -> ChatMessage.MessageStatus.DELIVERED
-                    }
-                    ChatMessage(
+                    val message = ChatMessage(
                         id = msgData.id,
                         text = msgData.message,
-                        sender = msgData.sender,
+                        sender = msgData.senderRole ?: msgData.sender,
+                        authorDeviceId = msgData.senderDeviceId,
+                        authorDisplayName = msgData.senderDisplayName,
                         timestamp = msgData.timestamp,
                         isRead = msgData.isRead,
-                        status = status
+                        status = when {
+                            msgData.isRead -> ChatMessage.MessageStatus.READ
+                            else -> ChatMessage.MessageStatus.DELIVERED
+                        }
                     )
+                    if (message.isOutgoing(currentUser, ownChildDeviceId) && !msgData.isRead) {
+                        message.withStatus(ChatMessage.MessageStatus.SENT)
+                    } else {
+                        message
+                    }
                 }
                     .filterNot { existingIds.contains(it.id) }
                     .sortedBy { it.timestamp }
@@ -716,6 +745,8 @@ class ChatActivity : AppCompatActivity() {
             messageId = message.id,
             text = message.text,
             sender = message.sender,
+            authorDeviceId = message.authorDeviceId,
+            authorDisplayName = message.authorDisplayName,
             onSuccess = {
                 runOnUiThread {
                     Log.d(TAG, "Message ${message.id} sent successfully")
@@ -766,14 +797,14 @@ class ChatActivity : AppCompatActivity() {
         }
         val existingMessage = messages.firstOrNull { it.id == messageId }
         if (existingMessage != null) {
-            if (existingMessage.sender != currentUser && !existingMessage.isRead) {
+            if (existingMessage.isIncoming(currentUser, ownChildDeviceId) && !existingMessage.isRead) {
                 sendReadReceiptsFor(listOf(existingMessage))
             }
             Log.d(TAG, "Message $messageId already exists, skipping")
             return
         }
 
-        val message = ChatMessage(
+        val message = ChatMessageRuntimeRegistry.find(messageId) ?: ChatMessage(
             id = messageId,
             text = text,
             sender = sender,

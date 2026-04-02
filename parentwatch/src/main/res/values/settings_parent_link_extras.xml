@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_parent_link_pick_active_button">Выбрать активного родителя</string>
+    <string name="settings_parent_link_pick_active_title">Активный родитель</string>
+    <string name="settings_parent_link_active_changed">Активный родитель: %1$s</string>
+    <string name="settings_parent_link_no_cached_options">Список родителей пока не загружен</string>
+</resources>

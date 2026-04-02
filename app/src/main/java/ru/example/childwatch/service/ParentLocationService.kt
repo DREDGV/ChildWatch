@@ -13,6 +13,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.*
 import kotlinx.coroutines.*
+import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.R
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.utils.SecureSettingsManager
@@ -24,12 +25,28 @@ import ru.example.childwatch.utils.SecureSettingsManager
  * если включена настройка "Делиться моей локацией"
  */
 class ParentLocationService : Service() {
+
+    private enum class TrackingMode {
+        IDLE,
+        MOVING
+    }
     
     companion object {
         private const val TAG = "ParentLocationService"
         private const val NOTIFICATION_ID = 1002
         private const val CHANNEL_ID = "parent_location_channel"
-        private const val LOCATION_UPDATE_INTERVAL = 30_000L // 30 секунд
+        private const val LOCATION_UPDATE_INTERVAL_IDLE = 60_000L
+        private const val LOCATION_FASTEST_INTERVAL_IDLE = 30_000L
+        private const val LOCATION_UPDATE_INTERVAL_MOVING = 15_000L
+        private const val LOCATION_FASTEST_INTERVAL_MOVING = 7_000L
+        private const val LOCATION_UPLOAD_INTERVAL_IDLE = 90_000L
+        private const val LOCATION_UPLOAD_INTERVAL_MOVING = 18_000L
+        private const val LOCATION_UPLOAD_DISTANCE_IDLE_METERS = 35f
+        private const val LOCATION_UPLOAD_DISTANCE_MOVING_METERS = 10f
+        private const val MOVING_SPEED_THRESHOLD_MPS = 1.4f
+        private const val MOVEMENT_DISTANCE_THRESHOLD_METERS = 20f
+        private const val MOVEMENT_TIME_WINDOW_MS = 45_000L
+        private const val TRACKING_MODE_STICKINESS_MS = 45_000L
         
         fun start(context: Context) {
             val intent = Intent(context, ParentLocationService::class.java)
@@ -48,6 +65,11 @@ class ParentLocationService : Service() {
     private lateinit var fusedLocationClient: FusedLocationProviderClient
     private lateinit var locationCallback: LocationCallback
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
+    private var currentTrackingMode = TrackingMode.IDLE
+    private var lastTrackingModeChangeAt = 0L
+    private var lastObservedLocation: Location? = null
+    private var lastUploadedLocation: Location? = null
+    private var lastUploadAt: Long = 0L
     
     override fun onCreate() {
         super.onCreate()
@@ -64,18 +86,15 @@ class ParentLocationService : Service() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 locationResult.lastLocation?.let { location ->
-                    sendLocationToChild(location)
+                    updateTrackingMode(location)
+                    if (shouldUploadLocation(location)) {
+                        sendLocationToChild(location)
+                    }
                 }
             }
         }
         
-        val locationRequest = LocationRequest.Builder(
-            Priority.PRIORITY_BALANCED_POWER_ACCURACY,
-            LOCATION_UPDATE_INTERVAL
-        ).apply {
-            setMinUpdateIntervalMillis(LOCATION_UPDATE_INTERVAL / 2)
-            setMaxUpdateDelayMillis(LOCATION_UPDATE_INTERVAL * 2)
-        }.build()
+        val locationRequest = buildLocationRequest()
         
         if (ActivityCompat.checkSelfPermission(
                 this,
@@ -143,6 +162,9 @@ class ParentLocationService : Service() {
                 } catch (e: Exception) {
                     Log.w(TAG, "Failed to upload parent location via REST", e)
                 }
+
+                lastUploadedLocation = Location(location)
+                lastUploadAt = System.currentTimeMillis()
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending parent location", e)
@@ -150,21 +172,139 @@ class ParentLocationService : Service() {
         }
     }
 
+    private fun buildLocationRequest(): LocationRequest {
+        val (priority, interval, fastest, maxDelay) = when (currentTrackingMode) {
+            TrackingMode.MOVING -> Quadruple(
+                Priority.PRIORITY_HIGH_ACCURACY,
+                LOCATION_UPDATE_INTERVAL_MOVING,
+                LOCATION_FASTEST_INTERVAL_MOVING,
+                LOCATION_UPDATE_INTERVAL_MOVING * 2
+            )
+            TrackingMode.IDLE -> Quadruple(
+                Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+                LOCATION_UPDATE_INTERVAL_IDLE,
+                LOCATION_FASTEST_INTERVAL_IDLE,
+                LOCATION_UPDATE_INTERVAL_IDLE * 2
+            )
+        }
+
+        return LocationRequest.Builder(priority, interval)
+            .setMinUpdateIntervalMillis(fastest)
+            .setMaxUpdateDelayMillis(maxDelay)
+            .setMinUpdateDistanceMeters(
+                if (currentTrackingMode == TrackingMode.MOVING) {
+                    LOCATION_UPLOAD_DISTANCE_MOVING_METERS
+                } else {
+                    LOCATION_UPLOAD_DISTANCE_IDLE_METERS
+                }
+            )
+            .build()
+    }
+
+    private fun shouldUploadLocation(location: Location): Boolean {
+        val previous = lastUploadedLocation ?: return true
+        val minInterval = if (currentTrackingMode == TrackingMode.MOVING) {
+            LOCATION_UPLOAD_INTERVAL_MOVING
+        } else {
+            LOCATION_UPLOAD_INTERVAL_IDLE
+        }
+        val minDistance = if (currentTrackingMode == TrackingMode.MOVING) {
+            LOCATION_UPLOAD_DISTANCE_MOVING_METERS
+        } else {
+            LOCATION_UPLOAD_DISTANCE_IDLE_METERS
+        }
+
+        val elapsed = System.currentTimeMillis() - lastUploadAt
+        if (elapsed >= minInterval) {
+            return true
+        }
+
+        if (location.distanceTo(previous) >= minDistance) {
+            return true
+        }
+
+        val currentAccuracy = location.accuracy.takeIf { it > 0f } ?: Float.MAX_VALUE
+        val previousAccuracy = previous.accuracy.takeIf { it > 0f } ?: Float.MAX_VALUE
+        return elapsed >= (minInterval / 2) && currentAccuracy + 15f < previousAccuracy
+    }
+
+    private fun updateTrackingMode(location: Location) {
+        val previous = lastObservedLocation?.let { Location(it) }
+        lastObservedLocation = Location(location)
+
+        val candidateMode = determineTrackingMode(location, previous)
+        if (candidateMode == currentTrackingMode) {
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val shouldPromote = trackingRank(candidateMode) > trackingRank(currentTrackingMode)
+        val canDowngrade = now - lastTrackingModeChangeAt >= TRACKING_MODE_STICKINESS_MS
+        if (!shouldPromote && !canDowngrade) {
+            return
+        }
+
+        currentTrackingMode = candidateMode
+        lastTrackingModeChangeAt = now
+        restartLocationUpdatesForCurrentMode()
+        Log.d(TAG, "Parent location tracking mode changed to $candidateMode")
+    }
+
+    private fun determineTrackingMode(location: Location, previous: Location?): TrackingMode {
+        val measuredSpeed = location.speed.takeIf { it > 0f }
+        if (measuredSpeed != null) {
+            return if (measuredSpeed >= MOVING_SPEED_THRESHOLD_MPS) {
+                TrackingMode.MOVING
+            } else {
+                TrackingMode.IDLE
+            }
+        }
+
+        if (previous != null) {
+            val elapsed = (location.time - previous.time).takeIf { it > 0L }
+                ?: TRACKING_MODE_STICKINESS_MS
+            if (elapsed <= MOVEMENT_TIME_WINDOW_MS &&
+                location.distanceTo(previous) >= MOVEMENT_DISTANCE_THRESHOLD_METERS
+            ) {
+                return TrackingMode.MOVING
+            }
+        }
+
+        return TrackingMode.IDLE
+    }
+
+    private fun trackingRank(mode: TrackingMode): Int = when (mode) {
+        TrackingMode.IDLE -> 0
+        TrackingMode.MOVING -> 1
+    }
+
+    private fun restartLocationUpdatesForCurrentMode() {
+        if (ActivityCompat.checkSelfPermission(
+                this,
+                Manifest.permission.ACCESS_FINE_LOCATION
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+
+        runCatching {
+            fusedLocationClient.removeLocationUpdates(locationCallback)
+            fusedLocationClient.requestLocationUpdates(
+                buildLocationRequest(),
+                locationCallback,
+                null
+            )
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to restart parent location updates", error)
+        }
+    }
+
     private fun resolveParentDeviceId(): String? {
-        val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
         val legacyPrefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
         val secure = SecureSettingsManager(this)
-        val resolved = listOf(
-            secure.getDeviceId(),
-            prefs.getString("device_id", null),
-            prefs.getString("parent_device_id", null),
-            prefs.getString("linked_parent_device_id", null),
-            legacyPrefs.getString("device_id", null),
-            legacyPrefs.getString("parent_device_id", null),
-            legacyPrefs.getString("linked_parent_device_id", null)
-        )
-            .mapNotNull { it?.trim() }
-            .firstOrNull { it.isNotBlank() }
+        val resolved = ParentEffectiveContextResolver(this)
+            .resolveOwnParentCandidates(legacyPrefs.getString("device_id", null))
+            .firstOrNull()
         if (!resolved.isNullOrBlank() && secure.getDeviceId().isNullOrBlank()) {
             secure.setDeviceId(resolved)
         }
@@ -172,28 +312,9 @@ class ParentLocationService : Service() {
     }
 
     private fun resolveTargetDeviceId(parentId: String): String? {
-        val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-        val secure = SecureSettingsManager(this)
-        val legacyPrefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-        val excluded = listOf(
-            parentId,
-            prefs.getString("parent_device_id", null),
-            prefs.getString("linked_parent_device_id", null),
-            legacyPrefs.getString("parent_device_id", null),
-            legacyPrefs.getString("linked_parent_device_id", null)
-        )
-            .mapNotNull { it?.trim() }
-            .filter { it.isNotBlank() }
-            .toSet()
-
-        val candidates = listOf(
-            prefs.getString("child_device_id", null),
-            secure.getChildDeviceId(),
-            legacyPrefs.getString("child_device_id", null),
-            prefs.getString("selected_device_id", null),
-            legacyPrefs.getString("selected_device_id", null)
-        ).mapNotNull { it?.trim() }
-        return candidates.firstOrNull { it.isNotBlank() && it !in excluded }
+        return ParentEffectiveContextResolver(this)
+            .resolveTargetDeviceCandidates(parentId)
+            .firstOrNull()
     }
     
     private fun createNotificationChannel() {
@@ -243,4 +364,11 @@ class ParentLocationService : Service() {
         serviceScope.cancel()
         Log.d(TAG, "ParentLocationService destroyed")
     }
+
+    private data class Quadruple<A, B, C, D>(
+        val first: A,
+        val second: B,
+        val third: C,
+        val fourth: D
+    )
 }

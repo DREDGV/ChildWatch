@@ -286,8 +286,26 @@ class ParentLocationMapActivity : AppCompatActivity() {
             parentSpeed
         )
         
-        binding.distanceText.text = etaInfo.formattedDistance
-        binding.etaText.text = etaInfo.formattedETA
+        binding.distanceText.text = if (etaInfo.distanceMeters < 1000f) {
+            getString(R.string.map_distance_meters_clean, etaInfo.distanceMeters.toInt())
+        } else {
+            getString(R.string.map_distance_km_clean, etaInfo.distanceMeters / 1000f)
+        }
+        binding.etaText.text = if (!etaInfo.isMoving) {
+            getString(R.string.map_eta_stationary_parent)
+        } else {
+            val etaSeconds = etaInfo.etaSeconds
+            when {
+                etaSeconds == null -> getString(R.string.map_eta_unknown_clean)
+                etaSeconds < 60 -> getString(R.string.map_eta_under_minute_clean)
+                etaSeconds < 3600 -> getString(R.string.map_eta_minutes_clean, etaSeconds / 60)
+                else -> getString(
+                    R.string.map_eta_hours_minutes_clean,
+                    etaSeconds / 3600,
+                    (etaSeconds % 3600) / 60
+                )
+            }
+        }
         binding.statsCard.visibility = View.VISIBLE
         
         mapView.invalidate()

@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.util.Log
+import ru.example.parentwatch.R
+import ru.example.parentwatch.session.ChildActiveSessionStore
+import ru.example.parentwatch.session.ChildEffectiveContextResolver
 import ru.example.parentwatch.service.LocationService
 import ru.example.parentwatch.service.ChatBackgroundService
 import ru.example.parentwatch.utils.ServerUrlResolver
@@ -28,9 +31,12 @@ class BootReceiver : BroadcastReceiver() {
                 Log.d(TAG, "Boot-related action received: ${intent.action}")
 
                 val prefs = context.getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
+                val sessionStore = ChildActiveSessionStore(context)
+                val effectiveContext = ChildEffectiveContextResolver(context).resolveEffectiveContext()
                 val wasRunning = prefs.getBoolean("service_running", false)
                 val autoStart = prefs.getBoolean("auto_start_on_boot", true)
-                var deviceId = prefs.getString("device_id", null)
+                var deviceId = effectiveContext?.ownChildDeviceId?.takeIf { it.isNotBlank() }
+                    ?: sessionStore.resolveCurrentChildId().takeIf { it.isNotBlank() }
                 val childDeviceId = prefs.getString("child_device_id", null)
 
                 if (deviceId.isNullOrEmpty() && !childDeviceId.isNullOrEmpty()) {
@@ -41,13 +47,28 @@ class BootReceiver : BroadcastReceiver() {
                         .apply()
                 }
 
-                val serverUrl = ServerUrlResolver.getServerUrl(context)
+                val serverUrl = effectiveContext?.serverUrl?.takeIf { it.isNotBlank() }
+                    ?: sessionStore.resolveCurrentServerUrl().takeIf { it.isNotBlank() }
+                    ?: ServerUrlResolver.getServerUrl(context)
 
                 val shouldStart = (wasRunning || autoStart) && !deviceId.isNullOrEmpty() && !serverUrl.isNullOrBlank()
                 if (!shouldStart) {
                     Log.w(TAG, "Skipping auto-start: wasRunning=$wasRunning autoStart=$autoStart deviceId=$deviceId serverUrl=$serverUrl")
                     return
                 }
+
+                sessionStore.applySession(
+                    sessionStore.buildSession(
+                        name = sessionStore.getActiveSession()?.name?.takeIf { it.isNotBlank() }
+                            ?: context.getString(R.string.profile_switch_current_name),
+                        serverUrl = serverUrl!!,
+                        ownChildDeviceId = deviceId!!,
+                        linkedParentDeviceId = effectiveContext?.linkedParentDeviceId
+                            ?.takeIf { it.isNotBlank() }
+                            ?: sessionStore.resolveCurrentParentId().takeIf { it.isNotBlank() }
+                            ?: sessionStore.resolveCurrentParentId()
+                    )
+                )
 
                 Log.d(TAG, "Restarting LocationService after boot")
                 val serviceIntent = Intent(context, LocationService::class.java).apply {

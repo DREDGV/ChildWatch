@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import ru.example.childwatch.network.NetworkClient
+import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.utils.SecureSettingsManager
 
 object CriticalEventReporter {
@@ -22,11 +23,14 @@ object CriticalEventReporter {
         metadata: Map<String, Any?> = emptyMap()
     ) {
         val secureSettings = SecureSettingsManager(context)
-        val deviceId = secureSettings.getDeviceId()
-        val serverUrl = secureSettings.getServerUrl()
+        val effectiveContext = ParentEffectiveContextResolver(context).resolve()
+        val deviceId = effectiveContext.ownParentDeviceId.ifBlank {
+            secureSettings.getDeviceId()?.trim().orEmpty()
+        }
+        val serverUrl = effectiveContext.serverUrl.ifBlank { secureSettings.getServerUrl().trim() }
 
-        if (deviceId.isNullOrBlank()) {
-            Log.w(TAG, "Skipping critical event reporting: deviceId is missing")
+        if (deviceId.isBlank() || serverUrl.isBlank()) {
+            Log.w(TAG, "Skipping critical event reporting: incomplete effective context")
             return
         }
 

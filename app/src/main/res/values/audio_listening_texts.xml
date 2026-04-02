@@ -12,6 +12,7 @@
 
     <string name="listen_state_stopped">Не активна</string>
     <string name="listen_state_running">Активна</string>
+    <string name="listen_state_busy">Линия занята</string>
     <string name="listen_toggle_start">Начать прослушку</string>
     <string name="listen_toggle_stop">Остановить прослушку</string>
 
@@ -21,6 +22,7 @@
     <string name="listen_connection_stable">Поток стабилен</string>
     <string name="listen_connection_delayed">Есть задержка</string>
     <string name="listen_connection_reconnecting">Переподключение</string>
+    <string name="listen_connection_busy">Ребенка уже слушают</string>
     <string name="listen_connection_error">Ошибка потока</string>
 
     <string name="listen_section_options">Звук и запись</string>
@@ -79,6 +81,24 @@
     <string name="listen_hint_active">Последний пакет: %1$s.</string>
     <string name="listen_hint_active_stale_status">Статус ребенка давно не обновлялся: %1$s.</string>
     <string name="listen_hint_error">Проверьте сеть, телефон ребенка и сервер.</string>
+    <string name="listen_busy_other_parent">Ребенка уже прослушивает %1$s. Линия пока занята.</string>
+    <string name="listen_takeover_dialog_title">Линия занята</string>
+    <string name="listen_takeover_dialog_message">Прослушку уже ведет %1$s. Можно отправить запрос на освобождение линии.</string>
+    <string name="listen_takeover_dialog_request">Запросить освобождение</string>
+    <string name="listen_takeover_request_pending">Запрос на освобождение линии уже отправлен. Подождите ответа.</string>
+    <string name="listen_takeover_request_sent">Запрос отправлен для %1$s. Ждем освобождения линии.</string>
+    <string name="listen_takeover_request_granted">Линия освободилась. Прослушка запускается.</string>
+    <string name="listen_takeover_request_failed">Не удалось отправить запрос: %1$s</string>
+    <string name="listen_takeover_line_available">Линия освободилась. Можно запускать прослушку.</string>
+    <string name="listen_takeover_pending_hint">Запрос отправлен %1$s. Ждем освобождения линии.</string>
+    <string name="listen_toggle_request_takeover">Запросить освобождение линии</string>
+    <string name="listen_toggle_takeover_sent">Запрос отправлен</string>
+    <string name="listen_takeover_owner_dialog_title">Запрос на освобождение линии</string>
+    <string name="listen_takeover_owner_dialog_message">%1$s просит освободить линию прослушки. Освободить сейчас?</string>
+    <string name="listen_takeover_owner_release">Освободить</string>
+    <string name="listen_takeover_owner_keep">Оставить занятой</string>
+    <string name="listen_takeover_owner_requested_toast">%1$s просит освободить линию.</string>
+    <string name="listen_takeover_owner_released_toast">Линия освобождена.</string>
 
     <string name="listen_stream_kbps">%1$d КБ/с</string>
     <string name="listen_stream_sample_rate">%1$d кГц</string>

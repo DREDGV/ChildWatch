@@ -3,6 +3,8 @@ package ru.example.parentwatch.network
 import android.content.Context
 import android.util.Log
 import ru.example.parentwatch.BuildConfig
+import ru.example.parentwatch.session.ChildActiveSessionStore
+import ru.example.parentwatch.session.ChildEffectiveContextResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.*
@@ -59,6 +61,8 @@ class NetworkClient(private val context: Context) {
     private val tokenManager = TokenManager(context)
     private val parentPrefs = context.getSharedPreferences(PREFS_PARENT, Context.MODE_PRIVATE)
     private val legacyPrefs = context.getSharedPreferences(PREFS_LEGACY, Context.MODE_PRIVATE)
+    private val sessionStore = ChildActiveSessionStore(context)
+    private val effectiveContextResolver = ChildEffectiveContextResolver(context)
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
@@ -126,6 +130,12 @@ class NetworkClient(private val context: Context) {
         authToken = null
         tokenManager.clearTokens()
     }
+
+    fun replaceDeviceIdentity(deviceId: String?) {
+        authToken = null
+        tokenManager.setDeviceId(deviceId)
+        tokenManager.clearTokens()
+    }
     
     /**
      * Create certificate pinner for HTTPS security
@@ -146,7 +156,7 @@ class NetworkClient(private val context: Context) {
         return HttpLoggingInterceptor { message ->
             Log.d(TAG, message)
         }.apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = HttpLoggingInterceptor.Level.BASIC
         }
     }
     
@@ -766,24 +776,17 @@ class NetworkClient(private val context: Context) {
     }
 
     private fun resolveChildDeviceId(): String {
-        val excluded = listOf(
-            parentPrefs.getString("parent_device_id", null),
-            parentPrefs.getString("linked_parent_device_id", null),
-            legacyPrefs.getString("parent_device_id", null),
-            legacyPrefs.getString("linked_parent_device_id", null)
-        )
-            .mapNotNull { it?.trim() }
-            .filter { it.isNotBlank() }
-            .toSet()
-
+        val effectiveContext = effectiveContextResolver.resolveEffectiveContext()
         val resolved = listOf(
-            parentPrefs.getString("device_id", null),
+            effectiveContext?.ownChildDeviceId,
+            sessionStore.resolveCurrentChildId(),
             parentPrefs.getString("child_device_id", null),
+            parentPrefs.getString("device_id", null),
+            legacyPrefs.getString("child_device_id", null),
             legacyPrefs.getString("device_id", null),
-            legacyPrefs.getString("child_device_id", null)
         )
             .mapNotNull { it?.trim() }
-            .firstOrNull { it.isNotBlank() && it !in excluded }
+            .firstOrNull { it.isNotBlank() }
 
         if (!resolved.isNullOrBlank()) {
             return resolved
@@ -851,15 +854,15 @@ class NetworkClient(private val context: Context) {
     }
 
     private fun getConfiguredServerUrl(): String? {
-        val primary = parentPrefs.getString("server_url", null)
-        if (!primary.isNullOrBlank()) {
-            return primary
-        }
-        val legacy = legacyPrefs.getString("server_url", null)
-        if (!legacy.isNullOrBlank()) {
-            return legacy
-        }
-        return null
+        val effectiveContext = effectiveContextResolver.resolveEffectiveContext()
+        return listOf(
+            effectiveContext?.serverUrl,
+            sessionStore.resolveCurrentServerUrl(),
+            parentPrefs.getString("server_url", null),
+            legacyPrefs.getString("server_url", null)
+        )
+            .mapNotNull { it?.trim() }
+            .firstOrNull { it.isNotBlank() }
     }
     
     /**
@@ -1193,6 +1196,101 @@ class NetworkClient(private val context: Context) {
     }
 
     /**
+     * Get linked parents for the current child device using authenticated Retrofit client.
+     */
+    suspend fun getLinkedParents(
+        childDeviceId: String
+    ): retrofit2.Response<LinkedParentsResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot get linked parents")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+
+                Log.d(TAG, "Getting linked parents from server: $serverUrl")
+                Log.d(TAG, "Child device ID: $childDeviceId")
+
+                api.getLinkedParents(childDeviceId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting linked parents", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    suspend fun linkParentChild(
+        parentDeviceId: String,
+        childDeviceId: String,
+        displayName: String? = null
+    ): retrofit2.Response<GenericResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot link parent-child")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+
+                api.linkParentChild(
+                    ParentChildLinkRequest(
+                        parentDeviceId = parentDeviceId,
+                        childDeviceId = childDeviceId,
+                        displayName = displayName
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Error linking parent-child", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    suspend fun unlinkParentChild(
+        parentDeviceId: String,
+        childDeviceId: String
+    ): retrofit2.Response<GenericResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot unlink parent-child")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+
+                api.unlinkParentChild(
+                    ParentChildUnlinkRequest(
+                        parentDeviceId = parentDeviceId,
+                        childDeviceId = childDeviceId
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Error unlinking parent-child", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    /**
      * Get chat history for this child device using authenticated Retrofit client.
      */
     suspend fun getChatHistory(
@@ -1230,7 +1328,7 @@ class NetworkClient(private val context: Context) {
     private fun createRetrofitClient(baseUrl: String): retrofit2.Retrofit {
         val normalizedBaseUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
         val loggingInterceptor = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = HttpLoggingInterceptor.Level.BASIC
         }
 
         val authInterceptor = okhttp3.Interceptor { chain ->

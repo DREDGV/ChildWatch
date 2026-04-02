@@ -37,6 +37,30 @@ interface ChildWatchApi {
     suspend fun getDeviceStatus(@Path("deviceId") deviceId: String): Response<DeviceStatusResponse>
 
     /**
+     * Get parents linked to this child device
+     */
+    @GET("api/relationships/parents/{childDeviceId}")
+    suspend fun getLinkedParents(
+        @Path("childDeviceId") childDeviceId: String
+    ): Response<LinkedParentsResponse>
+
+    /**
+     * Create or update a parent-child server-side link
+     */
+    @POST("api/relationships/link")
+    suspend fun linkParentChild(
+        @Body request: ParentChildLinkRequest
+    ): Response<GenericResponse>
+
+    /**
+     * Deactivate an existing parent-child server-side link
+     */
+    @POST("api/relationships/unlink")
+    suspend fun unlinkParentChild(
+        @Body request: ParentChildUnlinkRequest
+    ): Response<GenericResponse>
+
+    /**
      * Get chat message history
      */
     @GET("api/chat/history/{deviceId}")
@@ -113,6 +137,39 @@ data class DeviceStatus(
     val raw: Map<String, Any?>?
 )
 
+data class LinkedParentsResponse(
+    val success: Boolean,
+    val childDeviceId: String? = null,
+    val count: Int = 0,
+    val parents: List<LinkedParentLink> = emptyList()
+)
+
+data class LinkedParentLink(
+    val parentDeviceId: String,
+    val childDeviceId: String? = null,
+    val relationRole: String? = null,
+    val displayName: String? = null,
+    val createdBy: String? = null,
+    val isActive: Boolean? = null,
+    val createdAt: String? = null,
+    val updatedAt: String? = null,
+    val parentDeviceName: String? = null,
+    val parentDeviceType: String? = null,
+    val parentAppVersion: String? = null
+)
+
+data class ParentChildLinkRequest(
+    val parentDeviceId: String,
+    val childDeviceId: String,
+    val relationRole: String = "guardian",
+    val displayName: String? = null
+)
+
+data class ParentChildUnlinkRequest(
+    val parentDeviceId: String,
+    val childDeviceId: String
+)
+
 data class ChatHistoryResponse(
     val success: Boolean,
     val deviceId: String,
@@ -123,6 +180,9 @@ data class ChatHistoryResponse(
 data class ChatMessageData(
     val id: String,
     val sender: String,
+    val senderRole: String? = null,
+    val senderDeviceId: String? = null,
+    val senderDisplayName: String? = null,
     val message: String,
     val timestamp: Long,
     val isRead: Boolean,

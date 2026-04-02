@@ -48,6 +48,12 @@ data class ChatMessageEntity(
     @ColumnInfo(name = "sender")
     val sender: String, // "child" or "parent"
 
+    @ColumnInfo(name = "author_device_id")
+    val authorDeviceId: String? = null,
+
+    @ColumnInfo(name = "author_display_name")
+    val authorDisplayName: String? = null,
+
     @ColumnInfo(name = "timestamp")
     val timestamp: Long,
 
@@ -68,6 +74,8 @@ data class ChatMessageEntity(
             id = messageId,
             text = text,
             sender = sender,
+            authorDeviceId = authorDeviceId,
+            authorDisplayName = authorDisplayName,
             timestamp = timestamp,
             isRead = isRead,
             status = ChatMessage.statusFromServer(status)
@@ -84,6 +92,8 @@ data class ChatMessageEntity(
                 childId = childId,
                 text = message.text,
                 sender = message.sender,
+                authorDeviceId = message.authorDeviceId,
+                authorDisplayName = message.authorDisplayName,
                 timestamp = message.timestamp,
                 isRead = message.isRead,
                 status = message.statusToServerValue(),

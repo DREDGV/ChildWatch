@@ -8,6 +8,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import ru.example.parentwatch.databinding.ActivityQrCodeBinding
+import ru.example.parentwatch.session.ChildActiveSessionStore
 
 /**
  * QR Code Activity for ParentWatch
@@ -16,10 +17,10 @@ import ru.example.parentwatch.databinding.ActivityQrCodeBinding
 class QrCodeActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityQrCodeBinding
+    private val sessionStore by lazy { ChildActiveSessionStore(this) }
 
     companion object {
-        private const val TAG = "QrCodeActivity"
-        private const val QR_CODE_SIZE = 512 // Size in pixels
+        private const val QR_CODE_SIZE = 512
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -27,7 +28,6 @@ class QrCodeActivity : AppCompatActivity() {
         binding = ActivityQrCodeBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Set up action bar
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.title = "QR-код устройства"
 
@@ -36,12 +36,10 @@ class QrCodeActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
-        // Close button
         binding.closeButton.setOnClickListener {
             finish()
         }
 
-        // Share button
         binding.shareButton.setOnClickListener {
             shareQrCode()
         }
@@ -50,38 +48,28 @@ class QrCodeActivity : AppCompatActivity() {
     private fun generateAndDisplayQrCode() {
         try {
             val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
-            val deviceId = prefs.getString("device_id", null)
+            val deviceId = sessionStore.resolveCurrentChildId().ifBlank {
+                prefs.getString("device_id", null).orEmpty()
+            }
 
-            if (deviceId.isNullOrEmpty()) {
+            if (deviceId.isBlank()) {
                 Toast.makeText(this, "Device ID не найден", Toast.LENGTH_SHORT).show()
                 binding.deviceIdText.text = "Device ID не настроен"
                 return
             }
 
-            // Display Device ID
             binding.deviceIdText.text = deviceId
-
-            // Generate QR code
-            val qrCodeBitmap = generateQrCode(deviceId)
-
-            // Display QR code
-            binding.qrCodeImageView.setImageBitmap(qrCodeBitmap)
-
-            // Show instructions
+            binding.qrCodeImageView.setImageBitmap(generateQrCode(deviceId))
             binding.instructionsText.text = """
                 Отсканируйте этот QR-код с помощью
-                родительского приложения (ChildWatch)
+                родительского приложения (ParentMonitor)
                 для быстрого сопряжения устройств
             """.trimIndent()
-
         } catch (e: Exception) {
             Toast.makeText(this, "Ошибка генерации QR-кода: ${e.message}", Toast.LENGTH_LONG).show()
         }
     }
 
-    /**
-     * Generate QR code bitmap from Device ID
-     */
     private fun generateQrCode(deviceId: String): Bitmap {
         val writer = QRCodeWriter()
         val bitMatrix = writer.encode(deviceId, BarcodeFormat.QR_CODE, QR_CODE_SIZE, QR_CODE_SIZE)
@@ -99,12 +87,8 @@ class QrCodeActivity : AppCompatActivity() {
         return bitmap
     }
 
-    /**
-     * Share QR code (future implementation)
-     */
     private fun shareQrCode() {
-        // TODO: Implement sharing functionality
-        Toast.makeText(this, "Функция поделиться в разработке", Toast.LENGTH_SHORT).show()
+        Toast.makeText(this, "Функция поделиться пока в разработке", Toast.LENGTH_SHORT).show()
     }
 
     override fun onSupportNavigateUp(): Boolean {

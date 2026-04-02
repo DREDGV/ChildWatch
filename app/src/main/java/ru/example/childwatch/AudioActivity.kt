@@ -11,6 +11,8 @@ import androidx.core.content.ContextCompat
 import ru.example.childwatch.audio.AudioRecorder
 import ru.example.childwatch.audio.FilterMode
 import ru.example.childwatch.databinding.ActivityAudioBinding
+import ru.example.childwatch.profile.ParentActiveSessionStore
+import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.utils.PermissionHelper
 import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.ui.AudioVisualizer
@@ -37,6 +39,9 @@ class AudioActivity : AppCompatActivity() {
     private lateinit var binding: ActivityAudioBinding
     private lateinit var audioRecorder: AudioRecorder
     private lateinit var audioVisualizer: AudioVisualizer
+    private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
+    private lateinit var activeSessionStore: ParentActiveSessionStore
+    private lateinit var secureSettings: SecureSettingsManager
     private var isRecording = false
     private var isMonitoring = false
     private var currentAudioFile: File? = null
@@ -55,6 +60,9 @@ class AudioActivity : AppCompatActivity() {
         
         // Initialize audio recorder
         audioRecorder = AudioRecorder(this)
+        effectiveContextResolver = ParentEffectiveContextResolver(this)
+        activeSessionStore = ParentActiveSessionStore(this)
+        secureSettings = SecureSettingsManager(this)
         
         // Initialize audio visualizer
         audioVisualizer = binding.audioVisualizer
@@ -183,9 +191,17 @@ class AudioActivity : AppCompatActivity() {
             Log.d(TAG, "Starting audio monitoring from child device")
 
             // Получаем настройки
-            val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-            val serverUrl = SecureSettingsManager(this).getServerUrl().trim()
-            val childDeviceId = prefs.getString("child_device_id", "")
+            val effectiveContext = effectiveContextResolver.resolve()
+            val serverUrl = effectiveContext.serverUrl.ifBlank {
+                activeSessionStore.getSession()?.serverUrl?.trim().orEmpty()
+            }.ifBlank {
+                secureSettings.getServerUrl().trim()
+            }
+            val childDeviceId = effectiveContext.linkedChildDeviceId.ifBlank {
+                activeSessionStore.getSession()?.linkedChildDeviceId.orEmpty()
+            }.ifBlank {
+                secureSettings.getChildDeviceId().orEmpty()
+            }
 
             if (serverUrl.isBlank()) {
                 Toast.makeText(this, getString(R.string.server_url_missing), Toast.LENGTH_LONG).show()
@@ -198,6 +214,7 @@ class AudioActivity : AppCompatActivity() {
             }
 
             isMonitoring = true
+            activeSessionStore.updateFocusedChildId(childDeviceId)
 
             // Запускаем AudioPlaybackService для получения аудио стрима
             ru.example.childwatch.service.AudioPlaybackService.startPlayback(

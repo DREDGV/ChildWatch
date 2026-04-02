@@ -4,6 +4,8 @@ import android.app.Service
 import android.content.Intent
 import android.os.IBinder
 import android.util.Log
+import ru.example.parentwatch.chat.ChatMessage
+import ru.example.parentwatch.chat.ChatMessageRuntimeRegistry
 import ru.example.parentwatch.network.WebSocketManager
 import ru.example.parentwatch.utils.NotificationManager
 
@@ -20,9 +22,15 @@ class ChatNotificationService : Service() {
 
     private val notificationListener: (String, String, String, Long) -> Unit = { messageId, text, sender, timestamp ->
         Log.d(TAG, "Received message in background: $text from $sender")
+        val message = ChatMessageRuntimeRegistry.find(messageId) ?: ChatMessage(
+            id = messageId,
+            text = text,
+            sender = sender,
+            timestamp = timestamp
+        )
         NotificationManager.showChatNotification(
             context = this,
-            senderName = sender,
+            senderName = message.getSenderName(),
             messageText = text,
             timestamp = timestamp
         )

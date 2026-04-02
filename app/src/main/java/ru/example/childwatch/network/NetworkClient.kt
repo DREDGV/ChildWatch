@@ -12,6 +12,7 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
+import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import java.io.File
 import java.io.IOException
 import java.security.cert.CertificateException
@@ -57,6 +58,7 @@ class NetworkClient(private val context: Context) {
     private val offlineQueue = mutableListOf<OfflineRequest>()
     private val tokenManager = TokenManager(context)
     private val secureSettings by lazy { SecureSettingsManager(context) }
+    private val effectiveContextResolver by lazy { ParentEffectiveContextResolver(context) }
     
     private val client = OkHttpClient.Builder()
         .connectTimeout(CONNECT_TIMEOUT, TimeUnit.SECONDS)
@@ -124,6 +126,12 @@ class NetworkClient(private val context: Context) {
         authToken = null
         tokenManager.clearTokens()
     }
+
+    fun replaceDeviceIdentity(deviceId: String?) {
+        authToken = null
+        tokenManager.setDeviceId(deviceId)
+        tokenManager.clearTokens()
+    }
     
     /**
      * Create certificate pinner for HTTPS security
@@ -144,7 +152,7 @@ class NetworkClient(private val context: Context) {
         return HttpLoggingInterceptor { message ->
             Log.d(TAG, message)
         }.apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = HttpLoggingInterceptor.Level.BASIC
         }
     }
     
@@ -261,8 +269,15 @@ class NetworkClient(private val context: Context) {
     )
 
     private fun getConfiguredServerUrl(): String? {
-        val url = secureSettings.getServerUrl().trim()
+        val url = effectiveContextResolver.resolveServerUrl().trim().ifBlank {
+            secureSettings.getServerUrl().trim()
+        }
         return url.takeIf { it.isNotBlank() }
+    }
+
+    private fun resolveOwnParentId(): String? {
+        val parentId = effectiveContextResolver.resolveOwnParentId().trim()
+        return parentId.takeIf { it.isNotBlank() }
     }
     
     /**
@@ -931,6 +946,10 @@ class NetworkClient(private val context: Context) {
 
     private fun resolveOwnDeviceId(): String {
         val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
+        val resolvedFromSession = effectiveContextResolver.resolveOwnParentId().trim()
+        if (resolvedFromSession.isNotBlank()) {
+            return resolvedFromSession
+        }
         val candidates = listOf(
             secureSettings.getDeviceId(),
             prefs.getString("device_id", null)
@@ -1222,6 +1241,148 @@ class NetworkClient(private val context: Context) {
     }
 
     /**
+     * Get child device status history from server using Retrofit.
+     */
+    suspend fun getChildDeviceStatusHistory(
+        childDeviceId: String,
+        limit: Int = 60
+    ): retrofit2.Response<DeviceStatusHistoryResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot get device status history")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+
+                Log.d(TAG, "Getting child device status history from server: $serverUrl")
+                Log.d(TAG, "Child device ID: $childDeviceId, limit=$limit")
+
+                api.getDeviceStatusHistory(childDeviceId, limit)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting child device status history", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    suspend fun getLinkedChildren(
+        parentDeviceId: String
+    ): retrofit2.Response<LinkedChildrenResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot get linked children")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+                api.getLinkedChildren(parentDeviceId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting linked children", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    suspend fun getLinkedParents(
+        childDeviceId: String
+    ): retrofit2.Response<LinkedParentsResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot get linked parents")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+                api.getLinkedParents(childDeviceId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting linked parents", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    suspend fun linkParentChild(
+        parentDeviceId: String,
+        childDeviceId: String,
+        displayName: String? = null
+    ): retrofit2.Response<GenericResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot link parent-child")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+                api.linkParentChild(
+                    ParentChildLinkRequest(
+                        parentDeviceId = parentDeviceId,
+                        childDeviceId = childDeviceId,
+                        displayName = displayName
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Error linking parent-child", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    suspend fun unlinkParentChild(
+        parentDeviceId: String,
+        childDeviceId: String
+    ): retrofit2.Response<GenericResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot unlink parent-child")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+                api.unlinkParentChild(
+                    ParentChildUnlinkRequest(
+                        parentDeviceId = parentDeviceId,
+                        childDeviceId = childDeviceId
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Error unlinking parent-child", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    /**
      * Get chat history for a device using authenticated Retrofit client.
      */
     suspend fun getChatHistory(
@@ -1325,7 +1486,7 @@ class NetworkClient(private val context: Context) {
     private fun createRetrofitClient(baseUrl: String): retrofit2.Retrofit {
         val normalizedBaseUrl = if (baseUrl.endsWith("/")) baseUrl else "$baseUrl/"
         val loggingInterceptor = HttpLoggingInterceptor().apply {
-            level = HttpLoggingInterceptor.Level.BODY
+            level = HttpLoggingInterceptor.Level.BASIC
         }
 
         val authInterceptor = okhttp3.Interceptor { chain ->
@@ -1372,7 +1533,7 @@ class NetworkClient(private val context: Context) {
         recordingMode: Boolean = false,
         timeoutMinutes: Int = 30,
         sampleRate: Int = 24_000
-    ): Boolean {
+    ): StreamingCommandResult {
         return withContext(Dispatchers.IO) {
             try {
                 val url = "${serverUrl.trimEnd('/')}/api/streaming/start"
@@ -1381,6 +1542,7 @@ class NetworkClient(private val context: Context) {
                     put("recording", recordingMode)
                     put("timeoutMinutes", timeoutMinutes)
                     put("sampleRate", sampleRate)
+                    resolveOwnParentId()?.let { put("parentId", it) }
                 }
 
                 val requestBody = json.toString()
@@ -1391,20 +1553,34 @@ class NetworkClient(private val context: Context) {
                     .post(requestBody)
                     .build()
 
-                val response = client.newCall(request).execute()
-                val success = response.isSuccessful
-
-                if (success) {
-                    Log.d(TAG, "Audio streaming started for device $deviceId (recording: $recordingMode)")
-                } else {
-                    Log.e(TAG, "Failed to start streaming: ${response.code} ${response.body?.string()}")
+                client.newCall(request).execute().use { response ->
+                    val body = response.body?.string()
+                    val parsed = parseStreamingCommandResult(
+                        deviceId = deviceId,
+                        responseCode = response.code,
+                        responseBody = body
+                    )
+                    if (parsed.success) {
+                        Log.d(
+                            TAG,
+                            "Audio streaming started for device $deviceId (recording: $recordingMode)"
+                        )
+                    } else {
+                        Log.w(
+                            TAG,
+                            "Audio streaming start rejected for $deviceId: code=${parsed.code} owner=${parsed.ownerDisplayName ?: parsed.ownerParentId}"
+                        )
+                    }
+                    parsed
                 }
-
-                response.close()
-                success
             } catch (e: Exception) {
                 Log.e(TAG, "Error starting audio streaming", e)
-                false
+                StreamingCommandResult(
+                    success = false,
+                    deviceId = deviceId,
+                    code = "START_STREAM_EXCEPTION",
+                    message = e.message
+                )
             }
         }
     }
@@ -1418,6 +1594,7 @@ class NetworkClient(private val context: Context) {
                 val url = "${serverUrl.trimEnd('/')}/api/streaming/stop"
                 val json = JSONObject().apply {
                     put("deviceId", deviceId)
+                    resolveOwnParentId()?.let { put("parentId", it) }
                 }
 
                 val requestBody = json.toString()
@@ -1455,6 +1632,7 @@ class NetworkClient(private val context: Context) {
                 val url = "${serverUrl.trimEnd('/')}/api/streaming/record/start"
                 val json = JSONObject().apply {
                     put("deviceId", deviceId)
+                    resolveOwnParentId()?.let { put("parentId", it) }
                 }
 
                 val requestBody = json.toString()
@@ -1492,6 +1670,7 @@ class NetworkClient(private val context: Context) {
                 val url = "${serverUrl.trimEnd('/')}/api/streaming/record/stop"
                 val json = JSONObject().apply {
                     put("deviceId", deviceId)
+                    resolveOwnParentId()?.let { put("parentId", it) }
                 }
 
                 val requestBody = json.toString()
@@ -1597,9 +1776,14 @@ class NetworkClient(private val context: Context) {
                     if (body != null) {
                         val json = JSONObject(body)
                         return@withContext StreamingStatus(
-                            active = json.getBoolean("active"),
+                            active = json.optBoolean("active", json.optBoolean("streaming", false)),
+                            streaming = json.optBoolean("streaming", json.optBoolean("active", false)),
                             recording = json.optBoolean("recording", false),
-                            startedAt = json.optLong("startedAt", 0L)
+                            startedAt = json.optLong("startedAt", json.optLong("startTime", 0L)),
+                            ownerParentId = json.optString("ownerParentId", json.optString("parentId", "")),
+                            ownerDisplayName = json.optString("ownerDisplayName", ""),
+                            durationMs = json.optLong("durationMs", json.optLong("duration", 0L)),
+                            ownerStale = json.optBoolean("ownerStale", false)
                         )
                     }
                 } else {
@@ -1626,11 +1810,63 @@ class NetworkClient(private val context: Context) {
     /**
      * Data class for streaming status
      */
+    data class StreamingCommandResult(
+        val success: Boolean,
+        val deviceId: String,
+        val busy: Boolean = false,
+        val code: String? = null,
+        val message: String? = null,
+        val ownerParentId: String? = null,
+        val ownerDisplayName: String? = null,
+        val startedAt: Long = 0L,
+        val durationMs: Long = 0L,
+        val canRequestTakeover: Boolean = false
+    )
+
     data class StreamingStatus(
         val active: Boolean,
+        val streaming: Boolean,
         val recording: Boolean,
-        val startedAt: Long
+        val startedAt: Long,
+        val ownerParentId: String = "",
+        val ownerDisplayName: String = "",
+        val durationMs: Long = 0L,
+        val ownerStale: Boolean = false
     )
+
+    private fun parseStreamingCommandResult(
+        deviceId: String,
+        responseCode: Int,
+        responseBody: String?
+    ): StreamingCommandResult {
+        val fallbackError = StreamingCommandResult(
+            success = responseCode in 200..299,
+            deviceId = deviceId,
+            code = if (responseCode in 200..299) null else "HTTP_$responseCode",
+            message = responseBody
+        )
+
+        if (responseBody.isNullOrBlank()) {
+            return fallbackError
+        }
+
+        return runCatching {
+            val json = JSONObject(responseBody)
+            StreamingCommandResult(
+                success = json.optBoolean("success", responseCode in 200..299),
+                deviceId = json.optString("deviceId", deviceId),
+                busy = json.optBoolean("busy", false),
+                code = json.optString("code").takeIf { it.isNotBlank() },
+                message = json.optString("error").takeIf { it.isNotBlank() }
+                    ?: json.optString("message").takeIf { it.isNotBlank() },
+                ownerParentId = json.optString("ownerParentId").takeIf { it.isNotBlank() },
+                ownerDisplayName = json.optString("ownerDisplayName").takeIf { it.isNotBlank() },
+                startedAt = json.optLong("startedAt", 0L),
+                durationMs = json.optLong("durationMs", 0L),
+                canRequestTakeover = json.optBoolean("canRequestTakeover", false)
+            )
+        }.getOrElse { fallbackError }
+    }
     suspend fun sendCriticalEvent(
         serverUrl: String,
         deviceId: String,

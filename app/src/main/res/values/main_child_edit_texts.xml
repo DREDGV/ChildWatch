@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="main_selected_child_id_and_edit_hint">ID: %1$s...\nКарточка: имя, фото и разрешения</string>
+    <string name="main_toast_select_child_first_to_edit">Сначала выберите ребенка, потом можно менять его имя и карточку</string>
+    <string name="main_child_card_button">Карточка</string>
+    <string name="main_child_card_button_hint">Открыть карточку ребенка</string>
+    <string name="child_card_edit_title">Карточка ребенка</string>
+    <string name="child_card_locked_id_hint">ID устройства фиксирован. Здесь меняются имя, фото и разрешения.</string>
+    <string name="profile_switch_edit_profile">Изменить профиль связи</string>
+</resources>

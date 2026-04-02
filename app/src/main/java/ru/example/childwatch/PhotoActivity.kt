@@ -16,6 +16,8 @@ import androidx.core.content.FileProvider
 import org.json.JSONObject
 import ru.example.childwatch.databinding.ActivityPhotoBinding
 import ru.example.childwatch.network.WebSocketClient
+import ru.example.childwatch.profile.ParentActiveSessionStore
+import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.utils.PermissionHelper
 import ru.example.childwatch.utils.SecureSettingsManager
 import java.io.File
@@ -47,20 +49,30 @@ class PhotoActivity : AppCompatActivity() {
     private var webSocketClient: WebSocketClient? = null
     private var childDeviceId: String? = null
     private var serverUrl: String? = null
+    private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
+    private lateinit var activeSessionStore: ParentActiveSessionStore
+    private lateinit var secureSettings: SecureSettingsManager
     
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityPhotoBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        val secureSettings = SecureSettingsManager(this)
-        childDeviceId = secureSettings.getChildDeviceId()
-        serverUrl = secureSettings.getServerUrl().trim().ifEmpty { null }
+        effectiveContextResolver = ParentEffectiveContextResolver(this)
+        activeSessionStore = ParentActiveSessionStore(this)
+        secureSettings = SecureSettingsManager(this)
 
-        if (childDeviceId.isNullOrBlank()) {
-            val legacyPrefs = getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
-            childDeviceId = legacyPrefs.getString("child_device_id", null)
-        }
+        val effectiveContext = effectiveContextResolver.resolve()
+        childDeviceId = effectiveContext.linkedChildDeviceId.takeIf { it.isNotBlank() }
+            ?: activeSessionStore.getSession()?.linkedChildDeviceId?.takeIf { it.isNotBlank() }
+            ?: secureSettings.getChildDeviceId()
+        serverUrl = effectiveContext.serverUrl.trim().ifEmpty {
+            activeSessionStore.getSession()?.serverUrl?.trim().orEmpty()
+        }.ifEmpty {
+            secureSettings.getServerUrl().trim()
+        }.ifEmpty { null }
+
+        childDeviceId?.takeIf { it.isNotBlank() }?.let(activeSessionStore::updateFocusedChildId)
 
         // Setup UI
         setupUI()

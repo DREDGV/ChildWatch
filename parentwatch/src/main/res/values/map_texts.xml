@@ -62,6 +62,12 @@
     <string name="map_distance_label">Расстояние</string>
     <string name="map_eta_label">Время прибытия</string>
     <string name="map_updated_every_30s">Обновляется каждые 30 секунд</string>
+    <string name="map_updated_adaptive">Обновление адаптивное: чаще в движении, реже в покое</string>
+    <string name="map_live_mode_button">Live 10 мин</string>
+    <string name="map_live_mode_active">Live mode активен</string>
+    <string name="map_live_mode_until">Live mode еще %1$d мин</string>
+    <string name="map_live_mode_enabled">Ускоренный режим карты включен на 10 минут</string>
+    <string name="map_live_mode_disabled">Ускоренный режим карты выключен</string>
     <string name="map_center_both">Центрировать по двум точкам</string>
     <string name="map_center_me">Центрировать по мне</string>
     <string name="map_center_other">Центрировать по второй точке</string>

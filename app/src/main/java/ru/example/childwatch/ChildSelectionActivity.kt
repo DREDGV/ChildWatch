@@ -36,6 +36,11 @@ import ru.example.childwatch.contacts.ContactFeatures
 import ru.example.childwatch.contacts.ContactIcons
 import ru.example.childwatch.contacts.ContactRoles
 import ru.example.childwatch.databinding.ActivityChildSelectionBinding
+import ru.example.childwatch.network.LinkedChildLink
+import ru.example.childwatch.network.NetworkClient
+import ru.example.childwatch.profile.ParentActiveSessionStore
+import ru.example.childwatch.profile.ParentEffectiveContextResolver
+import ru.example.childwatch.profile.ParentProfileRuntimeCoordinator
 import android.util.Log
 
 /**
@@ -50,6 +55,11 @@ class ChildSelectionActivity : AppCompatActivity() {
     private lateinit var childrenAdapter: ChildrenAdapter
     private lateinit var database: ChildWatchDatabase
     private lateinit var childRepository: ChildRepository
+    private lateinit var activeSessionStore: ParentActiveSessionStore
+    private lateinit var profileRuntimeCoordinator: ParentProfileRuntimeCoordinator
+    private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
+    private lateinit var networkClient: NetworkClient
+    private var pendingEditChildId: String? = null
     private var selectedAvatarUri: Uri? = null
 
     // Launcher for avatar selection
@@ -126,8 +136,13 @@ class ChildSelectionActivity : AppCompatActivity() {
             setContentView(binding.root)
             Log.d(TAG, "View binding successful")
 
+            activeSessionStore = ParentActiveSessionStore(this)
+            profileRuntimeCoordinator = ParentProfileRuntimeCoordinator(this)
+            effectiveContextResolver = ParentEffectiveContextResolver(this)
+            networkClient = NetworkClient(this)
             database = ChildWatchDatabase.getInstance(this)
             childRepository = ChildRepository(database.childDao())
+            pendingEditChildId = intent?.getStringExtra(EXTRA_EDIT_CHILD_ID)?.trim()?.takeIf { it.isNotBlank() }
             Log.d(TAG, "Database initialized")
 
             setupToolbar()
@@ -188,13 +203,11 @@ class ChildSelectionActivity : AppCompatActivity() {
             try {
                 val children = childRepository.getAllChildren()
 
-                if (children.isEmpty()) {
-                    showEmptyState()
-                } else {
-                    showChildrenList(children)
-                }
+                renderChildren(children)
+                maybeOpenRequestedChildEditor(children)
 
                 binding.progressBar.visibility = View.GONE
+                syncLinkedChildrenFromServer()
                 Log.d(TAG, "Загружено устройств: ${children.size}")
 
             } catch (e: Exception) {
@@ -222,6 +235,139 @@ class ChildSelectionActivity : AppCompatActivity() {
         binding.emptyStateLayout.visibility = View.VISIBLE
     }
 
+    private fun renderChildren(children: List<Child>) {
+        if (children.isEmpty()) {
+            showEmptyState()
+        } else {
+            showChildrenList(children)
+        }
+    }
+
+    private fun maybeOpenRequestedChildEditor(children: List<Child>) {
+        val requestedDeviceId = pendingEditChildId ?: return
+        val child = children.firstOrNull { it.deviceId == requestedDeviceId } ?: return
+        pendingEditChildId = null
+        binding.root.post {
+            showEditChildDialog(child)
+        }
+    }
+
+    private suspend fun syncLinkedChildrenFromServer() {
+        val parentDeviceId = effectiveContextResolver.resolveOwnParentId().trim()
+        val serverUrl = effectiveContextResolver.resolveServerUrl().trim()
+        if (parentDeviceId.isBlank() || serverUrl.isBlank()) {
+            Log.d(TAG, "Skipping linked child sync: missing parent/server context")
+            return
+        }
+
+        runCatching {
+            val response = networkClient.getLinkedChildren(parentDeviceId)
+            if (!response.isSuccessful) {
+                Log.w(TAG, "Linked child sync failed with code=${response.code()}")
+                return
+            }
+
+            val importedCount = mergeLinkedChildren(response.body()?.children.orEmpty())
+            if (importedCount > 0) {
+                renderChildren(childRepository.getAllChildren())
+                Toast.makeText(
+                    this@ChildSelectionActivity,
+                    getString(R.string.relationship_sync_imported, importedCount),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }.onFailure { error ->
+            Log.w(TAG, "Unable to sync linked children from server", error)
+        }
+    }
+
+    private suspend fun mergeLinkedChildren(links: List<LinkedChildLink>): Int {
+        var importedCount = 0
+
+        links.forEach { link ->
+            val childDeviceId = link.childDeviceId.trim()
+            if (childDeviceId.isBlank()) return@forEach
+
+            val existingChild = childRepository.getChildByDeviceId(childDeviceId)
+            val resolvedName = link.displayName?.trim().takeUnless { it.isNullOrBlank() }
+                ?: link.childDeviceName?.trim().takeUnless { it.isNullOrBlank() }
+                ?: childDeviceId
+
+            if (existingChild == null) {
+                childRepository.insertOrUpdateChild(
+                    Child(
+                        deviceId = childDeviceId,
+                        name = resolvedName,
+                        role = ContactRoles.CHILD,
+                        iconId = ContactIcons.DEFAULT,
+                        allowedFeatures = ContactFeatures.CHAT or
+                            ContactFeatures.MAP or
+                            ContactFeatures.AUDIO or
+                            ContactFeatures.PHOTO,
+                        isActive = true
+                    )
+                )
+                importedCount += 1
+                return@forEach
+            }
+
+            val shouldRefreshName = existingChild.name.isBlank() ||
+                existingChild.name == existingChild.deviceId
+            if (shouldRefreshName && existingChild.name != resolvedName) {
+                childRepository.insertOrUpdateChild(
+                    existingChild.copy(
+                        name = resolvedName,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            }
+        }
+
+        return importedCount
+    }
+
+    private suspend fun linkChildOnServer(
+        childDeviceId: String,
+        childName: String
+    ): Boolean {
+        val parentDeviceId = effectiveContextResolver.resolveOwnParentId().trim()
+        val serverUrl = effectiveContextResolver.resolveServerUrl().trim()
+        if (parentDeviceId.isBlank() || serverUrl.isBlank() || childDeviceId.isBlank()) {
+            Log.d(TAG, "Skipping link sync: missing parent/server/child context")
+            return false
+        }
+
+        return runCatching {
+            networkClient.linkParentChild(
+                parentDeviceId = parentDeviceId,
+                childDeviceId = childDeviceId,
+                displayName = childName.ifBlank { null }
+            ).isSuccessful
+        }.getOrElse { error ->
+            Log.w(TAG, "Unable to link child on server: $childDeviceId", error)
+            false
+        }
+    }
+
+    private suspend fun unlinkChildOnServer(childDeviceId: String): Boolean {
+        val parentDeviceId = effectiveContextResolver.resolveOwnParentId().trim()
+        val serverUrl = effectiveContextResolver.resolveServerUrl().trim()
+        if (parentDeviceId.isBlank() || serverUrl.isBlank() || childDeviceId.isBlank()) {
+            Log.d(TAG, "Skipping unlink sync: missing parent/server/child context")
+            return false
+        }
+
+        return runCatching {
+            networkClient.unlinkParentChild(
+                parentDeviceId = parentDeviceId,
+                childDeviceId = childDeviceId
+            ).isSuccessful
+        }.getOrElse { error ->
+            Log.w(TAG, "Unable to unlink child on server: $childDeviceId", error)
+            false
+        }
+    }
+
     /**
      * Обработка выбора ребенка
      */
@@ -230,10 +376,10 @@ class ChildSelectionActivity : AppCompatActivity() {
 
         // Сохранить выбранное устройство
         val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-        prefs.edit()
-            .putString("selected_device_id", child.deviceId)
-            .putString("child_device_id", child.deviceId) // compat for existing flows
-            .apply()
+        profileRuntimeCoordinator.switchFocusedChild(
+            childDeviceId = child.deviceId,
+            shareParentLocation = prefs.getBoolean("share_parent_location", true)
+        )
 
         // Вернуть результат
         val resultIntent = Intent().apply {
@@ -430,6 +576,7 @@ class ChildSelectionActivity : AppCompatActivity() {
                 )
 
                 childRepository.insertOrUpdateChild(child)
+                linkChildOnServer(deviceId, name)
                 Log.d(TAG, "Устройство добавлено: $name ($deviceId)")
 
                 // Обновить список
@@ -453,6 +600,7 @@ class ChildSelectionActivity : AppCompatActivity() {
         val avatarImage = dialogView.findViewById<ImageView>(R.id.childAvatarImage)
         val changeAvatarButton = dialogView.findViewById<MaterialButton>(R.id.changeAvatarButton)
         val selectContactButton = dialogView.findViewById<MaterialButton>(R.id.selectContactButton)
+        val scanQrButton = dialogView.findViewById<MaterialButton>(R.id.scanQrButton)
         val deviceIdInputLayout = dialogView.findViewById<TextInputLayout>(R.id.deviceIdInputLayout)
         val deviceIdInput = dialogView.findViewById<TextInputEditText>(R.id.deviceIdInput)
         val childNameInput = dialogView.findViewById<TextInputEditText>(R.id.childNameInput)
@@ -470,6 +618,9 @@ class ChildSelectionActivity : AppCompatActivity() {
         deviceIdInput.setText(child.deviceId)
         deviceIdInput.isEnabled = false // Device ID нельзя изменить
         deviceIdInputLayout.isEnabled = false // Также отключить layout
+        deviceIdInputLayout.helperText = getString(R.string.child_card_locked_id_hint)
+        deviceIdInputLayout.isEndIconVisible = false
+        scanQrButton.visibility = View.GONE
         childNameInput.setText(child.name)
         childAgeInput.setText(child.age?.toString() ?: "")
         childPhoneInput.setText(child.phoneNumber ?: "")
@@ -546,7 +697,7 @@ class ChildSelectionActivity : AppCompatActivity() {
         }
 
         MaterialAlertDialogBuilder(this)
-            .setTitle("Редактировать устройство")
+            .setTitle(R.string.child_card_edit_title)
             .setView(dialogView)
             .setPositiveButton("Сохранить") { _, _ ->
                 val newName = childNameInput.text.toString().trim()
@@ -640,6 +791,7 @@ class ChildSelectionActivity : AppCompatActivity() {
                     updatedAt = System.currentTimeMillis()
                 )
                 childRepository.insertOrUpdateChild(updatedChild)
+                linkChildOnServer(child.deviceId, newName)
                 Log.d(TAG, "Устройство обновлено: $newName (${child.deviceId})")
 
                 // Обновить список
@@ -692,6 +844,7 @@ class ChildSelectionActivity : AppCompatActivity() {
     private fun deleteChild(child: Child) {
         lifecycleScope.launch {
             try {
+                unlinkChildOnServer(child.deviceId)
                 childRepository.deleteChild(child)
                 Log.d(TAG, "Устройство удалено: ${child.name} (${child.deviceId})")
 
@@ -709,7 +862,13 @@ class ChildSelectionActivity : AppCompatActivity() {
                 val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
                 val selectedDeviceId = prefs.getString("selected_device_id", null)
                 if (selectedDeviceId == child.deviceId) {
-                    prefs.edit().remove("selected_device_id").apply()
+                    prefs.edit()
+                        .remove("selected_device_id")
+                        .remove("child_device_id")
+                        .apply()
+                    profileRuntimeCoordinator.clearFocusedChild(
+                        shareParentLocation = prefs.getBoolean("share_parent_location", true)
+                    )
                 }
 
             } catch (e: Exception) {
@@ -996,6 +1155,7 @@ class ChildSelectionActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "ChildSelectionActivity"
         const val EXTRA_SELECTED_DEVICE_ID = "selected_device_id"
+        const val EXTRA_EDIT_CHILD_ID = "edit_child_device_id"
         private const val REQUEST_CONTACTS_PERMISSION = 100
         private const val REQUEST_CAMERA_PERMISSION = 101
     }

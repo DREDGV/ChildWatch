@@ -4,13 +4,12 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
-/**
- * Data class representing a chat message with delivery/read status
- */
 data class ChatMessage(
     val id: String,
     val text: String,
-    val sender: String, // "child" or "parent"
+    val sender: String,
+    val authorDeviceId: String? = null,
+    val authorDisplayName: String? = null,
     val timestamp: Long,
     val isRead: Boolean = false,
     val status: MessageStatus = MessageStatus.SENT
@@ -36,15 +35,34 @@ data class ChatMessage(
         return dateFormat.format(Date(timestamp))
     }
 
-    fun getSenderName(): String = when (sender) {
-        "child" -> "Ребенок"
-        "parent" -> "Родитель"
-        else -> "Неизвестно"
+    fun getSenderName(): String {
+        val explicitName = authorDisplayName?.trim().orEmpty()
+        if (explicitName.isNotEmpty()) {
+            return explicitName
+        }
+        return when (sender) {
+            "child" -> "Ребенок"
+            "parent" -> "Родитель"
+            else -> "Неизвестно"
+        }
     }
 
     fun isFromChild(): Boolean = sender == "child"
 
     fun isFromParent(): Boolean = sender == "parent"
+
+    fun isOutgoing(currentRole: String, ownDeviceId: String?): Boolean {
+        if (sender != currentRole) {
+            return false
+        }
+        val normalizedOwnId = ownDeviceId?.trim().orEmpty()
+        val normalizedAuthorId = authorDeviceId?.trim().orEmpty()
+        return normalizedOwnId.isBlank() || normalizedAuthorId.isBlank() || normalizedOwnId == normalizedAuthorId
+    }
+
+    fun isIncoming(currentRole: String, ownDeviceId: String?): Boolean {
+        return !isOutgoing(currentRole, ownDeviceId)
+    }
 
     companion object {
         fun statusFromServer(value: String?): MessageStatus {
@@ -60,11 +78,12 @@ data class ChatMessage(
 
         fun fromJson(json: org.json.JSONObject): ChatMessage {
             val status = statusFromServer(json.optString("status", null))
-
             return ChatMessage(
                 id = json.getString("id"),
                 text = json.getString("text"),
                 sender = json.getString("sender"),
+                authorDeviceId = json.optString("authorDeviceId", json.optString("senderDeviceId", null)),
+                authorDisplayName = json.optString("authorDisplayName", json.optString("senderDisplayName", null)),
                 timestamp = json.getLong("timestamp"),
                 isRead = json.optBoolean("isRead", status == MessageStatus.READ),
                 status = status

@@ -1,14 +1,14 @@
 package ru.example.parentwatch.utils
 
 import android.content.Context
+import ru.example.parentwatch.session.ChildActiveSessionStore
 
 object ServerUrlResolver {
 
     fun getServerUrl(context: Context): String? {
-        val primary = context.getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
-            .getString("server_url", null)
-            ?.trim()
-        if (!primary.isNullOrBlank()) {
+        val sessionStore = ChildActiveSessionStore(context)
+        val primary = sessionStore.resolveCurrentServerUrl().trim()
+        if (primary.isNotBlank()) {
             return normalizeServerUrl(primary)
         }
 

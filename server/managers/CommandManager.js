@@ -1,7 +1,10 @@
 /**
  * Command Manager
- * Manages commands sent from parent app to child device
- * Supports audio streaming, recording, and other remote commands
+ * Manages commands sent from parent app to child device.
+ *
+ * Multi-parent note:
+ * - transport can fan-out audio chunks to several parent sockets
+ * - control is currently exclusive: one parent owns the live stream session
  */
 
 class CommandManager {
@@ -9,7 +12,7 @@ class CommandManager {
         // Command queue: { deviceId: [commands] }
         this.commandQueue = new Map();
 
-        // Active streaming sessions: { deviceId: { parentId, startTime, recording, timeout } }
+        // Active streaming sessions: { deviceId: session }
         this.streamingSessions = new Map();
 
         // Audio buffer for streaming: { deviceId: [chunks] }
@@ -17,15 +20,80 @@ class CommandManager {
 
         // Command types
         this.COMMANDS = {
-            START_STREAM: 'start_audio_stream',
-            STOP_STREAM: 'stop_audio_stream',
-            START_RECORDING: 'start_recording',
-            STOP_RECORDING: 'stop_recording',
-            TAKE_PHOTO: 'take_photo'
+            START_STREAM: "start_audio_stream",
+            STOP_STREAM: "stop_audio_stream",
+            START_RECORDING: "start_recording",
+            STOP_RECORDING: "stop_recording",
+            TAKE_PHOTO: "take_photo",
         };
 
         // Default timeout for streaming sessions (30 minutes)
         this.DEFAULT_TIMEOUT = 30 * 60 * 1000;
+        // Grace period after owner disconnect / reconnect jitter before another parent can take over.
+        this.STREAM_OWNER_STALE_MS = 45 * 1000;
+    }
+
+    normalizeParentId(value) {
+        if (value === null || value === undefined) return "parent";
+        const normalized = String(value).trim();
+        return normalized || "parent";
+    }
+
+    buildSessionSnapshot(deviceId, session) {
+        if (!session) return null;
+        const startTime = Number(session.startTime || Date.now());
+        const ownerParentId = this.normalizeParentId(
+            session.ownerParentId || session.parentId
+        );
+        const lastOwnerSeenAt = Number(session.lastOwnerSeenAt || startTime);
+        return {
+            deviceId,
+            parentId: ownerParentId,
+            ownerParentId,
+            ownerDisplayName: session.ownerDisplayName || null,
+            startTime,
+            durationMs: Math.max(0, Date.now() - startTime),
+            recording: Boolean(session.recording),
+            chunks: Number(session.chunks || 0),
+            timeout: Number(session.timeout || this.DEFAULT_TIMEOUT),
+            sampleRate: session.sampleRate || null,
+            lastOwnerSeenAt,
+            ownerStale: this.isSessionOwnerStale(session),
+        };
+    }
+
+    isSessionOwnerStale(session, now = Date.now()) {
+        if (!session) return false;
+        const lastOwnerSeenAt = Number(session.lastOwnerSeenAt || session.startTime || 0);
+        if (!Number.isFinite(lastOwnerSeenAt) || lastOwnerSeenAt <= 0) return false;
+        return (now - lastOwnerSeenAt) > this.STREAM_OWNER_STALE_MS;
+    }
+
+    touchStreamingOwner(deviceId, parentId) {
+        const normalizedParentId = this.normalizeParentId(parentId);
+        const session = this.streamingSessions.get(deviceId);
+        if (!session) {
+            return null;
+        }
+        if (
+            this.normalizeParentId(session.ownerParentId || session.parentId) !==
+            normalizedParentId
+        ) {
+            return this.buildSessionSnapshot(deviceId, session);
+        }
+        session.ownerParentId = normalizedParentId;
+        session.parentId = normalizedParentId;
+        session.lastOwnerSeenAt = Date.now();
+        return this.buildSessionSnapshot(deviceId, session);
+    }
+
+    buildBusyResult(code, deviceId, session) {
+        return {
+            ok: false,
+            busy: true,
+            code,
+            session: this.buildSessionSnapshot(deviceId, session),
+        };
     }
 
     /**
@@ -39,13 +107,13 @@ class CommandManager {
         const commandObj = {
             id: this.generateCommandId(),
             type: command,
-            data: data,
+            data,
             timestamp: Date.now(),
-            status: 'pending'
+            status: "pending",
         };
 
         this.commandQueue.get(deviceId).push(commandObj);
-        console.log(`📤 Command added for ${deviceId}: ${command}`, data);
+        console.log(`рџ“¤ Command added for ${deviceId}: ${command}`, data);
 
         return commandObj;
     }
@@ -59,101 +127,195 @@ class CommandManager {
         }
 
         const commands = this.commandQueue.get(deviceId);
-        // Mark all as delivered
-        commands.forEach(cmd => cmd.status = 'delivered');
+        commands.forEach((cmd) => {
+            cmd.status = "delivered";
+        });
 
-        // Clear queue after retrieval
         const result = [...commands];
         this.commandQueue.delete(deviceId);
 
         return result;
     }
 
-    /**
-     * Start audio streaming session
-     * @param {string} deviceId - Device ID
-     * @param {string} parentId - Parent device ID
-     * @param {number} timeoutMinutes - Timeout in minutes (default: 30 minutes)
-     */
-    startStreaming(deviceId, parentId, timeoutMinutes = 30, options = {}) {
-        const timeout = timeoutMinutes * 60 * 1000; // Convert minutes to milliseconds
-        const sampleRate = options && Number.isFinite(Number(options.sampleRate))
-            ? Number(options.sampleRate)
-            : null;
+    requestStreamingStart(deviceId, parentId, timeoutMinutes = 30, options = {}) {
+        const normalizedParentId = this.normalizeParentId(parentId);
+        const existingSession = this.streamingSessions.get(deviceId);
+        const ownerDisplayName =
+            typeof options.ownerDisplayName === "string" && options.ownerDisplayName.trim()
+                ? options.ownerDisplayName.trim().slice(0, 100)
+                : null;
 
-        this.streamingSessions.set(deviceId, {
-            parentId: parentId,
-            startTime: Date.now(),
+        if (
+            existingSession &&
+            !this.isSessionOwnerStale(existingSession) &&
+            this.normalizeParentId(existingSession.ownerParentId || existingSession.parentId) !==
+                normalizedParentId
+        ) {
+            return this.buildBusyResult("STREAM_BUSY", deviceId, existingSession);
+        }
+
+        const timeout = timeoutMinutes * 60 * 1000;
+        const sampleRate =
+            options && Number.isFinite(Number(options.sampleRate))
+                ? Number(options.sampleRate)
+                : null;
+        const reused =
+            Boolean(existingSession) &&
+            this.normalizeParentId(existingSession.ownerParentId || existingSession.parentId) ===
+                normalizedParentId &&
+            !this.isSessionOwnerStale(existingSession);
+
+        const nextSession = {
+            parentId: normalizedParentId,
+            ownerParentId: normalizedParentId,
+            ownerDisplayName: ownerDisplayName || existingSession?.ownerDisplayName || null,
+            startTime: reused ? existingSession.startTime : Date.now(),
             recording: false,
-            chunks: 0,
-            timeout: timeout,
-            sampleRate: sampleRate
-        });
+            chunks: reused ? Number(existingSession.chunks || 0) : 0,
+            timeout,
+            sampleRate,
+            lastOwnerSeenAt: Date.now(),
+        };
 
-        // Initialize audio buffer
+        this.streamingSessions.set(deviceId, nextSession);
+
         if (!this.audioBuffers.has(deviceId)) {
             this.audioBuffers.set(deviceId, []);
         }
 
-        this.addCommand(deviceId, this.COMMANDS.START_STREAM, { parentId, sampleRate });
+        this.addCommand(deviceId, this.COMMANDS.START_STREAM, {
+            parentId: normalizedParentId,
+            sampleRate,
+        });
 
-        console.log(`🎙️ Audio streaming started for ${deviceId} by ${parentId}`);
-        return true;
+        console.log(
+            `рџЋ™пёЏ Audio streaming started for ${deviceId} by ${normalizedParentId}`
+        );
+        return {
+            ok: true,
+            reused,
+            session: this.buildSessionSnapshot(deviceId, nextSession),
+        };
     }
 
-    /**
-     * Stop audio streaming session
-     */
-    stopStreaming(deviceId) {
+    requestStreamingStop(deviceId, parentId) {
         const session = this.streamingSessions.get(deviceId);
         if (!session) {
-            return false;
+            return { ok: false, code: "NO_ACTIVE_SESSION" };
+        }
+
+        const normalizedParentId = this.normalizeParentId(parentId);
+        if (
+            !this.isSessionOwnerStale(session) &&
+            this.normalizeParentId(session.ownerParentId || session.parentId) !== normalizedParentId
+        ) {
+            return this.buildBusyResult("STREAM_CONTROL_FORBIDDEN", deviceId, session);
         }
 
         this.addCommand(deviceId, this.COMMANDS.STOP_STREAM);
-
-        // Clean up
         this.streamingSessions.delete(deviceId);
         this.audioBuffers.delete(deviceId);
 
-        console.log(`🛑 Audio streaming stopped for ${deviceId}`);
-        return true;
+        console.log(`рџ›‘ Audio streaming stopped for ${deviceId}`);
+        return { ok: true };
     }
 
-    /**
-     * Start recording during streaming
-     */
-    startRecording(deviceId) {
+    requestRecordingStart(deviceId, parentId) {
         const session = this.streamingSessions.get(deviceId);
         if (!session) {
-            return { error: 'No active streaming session' };
+            return {
+                ok: false,
+                error: "No active streaming session",
+                code: "NO_ACTIVE_SESSION",
+            };
+        }
+
+        const normalizedParentId = this.normalizeParentId(parentId);
+        if (
+            !this.isSessionOwnerStale(session) &&
+            this.normalizeParentId(session.ownerParentId || session.parentId) !== normalizedParentId
+        ) {
+            return {
+                ...this.buildBusyResult("STREAM_CONTROL_FORBIDDEN", deviceId, session),
+                error: "Streaming session is owned by another parent",
+            };
         }
 
         session.recording = true;
         session.recordingStartTime = Date.now();
+        session.ownerParentId = normalizedParentId;
+        session.parentId = normalizedParentId;
+        session.lastOwnerSeenAt = Date.now();
 
         this.addCommand(deviceId, this.COMMANDS.START_RECORDING);
 
-        console.log(`⏺️ Recording started for ${deviceId}`);
-        return true;
+        console.log(`вЏєпёЏ Recording started for ${deviceId}`);
+        return {
+            ok: true,
+            session: this.buildSessionSnapshot(deviceId, session),
+        };
     }
 
-    /**
-     * Stop recording during streaming
-     */
-    stopRecording(deviceId) {
+    requestRecordingStop(deviceId, parentId) {
         const session = this.streamingSessions.get(deviceId);
         if (!session || !session.recording) {
-            return { error: 'No active recording session' };
+            return {
+                ok: false,
+                error: "No active recording session",
+                code: "NO_ACTIVE_RECORDING",
+            };
+        }
+
+        const normalizedParentId = this.normalizeParentId(parentId);
+        if (
+            !this.isSessionOwnerStale(session) &&
+            this.normalizeParentId(session.ownerParentId || session.parentId) !== normalizedParentId
+        ) {
+            return {
+                ...this.buildBusyResult("STREAM_CONTROL_FORBIDDEN", deviceId, session),
+                error: "Recording session is owned by another parent",
+            };
         }
 
         session.recording = false;
+        session.ownerParentId = normalizedParentId;
+        session.parentId = normalizedParentId;
+        session.lastOwnerSeenAt = Date.now();
         const duration = Date.now() - session.recordingStartTime;
 
         this.addCommand(deviceId, this.COMMANDS.STOP_RECORDING, { duration });
 
-        console.log(`⏹️ Recording stopped for ${deviceId}, duration: ${duration}ms`);
-        return { duration };
+        console.log(
+            `вЏ№пёЏ Recording stopped for ${deviceId}, duration: ${duration}ms`
+        );
+        return {
+            ok: true,
+            duration,
+            session: this.buildSessionSnapshot(deviceId, session),
+        };
+    }
+
+    /**
+     * Backward-compatible wrappers.
+     */
+    startStreaming(deviceId, parentId, timeoutMinutes = 30, options = {}) {
+        return this.requestStreamingStart(deviceId, parentId, timeoutMinutes, options).ok;
+    }
+
+    stopStreaming(deviceId) {
+        return this.requestStreamingStop(deviceId, "parent").ok;
+    }
+
+    startRecording(deviceId) {
+        const result = this.requestRecordingStart(deviceId, "parent");
+        return result.ok ? true : { error: result.error || "No active streaming session" };
+    }
+
+    stopRecording(deviceId) {
+        const result = this.requestRecordingStop(deviceId, "parent");
+        return result.ok
+            ? { duration: result.duration }
+            : { error: result.error || "No active recording session" };
     }
 
     /**
@@ -167,15 +329,13 @@ class CommandManager {
         const buffer = this.audioBuffers.get(deviceId);
         buffer.push({
             data: chunk,
-            timestamp: Date.now()
+            timestamp: Date.now(),
         });
 
-        // Keep only last 30 seconds of chunks (assuming 2 sec per chunk)
         if (buffer.length > 15) {
             buffer.shift();
         }
 
-        // Update session stats
         const session = this.streamingSessions.get(deviceId);
         if (session) {
             session.chunks++;
@@ -194,53 +354,30 @@ class CommandManager {
         }
 
         const buffer = this.audioBuffers.get(deviceId);
-
-        // Clean up old chunks (older than 60 seconds)
         const now = Date.now();
-        const validChunks = buffer.filter(chunk => (now - chunk.timestamp) < 60000);
+        const validChunks = buffer.filter((chunk) => now - chunk.timestamp < 60000);
 
-        // Update buffer with only valid chunks
         this.audioBuffers.set(deviceId, validChunks);
-
-        // Return latest chunks WITHOUT removing (use slice, not splice!)
-        // This allows retries if client missed a request
-        const chunks = validChunks.slice(-count); // Get last 'count' chunks
-
-        return chunks;
+        return validChunks.slice(-count);
     }
 
-    /**
-     * Check if device is currently streaming
-     */
     isStreaming(deviceId) {
         return this.streamingSessions.has(deviceId);
     }
 
-    /**
-     * Check if device is recording
-     */
     isRecording(deviceId) {
         const session = this.streamingSessions.get(deviceId);
         return session ? session.recording : false;
     }
 
-    /**
-     * Get streaming session info
-     */
     getSessionInfo(deviceId) {
-        return this.streamingSessions.get(deviceId) || null;
+        return this.buildSessionSnapshot(deviceId, this.streamingSessions.get(deviceId));
     }
 
-    /**
-     * Generate unique command ID
-     */
     generateCommandId() {
         return `cmd_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     }
 
-    /**
-     * Clean up old sessions (call periodically)
-     */
     cleanup() {
         const now = Date.now();
 
@@ -250,8 +387,13 @@ class CommandManager {
 
             if (elapsed > timeout) {
                 const minutes = Math.floor(elapsed / 60000);
-                console.log(`🧹 Cleaning up old session for ${deviceId} (${minutes} minutes)`);
-                this.stopStreaming(deviceId);
+                console.log(
+                    `рџ§№ Cleaning up old session for ${deviceId} (${minutes} minutes)`
+                );
+                this.requestStreamingStop(
+                    deviceId,
+                    session.ownerParentId || session.parentId || "parent"
+                );
             }
         }
     }

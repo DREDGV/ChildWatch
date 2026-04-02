@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="child_parent_link_title">Связь с родителями</string>
+    <string name="child_parent_link_description">Сканируйте QR родителя и управляйте связанными родителями здесь.</string>
+    <string name="child_parent_link_scan_button">Сканировать QR родителя</string>
+    <string name="child_parent_link_manage_button">Управление родителями</string>
+    <string name="child_parent_link_status_missing">Не подключено</string>
+    <string name="child_parent_link_status_connected_count">Связано родителей: %1$d</string>
+    <string name="child_parent_link_status_connected_named">Связано родителей: %1$d (%2$s)</string>
+    <string name="child_parent_link_status_active_parent">Активный: %1$s</string>
+    <string name="child_parent_link_status_local_only">Локально подключено: %1$s</string>
+    <string name="child_parent_link_manage_title">Связанные родители</string>
+    <string name="child_parent_link_manage_empty">Пока нет связанных родителей</string>
+    <string name="child_parent_link_manage_item_active">Активный</string>
+    <string name="child_parent_link_manage_item_format">%1$s\n%2$s</string>
+    <string name="child_parent_link_actions_title">Действия с родителем</string>
+    <string name="child_parent_link_action_set_active">Сделать активным</string>
+    <string name="child_parent_link_action_remove">Отключить</string>
+    <string name="child_parent_link_switch_done">Активный родитель обновлен</string>
+    <string name="child_parent_link_remove_title">Отключить родителя</string>
+    <string name="child_parent_link_remove_message">Отключить связь с родителем \"%1$s\"?</string>
+    <string name="child_parent_link_remove_done">Связь с родителем удалена</string>
+    <string name="child_parent_link_remove_failed">Не удалось удалить связь с родителем</string>
+    <string name="child_parent_link_load_failed">Не удалось загрузить список родителей</string>
+    <string name="child_parent_link_no_child_id">Сначала настройте ID ребенка</string>
+</resources>

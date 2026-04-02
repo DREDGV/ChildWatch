@@ -122,6 +122,8 @@ class DatabaseManager {
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 device_id TEXT NOT NULL,
                 sender TEXT NOT NULL CHECK (sender IN ('parent', 'child')),
+                sender_device_id TEXT,
+                sender_display_name TEXT,
                 message TEXT NOT NULL,
                 timestamp INTEGER NOT NULL,
                 is_read INTEGER DEFAULT 0,
@@ -148,6 +150,20 @@ class DatabaseManager {
                 timestamp INTEGER NOT NULL,
                 created_at INTEGER DEFAULT (strftime('%s', 'now')),
                 FOREIGN KEY (device_id) REFERENCES devices (device_id)
+            )`,
+
+      // Parent-child links groundwork for future multi-parent / family model.
+      `CREATE TABLE IF NOT EXISTS device_links (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                parent_device_id TEXT NOT NULL,
+                child_device_id TEXT NOT NULL,
+                relation_role TEXT DEFAULT 'guardian',
+                display_name TEXT,
+                created_by TEXT,
+                is_active INTEGER DEFAULT 1,
+                created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+                UNIQUE(parent_device_id, child_device_id)
             )`,
 
       // Activity logs
@@ -212,6 +228,16 @@ class DatabaseManager {
       "read_at",
       "INTEGER"
     );
+    await this.addColumnIfNotExists(
+      "chat_messages",
+      "sender_device_id",
+      "TEXT"
+    );
+    await this.addColumnIfNotExists(
+      "chat_messages",
+      "sender_display_name",
+      "TEXT"
+    );
     await this.run(
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_client_id ON chat_messages (client_message_id)"
     );
@@ -222,6 +248,9 @@ class DatabaseManager {
       "CREATE INDEX IF NOT EXISTS idx_audio_device_timestamp ON audio_files (device_id, timestamp)",
       "CREATE INDEX IF NOT EXISTS idx_photo_device_timestamp ON photo_files (device_id, timestamp)",
       "CREATE INDEX IF NOT EXISTS idx_chat_device_timestamp ON chat_messages (device_id, timestamp)",
+      "CREATE INDEX IF NOT EXISTS idx_device_status_device_timestamp ON device_status (device_id, timestamp)",
+      "CREATE INDEX IF NOT EXISTS idx_device_links_parent ON device_links (parent_device_id)",
+      "CREATE INDEX IF NOT EXISTS idx_device_links_child ON device_links (child_device_id)",
       "CREATE INDEX IF NOT EXISTS idx_activity_device_timestamp ON activity_logs (device_id, timestamp)",
       "CREATE INDEX IF NOT EXISTS idx_alerts_device_created ON critical_alerts (device_id, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_devices_auth_token ON devices (auth_token)",
@@ -259,6 +288,17 @@ class DatabaseManager {
       );
       console.log("✅ Migration completed: current_app columns added");
     }
+
+    await this.addColumnIfNotExists(
+      "chat_messages",
+      "sender_device_id",
+      "TEXT"
+    );
+    await this.addColumnIfNotExists(
+      "chat_messages",
+      "sender_display_name",
+      "TEXT"
+    );
   }
 
   async saveCriticalAlert({
@@ -676,11 +716,165 @@ class DatabaseManager {
   }
 
   /**
+   * Get device status history (newest first).
+   */
+  async getDeviceStatusHistory(deviceId, limit = 60) {
+    const sql = `
+            SELECT *
+            FROM device_status
+            WHERE device_id = ?
+            ORDER BY timestamp DESC
+            LIMIT ?
+        `;
+
+    const rows = await this.all(sql, [deviceId, limit]);
+    return rows.map((row) => {
+      let raw = null;
+      if (row.status_json) {
+        try {
+          raw = JSON.parse(row.status_json);
+        } catch (error) {
+          console.warn("Failed to parse device status history JSON:", error.message);
+        }
+      }
+
+      return {
+        batteryLevel: row.battery_level,
+        isCharging: row.is_charging === 1,
+        chargingType: row.charging_type,
+        temperature: row.temperature,
+        voltage: row.voltage,
+        health: row.health,
+        manufacturer: row.manufacturer,
+        model: row.model,
+        androidVersion: row.android_version,
+        sdkVersion: row.sdk_version,
+        currentAppName: row.current_app_name,
+        currentAppPackage: row.current_app_package,
+        timestamp: row.timestamp,
+        raw,
+      };
+    });
+  }
+
+  async upsertDeviceLink({
+    parentDeviceId,
+    childDeviceId,
+    relationRole = "guardian",
+    displayName = null,
+    createdBy = null,
+    isActive = true,
+  }) {
+    const sql = `
+            INSERT INTO device_links (
+                parent_device_id,
+                child_device_id,
+                relation_role,
+                display_name,
+                created_by,
+                is_active
+            )
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(parent_device_id, child_device_id) DO UPDATE SET
+                relation_role = excluded.relation_role,
+                display_name = COALESCE(excluded.display_name, device_links.display_name),
+                created_by = COALESCE(device_links.created_by, excluded.created_by),
+                is_active = excluded.is_active,
+                updated_at = strftime('%s', 'now')
+        `;
+
+    return this.run(sql, [
+      parentDeviceId,
+      childDeviceId,
+      relationRole,
+      displayName,
+      createdBy,
+      isActive ? 1 : 0,
+    ]);
+  }
+
+  async getLinkedChildren(parentDeviceId) {
+    const sql = `
+            SELECT
+                dl.parent_device_id AS parentDeviceId,
+                dl.child_device_id AS childDeviceId,
+                dl.relation_role AS relationRole,
+                dl.display_name AS displayName,
+                dl.created_by AS createdBy,
+                dl.is_active AS isActive,
+                dl.created_at AS createdAt,
+                dl.updated_at AS updatedAt,
+                d.device_name AS childDeviceName,
+                d.device_type AS childDeviceType,
+                d.app_version AS childAppVersion
+            FROM device_links dl
+            LEFT JOIN devices d ON d.device_id = dl.child_device_id
+            WHERE dl.parent_device_id = ?
+              AND dl.is_active = 1
+            ORDER BY dl.updated_at DESC, dl.created_at DESC
+        `;
+
+    return this.all(sql, [parentDeviceId]);
+  }
+
+  async getLinkedParents(childDeviceId) {
+    const sql = `
+            SELECT
+                dl.parent_device_id AS parentDeviceId,
+                dl.child_device_id AS childDeviceId,
+                dl.relation_role AS relationRole,
+                dl.display_name AS displayName,
+                dl.created_by AS createdBy,
+                dl.is_active AS isActive,
+                dl.created_at AS createdAt,
+                dl.updated_at AS updatedAt,
+                d.device_name AS parentDeviceName,
+                d.device_type AS parentDeviceType,
+                d.app_version AS parentAppVersion
+            FROM device_links dl
+            LEFT JOIN devices d ON d.device_id = dl.parent_device_id
+            WHERE dl.child_device_id = ?
+              AND dl.is_active = 1
+            ORDER BY dl.updated_at DESC, dl.created_at DESC
+        `;
+
+    return this.all(sql, [childDeviceId]);
+  }
+
+  async hasActiveDeviceLink(parentDeviceId, childDeviceId) {
+    const sql = `
+            SELECT 1 AS linked
+            FROM device_links
+            WHERE parent_device_id = ?
+              AND child_device_id = ?
+              AND is_active = 1
+            LIMIT 1
+        `;
+
+    const row = await this.get(sql, [parentDeviceId, childDeviceId]);
+    return Boolean(row);
+  }
+
+  async deactivateDeviceLink(parentDeviceId, childDeviceId) {
+    const sql = `
+            UPDATE device_links
+            SET is_active = 0,
+                updated_at = strftime('%s', 'now')
+            WHERE parent_device_id = ?
+              AND child_device_id = ?
+        `;
+
+    return this.run(sql, [parentDeviceId, childDeviceId]);
+  }
+
+  /**
    * Save chat message
    */
   async saveChatMessage(deviceId, messageData) {
     const {
       sender,
+      senderDeviceId = null,
+      senderDisplayName = null,
       message,
       timestamp,
       id,
@@ -691,10 +885,23 @@ class DatabaseManager {
     const clientMessageId = id || `${deviceId}_${Date.now()}`;
 
     const sql = `
-            INSERT INTO chat_messages (device_id, sender, message, timestamp, client_message_id, delivered, delivered_at, read_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO chat_messages (
+                device_id,
+                sender,
+                sender_device_id,
+                sender_display_name,
+                message,
+                timestamp,
+                client_message_id,
+                delivered,
+                delivered_at,
+                read_at
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(client_message_id) DO UPDATE SET
                 sender = excluded.sender,
+                sender_device_id = COALESCE(excluded.sender_device_id, chat_messages.sender_device_id),
+                sender_display_name = COALESCE(excluded.sender_display_name, chat_messages.sender_display_name),
                 message = excluded.message,
                 timestamp = excluded.timestamp,
                 delivered = excluded.delivered,
@@ -705,6 +912,8 @@ class DatabaseManager {
     return this.run(sql, [
       deviceId,
       sender,
+      senderDeviceId,
+      senderDisplayName,
       message,
       timestamp || Date.now(),
       clientMessageId,
@@ -715,8 +924,9 @@ class DatabaseManager {
   }
 
   async getUndeliveredMessages(deviceId, targetRole) {
-    const expectedSender = targetRole === "parent" ? "child" : "parent";
-    const sql = `
+    const isParentTarget = String(targetRole || "").trim().toLowerCase() === "parent";
+    const sql = isParentTarget
+      ? `
             SELECT *, COALESCE(client_message_id, id) AS client_id
             FROM chat_messages
             WHERE device_id = ?
@@ -724,9 +934,18 @@ class DatabaseManager {
               AND delivered = 0
             ORDER BY timestamp ASC
             LIMIT 200
+        `
+      : `
+            SELECT *, COALESCE(client_message_id, id) AS client_id
+            FROM chat_messages
+            WHERE device_id = ?
+              AND sender <> ?
+              AND delivered = 0
+            ORDER BY timestamp ASC
+            LIMIT 200
         `;
 
-    return this.all(sql, [deviceId, expectedSender]);
+    return this.all(sql, [deviceId, "child"]);
   }
 
   async markMessagesDeliveredByClientIds(clientIds = []) {
@@ -796,6 +1015,31 @@ class DatabaseManager {
         `;
 
     return this.all(sql, [deviceId, limit, offset]);
+  }
+
+  async getChatMessagesSince(deviceId, sinceTimestamp = 0, limit = 100) {
+    const sql = `
+            SELECT *, COALESCE(client_message_id, id) AS client_id
+            FROM chat_messages
+            WHERE device_id = ?
+              AND timestamp > ?
+            ORDER BY timestamp ASC
+            LIMIT ?
+        `;
+
+    return this.all(sql, [deviceId, sinceTimestamp, limit]);
+  }
+
+  async getLatestParentLocation(parentId) {
+    const sql = `
+            SELECT *
+            FROM parent_locations
+            WHERE parent_id = ?
+            ORDER BY timestamp DESC
+            LIMIT 1
+        `;
+
+    return this.get(sql, [parentId]);
   }
 
   /**

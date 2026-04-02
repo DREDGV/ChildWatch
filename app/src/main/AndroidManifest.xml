@@ -184,6 +184,13 @@
             android:theme="@style/Theme.ChildWatch.NoActionBar"
             android:parentActivityName=".MainActivity" />
 
+        <!-- Device Usage / App Activity -->
+        <activity
+            android:name=".DeviceUsageActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ChildWatch.NoActionBar"
+            android:parentActivityName=".MainActivity" />
+
         <!-- Settings Activity -->
         <activity
             android:name=".SettingsActivity"

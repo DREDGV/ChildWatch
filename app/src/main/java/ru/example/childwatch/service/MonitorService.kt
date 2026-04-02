@@ -21,6 +21,7 @@ import ru.example.childwatch.location.ParentLocationTracker
 import ru.example.childwatch.audio.AudioRecorder
 import ru.example.childwatch.photo.PhotoCapture
 import ru.example.childwatch.network.NetworkClient
+import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.utils.PermissionHelper
 import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.utils.ErrorHandler
@@ -87,6 +88,7 @@ class MonitorService : Service() {
     private lateinit var errorHandler: ErrorHandler
     private lateinit var recoveryManager: RecoveryManager
     private lateinit var batteryOptimizer: BatteryOptimizationManager
+    private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
     private lateinit var auditLogger: AuditLogger
     private var parentLocationTracker: ParentLocationTracker? = null
     
@@ -126,6 +128,7 @@ class MonitorService : Service() {
         notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         prefs = appContext.getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         secureSettings = SecureSettingsManager(appContext)
+        effectiveContextResolver = ParentEffectiveContextResolver(appContext)
         errorHandler = ErrorHandler(appContext)
         recoveryManager = RecoveryManager(appContext)
         batteryOptimizer = BatteryOptimizationManager(appContext)
@@ -425,7 +428,7 @@ class MonitorService : Service() {
     
     private fun startChatBackgroundService() {
         try {
-            val childDeviceId = prefs.getString("child_device_id", "") ?: ""
+            val childDeviceId = effectiveContextResolver.resolveFocusedChildId()
             if (childDeviceId.isNotEmpty() && serverUrl.isNotBlank()) {
                 ChatBackgroundService.start(this, serverUrl, childDeviceId)
                 Log.d(TAG, "ChatBackgroundService started for child device: $childDeviceId")
@@ -754,7 +757,9 @@ class MonitorService : Service() {
     private fun loadConfiguration() {
         locationIntervalSeconds = (secureSettings.getLocationInterval() / 1000L).toInt().coerceAtLeast(5)
         defaultAudioDurationSeconds = secureSettings.getAudioDuration().coerceAtLeast(5)
-        serverUrl = secureSettings.getServerUrl().trim()
+        serverUrl = effectiveContextResolver.resolveServerUrl().ifBlank {
+            secureSettings.getServerUrl().trim()
+        }
         
         Log.d(
             TAG,

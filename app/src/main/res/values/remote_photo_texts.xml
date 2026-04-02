@@ -48,6 +48,8 @@
     <string name="remote_camera_done">Готово</string>
     <string name="remote_camera_request_timeout">Время ожидания истекло</string>
     <string name="remote_camera_no_response">Устройство не ответило на запрос фото</string>
+    <string name="remote_camera_busy_status">Камера занята: снимок уже запрашивает %1$s</string>
+    <string name="remote_camera_other_parent_fallback">другой родитель</string>
     <string name="remote_camera_server_unavailable">Нет соединения с сервером</string>
     <string name="remote_camera_progress_title">Запрашиваем фото</string>
     <string name="remote_camera_progress_message">Подождите немного, пока камера подготовит снимок.</string>

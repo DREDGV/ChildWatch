@@ -44,7 +44,7 @@ const authMiddleware = new AuthMiddleware(authManager);
 const validator = new DataValidator();
 const dbManager = new DatabaseManager();
 const commandManager = new CommandManager();
-const wsManager = new WebSocketManager(io, commandManager);
+const wsManager = new WebSocketManager(io, commandManager, dbManager);
 wsManager.dbManager = dbManager;
 
 // Initialize database
@@ -111,6 +111,43 @@ function generateToken() {
 
 function generateRefreshToken() {
   return crypto.randomBytes(32).toString("hex");
+}
+
+function extractRecentApps(raw) {
+  if (!raw || typeof raw !== "object") {
+    return [];
+  }
+
+  const recentApps = Array.isArray(raw.recentApps) ? raw.recentApps : [];
+  return recentApps
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      packageName: typeof item.packageName === "string" ? item.packageName : "",
+      appName: typeof item.appName === "string" ? item.appName : "",
+      lastUsed:
+        typeof item.lastUsed === "number"
+          ? item.lastUsed
+          : Number.parseInt(item.lastUsed, 10) || 0,
+      totalTimeInForeground:
+        typeof item.totalTimeInForeground === "number"
+          ? item.totalTimeInForeground
+          : Number.parseInt(item.totalTimeInForeground, 10) || 0,
+      isSystemApp: Boolean(item.isSystemApp),
+    }))
+    .filter((item) => item.appName || item.packageName)
+    .sort((a, b) => b.lastUsed - a.lastUsed);
+}
+
+function enrichDeviceStatus(status) {
+  if (!status) {
+    return null;
+  }
+
+  const recentApps = extractRecentApps(status.raw);
+  return {
+    ...status,
+    recentApps,
+  };
 }
 
 // Authentication middleware
@@ -186,7 +223,7 @@ app.post(
       appVersion: {
         required: true,
         type: "string",
-        pattern: /^\d+\.\d+\.\d+([-/][A-Za-z0-9._]+)?$/,
+        pattern: /^\d+\.\d+\.\d+(?:\.\d+)?(?:[-/][A-Za-z0-9._]+)?$/,
       },
     },
   }),
@@ -784,6 +821,223 @@ app.post(
 );
 
 // Get latest device status (protected)
+app.post(
+  "/api/relationships/link",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 30),
+  async (req, res) => {
+    try {
+      const parentDeviceId = String(req.body.parentDeviceId || "").trim();
+      const childDeviceId = String(req.body.childDeviceId || "").trim();
+      const relationRole = String(req.body.relationRole || "guardian").trim() || "guardian";
+      const displayName = typeof req.body.displayName === "string"
+        ? req.body.displayName.trim().slice(0, 100)
+        : null;
+
+      if (
+        !validator.validateDeviceIdFormat(parentDeviceId) ||
+        !validator.validateDeviceIdFormat(childDeviceId)
+      ) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      if (req.deviceId !== parentDeviceId && req.deviceId !== childDeviceId) {
+        return res.status(403).json({
+          error: "Authenticated device cannot create this link",
+          code: "LINK_FORBIDDEN",
+        });
+      }
+
+      await dbManager.upsertDeviceLink({
+        parentDeviceId,
+        childDeviceId,
+        relationRole,
+        displayName,
+        createdBy: req.deviceId,
+        isActive: true,
+      });
+
+      res.json({
+        success: true,
+        parentDeviceId,
+        childDeviceId,
+        relationRole,
+        displayName,
+      });
+    } catch (error) {
+      console.error("Link parent-child error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "DEVICE_LINK_ERROR",
+      });
+    }
+  }
+);
+
+app.get(
+  "/api/relationships/children/:parentDeviceId",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 60),
+  async (req, res) => {
+    try {
+      const parentDeviceId = req.params.parentDeviceId;
+      if (!validator.validateDeviceIdFormat(parentDeviceId)) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      if (req.deviceId !== parentDeviceId) {
+        return res.status(403).json({
+          error: "Authenticated device cannot read these links",
+          code: "LINKS_FORBIDDEN",
+        });
+      }
+
+      const children = await dbManager.getLinkedChildren(parentDeviceId);
+      res.json({
+        success: true,
+        parentDeviceId,
+        count: children.length,
+        children,
+      });
+    } catch (error) {
+      console.error("Get linked children error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "LINKED_CHILDREN_ERROR",
+      });
+    }
+  }
+);
+
+app.get(
+  "/api/relationships/parents/:childDeviceId",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 60),
+  async (req, res) => {
+    try {
+      const childDeviceId = req.params.childDeviceId;
+      if (!validator.validateDeviceIdFormat(childDeviceId)) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      const requesterIsChild = req.deviceId === childDeviceId;
+      const requesterIsLinkedParent =
+        !requesterIsChild &&
+        (await dbManager.hasActiveDeviceLink(req.deviceId, childDeviceId));
+
+      if (!requesterIsChild && !requesterIsLinkedParent) {
+        return res.status(403).json({
+          error: "Authenticated device cannot read these links",
+          code: "LINKS_FORBIDDEN",
+        });
+      }
+
+      const parents = await dbManager.getLinkedParents(childDeviceId);
+      res.json({
+        success: true,
+        childDeviceId,
+        count: parents.length,
+        parents,
+      });
+    } catch (error) {
+      console.error("Get linked parents error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "LINKED_PARENTS_ERROR",
+      });
+    }
+  }
+);
+
+app.post(
+  "/api/relationships/unlink",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 30),
+  async (req, res) => {
+    try {
+      const parentDeviceId = String(req.body.parentDeviceId || "").trim();
+      const childDeviceId = String(req.body.childDeviceId || "").trim();
+
+      if (
+        !validator.validateDeviceIdFormat(parentDeviceId) ||
+        !validator.validateDeviceIdFormat(childDeviceId)
+      ) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      if (req.deviceId !== parentDeviceId && req.deviceId !== childDeviceId) {
+        return res.status(403).json({
+          error: "Authenticated device cannot remove this link",
+          code: "UNLINK_FORBIDDEN",
+        });
+      }
+
+      await dbManager.deactivateDeviceLink(parentDeviceId, childDeviceId);
+
+      res.json({
+        success: true,
+        parentDeviceId,
+        childDeviceId,
+      });
+    } catch (error) {
+      console.error("Unlink parent-child error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "DEVICE_UNLINK_ERROR",
+      });
+    }
+  }
+);
+
+app.get(
+  "/api/device/status/history/:deviceId",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 60),
+  async (req, res) => {
+    try {
+      const targetDeviceId = req.params.deviceId || req.deviceId;
+      const limit = Math.min(
+        Math.max(Number.parseInt(req.query.limit, 10) || 60, 1),
+        200
+      );
+
+      if (!validator.validateDeviceIdFormat(targetDeviceId)) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      const statuses = await dbManager.getDeviceStatusHistory(targetDeviceId, limit);
+
+      res.json({
+        success: true,
+        deviceId: targetDeviceId,
+        count: statuses.length,
+        statuses: statuses.map((status) => enrichDeviceStatus(status)),
+      });
+    } catch (error) {
+      console.error("Get device status history error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "DEVICE_STATUS_HISTORY_ERROR",
+      });
+    }
+  }
+);
+
 app.get(
   "/api/device/status/:deviceId?",
   authMiddleware.authenticate(),
@@ -812,7 +1066,7 @@ app.get(
       res.json({
         success: true,
         deviceId: targetDeviceId,
-        status: status || null,
+        status: enrichDeviceStatus(status),
       });
     } catch (error) {
       console.error("Get device status error:", error);
@@ -985,6 +1239,12 @@ app.get(
         messages: messages.map((msg) => ({
           id: String(msg.client_id || msg.client_message_id || msg.id),
           sender: msg.sender,
+          senderRole: msg.sender,
+          senderDeviceId: msg.sender_device_id || "",
+          senderDisplayName:
+            msg.sender === "child"
+              ? "Ребенок"
+              : (msg.sender_display_name || msg.sender_device_id || ""),
           message: msg.message,
           timestamp: msg.timestamp,
           isRead: msg.is_read === 1,

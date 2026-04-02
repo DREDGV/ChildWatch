@@ -15,6 +15,33 @@ function formatLocationTimestamp(timestamp) {
   }
 }
 
+async function ensureParentLocationTables(dbManager) {
+  await dbManager.run(`
+        CREATE TABLE IF NOT EXISTS parent_locations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            parent_id TEXT NOT NULL,
+            latitude REAL NOT NULL,
+            longitude REAL NOT NULL,
+            accuracy REAL,
+            timestamp INTEGER NOT NULL,
+            battery INTEGER,
+            speed REAL,
+            bearing REAL,
+            created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
+        )
+    `);
+
+  await dbManager.run(`
+        CREATE INDEX IF NOT EXISTS idx_parent_locations_parent_id
+        ON parent_locations(parent_id)
+    `);
+
+  await dbManager.run(`
+        CREATE INDEX IF NOT EXISTS idx_parent_locations_timestamp
+        ON parent_locations(timestamp)
+    `);
+}
+
 /**
  * Location API Routes
  * Handles location history and tracking data
@@ -35,6 +62,7 @@ router.get("/pair", async (req, res) => {
 
     const dbManager = new DatabaseManager();
     await dbManager.initialize();
+    await ensureParentLocationTables(dbManager);
 
     const [parentLocation, childLocation] = await Promise.all([
       dbManager.get(
@@ -307,33 +335,7 @@ router.post("/parent/:parentId", async (req, res) => {
 
     const dbManager = new DatabaseManager();
     await dbManager.initialize();
-
-    // Create parent_locations table if not exists
-    await dbManager.run(`
-            CREATE TABLE IF NOT EXISTS parent_locations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                parent_id TEXT NOT NULL,
-                latitude REAL NOT NULL,
-                longitude REAL NOT NULL,
-                accuracy REAL,
-                timestamp INTEGER NOT NULL,
-                battery INTEGER,
-                speed REAL,
-                bearing REAL,
-                created_at INTEGER DEFAULT (strftime('%s', 'now') * 1000)
-            )
-        `);
-
-    // Create index if not exists
-    await dbManager.run(`
-            CREATE INDEX IF NOT EXISTS idx_parent_locations_parent_id 
-            ON parent_locations(parent_id)
-        `);
-
-    await dbManager.run(`
-            CREATE INDEX IF NOT EXISTS idx_parent_locations_timestamp 
-            ON parent_locations(timestamp)
-        `);
+    await ensureParentLocationTables(dbManager);
 
     // Insert location
     await dbManager.run(
@@ -396,6 +398,7 @@ router.get("/parent/latest/:parentId", async (req, res) => {
 
     const dbManager = new DatabaseManager();
     await dbManager.initialize();
+    await ensureParentLocationTables(dbManager);
 
     const location = await dbManager.get(
       `
@@ -459,6 +462,7 @@ router.get("/parent/history/:parentId", async (req, res) => {
 
     const dbManager = new DatabaseManager();
     await dbManager.initialize();
+    await ensureParentLocationTables(dbManager);
 
     const parsedLimit = parseInt(limit, 10) || 100;
     const parsedOffset = parseInt(offset, 10) || 0;

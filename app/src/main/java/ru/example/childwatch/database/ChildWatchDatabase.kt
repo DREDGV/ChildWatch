@@ -44,7 +44,7 @@ import ru.example.childwatch.database.entity.*
         ParentLocation::class,
         Geofence::class
     ],
-    version = 6,
+    version = 7,
     exportSchema = true
 )
 abstract class ChildWatchDatabase : RoomDatabase() {
@@ -337,6 +337,19 @@ abstract class ChildWatchDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                try {
+                    database.execSQL("ALTER TABLE chat_messages ADD COLUMN author_device_id TEXT")
+                } catch (_: Exception) {
+                }
+                try {
+                    database.execSQL("ALTER TABLE chat_messages ADD COLUMN author_display_name TEXT")
+                } catch (_: Exception) {
+                }
+            }
+        }
+
         /**
          * Get database instance (Singleton pattern)
          *
@@ -355,7 +368,8 @@ abstract class ChildWatchDatabase : RoomDatabase() {
                         MIGRATION_2_3,
                         MIGRATION_3_4,
                         MIGRATION_4_5,
-                        MIGRATION_5_6
+                        MIGRATION_5_6,
+                        MIGRATION_6_7
                     )
                     // Only allow destructive migration on DOWNGRADE (not upgrade)
                     // This preserves data on upgrades while allowing clean reinstalls

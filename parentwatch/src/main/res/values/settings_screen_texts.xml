@@ -47,4 +47,8 @@
     <string name="settings_parent_id_saved">ID родителя сохранен: %1$s</string>
     <string name="settings_parent_id_connected">Подключено (%1$s...)</string>
     <string name="settings_parent_id_missing">Не задан ID родителя</string>
+    <string name="settings_parent_link_status_connected_count">Связано родителей: %1$d</string>
+    <string name="settings_parent_link_status_connected_named">Связано родителей: %1$d (%2$s)</string>
+    <string name="settings_parent_link_status_active_parent">Активный: %1$s</string>
+    <string name="settings_parent_link_status_local_only">Локально подключено: %1$s</string>
 </resources>

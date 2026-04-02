@@ -4,7 +4,6 @@ import android.Manifest
 import android.content.pm.PackageManager
 import android.location.Geocoder
 import android.os.Bundle
-import android.provider.Settings
 import android.util.Log
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
@@ -21,6 +20,8 @@ import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.LocationData
 import ru.example.childwatch.network.ParentLocationData
+import ru.example.childwatch.profile.ParentEffectiveContextResolver
+import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.utils.PermissionHelper
 import kotlinx.coroutines.*
 import java.io.IOException
@@ -65,6 +66,8 @@ class LocationMapActivity : AppCompatActivity() {
     // Child device ID (should be configured in settings or obtained from server)
     private var childDeviceId: String? = null
     private var parentId: String? = null
+    private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
+    private lateinit var activeSessionStore: ParentActiveSessionStore
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -78,14 +81,22 @@ class LocationMapActivity : AppCompatActivity() {
 
         // Initialize network client
         networkClient = NetworkClient(this)
+        effectiveContextResolver = ParentEffectiveContextResolver(this)
+        activeSessionStore = ParentActiveSessionStore(this)
+        val effectiveContext = effectiveContextResolver.resolve()
 
         // Load child device ID from preferences
         val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-        childDeviceId = prefs.getString("child_device_id", null)
-        parentId = prefs.getString(
-            "parent_id",
-            Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-        )
+        childDeviceId = effectiveContext.linkedChildDeviceId.takeIf { it.isNotBlank() }
+            ?: activeSessionStore.getSession()?.linkedChildDeviceId?.takeIf { it.isNotBlank() }
+            ?: prefs.getString("child_device_id", null)
+        parentId = effectiveContext.ownParentDeviceId.takeIf { it.isNotBlank() }
+            ?: activeSessionStore.getSession()?.ownParentDeviceId?.takeIf { it.isNotBlank() }
+            ?: prefs.getString("parent_id", null)
+            ?: prefs.getString("parent_device_id", null)
+            ?: prefs.getString("linked_parent_device_id", null)
+
+        childDeviceId?.takeIf { it.isNotBlank() }?.let(activeSessionStore::updateFocusedChildId)
 
         // Setup UI
         setupUI()

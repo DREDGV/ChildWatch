@@ -22,6 +22,8 @@ import ru.example.parentwatch.MainActivity
 import ru.example.parentwatch.R
 import ru.example.parentwatch.network.NetworkHelper
 import ru.example.parentwatch.audio.AudioStreamRecorder
+import ru.example.parentwatch.session.ChildActiveSessionStore
+import ru.example.parentwatch.session.ChildEffectiveContextResolver
 import ru.example.parentwatch.utils.DeviceInfoCollector
 import ru.example.parentwatch.utils.RemoteLogger
 import ru.example.parentwatch.utils.ServerUrlResolver
@@ -37,20 +39,31 @@ class LocationService : Service() {
         private const val CHANNEL_ID = "location_tracking"
         private const val LOCATION_UPDATE_INTERVAL_BALANCED = 60_000L
         private const val LOCATION_FASTEST_INTERVAL_BALANCED = 30_000L
+        private const val LOCATION_UPDATE_INTERVAL_TRANSIT = 15_000L
+        private const val LOCATION_FASTEST_INTERVAL_TRANSIT = 7_000L
         private const val LOCATION_UPDATE_INTERVAL_ACTIVE = 30_000L
         private const val LOCATION_FASTEST_INTERVAL_ACTIVE = 15_000L
         private const val LOCATION_UPLOAD_INTERVAL_BALANCED = 90_000L
+        private const val LOCATION_UPLOAD_INTERVAL_TRANSIT = 18_000L
         private const val LOCATION_UPLOAD_INTERVAL_ACTIVE = 25_000L
         private const val LOCATION_UPLOAD_DISTANCE_BALANCED_METERS = 35f
+        private const val LOCATION_UPLOAD_DISTANCE_TRANSIT_METERS = 10f
         private const val LOCATION_UPLOAD_DISTANCE_ACTIVE_METERS = 10f
         private const val COMMAND_CHECK_INTERVAL_WS_HEALTHY = 60_000L
         private const val COMMAND_CHECK_INTERVAL_WS_DEGRADED = 10_000L
+        private const val MOVING_SPEED_THRESHOLD_MPS = 1.4f
+        private const val FAST_TRANSIT_SPEED_THRESHOLD_MPS = 6.0f
+        private const val MOVEMENT_DISTANCE_THRESHOLD_METERS = 20f
+        private const val MOVEMENT_TIME_WINDOW_MS = 45_000L
+        private const val TRACKING_MODE_STICKINESS_MS = 45_000L
 
         const val ACTION_START = "start"
         const val ACTION_STOP = "stop"
         const val ACTION_EMERGENCY_STOP = "emergency_stop"
         const val ACTION_START_AUDIO_STREAM = "start_audio_stream"
         const val ACTION_STOP_AUDIO_STREAM = "stop_audio_stream"
+        const val ACTION_PAUSE_AUDIO_CAPTURE_FOR_PHOTO = "pause_audio_capture_for_photo"
+        const val ACTION_RESUME_AUDIO_CAPTURE_AFTER_PHOTO = "resume_audio_capture_after_photo"
         const val EXTRA_AUDIO_RECORDING = "audio_recording"
         const val EXTRA_AUDIO_SAMPLE_RATE = "audio_sample_rate"
 
@@ -69,6 +82,26 @@ class LocationService : Service() {
             }
             context.startService(intent)
         }
+
+        fun pauseAudioCaptureForPhoto(context: Context) {
+            val intent = Intent(context, LocationService::class.java).apply {
+                action = ACTION_PAUSE_AUDIO_CAPTURE_FOR_PHOTO
+            }
+            context.startService(intent)
+        }
+
+        fun resumeAudioCaptureAfterPhoto(context: Context) {
+            val intent = Intent(context, LocationService::class.java).apply {
+                action = ACTION_RESUME_AUDIO_CAPTURE_AFTER_PHOTO
+            }
+            context.startService(intent)
+        }
+    }
+
+    private enum class TrackingMode {
+        BALANCED,
+        TRANSIT,
+        CRITICAL
     }
 
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -76,6 +109,8 @@ class LocationService : Service() {
     private lateinit var networkHelper: NetworkHelper
     private lateinit var audioRecorder: AudioStreamRecorder
     private lateinit var prefs: SharedPreferences
+    private lateinit var effectiveContextResolver: ChildEffectiveContextResolver
+    private lateinit var activeSessionStore: ChildActiveSessionStore
 
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var isTracking = false
@@ -85,6 +120,9 @@ class LocationService : Service() {
     private var commandCheckJob: Job? = null
     private var registrationJob: Job? = null
     private var locationUpdatesStarted = false
+    private var currentTrackingMode = TrackingMode.BALANCED
+    private var lastTrackingModeChangeAt = 0L
+    private var lastObservedLocation: Location? = null
     private val locationUploadStateLock = Any()
     private var lastUploadedLocation: Location? = null
     private var lastLocationUploadAt: Long = 0L
@@ -96,6 +134,8 @@ class LocationService : Service() {
         Log.d(TAG, "Service created")
 
         prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
+        effectiveContextResolver = ChildEffectiveContextResolver(this)
+        activeSessionStore = ChildActiveSessionStore(this)
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         networkHelper = NetworkHelper(this)
         audioRecorder = AudioStreamRecorder(this, networkHelper)
@@ -121,8 +161,15 @@ class LocationService : Service() {
                     startTracking(null)
                 }
                 if (!isTracking) {
-                    val fallbackDeviceId = prefs.getString("device_id", null)?.takeIf { !it.isNullOrBlank() }
-                    val fallbackServerUrl = ServerUrlResolver.getServerUrl(this)
+                    val fallbackDeviceId = effectiveContextResolver.resolveChildDeviceId()
+                        .takeIf { it.isNotBlank() }
+                        ?: activeSessionStore.resolveCurrentChildId().takeIf { it.isNotBlank() }
+                        ?: prefs.getString("child_device_id", null)?.takeIf { !it.isNullOrBlank() }
+                        ?: prefs.getString("device_id", null)?.takeIf { !it.isNullOrBlank() }
+                    val fallbackServerUrl = effectiveContextResolver.resolveServerUrl()
+                        .takeIf { it.isNotBlank() }
+                        ?: activeSessionStore.resolveCurrentServerUrl().takeIf { it.isNotBlank() }
+                        ?: ServerUrlResolver.getServerUrl(this)
                     if (!fallbackDeviceId.isNullOrBlank() && !fallbackServerUrl.isNullOrBlank()) {
                         Log.w(TAG, "Monitoring service still inactive, falling back to AudioStreamingService")
                         AudioStreamingService.startStreaming(
@@ -140,9 +187,16 @@ class LocationService : Service() {
                 startAudioStreaming(recording = recording, sampleRate = sampleRate)
             }
             ACTION_STOP_AUDIO_STREAM -> {
+                AudioStreamingService.stopStreaming(this)
                 if (isStreamingAudio) {
                     stopAudioStreaming()
                 }
+            }
+            ACTION_PAUSE_AUDIO_CAPTURE_FOR_PHOTO -> {
+                pauseAudioCaptureForPhoto()
+            }
+            ACTION_RESUME_AUDIO_CAPTURE_AFTER_PHOTO -> {
+                resumeAudioCaptureAfterPhoto()
             }
             null -> {
                 // Service restarted by system, resume tracking if it was running
@@ -166,6 +220,7 @@ class LocationService : Service() {
         promoteToForeground()
 
         // Load settings (prefer intent extras to avoid async prefs race)
+        val effectiveContext = effectiveContextResolver.resolveEffectiveContext()
         val intentDeviceId = startIntent?.getStringExtra("device_id")?.takeIf { it.isNotBlank() }
         val intentServerUrl = startIntent?.getStringExtra("server_url")?.takeIf { it.isNotBlank() }
 
@@ -178,14 +233,35 @@ class LocationService : Service() {
                 .putBoolean("device_id_permanent", true)
                 .commit()
         } else {
-            deviceId = prefs.getString("device_id", null)
+            deviceId = effectiveContext?.ownChildDeviceId?.takeIf { it.isNotBlank() }
+                ?: activeSessionStore.resolveCurrentChildId().takeIf { it.isNotBlank() }
+                ?: prefs.getString("child_device_id", null)
+                ?: prefs.getString("device_id", null)
         }
 
         if (intentServerUrl != null) {
             serverUrl = intentServerUrl
             prefs.edit().putString("server_url", intentServerUrl).commit()
         } else {
-            serverUrl = ServerUrlResolver.getServerUrl(this)
+            serverUrl = effectiveContext?.serverUrl?.takeIf { it.isNotBlank() }
+                ?: activeSessionStore.resolveCurrentServerUrl().takeIf { it.isNotBlank() }
+                ?: ServerUrlResolver.getServerUrl(this)
+        }
+
+        if (!deviceId.isNullOrBlank() && !serverUrl.isNullOrBlank()) {
+            val activeSession = activeSessionStore.getActiveSession()
+            activeSessionStore.applySession(
+                activeSessionStore.buildSession(
+                    name = activeSession?.name?.takeIf { it.isNotBlank() }
+                        ?: getString(R.string.profile_switch_current_name),
+                    serverUrl = serverUrl!!.trim(),
+                    ownChildDeviceId = deviceId!!.trim(),
+                    linkedParentDeviceId = effectiveContext?.linkedParentDeviceId
+                        ?.takeIf { it.isNotBlank() }
+                        ?: activeSession?.linkedParentDeviceId.orEmpty()
+                        ?: activeSessionStore.resolveCurrentParentId()
+                )
+            )
         }
 
         if (deviceId == null) {
@@ -201,6 +277,9 @@ class LocationService : Service() {
 
         isTracking = true
         locationUpdatesStarted = false
+        currentTrackingMode = TrackingMode.BALANCED
+        lastTrackingModeChangeAt = System.currentTimeMillis()
+        lastObservedLocation = null
         synchronized(locationUploadStateLock) {
             lastUploadedLocation = null
             lastLocationUploadAt = 0L
@@ -264,6 +343,9 @@ class LocationService : Service() {
             lastLocationUploadAt = 0L
             locationUploadInFlight = false
         }
+        lastObservedLocation = null
+        currentTrackingMode = TrackingMode.BALANCED
+        lastTrackingModeChangeAt = 0L
         prefs.edit().putBoolean("service_running", false).apply()
 
         Log.d(TAG, "Tracking stopped")
@@ -306,6 +388,7 @@ class LocationService : Service() {
 
     private fun handleLocationUpdate(location: Location) {
         Log.d(TAG, "Location update: ${location.latitude}, ${location.longitude}")
+        updateTrackingModeFromLocation(location)
 
         if (!beginLocationUpload(location)) {
             return
@@ -316,7 +399,7 @@ class LocationService : Service() {
             // Collect device info
             val deviceInfo = DeviceInfoCollector.getDeviceInfo(
                 this@LocationService,
-                includeCurrentApp = false
+                includeCurrentApp = DeviceInfoCollector.shouldIncludeAppUsageSnapshot()
             )
 
             val success = networkHelper.uploadLocationWithDeviceInfo(
@@ -459,18 +542,10 @@ class LocationService : Service() {
                     if (wsAudioOwnerActive) {
                         Log.w(
                             TAG,
-                            "Polled start_audio_stream received while WS owner is active - using service backstop"
+                            "Polled start_audio_stream received while WS owner is active - keeping LocationService as single capture owner"
                         )
-                        AudioStreamingService.startStreaming(
-                            this,
-                            deviceId,
-                            serverUrl,
-                            recording,
-                            sampleRate
-                        )
-                    } else {
-                        startAudioStreaming(recording = recording, sampleRate = sampleRate)
                     }
+                    startAudioStreaming(recording = recording, sampleRate = sampleRate)
                 }
                 "stop_audio_stream" -> {
                     AudioStreamingService.stopStreaming(this)
@@ -501,6 +576,8 @@ class LocationService : Service() {
      * Start audio streaming
      */
     private fun startAudioStreaming(recording: Boolean, sampleRate: Int = 24_000) {
+        stopLegacyAudioBackstopIfNeeded("location_service_start")
+
         if (isStreamingAudio) {
             if (!audioRecorder.isActive()) {
                 Log.w(TAG, "Streaming flag set but recorder inactive - restarting")
@@ -574,6 +651,42 @@ class LocationService : Service() {
         )
     }
 
+    private fun stopLegacyAudioBackstopIfNeeded(reason: String) {
+        if (!AudioStreamingService.isStreamingDesired(this) && !AudioStreamingService.isServiceAlive) {
+            return
+        }
+        Log.w(TAG, "Stopping legacy AudioStreamingService backstop ($reason)")
+        runCatching {
+            AudioStreamingService.stopStreaming(this)
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to stop legacy AudioStreamingService backstop", error)
+        }
+    }
+
+    private fun pauseAudioCaptureForPhoto() {
+        if (!isStreamingAudio) {
+            return
+        }
+        Log.d(TAG, "Pausing active audio capture for remote photo")
+        runCatching {
+            audioRecorder.pauseCapture()
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to pause audio capture for remote photo", error)
+        }
+    }
+
+    private fun resumeAudioCaptureAfterPhoto() {
+        if (!isStreamingAudio) {
+            return
+        }
+        Log.d(TAG, "Resuming active audio capture after remote photo")
+        runCatching {
+            audioRecorder.ensureCaptureRunning()
+        }.onFailure { error ->
+            Log.w(TAG, "Failed to resume audio capture after remote photo", error)
+        }
+    }
+
     /**
      * Stop audio streaming
      */
@@ -608,37 +721,42 @@ class LocationService : Service() {
             ChatBackgroundService.start(this, serverUrl, deviceId)
         }
 
-        if (AudioStreamingService.isStreamingDesired(this)) {
-            AudioStreamingService.resumeIfDesired(this)
+        if (isStreamingAudio) {
+            stopLegacyAudioBackstopIfNeeded("health_check")
         }
     }
 
     private fun buildLocationRequest(): LocationRequest {
-        val activeAudio = isStreamingAudio || AudioStreamingService.isStreamingDesired(this)
-        val priority = if (activeAudio) {
-            Priority.PRIORITY_HIGH_ACCURACY
-        } else {
-            Priority.PRIORITY_BALANCED_POWER_ACCURACY
-        }
-        val interval = if (activeAudio) {
-            LOCATION_UPDATE_INTERVAL_ACTIVE
-        } else {
-            LOCATION_UPDATE_INTERVAL_BALANCED
-        }
-        val fastest = if (activeAudio) {
-            LOCATION_FASTEST_INTERVAL_ACTIVE
-        } else {
-            LOCATION_FASTEST_INTERVAL_BALANCED
+        val trackingMode = effectiveTrackingMode()
+        val (priority, interval, fastest, minDistance) = when (trackingMode) {
+            TrackingMode.CRITICAL -> {
+                Quadruple(
+                    Priority.PRIORITY_HIGH_ACCURACY,
+                    LOCATION_UPDATE_INTERVAL_ACTIVE,
+                    LOCATION_FASTEST_INTERVAL_ACTIVE,
+                    LOCATION_UPLOAD_DISTANCE_ACTIVE_METERS
+                )
+            }
+            TrackingMode.TRANSIT -> {
+                Quadruple(
+                    Priority.PRIORITY_HIGH_ACCURACY,
+                    LOCATION_UPDATE_INTERVAL_TRANSIT,
+                    LOCATION_FASTEST_INTERVAL_TRANSIT,
+                    LOCATION_UPLOAD_DISTANCE_TRANSIT_METERS
+                )
+            }
+            TrackingMode.BALANCED -> {
+                Quadruple(
+                    Priority.PRIORITY_BALANCED_POWER_ACCURACY,
+                    LOCATION_UPDATE_INTERVAL_BALANCED,
+                    LOCATION_FASTEST_INTERVAL_BALANCED,
+                    LOCATION_UPLOAD_DISTANCE_BALANCED_METERS
+                )
+            }
         }
         return LocationRequest.Builder(priority, interval)
             .setMinUpdateIntervalMillis(fastest)
-            .setMinUpdateDistanceMeters(
-                if (activeAudio) {
-                    LOCATION_UPLOAD_DISTANCE_ACTIVE_METERS
-                } else {
-                    LOCATION_UPLOAD_DISTANCE_BALANCED_METERS
-                }
-            )
+            .setMinUpdateDistanceMeters(minDistance)
             .build()
     }
 
@@ -690,16 +808,16 @@ class LocationService : Service() {
 
     private fun shouldUploadLocationLocked(location: Location): Boolean {
         val lastLocation = lastUploadedLocation ?: return true
-        val activeAudio = isStreamingAudio || AudioStreamingService.isStreamingDesired(this)
-        val minInterval = if (activeAudio) {
-            LOCATION_UPLOAD_INTERVAL_ACTIVE
-        } else {
-            LOCATION_UPLOAD_INTERVAL_BALANCED
+        val trackingMode = effectiveTrackingMode()
+        val minInterval = when (trackingMode) {
+            TrackingMode.CRITICAL -> LOCATION_UPLOAD_INTERVAL_ACTIVE
+            TrackingMode.TRANSIT -> LOCATION_UPLOAD_INTERVAL_TRANSIT
+            TrackingMode.BALANCED -> LOCATION_UPLOAD_INTERVAL_BALANCED
         }
-        val minDistance = if (activeAudio) {
-            LOCATION_UPLOAD_DISTANCE_ACTIVE_METERS
-        } else {
-            LOCATION_UPLOAD_DISTANCE_BALANCED_METERS
+        val minDistance = when (trackingMode) {
+            TrackingMode.CRITICAL -> LOCATION_UPLOAD_DISTANCE_ACTIVE_METERS
+            TrackingMode.TRANSIT -> LOCATION_UPLOAD_DISTANCE_TRANSIT_METERS
+            TrackingMode.BALANCED -> LOCATION_UPLOAD_DISTANCE_BALANCED_METERS
         }
 
         val elapsed = System.currentTimeMillis() - lastLocationUploadAt
@@ -726,6 +844,81 @@ class LocationService : Service() {
             }
         }
     }
+
+    private fun updateTrackingModeFromLocation(location: Location) {
+        val previous = lastObservedLocation?.let { Location(it) }
+        lastObservedLocation = Location(location)
+
+        val candidateMode = determineTrackingMode(location, previous)
+        val currentMode = currentTrackingMode
+        if (candidateMode == currentMode) {
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        val shouldPromote = trackingRank(candidateMode) > trackingRank(currentMode)
+        val canDowngrade = now - lastTrackingModeChangeAt >= TRACKING_MODE_STICKINESS_MS
+        if (!shouldPromote && !canDowngrade) {
+            return
+        }
+
+        currentTrackingMode = candidateMode
+        lastTrackingModeChangeAt = now
+        Log.d(TAG, "Tracking mode changed: $currentMode -> $candidateMode")
+        restartLocationUpdatesForCurrentMode()
+    }
+
+    private fun determineTrackingMode(location: Location, previous: Location?): TrackingMode {
+        if (isStreamingAudio || AudioStreamingService.isStreamingDesired(this)) {
+            return TrackingMode.CRITICAL
+        }
+
+        val measuredSpeed = location.speed.takeIf { it > 0f }
+        if (measuredSpeed != null) {
+            return when {
+                measuredSpeed >= FAST_TRANSIT_SPEED_THRESHOLD_MPS -> TrackingMode.CRITICAL
+                measuredSpeed >= MOVING_SPEED_THRESHOLD_MPS -> TrackingMode.TRANSIT
+                else -> TrackingMode.BALANCED
+            }
+        }
+
+        if (previous != null) {
+            val elapsed = (location.time - previous.time).takeIf { it > 0L }
+                ?: (System.currentTimeMillis() - lastTrackingModeChangeAt).coerceAtLeast(1L)
+            val distance = location.distanceTo(previous)
+            if (distance >= MOVEMENT_DISTANCE_THRESHOLD_METERS && elapsed <= MOVEMENT_TIME_WINDOW_MS) {
+                val inferredSpeed = distance / (elapsed / 1000f)
+                return when {
+                    inferredSpeed >= FAST_TRANSIT_SPEED_THRESHOLD_MPS -> TrackingMode.CRITICAL
+                    inferredSpeed >= MOVING_SPEED_THRESHOLD_MPS -> TrackingMode.TRANSIT
+                    else -> TrackingMode.BALANCED
+                }
+            }
+        }
+
+        return TrackingMode.BALANCED
+    }
+
+    private fun effectiveTrackingMode(): TrackingMode {
+        return if (isStreamingAudio || AudioStreamingService.isStreamingDesired(this)) {
+            TrackingMode.CRITICAL
+        } else {
+            currentTrackingMode
+        }
+    }
+
+    private fun trackingRank(mode: TrackingMode): Int = when (mode) {
+        TrackingMode.BALANCED -> 0
+        TrackingMode.TRANSIT -> 1
+        TrackingMode.CRITICAL -> 2
+    }
+
+    private data class Quadruple<A, B, C, D>(
+        val first: A,
+        val second: B,
+        val third: C,
+        val fourth: D
+    )
 
     override fun onBind(intent: Intent?): IBinder? = null
 

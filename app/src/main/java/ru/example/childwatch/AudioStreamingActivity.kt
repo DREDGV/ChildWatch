@@ -15,13 +15,16 @@ import android.view.WindowManager
 import android.widget.CompoundButton
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.appcompat.app.AlertDialog
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import com.google.gson.Gson
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ru.example.childwatch.audio.AudioEnhancer
 import ru.example.childwatch.audio.FilterMode
 import ru.example.childwatch.databinding.ActivityAudioStreamingBinding
@@ -34,12 +37,20 @@ import ru.example.childwatch.diagnostics.PingStatus
 import android.graphics.Color
 import ru.example.childwatch.network.DeviceStatus
 import ru.example.childwatch.network.NetworkClient
+import ru.example.childwatch.network.WebSocketManager
+import ru.example.childwatch.profile.ParentEffectiveContextResolver
+import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.recordings.RecordingsLibraryActivity
 import ru.example.childwatch.service.AudioPlaybackService
 import ru.example.childwatch.ui.AdvancedAudioVisualizer
 import ru.example.childwatch.utils.SecureSettingsManager
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.color.MaterialColors
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import org.json.JSONObject
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -59,6 +70,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         const val EXTRA_DEVICE_ID = "device_id"
         const val EXTRA_SERVER_URL = "server_url"
         private const val DEFAULT_SAMPLE_RATE = 24_000
+        private const val STREAM_TIMEOUT_MINUTES = 30
         private const val CHILD_STATUS_FRESH_MS = 60_000L
         private const val STATUS_POLL_ACTIVE_MS = 10_000L
         private const val STATUS_POLL_IDLE_MS = 25_000L
@@ -69,6 +81,8 @@ class AudioStreamingActivity : AppCompatActivity() {
     private lateinit var serverUrl: String
     private lateinit var audioPrefs: SharedPreferences
     private lateinit var secureSettings: SecureSettingsManager
+    private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
+    private lateinit var activeSessionStore: ParentActiveSessionStore
     private val networkClient by lazy { NetworkClient(this) }
     private val gson by lazy { Gson() }
 
@@ -97,8 +111,13 @@ class AudioStreamingActivity : AppCompatActivity() {
     private var uiUpdateJob: Job? = null
     private var transitionResetJob: Job? = null
     private var startVerificationJob: Job? = null
+    private var takeoverStatusPollJob: Job? = null
     private var streamingActionInProgress = false
     private var desiredRecordingEnabled = false
+    private var busyOwnerLabel: String? = null
+    private var takeoverRequestSentAt: Long = 0L
+    private val takeoverHttpClient by lazy { OkHttpClient() }
+    private var lastTakeoverRequesterId: String? = null
 
     private val recordingToggleListener = CompoundButton.OnCheckedChangeListener { _, isChecked ->
         desiredRecordingEnabled = isChecked
@@ -166,6 +185,8 @@ class AudioStreamingActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         secureSettings = SecureSettingsManager(this)
+        effectiveContextResolver = ParentEffectiveContextResolver(this)
+        activeSessionStore = ParentActiveSessionStore(this)
         audioPrefs = getSharedPreferences("audio_streaming", MODE_PRIVATE)
 
         deviceId = resolveTargetDeviceIdForStreaming()
@@ -178,8 +199,10 @@ class AudioStreamingActivity : AppCompatActivity() {
                 finish()
                 return
             }
+        activeSessionStore.updateFocusedChildId(deviceId)
 
         val resolvedServerUrl = intent.getStringExtra(EXTRA_SERVER_URL)
+            ?: effectiveContextResolver.resolveServerUrl().takeIf { it.isNotBlank() }
             ?: secureSettings.getServerUrl().trim()
         if (resolvedServerUrl.isBlank()) {
             Toast.makeText(
@@ -196,6 +219,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         loadAudioSettings()
         loadCachedStatus()
         setupUI()
+        registerTakeoverRequestListener()
 
         // Check if service is already running
         if (AudioPlaybackService.isPlaying) {
@@ -210,34 +234,8 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun resolveTargetDeviceIdForStreaming(): String? {
-        val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-        val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-        val myDeviceId = prefs.getString("device_id", null)?.trim().orEmpty()
-        val excluded = listOf(
-            myDeviceId,
-            prefs.getString("parent_device_id", null),
-            prefs.getString("linked_parent_device_id", null),
-            legacyPrefs.getString("parent_device_id", null),
-            legacyPrefs.getString("linked_parent_device_id", null)
-        )
-            .mapNotNull { it?.trim() }
-            .filter { it.isNotBlank() }
-            .toSet()
-
         val fromIntent = intent.getStringExtra(EXTRA_DEVICE_ID)?.trim()
-        if (!fromIntent.isNullOrBlank() && fromIntent !in excluded) {
-            return fromIntent
-        }
-
-        return listOf(
-            prefs.getString("child_device_id", null),
-            secureSettings.getChildDeviceId(),
-            legacyPrefs.getString("child_device_id", null),
-            prefs.getString("selected_device_id", null),
-            legacyPrefs.getString("selected_device_id", null)
-        )
-            .mapNotNull { it?.trim() }
-            .firstOrNull { it.isNotBlank() && it !in excluded }
+        return effectiveContextResolver.resolveTargetDeviceCandidates(fromIntent).firstOrNull()
     }
 
     private fun loadAudioSettings() {
@@ -299,6 +297,12 @@ class AudioStreamingActivity : AppCompatActivity() {
             if (streamingActionInProgress) return@setOnClickListener
 
             Log.d(TAG, "Button clicked. isPlaying=${AudioPlaybackService.isPlaying}")
+            val busyOwner = busyOwnerLabel?.takeIf { it.isNotBlank() }
+            if (!AudioPlaybackService.isPlaying && !busyOwner.isNullOrBlank()) {
+                showTakeoverDialog(busyOwner)
+                return@setOnClickListener
+            }
+
             beginStreamingTransition()
             if (AudioPlaybackService.isPlaying) {
                 Log.d(TAG, "Calling stopStreaming()")
@@ -326,6 +330,49 @@ class AudioStreamingActivity : AppCompatActivity() {
         syncRecordingSwitch(desiredRecordingEnabled)
         updateBatteryHud()
         updateDiagnosticsSummary(AudioStreamMetrics())
+    }
+
+    private fun registerTakeoverRequestListener() {
+        WebSocketManager.setStreamTakeoverRequestedCallback { requestedDeviceId, requesterParentId, requesterDisplayName, _ ->
+            if (requestedDeviceId != deviceId) return@setStreamTakeoverRequestedCallback
+            if (!AudioPlaybackService.isPlaying) return@setStreamTakeoverRequestedCallback
+            runOnUiThread {
+                showOwnerTakeoverRequestDialog(requesterParentId, requesterDisplayName)
+            }
+        }
+    }
+
+    private fun showOwnerTakeoverRequestDialog(
+        requesterParentId: String,
+        requesterDisplayName: String
+    ) {
+        val requesterLabel = requesterDisplayName.ifBlank { requesterParentId }
+        val requesterKey = requesterParentId.ifBlank { requesterLabel }
+        if (requesterKey.isNotBlank() && requesterKey == lastTakeoverRequesterId) {
+            Toast.makeText(
+                this,
+                getString(R.string.listen_takeover_owner_requested_toast, requesterLabel),
+                Toast.LENGTH_LONG
+            ).show()
+            return
+        }
+        lastTakeoverRequesterId = requesterKey.ifBlank { null }
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.listen_takeover_owner_dialog_title)
+            .setMessage(getString(R.string.listen_takeover_owner_dialog_message, requesterLabel))
+            .setNegativeButton(R.string.listen_takeover_owner_keep, null)
+            .setPositiveButton(R.string.listen_takeover_owner_release) { _, _ ->
+                if (AudioPlaybackService.isPlaying) {
+                    stopStreaming()
+                    Toast.makeText(
+                        this,
+                        getString(R.string.listen_takeover_owner_released_toast),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
+            .show()
     }
 
     private fun sanitizeSampleRate(candidate: Int): Int {
@@ -822,26 +869,267 @@ class AudioStreamingActivity : AppCompatActivity() {
 
     private fun startStreaming() {
         Log.d(TAG, "Starting audio streaming...")
+        lifecycleScope.launch {
+            val ownParentId = effectiveContextResolver.resolveOwnParentId().trim()
+            val streamingStatus = runCatching {
+                networkClient.getStreamingStatus(serverUrl, deviceId)
+            }.getOrNull()
 
-        // Improvement: Keep screen on during streaming to prevent system sleep
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        Log.d(TAG, "Screen lock enabled - preventing sleep during streaming")
+            val ownerParentId = streamingStatus?.ownerParentId?.trim().orEmpty()
+            val ownerDisplayName = streamingStatus?.ownerDisplayName?.trim().orEmpty()
+            val busyByAnotherParent =
+                (streamingStatus?.active == true || streamingStatus?.streaming == true) &&
+                    ownerParentId.isNotBlank() &&
+                    ownParentId.isNotBlank() &&
+                    ownerParentId != ownParentId &&
+                    !streamingStatus.ownerStale
 
-        // Start visualizer
-        binding.advancedAudioVisualizer.start()
+            if (busyByAnotherParent) {
+                val ownerLabel = ownerDisplayName.ifBlank { ownerParentId }
+                busyOwnerLabel = ownerLabel
+                takeoverRequestSentAt = 0L
+                updateStatusBusy(ownerLabel)
+                finishStreamingTransition()
+                startTakeoverStatusPolling()
+                updateUI()
+                return@launch
+            }
 
-        AudioPlaybackService.startPlayback(
-            context = this,
+            busyOwnerLabel = null
+            takeoverRequestSentAt = 0L
+            stopTakeoverStatusPolling()
+
+            // Improvement: Keep screen on during streaming to prevent system sleep
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            Log.d(TAG, "Screen lock enabled - preventing sleep during streaming")
+
+            // Start visualizer
+            binding.advancedAudioVisualizer.start()
+
+            AudioPlaybackService.startPlayback(
+                context = this@AudioStreamingActivity,
+                deviceId = deviceId,
+                serverUrl = serverUrl,
+                recording = desiredRecordingEnabled,
+                sampleRate = selectedSampleRate
+            )
+            bindPlaybackService()
+            scheduleStreamingStartVerification()
+
+            streamingStartTime = System.currentTimeMillis()
+            updateUI()
+        }
+    }
+
+    private fun updateStatusBusy(ownerLabel: String) {
+        val message = getString(R.string.listen_busy_other_parent, ownerLabel)
+        binding.statusText.text = getString(R.string.listen_state_busy)
+        binding.connectionQualityText.text = getString(R.string.listen_connection_busy)
+        binding.connectionHintText.text = message
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+    }
+
+    private fun showTakeoverDialog(ownerLabel: String) {
+        if (takeoverRequestInProgress()) {
+            Toast.makeText(
+                this,
+                getString(R.string.listen_takeover_request_pending),
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.listen_takeover_dialog_title)
+            .setMessage(getString(R.string.listen_takeover_dialog_message, ownerLabel))
+            .setNegativeButton(android.R.string.cancel, null)
+            .setPositiveButton(R.string.listen_takeover_dialog_request) { _, _ ->
+                requestTakeover(ownerLabel)
+            }
+            .show()
+    }
+
+    private fun requestTakeover(ownerLabel: String) {
+        if (takeoverRequestInProgress()) {
+            Toast.makeText(
+                this,
+                getString(R.string.listen_takeover_request_pending),
+                Toast.LENGTH_SHORT
+            ).show()
+            return
+        }
+
+        beginStreamingTransition()
+        lifecycleScope.launch {
+            val result = withContext(Dispatchers.IO) { postStreamingTakeoverRequest() }
+            when {
+                result.success && !result.busy -> {
+                    takeoverRequestSentAt = 0L
+                    busyOwnerLabel = null
+                    stopTakeoverStatusPolling()
+                    Toast.makeText(
+                        this@AudioStreamingActivity,
+                        getString(R.string.listen_takeover_request_granted),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    AudioPlaybackService.startPlayback(
+                        context = this@AudioStreamingActivity,
+                        deviceId = deviceId,
+                        serverUrl = serverUrl,
+                        recording = desiredRecordingEnabled,
+                        sampleRate = selectedSampleRate
+                    )
+                    bindPlaybackService()
+                    scheduleStreamingStartVerification()
+                }
+                result.busy -> {
+                    val pendingOwner = result.ownerDisplayName?.takeIf { it.isNotBlank() }
+                        ?: result.ownerParentId?.takeIf { it.isNotBlank() }
+                        ?: ownerLabel
+                    busyOwnerLabel = pendingOwner
+                    takeoverRequestSentAt = System.currentTimeMillis()
+                    startTakeoverStatusPolling()
+                    Toast.makeText(
+                        this@AudioStreamingActivity,
+                        getString(R.string.listen_takeover_request_sent, pendingOwner),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+                else -> {
+                    takeoverRequestSentAt = 0L
+                    Toast.makeText(
+                        this@AudioStreamingActivity,
+                        getString(
+                            R.string.listen_takeover_request_failed,
+                            result.message ?: getString(R.string.listen_connection_error)
+                        ),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+
+            finishStreamingTransition()
+            updateUI()
+        }
+    }
+
+    private fun takeoverRequestInProgress(now: Long = System.currentTimeMillis()): Boolean {
+        val sentAt = takeoverRequestSentAt
+        return sentAt > 0L && (now - sentAt) < 30_000L
+    }
+
+    private fun startTakeoverStatusPolling() {
+        takeoverStatusPollJob?.cancel()
+        takeoverStatusPollJob = lifecycleScope.launch {
+            while (isActive && !AudioPlaybackService.isPlaying && takeoverRequestInProgress()) {
+                delay(8_000L)
+                if (isDestroyed || isFinishing) break
+
+                val status = runCatching {
+                    networkClient.getStreamingStatus(serverUrl, deviceId)
+                }.getOrNull() ?: continue
+
+                val ownParentId = effectiveContextResolver.resolveOwnParentId().trim()
+                val ownerParentId = status.ownerParentId.trim()
+                val stillBusy =
+                    (status.active || status.streaming) &&
+                        ownerParentId.isNotBlank() &&
+                        ownerParentId != ownParentId &&
+                        !status.ownerStale
+
+                if (!stillBusy) {
+                    takeoverRequestSentAt = 0L
+                    busyOwnerLabel = null
+                    Toast.makeText(
+                        this@AudioStreamingActivity,
+                        getString(R.string.listen_takeover_line_available),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    updateUI()
+                    break
+                }
+
+                val ownerDisplayName = status.ownerDisplayName.trim()
+                if (ownerDisplayName.isNotBlank()) {
+                    busyOwnerLabel = ownerDisplayName
+                    updateUI()
+                }
+            }
+        }
+    }
+
+    private fun stopTakeoverStatusPolling() {
+        takeoverStatusPollJob?.cancel()
+        takeoverStatusPollJob = null
+    }
+
+    private suspend fun postStreamingTakeoverRequest(): NetworkClient.StreamingCommandResult {
+        return withContext(Dispatchers.IO) {
+            try {
+                val url = "${serverUrl.trimEnd('/')}/api/streaming/start"
+                val json = JSONObject().apply {
+                    put("deviceId", deviceId)
+                    put("recording", desiredRecordingEnabled)
+                    put("timeoutMinutes", STREAM_TIMEOUT_MINUTES)
+                    put("sampleRate", selectedSampleRate)
+                    put("requestTakeover", true)
+                    effectiveContextResolver.resolveOwnParentId().trim().takeIf { it.isNotBlank() }?.let {
+                        put("parentId", it)
+                    }
+                }
+
+                val requestBody = json.toString().toRequestBody("application/json".toMediaType())
+                val request = Request.Builder()
+                    .url(url)
+                    .post(requestBody)
+                    .build()
+
+                takeoverHttpClient.newCall(request).execute().use { response ->
+                    val body = response.body?.string()
+                    parseStreamingResult(deviceId, response.code, body)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error requesting audio takeover", e)
+                NetworkClient.StreamingCommandResult(
+                    success = false,
+                    deviceId = deviceId,
+                    code = "TAKEOVER_REQUEST_EXCEPTION",
+                    message = e.message
+                )
+            }
+        }
+    }
+
+    private fun parseStreamingResult(
+        deviceId: String,
+        responseCode: Int,
+        responseBody: String?
+    ): NetworkClient.StreamingCommandResult {
+        val fallbackError = NetworkClient.StreamingCommandResult(
+            success = responseCode in 200..299,
             deviceId = deviceId,
-            serverUrl = serverUrl,
-            recording = desiredRecordingEnabled,
-            sampleRate = selectedSampleRate
+            code = if (responseCode in 200..299) null else "HTTP_$responseCode",
+            message = responseBody
         )
-        bindPlaybackService()
-        scheduleStreamingStartVerification()
 
-        streamingStartTime = System.currentTimeMillis()
-        updateUI()
+        if (responseBody.isNullOrBlank()) return fallbackError
+
+        return runCatching {
+            val json = JSONObject(responseBody)
+            NetworkClient.StreamingCommandResult(
+                success = json.optBoolean("success", responseCode in 200..299),
+                deviceId = json.optString("deviceId", deviceId),
+                busy = json.optBoolean("busy", false),
+                code = json.optString("code").takeIf { it.isNotBlank() },
+                message = json.optString("error").takeIf { it.isNotBlank() }
+                    ?: json.optString("message").takeIf { it.isNotBlank() },
+                ownerParentId = json.optString("ownerParentId").takeIf { it.isNotBlank() },
+                ownerDisplayName = json.optString("ownerDisplayName").takeIf { it.isNotBlank() },
+                startedAt = json.optLong("startedAt", 0L),
+                durationMs = json.optLong("durationMs", 0L),
+                canRequestTakeover = json.optBoolean("canRequestTakeover", false)
+            )
+        }.getOrElse { fallbackError }
     }
 
     private fun stopStreaming() {
@@ -867,6 +1155,9 @@ class AudioStreamingActivity : AppCompatActivity() {
         startVerificationJob?.cancel()
         syncRecordingSwitch(false)
         desiredRecordingEnabled = false
+        takeoverRequestSentAt = 0L
+        busyOwnerLabel = null
+        stopTakeoverStatusPolling()
         updateUI()
     }
 
@@ -943,9 +1234,12 @@ class AudioStreamingActivity : AppCompatActivity() {
             if (isPlaying) android.R.drawable.ic_media_pause else android.R.drawable.ic_btn_speak_now
         )
 
-        binding.statusText.text = getString(
-            if (isPlaying) R.string.listen_state_running else R.string.listen_state_stopped
-        )
+        val busyOwner = busyOwnerLabel
+        binding.statusText.text = when {
+            isPlaying -> getString(R.string.listen_state_running)
+            !busyOwner.isNullOrBlank() -> getString(R.string.listen_state_busy)
+            else -> getString(R.string.listen_state_stopped)
+        }
         binding.statusText.setTextColor(getColor(android.R.color.white))
         binding.statusBadgeCard.setCardBackgroundColor(
             if (isPlaying) Color.parseColor("#1FBBF7D0") else Color.parseColor("#1FFFFFFF")
@@ -953,14 +1247,38 @@ class AudioStreamingActivity : AppCompatActivity() {
 
         binding.recordingSwitch.isEnabled = isPlaying
         binding.childBatteryText.text = formatChildBatteryText()
-        binding.connectionQualityText.text = buildConnectionHeadline(isPlaying, initError, lastChunkAgeMs)
-        binding.connectionHintText.text = buildConnectionHint(isPlaying, initError, ageText)
+        if (!busyOwner.isNullOrBlank() && !isPlaying) {
+            val takeoverPending = takeoverRequestInProgress()
+            binding.connectionQualityText.text = getString(R.string.listen_connection_busy)
+            binding.connectionHintText.text = if (takeoverPending) {
+                getString(R.string.listen_takeover_pending_hint, busyOwner)
+            } else {
+                getString(R.string.listen_busy_other_parent, busyOwner)
+            }
+        } else {
+            binding.connectionQualityText.text = buildConnectionHeadline(isPlaying, initError, lastChunkAgeMs)
+            binding.connectionHintText.text = buildConnectionHint(isPlaying, initError, ageText)
+        }
 
         val qualityEnabled = !qualitySwitchInProgress
         binding.audioQualityGroup.isEnabled = qualityEnabled
         binding.quality24Button.isEnabled = qualityEnabled
         binding.quality32Button.isEnabled = qualityEnabled
         binding.quality48Button.isEnabled = qualityEnabled
+
+        if (!isPlaying && !busyOwner.isNullOrBlank()) {
+            if (takeoverRequestInProgress()) {
+                binding.toggleStreamingBtn.text = getString(R.string.listen_toggle_takeover_sent)
+            } else {
+                binding.toggleStreamingBtn.text = getString(R.string.listen_toggle_request_takeover)
+            }
+            binding.toggleStreamingBtn.icon = getDrawable(android.R.drawable.ic_menu_send)
+            binding.toggleStreamingBtn.backgroundTintList = ColorStateList.valueOf(
+                Color.parseColor("#FFF3E5")
+            )
+            binding.toggleStreamingBtn.setTextColor(Color.parseColor("#8C4A00"))
+            binding.toggleStreamingBtn.iconTint = ColorStateList.valueOf(Color.parseColor("#8C4A00"))
+        }
         updateBatteryHud()
         updateDiagnosticsSummary(audioService?.metricsManager?.metrics?.value ?: AudioStreamMetrics())
 
@@ -998,17 +1316,23 @@ class AudioStreamingActivity : AppCompatActivity() {
             AudioPlaybackService.restoreIfNeeded(this)
             bindPlaybackService()
         }
+        if (!AudioPlaybackService.isPlaying && (busyOwnerLabel?.isNotBlank() == true || takeoverRequestInProgress())) {
+            startTakeoverStatusPolling()
+        }
         startChildStatusPolling()
     }
 
     override fun onPause() {
         super.onPause()
         stopChildStatusPolling()
+        stopTakeoverStatusPolling()
     }
 
     override fun onDestroy() {
         super.onDestroy()
+        WebSocketManager.clearStreamTakeoverRequestedCallback()
         stopChildStatusPolling()
+        stopTakeoverStatusPolling()
         metricsCollectorJob?.cancel()
         uiUpdateJob?.cancel()
         transitionResetJob?.cancel()

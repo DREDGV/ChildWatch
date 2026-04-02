@@ -40,6 +40,7 @@ import ru.example.childwatch.diagnostics.ErrorSeverity
 import ru.example.childwatch.audio.StreamRecorder
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketClient
+import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.utils.AlertNotifier
 
@@ -210,6 +211,7 @@ class AudioPlaybackService : LifecycleService() {
     // Improvement: Audio Focus for handling calls/notifications
     private var audioManager: AudioManager? = null
     private var wasPlayingBeforeFocusLoss = false
+    private var pausedByTransientFocusLoss = false
     private var previousAudioMode: Int = AudioManager.MODE_NORMAL
     private var previousSpeakerphoneState: Boolean = false
 
@@ -221,12 +223,14 @@ class AudioPlaybackService : LifecycleService() {
                 // Lost focus for unknown duration - stop playback
                 Log.w(TAG, "СЂСџР‹Вµ AUDIOFOCUS_LOSS - stopping playback")
                 wasPlayingBeforeFocusLoss = isPlaying
+                pausedByTransientFocusLoss = false
                 stopPlayback()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 // Lost focus temporarily (e.g., incoming call)
                 Log.w(TAG, "СЂСџР‹Вµ AUDIOFOCUS_LOSS_TRANSIENT - pausing temporarily")
                 wasPlayingBeforeFocusLoss = isPlaying
+                pausedByTransientFocusLoss = isPlaying
                 pausePlayback()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
@@ -238,11 +242,11 @@ class AudioPlaybackService : LifecycleService() {
                 // Regained focus
                 Log.i(TAG, "СЂСџР‹Вµ AUDIOFOCUS_GAIN - resumed")
                 audioTrack?.setVolume(1.0f) // Restore volume
-                // Optionally resume if it was playing before
-                if (wasPlayingBeforeFocusLoss && !isPlaying) {
-                    Log.d(TAG, "Resuming playback after focus regained")
-                    // Note: Full resume might need manual action from user
+                if (pausedByTransientFocusLoss && wasPlayingBeforeFocusLoss && !isPlaying) {
+                    Log.d(TAG, "Resuming playback after transient focus loss")
+                    resumePlaybackAfterFocusGain()
                 }
+                pausedByTransientFocusLoss = false
             }
             else -> {
                 Log.d(TAG, "СЂСџР‹Вµ Unknown audio focus change: $focusChange")
@@ -544,15 +548,43 @@ class AudioPlaybackService : LifecycleService() {
                 try {
                     // Inform server that parent is listening before starting playback
                     networkClient?.let { client ->
-                        val registered = client.startAudioStreaming(
+                        val startResult = client.startAudioStreaming(
                             serverUrl,
                             deviceId,
                             recording,
                             STREAM_TIMEOUT_MINUTES,
                             requestedSampleRate
                         )
-                        if (!registered) {
-                            Log.w(TAG, "Failed to register parent listener on server for $deviceId")
+                        if (!startResult.success) {
+                            val ownerLabel =
+                                startResult.ownerDisplayName
+                                    ?.takeIf { it.isNotBlank() }
+                                    ?: startResult.ownerParentId
+                                        ?.takeIf { it.isNotBlank() }
+                            if (startResult.busy && !ownerLabel.isNullOrBlank()) {
+                                val busyText = getString(
+                                    R.string.listen_busy_other_parent,
+                                    ownerLabel
+                                )
+                                Log.w(
+                                    TAG,
+                                    "Listening line busy for $deviceId: owner=$ownerLabel code=${startResult.code}"
+                                )
+                                updateNotification(busyText)
+                                mainHandler.post {
+                                    Toast.makeText(
+                                        this@AudioPlaybackService,
+                                        busyText,
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                }
+                                stopSelf()
+                                return@launch
+                            }
+                            Log.w(
+                                TAG,
+                                "Failed to register parent listener on server for $deviceId: code=${startResult.code} msg=${startResult.message}"
+                            )
                         }
                     }
 
@@ -645,6 +677,39 @@ class AudioPlaybackService : LifecycleService() {
         }
 
         // Note: Keep the same status (PLAYING) so we know to resume
+    }
+
+    private fun resumePlaybackAfterFocusGain() {
+        if (audioTrack == null) {
+            initializeAudioTrack()
+        }
+        runCatching { audioTrack?.play() }
+            .onFailure { Log.w(TAG, "AudioTrack resume after focus gain failed: ${it.message}") }
+        isPlaying = true
+        AudioPlaybackService.isPlaying = true
+        if (playbackJob?.isActive != true) {
+            startPlaybackJob()
+        }
+        updateNotification(getString(R.string.listen_status_active))
+        currentStatus = getString(R.string.listen_status_active)
+        AudioPlaybackService.currentStatus = currentStatus
+    }
+
+    private fun resetIncomingAudioState(reason: String) {
+        Log.i(TAG, "Resetting incoming audio state: $reason")
+        chunkQueue.clear()
+        lastReceivedSequence = -1
+        underrunCount = 0
+        isBuffering = true
+        runCatching {
+            audioTrack?.pause()
+            audioTrack?.flush()
+            if (isPlaying) {
+                audioTrack?.play()
+            }
+        }.onFailure {
+            Log.w(TAG, "AudioTrack reset flush failed: ${it.message}")
+        }
     }
 
     private fun stopPlayback() {
@@ -1062,6 +1127,9 @@ class AudioPlaybackService : LifecycleService() {
             val serverUrl = this.serverUrl ?: return
 
             webSocketClient = WebSocketClient(serverUrl, deviceId)
+            webSocketClient?.setAudioStreamResetCallback {
+                resetIncomingAudioState("sequence_reset")
+            }
 
             // Set callback for receiving audio chunks (Р В­РЎвЂљР В°Р С— A - jitter buffer)
             webSocketClient?.setAudioChunkCallback { audioData, sequence, timestamp, sampleRate, channels, batteryLevel, isCharging, deviceStatusTimestamp ->
@@ -1157,6 +1225,7 @@ class AudioPlaybackService : LifecycleService() {
 
             // Set callback for child disconnect
             webSocketClient?.setChildDisconnectedCallback {
+                resetIncomingAudioState("child_disconnected")
                 updateNotification("Device disconnected")
             }
 
@@ -1200,6 +1269,10 @@ class AudioPlaybackService : LifecycleService() {
     }
 
     private fun startPlaybackJob() {
+        if (playbackJob?.isActive == true) {
+            Log.d(TAG, "AUDIO playback loop already active, duplicate start ignored")
+            return
+        }
         isBuffering = true
         chunkQueue.clear()
         underrunCount = 0
@@ -1300,29 +1373,9 @@ class AudioPlaybackService : LifecycleService() {
     }
 
     private fun resolvePreferredTargetDeviceId(initialDeviceId: String?): String? {
-        val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-        val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-        val ownId = prefs.getString("device_id", null)?.trim().orEmpty()
-        val excluded = listOf(
-            ownId,
-            prefs.getString("parent_device_id", null),
-            prefs.getString("linked_parent_device_id", null),
-            legacyPrefs.getString("parent_device_id", null),
-            legacyPrefs.getString("linked_parent_device_id", null)
-        )
-            .mapNotNull { it?.trim() }
-            .filter { it.isNotBlank() }
-            .toSet()
-
-        return listOf(
-            initialDeviceId,
-            prefs.getString("selected_device_id", null),
-            prefs.getString("child_device_id", null),
-            legacyPrefs.getString("selected_device_id", null),
-            legacyPrefs.getString("child_device_id", null)
-        )
-            .mapNotNull { it?.trim() }
-            .firstOrNull { it.isNotBlank() && it !in excluded }
+        return ParentEffectiveContextResolver(this)
+            .resolveTargetDeviceCandidates(initialDeviceId)
+            .firstOrNull()
     }
 
     /**
@@ -1357,16 +1410,35 @@ class AudioPlaybackService : LifecycleService() {
         // If no chunks are flowing yet, we fan-out to all known candidate IDs for compatibility.
         val shouldFanOut = chunksReceived == 0
         val httpTargets = if (shouldFanOut) targets else listOf(id)
+        var blockedByOtherParent = false
         httpTargets.forEach { targetId ->
             runCatching {
-                networkClient?.startAudioStreaming(
+                val result = networkClient?.startAudioStreaming(
                     url,
                     targetId,
                     isRecording,
                     STREAM_TIMEOUT_MINUTES,
                     requestedSampleRate
                 )
+                if (result?.busy == true) {
+                    blockedByOtherParent = true
+                    val ownerLabel =
+                        result.ownerDisplayName?.takeIf { it.isNotBlank() }
+                            ?: result.ownerParentId?.takeIf { it.isNotBlank() }
+                            ?: getString(R.string.listen_connection_busy)
+                    val busyText = getString(R.string.listen_busy_other_parent, ownerLabel)
+                    Log.w(TAG, "Start command blocked by another parent for $targetId: owner=$ownerLabel")
+                    mainHandler.post {
+                        Toast.makeText(this@AudioPlaybackService, busyText, Toast.LENGTH_LONG).show()
+                    }
+                    updateNotification(busyText)
+                }
             }.onFailure { Log.w(TAG, "HTTP start command failed for $targetId: ${it.message}") }
+        }
+
+        if (blockedByOtherParent) {
+            stopPlayback()
+            return
         }
 
         if (webSocketClient?.isReady() == true) {
@@ -1383,40 +1455,8 @@ class AudioPlaybackService : LifecycleService() {
     }
 
     private fun resolveStartCommandTargets(primaryId: String): List<String> {
-        val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-        val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-        val ownId = prefs.getString("device_id", null)?.trim().orEmpty()
-
-        val excluded = listOf(
-            ownId,
-            prefs.getString("parent_device_id", null),
-            prefs.getString("linked_parent_device_id", null),
-            legacyPrefs.getString("parent_device_id", null),
-            legacyPrefs.getString("linked_parent_device_id", null)
-        )
-            .mapNotNull { it?.trim() }
-            .filter { it.isNotBlank() }
-            .toSet()
-
-        val ordered = linkedSetOf<String>()
-        listOf(
-            primaryId,
-            prefs.getString("selected_device_id", null),
-            prefs.getString("child_device_id", null),
-            legacyPrefs.getString("selected_device_id", null),
-            legacyPrefs.getString("child_device_id", null)
-        )
-            .mapNotNull { it?.trim() }
-            .forEach { candidate ->
-                if (candidate.isNotBlank() && candidate !in excluded) {
-                    ordered.add(candidate)
-                }
-            }
-
-        if (ordered.isEmpty()) {
-            ordered.add(primaryId)
-        }
-        return ordered.toList()
+        val candidates = ParentEffectiveContextResolver(this).resolveTargetDeviceCandidates(primaryId)
+        return if (candidates.isNotEmpty()) candidates else listOf(primaryId)
     }
 
     /**

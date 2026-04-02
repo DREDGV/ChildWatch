@@ -37,6 +37,35 @@ interface ChildWatchApi {
     suspend fun getDeviceStatus(@Path("deviceId") deviceId: String): Response<DeviceStatusResponse>
 
     /**
+     * Get device status history snapshots for app/activity timeline.
+     */
+    @GET("api/device/status/history/{deviceId}")
+    suspend fun getDeviceStatusHistory(
+        @Path("deviceId") deviceId: String,
+        @Query("limit") limit: Int = 60
+    ): Response<DeviceStatusHistoryResponse>
+
+    @GET("api/relationships/children/{parentDeviceId}")
+    suspend fun getLinkedChildren(
+        @Path("parentDeviceId") parentDeviceId: String
+    ): Response<LinkedChildrenResponse>
+
+    @GET("api/relationships/parents/{childDeviceId}")
+    suspend fun getLinkedParents(
+        @Path("childDeviceId") childDeviceId: String
+    ): Response<LinkedParentsResponse>
+
+    @POST("api/relationships/link")
+    suspend fun linkParentChild(
+        @Body request: ParentChildLinkRequest
+    ): Response<GenericResponse>
+
+    @POST("api/relationships/unlink")
+    suspend fun unlinkParentChild(
+        @Body request: ParentChildUnlinkRequest
+    ): Response<GenericResponse>
+
+    /**
      * Get chat message history
      */
     @GET("api/chat/history/{deviceId}")
@@ -116,6 +145,14 @@ data class DeviceStatusResponse(
     val status: DeviceStatus?
 )
 
+data class DeviceRecentApp(
+    val packageName: String?,
+    val appName: String?,
+    val lastUsed: Long?,
+    val totalTimeInForeground: Long? = null,
+    val isSystemApp: Boolean? = null
+)
+
 data class DeviceStatus(
     val batteryLevel: Int?,
     val isCharging: Boolean?,
@@ -130,7 +167,80 @@ data class DeviceStatus(
     val currentAppName: String?,
     val currentAppPackage: String?,
     val timestamp: Long?,
+    val recentApps: List<DeviceRecentApp>? = emptyList(),
     val raw: Map<String, Any?>?
+)
+
+data class DeviceStatusHistoryResponse(
+    val success: Boolean,
+    val deviceId: String,
+    val count: Int,
+    val statuses: List<DeviceStatusHistoryItem> = emptyList()
+)
+
+data class DeviceStatusHistoryItem(
+    val batteryLevel: Int?,
+    val isCharging: Boolean?,
+    val chargingType: String?,
+    val currentAppName: String?,
+    val currentAppPackage: String?,
+    val timestamp: Long?,
+    val recentApps: List<DeviceRecentApp>? = emptyList(),
+    val raw: Map<String, Any?>? = null
+)
+
+data class ParentChildLinkRequest(
+    val parentDeviceId: String,
+    val childDeviceId: String,
+    val relationRole: String = "guardian",
+    val displayName: String? = null
+)
+
+data class ParentChildUnlinkRequest(
+    val parentDeviceId: String,
+    val childDeviceId: String
+)
+
+data class LinkedChildrenResponse(
+    val success: Boolean,
+    val parentDeviceId: String,
+    val count: Int,
+    val children: List<LinkedChildLink> = emptyList()
+)
+
+data class LinkedParentsResponse(
+    val success: Boolean,
+    val childDeviceId: String,
+    val count: Int,
+    val parents: List<LinkedParentLink> = emptyList()
+)
+
+data class LinkedChildLink(
+    val parentDeviceId: String,
+    val childDeviceId: String,
+    val relationRole: String?,
+    val displayName: String?,
+    val createdBy: String?,
+    val isActive: Int? = null,
+    val createdAt: Long? = null,
+    val updatedAt: Long? = null,
+    val childDeviceName: String?,
+    val childDeviceType: String?,
+    val childAppVersion: String?
+)
+
+data class LinkedParentLink(
+    val parentDeviceId: String,
+    val childDeviceId: String,
+    val relationRole: String?,
+    val displayName: String?,
+    val createdBy: String?,
+    val isActive: Int? = null,
+    val createdAt: Long? = null,
+    val updatedAt: Long? = null,
+    val parentDeviceName: String?,
+    val parentDeviceType: String?,
+    val parentAppVersion: String?
 )
 
 data class ChatHistoryResponse(
@@ -143,6 +253,9 @@ data class ChatHistoryResponse(
 data class ChatMessageData(
     val id: String,
     val sender: String,
+    val senderRole: String? = null,
+    val senderDeviceId: String? = null,
+    val senderDisplayName: String? = null,
     val message: String,
     val timestamp: Long,
     val isRead: Boolean,

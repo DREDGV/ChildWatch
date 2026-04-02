@@ -12,13 +12,17 @@ import ru.example.parentwatch.service.AppUsageTracker
  * Collects device battery and hardware information for ParentWatch uploads.
  */
 object DeviceInfoCollector {
-    private const val CURRENT_APP_CACHE_TTL_MS = 2 * 60 * 1000L
+    private const val APP_USAGE_CACHE_TTL_MS = 2 * 60 * 1000L
+    private const val APP_USAGE_UPLOAD_TTL_MS = 5 * 60 * 1000L
 
     @Volatile
-    private var cachedCurrentAppJson: String? = null
+    private var cachedAppUsageJson: String? = null
 
     @Volatile
-    private var cachedCurrentAppAt: Long = 0L
+    private var cachedAppUsageAt: Long = 0L
+
+    @Volatile
+    private var lastUsageSnapshotUploadAt: Long = 0L
 
     private val cachedDeviceDetailsJson by lazy {
         JSONObject().apply {
@@ -45,18 +49,30 @@ object DeviceInfoCollector {
             put("battery", getBatteryInfo(context))
             put("device", getDeviceDetails())
             if (includeCurrentApp) {
-                put("currentApp", getCurrentAppInfo(context))
+                val appUsage = getAppUsageInfo(context)
+                put("currentApp", appUsage.optJSONObject("currentApp") ?: JSONObject())
+                put("recentApps", appUsage.optJSONArray("recentApps") ?: org.json.JSONArray())
+                lastUsageSnapshotUploadAt = System.currentTimeMillis()
             }
             put("timestamp", System.currentTimeMillis())
         }
     }
 
     /**
-     * Get current foreground app information
+     * Child-side usage snapshots are heavier than battery/device info, so we only
+     * attach them periodically instead of on every background upload.
      */
-    private fun getCurrentAppInfo(context: Context): JSONObject {
+    fun shouldIncludeAppUsageSnapshot(): Boolean {
         val now = System.currentTimeMillis()
-        cachedCurrentAppJson?.takeIf { (now - cachedCurrentAppAt) < CURRENT_APP_CACHE_TTL_MS }?.let {
+        return (now - lastUsageSnapshotUploadAt) >= APP_USAGE_UPLOAD_TTL_MS
+    }
+
+    /**
+     * Get cached foreground + recent app information.
+     */
+    private fun getAppUsageInfo(context: Context): JSONObject {
+        val now = System.currentTimeMillis()
+        cachedAppUsageJson?.takeIf { (now - cachedAppUsageAt) < APP_USAGE_CACHE_TTL_MS }?.let {
             return JSONObject(it)
         }
 
@@ -64,27 +80,52 @@ object DeviceInfoCollector {
 
         val result = if (appUsageTracker.hasUsageStatsPermission()) {
             val currentApp = appUsageTracker.getCurrentApp()
-            if (currentApp != null) {
-                JSONObject().apply {
-                    put("packageName", currentApp.packageName)
-                    put("appName", currentApp.appName)
-                    put("lastUsed", currentApp.lastTimeUsed)
-                    put("isSystemApp", currentApp.isSystemApp)
-                }
-            } else {
-                JSONObject().apply {
-                    put("error", "No app data available")
-                }
+            val recentApps = appUsageTracker.getRecentApps(limit = 8)
+            JSONObject().apply {
+                put(
+                    "currentApp",
+                    if (currentApp != null) {
+                        JSONObject().apply {
+                            put("packageName", currentApp.packageName)
+                            put("appName", currentApp.appName)
+                            put("lastUsed", currentApp.lastTimeUsed)
+                            put("isSystemApp", currentApp.isSystemApp)
+                        }
+                    } else {
+                        JSONObject().apply {
+                            put("error", "No app data available")
+                        }
+                    }
+                )
+                put("recentApps", org.json.JSONArray().apply {
+                    recentApps.forEach { app ->
+                        put(JSONObject().apply {
+                            put("packageName", app.packageName)
+                            put("appName", app.appName)
+                            put("lastUsed", app.lastTimeUsed)
+                            put("totalTimeInForeground", app.totalTimeInForeground)
+                            put("isSystemApp", app.isSystemApp)
+                        })
+                    }
+                })
             }
         } else {
             JSONObject().apply {
-                put("error", "Permission not granted")
-                put("permissionRequired", "PACKAGE_USAGE_STATS")
+                put("currentApp", JSONObject().apply {
+                    put("error", "Permission not granted")
+                    put("permissionRequired", "PACKAGE_USAGE_STATS")
+                })
+                put("recentApps", org.json.JSONArray())
             }
         }
-        cachedCurrentAppJson = result.toString()
-        cachedCurrentAppAt = now
+        cachedAppUsageJson = result.toString()
+        cachedAppUsageAt = now
         return result
+    }
+
+    fun getRecentAppsInfo(context: Context): org.json.JSONArray {
+        val appUsage = getAppUsageInfo(context)
+        return appUsage.optJSONArray("recentApps") ?: org.json.JSONArray()
     }
 
     private fun getBatteryInfo(context: Context): JSONObject {

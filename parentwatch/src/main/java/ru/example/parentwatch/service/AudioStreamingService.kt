@@ -24,8 +24,11 @@ import ru.example.parentwatch.MainActivity
 import ru.example.parentwatch.R
 import ru.example.parentwatch.audio.AudioStreamRecorder
 import ru.example.parentwatch.network.NetworkHelper
+import ru.example.parentwatch.session.ChildActiveSessionStore
+import ru.example.parentwatch.session.ChildEffectiveContextResolver
 import ru.example.parentwatch.utils.DeviceInfoCollector
 import ru.example.parentwatch.utils.RemoteLogger
+import ru.example.parentwatch.utils.ServerUrlResolver
 
 /**
  * Foreground service that captures microphone audio and streams it over WebSocket.
@@ -98,17 +101,44 @@ class AudioStreamingService : Service() {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             if (!prefs.getBoolean(PREF_AUDIO_DESIRED, false)) return false
 
-            val deviceId = prefs.getString(PREF_AUDIO_DEVICE_ID, null)?.trim().orEmpty()
-            val serverUrl = prefs.getString(PREF_AUDIO_SERVER_URL, null)?.trim().orEmpty()
+            val sessionStore = ChildActiveSessionStore(context)
+            val effectiveContext = ChildEffectiveContextResolver(context).resolveEffectiveContext()
+            val deviceId = effectiveContext?.ownChildDeviceId
+                ?.takeIf { it.isNotBlank() }
+                ?: sessionStore.resolveCurrentChildId().ifBlank { "" }
+                    .ifBlank { prefs.getString(PREF_AUDIO_DEVICE_ID, null)?.trim().orEmpty() }
+            val serverUrl = effectiveContext?.serverUrl
+                ?.takeIf { it.isNotBlank() }
+                ?: sessionStore.resolveCurrentServerUrl().ifBlank { "" }
+                    .ifBlank { prefs.getString(PREF_AUDIO_SERVER_URL, null)?.trim().orEmpty() }
             if (deviceId.isBlank() || serverUrl.isBlank()) return false
+
+            val audioPrefsDeviceId = prefs.getString(PREF_AUDIO_DEVICE_ID, null)?.trim().orEmpty()
+            val audioPrefsServerUrl = prefs.getString(PREF_AUDIO_SERVER_URL, null)?.trim().orEmpty()
+            val sessionChildId = sessionStore.resolveCurrentChildId()
+            val sessionServerUrl = sessionStore.resolveCurrentServerUrl()
+            val hasCanonicalRuntimeContext = sessionChildId.isNotBlank() && sessionServerUrl.isNotBlank()
+            if (hasCanonicalRuntimeContext) {
+                val audioPrefsConflict =
+                    (audioPrefsDeviceId.isNotBlank() && audioPrefsDeviceId != sessionChildId) ||
+                        (audioPrefsServerUrl.isNotBlank() && audioPrefsServerUrl != sessionServerUrl)
+                if (audioPrefsConflict) {
+                    Log.w(TAG, "Ignoring stale audio resume context in favor of active child session")
+                }
+            }
 
             val recording = prefs.getBoolean(PREF_AUDIO_RECORDING, false)
             val sampleRate = prefs.getInt(PREF_AUDIO_SAMPLE_RATE, 24_000)
+            val normalizedServerUrl = ServerUrlResolver.normalizeServerUrl(serverUrl)
+            prefs.edit()
+                .putString(PREF_AUDIO_DEVICE_ID, deviceId)
+                .putString(PREF_AUDIO_SERVER_URL, normalizedServerUrl)
+                .apply()
             val action = if (isServiceAlive) ACTION_RESUME_CAPTURE else ACTION_START_STREAMING
             val intent = Intent(context, AudioStreamingService::class.java).apply {
                 this.action = action
                 putExtra(EXTRA_DEVICE_ID, deviceId)
-                putExtra(EXTRA_SERVER_URL, serverUrl)
+                putExtra(EXTRA_SERVER_URL, normalizedServerUrl)
                 putExtra(EXTRA_RECORDING_MODE, recording)
                 putExtra(EXTRA_SAMPLE_RATE, sampleRate)
             }
@@ -363,7 +393,10 @@ class AudioStreamingService : Service() {
         runCatching {
             helper.uploadDeviceStatus(
                 serverUrl,
-                DeviceInfoCollector.getDeviceInfo(this, includeCurrentApp = false)
+                DeviceInfoCollector.getDeviceInfo(
+                    this,
+                    includeCurrentApp = DeviceInfoCollector.shouldIncludeAppUsageSnapshot()
+                )
             )
         }.onFailure { error ->
             Log.w(TAG, "Device status sync failed during listening", error)
@@ -442,10 +475,11 @@ class AudioStreamingService : Service() {
         recordingMode: Boolean,
         sampleRate: Int
     ) {
+        val normalizedServerUrl = ServerUrlResolver.normalizeServerUrl(serverUrl)
         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE).edit()
             .putBoolean(PREF_AUDIO_DESIRED, true)
             .putString(PREF_AUDIO_DEVICE_ID, deviceId)
-            .putString(PREF_AUDIO_SERVER_URL, serverUrl)
+            .putString(PREF_AUDIO_SERVER_URL, normalizedServerUrl)
             .putBoolean(PREF_AUDIO_RECORDING, recordingMode)
             .putInt(PREF_AUDIO_SAMPLE_RATE, sampleRate)
             .apply()

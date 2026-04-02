@@ -54,7 +54,12 @@ object WebSocketManager {
 
         Log.d(TAG, "Initializing WebSocket: $serverUrl with childDeviceId: $childDeviceId")
         missedMessagesCallback = onMissedMessages
-        webSocketClient = WebSocketClient(serverUrl, childDeviceId, onMissedMessages = missedMessagesCallback)
+        webSocketClient = WebSocketClient(
+            serverUrl,
+            childDeviceId,
+            onMissedMessages = missedMessagesCallback,
+            context = context
+        )
         // Always set dispatching callback to propagate to all listeners and legacy single
         webSocketClient?.setChatMessageCallback { id, text, sender, ts ->
             dispatchChatMessage(id, text, sender, ts)
@@ -122,7 +127,12 @@ object WebSocketManager {
             onReady()
             return
         }
-        webSocketClient?.setRegisteredCallback { onReady() }
+        var delivered = false
+        webSocketClient?.setRegisteredCallback {
+            if (delivered) return@setRegisteredCallback
+            delivered = true
+            onReady()
+        }
         if (!isConnected()) {
             connect(onConnected = {}, onError = onError)
         } else {
@@ -144,6 +154,8 @@ object WebSocketManager {
         messageId: String,
         text: String,
         sender: String,
+        authorDeviceId: String? = null,
+        authorDisplayName: String? = null,
         onSuccess: () -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
@@ -156,7 +168,15 @@ object WebSocketManager {
             onError("WebSocket not ready")
             return
         }
-        client.sendChatMessage(messageId, text, sender, onSuccess, onError)
+        client.sendChatMessage(
+            messageId,
+            text,
+            sender,
+            authorDeviceId,
+            authorDisplayName,
+            onSuccess,
+            onError
+        )
     }
 
     /**

@@ -54,7 +54,15 @@ object WebSocketManager {
 
         Log.d(TAG, "Initializing WebSocket: $serverUrl with childDeviceId: $childDeviceId")
         missedMessagesCallback = onMissedMessages
-        webSocketClient = WebSocketClient(serverUrl, childDeviceId, onMissedMessages = missedMessagesCallback)
+        webSocketClient = WebSocketClient(
+            serverUrl,
+            childDeviceId,
+            onMissedMessages = missedMessagesCallback,
+            context = context
+        )
+        streamTakeoverRequestedCallback?.let {
+            webSocketClient?.setStreamTakeoverRequestedCallback(it)
+        }
         // Always set dispatching callback to propagate to all listeners and legacy single
         webSocketClient?.setChatMessageCallback { id, text, sender, ts ->
             dispatchChatMessage(id, text, sender, ts)
@@ -101,6 +109,7 @@ object WebSocketManager {
             }
             childConnectedCallback?.let { setChildConnectedCallback(it) }
             childDisconnectedCallback?.let { setChildDisconnectedCallback(it) }
+            streamTakeoverRequestedCallback?.let { setStreamTakeoverRequestedCallback(it) }
             connect(onConnected, onError)
         }
     }
@@ -115,7 +124,12 @@ object WebSocketManager {
             onReady()
             return
         }
-        webSocketClient?.setRegisteredCallback { onReady() }
+        var delivered = false
+        webSocketClient?.setRegisteredCallback {
+            if (delivered) return@setRegisteredCallback
+            delivered = true
+            onReady()
+        }
         if (!isConnected()) {
             connect(onConnected = {}, onError = onError)
         } else {
@@ -137,6 +151,8 @@ object WebSocketManager {
         messageId: String,
         text: String,
         sender: String,
+        authorDeviceId: String? = null,
+        authorDisplayName: String? = null,
         onSuccess: () -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
@@ -149,7 +165,15 @@ object WebSocketManager {
             onError("WebSocket not ready")
             return
         }
-        client.sendChatMessage(messageId, text, sender, onSuccess, onError)
+        client.sendChatMessage(
+            messageId,
+            text,
+            sender,
+            authorDeviceId,
+            authorDisplayName,
+            onSuccess,
+            onError
+        )
     }
 
     /**
@@ -407,6 +431,7 @@ object WebSocketManager {
     private var photoReceivedCallback: ((photoBase64: String, requestId: String, timestamp: Long) -> Unit)? = null
     private var photoErrorCallback: ((requestId: String, error: String) -> Unit)? = null
     private var photoQueuedCallback: ((requestId: String, deviceId: String, camera: String, timestamp: Long) -> Unit)? = null
+    private var photoBusyCallback: ((requestId: String, deviceId: String, ownerParentId: String, ownerDisplayName: String, timestamp: Long) -> Unit)? = null
     private val photoReceivedListeners = java.util.Collections.synchronizedSet(
         mutableSetOf<(String, String, Long) -> Unit>()
     )
@@ -416,6 +441,10 @@ object WebSocketManager {
     private val photoQueuedListeners = java.util.Collections.synchronizedSet(
         mutableSetOf<(String, String, String, Long) -> Unit>()
     )
+    private val photoBusyListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(String, String, String, String, Long) -> Unit>()
+    )
+    private var streamTakeoverRequestedCallback: ((deviceId: String, requesterParentId: String, requesterDisplayName: String, timestamp: Long) -> Unit)? = null
 
     /**
      * Request remote photo capture
@@ -475,6 +504,23 @@ object WebSocketManager {
         }
     }
 
+    fun setPhotoBusyCallback(callback: (requestId: String, deviceId: String, ownerParentId: String, ownerDisplayName: String, timestamp: Long) -> Unit) {
+        photoBusyCallback = callback
+        webSocketClient?.onPhotoBusy = { requestId, deviceId, ownerParentId, ownerDisplayName, timestamp ->
+            dispatchPhotoBusy(requestId, deviceId, ownerParentId, ownerDisplayName, timestamp)
+        }
+    }
+
+    fun setStreamTakeoverRequestedCallback(callback: (deviceId: String, requesterParentId: String, requesterDisplayName: String, timestamp: Long) -> Unit) {
+        streamTakeoverRequestedCallback = callback
+        webSocketClient?.setStreamTakeoverRequestedCallback(callback)
+    }
+
+    fun clearStreamTakeoverRequestedCallback() {
+        streamTakeoverRequestedCallback = null
+        webSocketClient?.setStreamTakeoverRequestedCallback(null)
+    }
+
     fun addPhotoReceivedListener(listener: (photoBase64: String, requestId: String, timestamp: Long) -> Unit) {
         photoReceivedListeners.add(listener)
         webSocketClient?.onPhotoReceived = { photoBase64, requestId, timestamp ->
@@ -506,6 +552,17 @@ object WebSocketManager {
 
     fun removePhotoQueuedListener(listener: (requestId: String, deviceId: String, camera: String, timestamp: Long) -> Unit) {
         photoQueuedListeners.remove(listener)
+    }
+
+    fun addPhotoBusyListener(listener: (requestId: String, deviceId: String, ownerParentId: String, ownerDisplayName: String, timestamp: Long) -> Unit) {
+        photoBusyListeners.add(listener)
+        webSocketClient?.onPhotoBusy = { requestId, deviceId, ownerParentId, ownerDisplayName, timestamp ->
+            dispatchPhotoBusy(requestId, deviceId, ownerParentId, ownerDisplayName, timestamp)
+        }
+    }
+
+    fun removePhotoBusyListener(listener: (requestId: String, deviceId: String, ownerParentId: String, ownerDisplayName: String, timestamp: Long) -> Unit) {
+        photoBusyListeners.remove(listener)
     }
 
     private fun dispatchPhotoReceived(photoBase64: String, requestId: String, timestamp: Long) {
@@ -544,6 +601,18 @@ object WebSocketManager {
         photoQueuedCallback?.invoke(requestId, deviceId, camera, timestamp)
     }
 
+    private fun dispatchPhotoBusy(requestId: String, deviceId: String, ownerParentId: String, ownerDisplayName: String, timestamp: Long) {
+        val snapshot = synchronized(photoBusyListeners) { photoBusyListeners.toList() }
+        snapshot.forEach { listener ->
+            try {
+                listener(requestId, deviceId, ownerParentId, ownerDisplayName, timestamp)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error in photo busy listener", e)
+            }
+        }
+        photoBusyCallback?.invoke(requestId, deviceId, ownerParentId, ownerDisplayName, timestamp)
+    }
+
     /**
      * Cleanup resources
      */
@@ -563,8 +632,11 @@ object WebSocketManager {
         photoReceivedCallback = null
         photoErrorCallback = null
         photoQueuedCallback = null
+        photoBusyCallback = null
+        streamTakeoverRequestedCallback = null
         photoReceivedListeners.clear()
         photoErrorListeners.clear()
         photoQueuedListeners.clear()
+        photoBusyListeners.clear()
     }
 }

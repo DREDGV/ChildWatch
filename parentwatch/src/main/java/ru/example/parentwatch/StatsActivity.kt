@@ -6,9 +6,10 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import ru.example.parentwatch.databinding.ActivityStatsBinding
-import ru.example.parentwatch.utils.ServerUrlResolver
+import ru.example.parentwatch.session.ChildActiveSessionStore
 import java.text.SimpleDateFormat
-import java.util.*
+import java.util.Date
+import java.util.Locale
 
 /**
  * Statistics Activity for ParentWatch
@@ -24,13 +25,13 @@ class StatsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityStatsBinding
     private val prefs by lazy { getSharedPreferences("parentwatch_prefs", MODE_PRIVATE) }
+    private val sessionStore by lazy { ChildActiveSessionStore(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityStatsBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
-        // Set up action bar
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
         supportActionBar?.title = "Статистика"
 
@@ -44,12 +45,10 @@ class StatsActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
-        // Refresh button
         binding.refreshButton.setOnClickListener {
             loadStatistics()
         }
 
-        // Clear stats button
         binding.clearStatsButton.setOnClickListener {
             clearStatistics()
         }
@@ -58,58 +57,56 @@ class StatsActivity : AppCompatActivity() {
     private fun loadStatistics() {
         lifecycleScope.launch {
             try {
-                // Service status
                 val isServiceRunning = prefs.getBoolean("service_running", false)
                 binding.serviceStatusText.text = if (isServiceRunning) {
-                    "✅ Запущен"
+                    "Запущен"
                 } else {
-                    "⏸️ Остановлен"
+                    "Остановлен"
                 }
                 binding.serviceStatusText.setTextColor(
-                    if (isServiceRunning)
+                    if (isServiceRunning) {
                         ContextCompat.getColor(this@StatsActivity, android.R.color.holo_green_dark)
-                    else
+                    } else {
                         ContextCompat.getColor(this@StatsActivity, android.R.color.holo_orange_dark)
+                    }
                 )
 
-                // Connection status
-                val serverUrl = ServerUrlResolver.getServerUrl(this@StatsActivity)
-                    ?: getString(R.string.server_url_not_configured)
-                val deviceId = prefs.getString("device_id", "Не настроен") ?: "Не настроен"
+                val serverUrl = sessionStore.resolveCurrentServerUrl()
+                    .ifBlank { getString(R.string.server_url_not_configured) }
+                val deviceId = sessionStore.resolveCurrentChildId()
+                    .ifBlank { "Не настроен" }
                 binding.serverUrlText.text = serverUrl
-                binding.deviceIdText.text = deviceId.take(16) + "..."
+                binding.deviceIdText.text = if (deviceId.length <= 16) {
+                    deviceId
+                } else {
+                    deviceId.take(16) + "..."
+                }
 
-                // Location statistics
                 val locationUpdateCount = prefs.getInt("location_update_count", 0)
                 val lastLocationTime = prefs.getLong("last_location_time", 0)
                 binding.locationCountText.text = locationUpdateCount.toString()
                 binding.lastLocationTimeText.text = formatTimestamp(lastLocationTime)
 
-                // Audio statistics
                 val audioStreamCount = prefs.getInt("audio_stream_count", 0)
                 val audioStreamDuration = prefs.getLong("audio_stream_duration", 0)
                 binding.audioStreamCountText.text = audioStreamCount.toString()
                 binding.audioStreamDurationText.text = formatDuration(audioStreamDuration)
 
-                // Chat statistics
                 val chatMessagesSent = prefs.getInt("chat_messages_sent", 0)
                 val chatMessagesReceived = prefs.getInt("chat_messages_received", 0)
                 binding.chatSentCountText.text = chatMessagesSent.toString()
                 binding.chatReceivedCountText.text = chatMessagesReceived.toString()
 
-                // System info
                 val appStartTime = prefs.getLong("app_start_time", System.currentTimeMillis())
                 val uptime = System.currentTimeMillis() - appStartTime
                 binding.uptimeText.text = formatDuration(uptime)
 
-                // Battery optimization status
                 val batteryOptimizationDisabled = prefs.getBoolean("battery_optimization_disabled", false)
                 binding.batteryOptimizationText.text = if (batteryOptimizationDisabled) {
-                    "✅ Отключена"
+                    "Отключена"
                 } else {
-                    "⚠️ Включена"
+                    "Включена"
                 }
-
             } catch (e: Exception) {
                 binding.serviceStatusText.text = "Ошибка загрузки: ${e.message}"
             }
@@ -126,14 +123,11 @@ class StatsActivity : AppCompatActivity() {
             .apply()
 
         loadStatistics()
-
-        // Show toast
-        android.widget.Toast.makeText(this, "✅ Статистика очищена", android.widget.Toast.LENGTH_SHORT).show()
+        android.widget.Toast.makeText(this, "Статистика очищена", android.widget.Toast.LENGTH_SHORT).show()
     }
 
     private fun formatTimestamp(timestamp: Long): String {
         if (timestamp == 0L) return "Никогда"
-
         val sdf = SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault())
         return sdf.format(Date(timestamp))
     }

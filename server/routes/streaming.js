@@ -27,6 +27,46 @@ router.init = (cmdMgr, dbMgr, wsMgr) => {
     wsManager = wsMgr;
 };
 
+function normalizeParentId(value) {
+    if (value === null || value === undefined) return "";
+    return String(value).trim();
+}
+
+async function resolveOwnerDisplayName(parentDeviceId, fallback = null) {
+    if (typeof fallback === "string" && fallback.trim()) {
+        return fallback.trim();
+    }
+    const normalizedParentId = normalizeParentId(parentDeviceId);
+    if (!normalizedParentId) return "";
+    try {
+        const device = await dbManager?.getDevice?.(normalizedParentId);
+        return String(device?.device_name || normalizedParentId).trim();
+    } catch (error) {
+        console.warn("Failed to resolve owner display name:", error?.message || error);
+        return normalizedParentId;
+    }
+}
+
+async function buildBusyPayload(deviceId, result, codeOverride = null) {
+    const session = result?.session || null;
+    const ownerParentId = session?.ownerParentId || "";
+    const ownerDisplayName = await resolveOwnerDisplayName(
+        ownerParentId,
+        session?.ownerDisplayName || null
+    );
+    return {
+        success: false,
+        busy: true,
+        code: codeOverride || result?.code || "STREAM_BUSY",
+        deviceId,
+        ownerParentId,
+        ownerDisplayName,
+        startedAt: session?.startTime || 0,
+        durationMs: session?.durationMs || 0,
+        timestamp: Date.now(),
+    };
+}
+
 /**
  * POST /api/streaming/commands/:deviceId
  * Get pending commands for child device
@@ -71,7 +111,7 @@ router.get('/commands/:deviceId', async (req, res) => {
  */
 router.post('/start', async (req, res) => {
     try {
-        const { deviceId, parentId, timeoutMinutes, recording, sampleRate } = req.body;
+        const { deviceId, parentId, timeoutMinutes, recording, sampleRate, requestTakeover } = req.body;
 
         if (!deviceId) {
             return res.status(400).json({
@@ -97,20 +137,25 @@ router.post('/start', async (req, res) => {
             Number.isFinite(parsedSampleRate) && [24000, 32000, 48000].includes(parsedSampleRate)
                 ? parsedSampleRate
                 : null;
-        const result = commandManager.startStreaming(
+        const normalizedParentId = normalizeParentId(parentId) || 'parent';
+        const ownerDisplayName = await resolveOwnerDisplayName(normalizedParentId);
+        const result = commandManager.requestStreamingStart(
             targetDeviceId,
-            parentId || 'parent',
+            normalizedParentId,
             timeout,
-            { sampleRate: normalizedSampleRate }
+            {
+                sampleRate: normalizedSampleRate,
+                ownerDisplayName
+            }
         );
 
-                if (result) {
+        if (result.ok) {
             // Try immediate WS delivery first. sendCommandToChild can remap target
             // to the only connected child when legacy contact IDs drift.
             const commandSent = wsManager.sendCommandToChild(targetDeviceId, {
                 type: 'start_audio_stream',
                 data: {
-                    parentId: parentId || 'parent',
+                    parentId: normalizedParentId,
                     sampleRate: normalizedSampleRate
                 },
                 timestamp: Date.now()
@@ -127,14 +172,32 @@ router.post('/start', async (req, res) => {
                 deviceId: targetDeviceId,
                 requestedDeviceId: deviceId,
                 sessionId: `stream_${Date.now()}`,
+                parentId: normalizedParentId,
+                ownerDisplayName,
+                alreadyActive: result.reused === true,
                 webSocketEnabled: true,
                 childConnected: childConnected,
                 timestamp: Date.now()
             });
+        } else if (result.busy) {
+            if (requestTakeover) {
+                wsManager.notifyStreamTakeoverRequested(
+                    targetDeviceId,
+                    result.session?.ownerParentId,
+                    normalizedParentId,
+                    result.session
+                );
+            }
+            const busyPayload = await buildBusyPayload(targetDeviceId, result, 'STREAM_BUSY');
+            res.status(409).json({
+                ...busyPayload,
+                error: 'Streaming session is already owned by another parent',
+                canRequestTakeover: true,
+            });
         } else {
             res.status(500).json({
                 error: 'Failed to start streaming',
-                code: 'START_STREAM_ERROR'
+                code: result.code || 'START_STREAM_ERROR'
             });
         }
 
@@ -153,7 +216,7 @@ router.post('/start', async (req, res) => {
  */
 router.post('/stop', async (req, res) => {
     try {
-        const { deviceId } = req.body;
+        const { deviceId, parentId } = req.body;
 
         if (!deviceId) {
             return res.status(400).json({
@@ -169,12 +232,13 @@ router.post('/stop', async (req, res) => {
         const targetDeviceId = resolvedConnectedId || deviceId;
 
         // Stop streaming session
-        let result = commandManager.stopStreaming(targetDeviceId);
-        if (!result && targetDeviceId !== deviceId) {
-            result = commandManager.stopStreaming(deviceId);
+        const normalizedParentId = normalizeParentId(parentId) || 'parent';
+        let result = commandManager.requestStreamingStop(targetDeviceId, normalizedParentId);
+        if (!result.ok && result.code === 'NO_ACTIVE_SESSION' && targetDeviceId !== deviceId) {
+            result = commandManager.requestStreamingStop(deviceId, normalizedParentId);
         }
 
-                if (result) {
+        if (result.ok) {
             // Best-effort immediate WS stop. If offline, command remains queued.
             const stopSent = wsManager.sendCommandToChild(targetDeviceId, {
                 type: 'stop_audio_stream',
@@ -194,10 +258,16 @@ router.post('/stop', async (req, res) => {
                 requestedDeviceId: deviceId,
                 timestamp: Date.now()
             });
+        } else if (result.busy) {
+            const busyPayload = await buildBusyPayload(targetDeviceId, result, result.code);
+            res.status(409).json({
+                ...busyPayload,
+                error: 'Streaming session is controlled by another parent',
+            });
         } else{
             res.status(404).json({
                 error: 'No active streaming session',
-                code: 'NO_ACTIVE_SESSION'
+                code: result.code || 'NO_ACTIVE_SESSION'
             });
         }
 
@@ -216,7 +286,7 @@ router.post('/stop', async (req, res) => {
  */
 router.post('/record/start', async (req, res) => {
     try {
-        const { deviceId } = req.body;
+        const { deviceId, parentId } = req.body;
 
         if (!deviceId) {
             return res.status(400).json({
@@ -226,19 +296,33 @@ router.post('/record/start', async (req, res) => {
         }
 
         // Start recording
-        const result = commandManager.startRecording(deviceId);
+        const resolvedConnectedId =
+            typeof wsManager?.resolveConnectedChildDeviceId === 'function'
+                ? wsManager.resolveConnectedChildDeviceId(deviceId)
+                : '';
+        const targetDeviceId = resolvedConnectedId || deviceId;
+        const normalizedParentId = normalizeParentId(parentId) || 'parent';
+        const result = commandManager.requestRecordingStart(targetDeviceId, normalizedParentId);
 
-        if (result.error) {
+        if (!result.ok && result.busy) {
+            const busyPayload = await buildBusyPayload(targetDeviceId, result, result.code);
+            return res.status(409).json({
+                ...busyPayload,
+                error: result.error || 'Streaming session is controlled by another parent',
+            });
+        }
+
+        if (!result.ok) {
             return res.status(400).json({
                 error: result.error,
-                code: 'START_RECORDING_ERROR'
+                code: result.code || 'START_RECORDING_ERROR'
             });
         }
 
         res.json({
             success: true,
             message: 'Recording started',
-            deviceId: deviceId,
+            deviceId: targetDeviceId,
             timestamp: Date.now()
         });
 
@@ -257,7 +341,7 @@ router.post('/record/start', async (req, res) => {
  */
 router.post('/record/stop', async (req, res) => {
     try {
-        const { deviceId } = req.body;
+        const { deviceId, parentId } = req.body;
 
         if (!deviceId) {
             return res.status(400).json({
@@ -267,19 +351,33 @@ router.post('/record/stop', async (req, res) => {
         }
 
         // Stop recording
-        const result = commandManager.stopRecording(deviceId);
+        const resolvedConnectedId =
+            typeof wsManager?.resolveConnectedChildDeviceId === 'function'
+                ? wsManager.resolveConnectedChildDeviceId(deviceId)
+                : '';
+        const targetDeviceId = resolvedConnectedId || deviceId;
+        const normalizedParentId = normalizeParentId(parentId) || 'parent';
+        const result = commandManager.requestRecordingStop(targetDeviceId, normalizedParentId);
 
-        if (result.error) {
+        if (!result.ok && result.busy) {
+            const busyPayload = await buildBusyPayload(targetDeviceId, result, result.code);
+            return res.status(409).json({
+                ...busyPayload,
+                error: result.error || 'Recording session is controlled by another parent',
+            });
+        }
+
+        if (!result.ok) {
             return res.status(400).json({
                 error: result.error,
-                code: 'STOP_RECORDING_ERROR'
+                code: result.code || 'STOP_RECORDING_ERROR'
             });
         }
 
         res.json({
             success: true,
             message: 'Recording stopped',
-            deviceId: deviceId,
+            deviceId: targetDeviceId,
             duration: result.duration,
             timestamp: Date.now()
         });
@@ -412,6 +510,7 @@ router.get('/status/:deviceId', async (req, res) => {
             return res.json({
                 success: true,
                 streaming: false,
+                active: false,
                 recording: false,
                 deviceId: deviceId,
                 webSocket: {
@@ -425,12 +524,20 @@ router.get('/status/:deviceId', async (req, res) => {
         res.json({
             success: true,
             streaming: true,
+            active: true,
             recording: session.recording,
             deviceId: deviceId,
             parentId: session.parentId,
+            ownerParentId: session.ownerParentId,
+            ownerDisplayName: await resolveOwnerDisplayName(
+                session.ownerParentId,
+                session.ownerDisplayName
+            ),
             startTime: session.startTime,
-            duration: Date.now() - session.startTime,
+            duration: session.durationMs || (Date.now() - session.startTime),
+            durationMs: session.durationMs || (Date.now() - session.startTime),
             chunks: session.chunks,
+            ownerStale: Boolean(session.ownerStale),
             webSocket: {
                 enabled: true,
                 childConnected,

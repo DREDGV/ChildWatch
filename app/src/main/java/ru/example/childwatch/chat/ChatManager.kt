@@ -135,6 +135,8 @@ class ChatManager(private val context: Context) {
                 put("id", msg.id)
                 put("text", msg.text)
                 put("sender", msg.sender)
+                put("authorDeviceId", msg.authorDeviceId)
+                put("authorDisplayName", msg.authorDisplayName)
                 put("timestamp", msg.timestamp)
                 put("isRead", msg.isRead)
                 put("status", msg.status.name)

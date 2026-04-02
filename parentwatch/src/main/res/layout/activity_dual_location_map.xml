@@ -36,6 +36,8 @@
         android:layout_height="wrap_content"
         android:layout_gravity="bottom"
         android:layout_margin="16dp"
+        android:layout_marginBottom="88dp"
+        android:layout_marginEnd="120dp"
         android:visibility="gone"
         app:cardCornerRadius="12dp"
         app:cardElevation="8dp"
@@ -45,7 +47,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:padding="12dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -80,7 +82,7 @@
                         android:layout_height="wrap_content"
                         android:text="--"
                         android:textColor="@color/text_primary"
-                        android:textSize="18sp"
+                        android:textSize="16sp"
                         android:textStyle="bold"
                         tools:text="1.2 km" />
 
@@ -91,7 +93,7 @@
             <View
                 android:layout_width="match_parent"
                 android:layout_height="1dp"
-                android:layout_marginVertical="12dp"
+                android:layout_marginVertical="8dp"
                 android:background="@color/divider" />
 
             <LinearLayout
@@ -127,7 +129,7 @@
                         android:layout_height="wrap_content"
                         android:text="--"
                         android:textColor="@color/text_primary"
-                        android:textSize="18sp"
+                        android:textSize="16sp"
                         android:textStyle="bold"
                         tools:text="~15 min" />
 
@@ -136,13 +138,48 @@
             </LinearLayout>
 
             <TextView
+                android:id="@+id/movementStatusText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:gravity="center"
+                android:layout_marginTop="8dp"
+                android:textColor="@color/text_primary"
+                android:textSize="15sp"
+                android:textStyle="bold"
+                tools:text="В движении" />
+
+            <TextView
+                android:id="@+id/pointMetaText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                tools:text="Сервер | 40 сек назад | ±18 м | 62%" />
+
+            <TextView
+                android:id="@+id/updateCadenceText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:gravity="start"
                 android:text="@string/map_updated_every_30s"
                 android:textColor="@color/text_secondary"
                 android:textSize="11sp" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/timelineButton"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="start"
+                android:layout_marginTop="8dp"
+                android:insetTop="0dp"
+                android:insetBottom="0dp"
+                android:minHeight="40dp"
+                android:text="@string/map_timeline_button"
+                app:icon="@drawable/ic_history" />
 
         </LinearLayout>
 
@@ -199,6 +236,18 @@
         android:contentDescription="@string/map_refresh"
         android:src="@drawable/ic_refresh"
         app:tint="@android:color/white" />
+
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/liveModeButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="start|top"
+        android:layout_margin="16dp"
+        android:layout_marginTop="80dp"
+        android:text="@string/map_live_mode_button"
+        android:textColor="@android:color/white"
+        app:icon="@drawable/ic_time"
+        app:iconTint="@android:color/white" />
 
     <LinearLayout
         android:id="@+id/centerButtonsContainer"

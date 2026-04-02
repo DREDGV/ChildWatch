@@ -4,12 +4,15 @@ import android.Manifest
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.util.Log
 import android.view.View
+import android.widget.EditText
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
@@ -26,9 +29,18 @@ import ru.example.childwatch.service.MonitorService
 import ru.example.childwatch.service.ChatBackgroundService
 import ru.example.childwatch.service.ParentLocationService
 import ru.example.childwatch.utils.BatteryOptimizationHelper
+import ru.example.childwatch.utils.ParentMonitorProfile
+import ru.example.childwatch.utils.ParentMonitorProfileManager
 import ru.example.childwatch.utils.PermissionHelper
 import ru.example.childwatch.utils.SecurityChecker
 import ru.example.childwatch.utils.SecureSettingsManager
+import ru.example.childwatch.profile.ParentActiveSessionStore
+import ru.example.childwatch.profile.ParentEffectiveContextResolver
+import ru.example.childwatch.profile.ParentLinkedChildOption
+import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
+import ru.example.childwatch.profile.ParentLinkedParentOption
+import ru.example.childwatch.profile.ParentLinkedParentsProvider
+import ru.example.childwatch.profile.ParentProfileRuntimeCoordinator
 import ru.example.childwatch.chat.ChatManager
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.contacts.ContactIcons
@@ -55,8 +67,14 @@ class MainActivity : AppCompatActivity() {
     private lateinit var binding: ActivityMainMenuBinding
     private lateinit var prefs: SharedPreferences
     private lateinit var secureSettings: SecureSettingsManager
+    private lateinit var profileManager: ParentMonitorProfileManager
     private lateinit var batteryOptimizationHelper: BatteryOptimizationHelper
     private lateinit var chatManager: ChatManager
+    private val effectiveContextResolver by lazy { ParentEffectiveContextResolver(this) }
+    private val activeSessionStore by lazy { ParentActiveSessionStore(this) }
+    private val linkedChildOptionsProvider by lazy { ParentLinkedChildOptionsProvider(this) }
+    private val linkedParentsProvider by lazy { ParentLinkedParentsProvider(this) }
+    private val profileRuntimeCoordinator by lazy { ParentProfileRuntimeCoordinator(this) }
     private var hasConsent = false
     private var batteryOptimizationDialogDisplayed = false
     private val deviceInfoScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
@@ -100,6 +118,7 @@ class MainActivity : AppCompatActivity() {
         
         prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         secureSettings = SecureSettingsManager(this)
+        profileManager = ParentMonitorProfileManager(this)
         batteryOptimizationHelper = BatteryOptimizationHelper(this)
         chatManager = ChatManager(this)
         hasConsent = ConsentActivity.hasConsent(this)
@@ -108,6 +127,7 @@ class MainActivity : AppCompatActivity() {
         binding.appVersionText.text = "v${BuildConfig.VERSION_NAME}"
 
         setupUI()
+        updateQuickProfileSummary()
         updateUIState()
         updateChatBadge()
 
@@ -157,6 +177,10 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupUI() {
         setupBatteryOptimizationUi()
+
+        binding.switchProfileQuickButton.setOnClickListener {
+            showQuickProfilePicker()
+        }
 
         // Unified monitoring toggle button with visual feedback
         binding.monitoringToggleBtn.setOnClickListener {
@@ -209,6 +233,7 @@ class MainActivity : AppCompatActivity() {
                 showDeviceIdOptions(serverUrl)
                 return@setOnClickListener
             }
+            activeSessionStore.updateFocusedChildId(targetDeviceId)
             val intent = Intent(this@MainActivity, AudioStreamingActivity::class.java).apply {
                 putExtra(AudioStreamingActivity.EXTRA_DEVICE_ID, targetDeviceId)
                 putExtra(AudioStreamingActivity.EXTRA_SERVER_URL, serverUrl)
@@ -222,6 +247,7 @@ class MainActivity : AppCompatActivity() {
                 showToast(getString(R.string.main_toast_set_child_device_id))
                 return@setOnClickListener
             }
+            activeSessionStore.updateFocusedChildId(targetDeviceId)
             ru.example.childwatch.utils.NotificationManager.resetUnreadCount()
             try {
                 chatManager.markAllAsRead()
@@ -229,10 +255,6 @@ class MainActivity : AppCompatActivity() {
                 Log.e(TAG, "Failed to mark chat messages as read before opening chat", e)
             }
             updateChatBadge()
-            prefs.edit()
-                .putString("child_device_id", targetDeviceId)
-                .putString("selected_device_id", targetDeviceId)
-                .apply()
             val intent = Intent(this@MainActivity, ChatActivity::class.java)
             startActivity(intent)
         }
@@ -241,22 +263,29 @@ class MainActivity : AppCompatActivity() {
         binding.remoteCameraCard.setOnClickListener {
             openRemoteCamera()
         }
+
+        binding.deviceUsageButton.setOnClickListener {
+            openDeviceUsage()
+        }
         
         // Location map card (legacy mode): parent + selected child
         findViewById<View>(R.id.parentLocationCard)?.setOnClickListener {
             val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-            val myId = listOf(
-                prefs.getString("device_id", null),
-                prefs.getString("parent_device_id", null)
-            )
-                .mapNotNull { it?.trim() }
-                .firstOrNull { it.isNotBlank() }
-                .orEmpty()
+            val myId = effectiveContextResolver.resolveOwnParentId().ifBlank {
+                listOf(
+                    prefs.getString("device_id", null),
+                    prefs.getString("parent_device_id", null)
+                )
+                    .mapNotNull { it?.trim() }
+                    .firstOrNull { it.isNotBlank() }
+                    .orEmpty()
+            }
             val otherId = resolveTargetDeviceId()
             if (otherId.isNullOrBlank()) {
                 showToast(getString(R.string.main_toast_set_child_device_id))
                 return@setOnClickListener
             }
+            activeSessionStore.updateFocusedChildId(otherId)
             val intent = DualLocationMapActivity.createIntent(
                 context = this,
                 myRole = DualLocationMapActivity.ROLE_PARENT,
@@ -283,6 +312,9 @@ class MainActivity : AppCompatActivity() {
                     showToast(getString(R.string.main_toast_launch_error, e.message ?: "unknown"))
                 }
             }
+            binding.childSelectionEditIcon.setOnClickListener {
+                openCurrentChildEditor()
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error setting up child selection click handler", e)
         }
@@ -304,6 +336,513 @@ class MainActivity : AppCompatActivity() {
         }
         binding.openPowerSaverButton.setOnClickListener {
             batteryOptimizationHelper.openPowerSaverSettings()
+        }
+    }
+
+    private fun showQuickProfilePicker() {
+        val actionLabels = arrayOf(
+            getString(R.string.profile_switch_apply),
+            getString(R.string.profile_switch_save_current),
+            getString(R.string.profile_switch_manage)
+        )
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.profile_switch_manage_title))
+            .setItems(actionLabels) { _, which ->
+                when (which) {
+                    0 -> showQuickProfileSwitchDialog()
+                    1 -> showProfileEditorDialog(profileManager.getActiveProfile())
+                    2 -> showProfileManagementDialog()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showQuickProfileSwitchDialog() {
+        lifecycleScope.launch {
+            val profiles = loadProfilesAfterRelationshipSync()
+            if (profiles.isEmpty()) {
+                showToast(getString(R.string.profile_switch_empty))
+                return@launch
+            }
+
+            val activeId = profileManager.getActiveProfile()?.id ?: profileManager.getActiveProfileId()
+            val selectedIndex = profiles.indexOfFirst { it.id == activeId }.coerceAtLeast(0)
+            val items = profiles.map(::formatProfilePickerItem).toTypedArray()
+
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(getString(R.string.profile_switch_select_title))
+                .setSingleChoiceItems(items, selectedIndex) { dialog, which ->
+                    applyQuickProfile(profiles[which])
+                    dialog.dismiss()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun showProfileManagementDialog() {
+        lifecycleScope.launch {
+            val profiles = loadProfilesAfterRelationshipSync()
+            if (profiles.isEmpty()) {
+                showProfileEditorDialog(null)
+                return@launch
+            }
+
+            val items = profiles.map(::formatProfilePickerItem).toTypedArray()
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(getString(R.string.profile_switch_manage_title))
+                .setItems(items) { _, which ->
+                    showProfileActionsDialog(profiles[which])
+                }
+                .setPositiveButton(R.string.profile_switch_save_current) { _, _ ->
+                    showProfileEditorDialog(profileManager.getActiveProfile())
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun showProfileActionsDialog(profile: ParentMonitorProfile) {
+        val activeProfileId = profileManager.getActiveProfile()?.id ?: profileManager.getActiveProfileId()
+        val labels = mutableListOf(
+            getString(R.string.profile_switch_apply),
+            getString(R.string.profile_switch_edit_profile)
+        )
+        val allowDelete = profile.id != activeProfileId
+        if (allowDelete) {
+            labels += getString(R.string.profile_switch_delete)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(profile.name)
+            .setItems(labels.toTypedArray()) { _, which ->
+                when {
+                    which == 0 -> applyQuickProfile(profile)
+                    which == 1 -> showProfileEditorDialog(profile)
+                    allowDelete && which == 2 -> confirmDeleteProfile(profile)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmDeleteProfile(profile: ParentMonitorProfile) {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.profile_switch_delete_title)
+            .setMessage(getString(R.string.profile_switch_delete_message, profile.name))
+            .setPositiveButton(R.string.profile_switch_delete) { _, _ ->
+                profileManager.deleteProfile(profile.id)
+                updateQuickProfileSummary()
+                showToast(getString(R.string.profile_switch_deleted))
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun showProfileEditorDialog(existingProfile: ParentMonitorProfile?) {
+        val currentOwnId = existingProfile?.ownParentDeviceId?.ifBlank { null }
+            ?: effectiveContextResolver.resolveOwnParentId().ifBlank { profileManager.resolveCurrentParentId() }
+        val currentChildId = existingProfile?.linkedChildDeviceId?.ifBlank { null }
+            ?: effectiveContextResolver.resolveFocusedChildId().ifBlank { profileManager.resolveCurrentChildId() }
+        val currentServerUrl = existingProfile?.serverUrl?.ifBlank { null }
+            ?: effectiveContextResolver.resolveServerUrl().ifBlank { getConfiguredServerUrl().orEmpty() }
+        val currentChildName = existingProfile?.linkedChildDisplayName?.ifBlank { null }
+            ?: profileManager.resolveLinkedChildDisplayName(
+                childDeviceId = currentChildId,
+                serverUrl = currentServerUrl,
+                ownParentDeviceId = currentOwnId
+            )
+        val suggestedName = existingProfile?.name
+            ?.takeUnless { it == getString(R.string.profile_switch_current_name) }
+            ?: profileManager.buildSuggestedProfileName(currentChildName, currentChildId)
+
+        val nameInput = createProfileInput(getString(R.string.profile_switch_name_hint), suggestedName)
+        val serverInput = createProfileInput(getString(R.string.profile_switch_server_hint), currentServerUrl)
+        val ownIdInput = createProfileInput(getString(R.string.profile_switch_own_parent_id_hint), currentOwnId)
+        val childIdInput = createProfileInput(getString(R.string.profile_switch_linked_child_id_hint), currentChildId)
+
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(if (existingProfile == null) R.string.profile_switch_name_title else R.string.profile_switch_edit_title)
+            .setView(createProfileDialogLayout(nameInput, serverInput, ownIdInput, childIdInput))
+            .setPositiveButton(android.R.string.ok, null)
+            .setNeutralButton(R.string.profile_switch_pick_child, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                val previousChildId = childIdInput.text?.toString()?.trim().orEmpty()
+                showLinkedChildPicker(childIdInput.text?.toString()?.trim().orEmpty()) { option ->
+                    childIdInput.setText(option.deviceId)
+                    maybeApplySuggestedProfileName(
+                        nameInput = nameInput,
+                        selectedChild = option,
+                        previousChildId = previousChildId,
+                        existingProfile = existingProfile
+                    )
+                }
+            }
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val name = nameInput.text?.toString()?.trim().orEmpty()
+                val serverUrl = serverInput.text?.toString()?.trim().orEmpty()
+                val ownId = ownIdInput.text?.toString()?.trim().orEmpty()
+                val childId = childIdInput.text?.toString()?.trim().orEmpty()
+                val childDisplayName = profileManager.resolveLinkedChildDisplayName(
+                    childDeviceId = childId,
+                    serverUrl = serverUrl,
+                    ownParentDeviceId = ownId
+                )
+
+                when {
+                    name.isBlank() -> showToast(getString(R.string.profile_switch_validation_name))
+                    serverUrl.isBlank() || (!serverUrl.startsWith("http://") && !serverUrl.startsWith("https://")) ->
+                        showToast(getString(R.string.profile_switch_validation_server))
+                    ownId.isBlank() -> showToast(getString(R.string.profile_switch_validation_own_id))
+                    else -> {
+                        val profile = existingProfile?.copy(
+                            name = name,
+                            serverUrl = serverUrl,
+                            ownParentDeviceId = ownId,
+                            linkedChildDeviceId = childId,
+                            linkedChildDisplayName = childDisplayName,
+                            updatedAt = System.currentTimeMillis()
+                        ) ?: profileManager.buildProfile(name, serverUrl, ownId, childId, childDisplayName)
+                        profileManager.saveProfile(profile)
+                        if (existingProfile?.id == profileManager.getActiveProfileId()) {
+                            applyQuickProfile(profile)
+                        } else {
+                            updateQuickProfileSummary()
+                        }
+                        showToast(
+                            getString(
+                                if (existingProfile == null) {
+                                    R.string.profile_switch_saved
+                                } else {
+                                    R.string.profile_switch_updated
+                                }
+                            )
+                        )
+                        dialog.dismiss()
+                    }
+                }
+            }
+        }
+
+        dialog.show()
+    }
+
+    private fun showLinkedChildPicker(
+        selectedDeviceId: String,
+        onSelected: (ParentLinkedChildOption) -> Unit
+    ) {
+        lifecycleScope.launch {
+            val options = runCatching { linkedChildOptionsProvider.getOptions() }
+                .getOrElse { error ->
+                    Log.e(TAG, "Failed to load linked child options", error)
+                    showToast(getString(R.string.profile_switch_pick_child_error))
+                    emptyList()
+                }
+            if (options.isEmpty()) {
+                showToast(getString(R.string.profile_switch_pick_child_empty))
+                return@launch
+            }
+
+            val items = options.map(::formatLinkedChildOption).toTypedArray()
+            val selectedIndex = options.indexOfFirst { it.deviceId == selectedDeviceId }.coerceAtLeast(0)
+            MaterialAlertDialogBuilder(this@MainActivity)
+                .setTitle(R.string.profile_switch_pick_child)
+                .setSingleChoiceItems(items, selectedIndex) { dialog, which ->
+                    onSelected(options[which])
+                    dialog.dismiss()
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun formatLinkedChildOption(option: ParentLinkedChildOption): String {
+        return buildString {
+            append(option.displayName)
+            append('\n')
+            append(formatProfileId(option.deviceId))
+            append(" • ")
+            append(
+                getString(
+                    if (option.source == "linked") {
+                        R.string.profile_switch_source_linked
+                    } else {
+                        R.string.profile_switch_source_local
+                    }
+                )
+            )
+        }
+    }
+
+    private fun formatProfilePickerItem(profile: ParentMonitorProfile): String {
+        val linkedChild = profile.linkedChildDeviceId.ifBlank {
+            getString(R.string.profile_switch_unknown_link)
+        }
+        return buildString {
+            append(profile.name)
+            append('\n')
+            append(formatProfileServer(profile.serverUrl))
+            append(" | ")
+            append(formatProfileId(profile.ownParentDeviceId))
+            append(" -> ")
+            append(formatChildReference(linkedChild, profile.linkedChildDisplayName))
+        }
+    }
+
+    private fun applyQuickProfile(profile: ParentMonitorProfile) {
+        profileRuntimeCoordinator.applyProfile(
+            profile = profile,
+            shareParentLocation = prefs.getBoolean("share_parent_location", true)
+        )
+        initializeWebSocket()
+        loadSelectedChild()
+        updateQuickProfileSummary()
+        updateUIState(skipAutoRecovery = true)
+        updateChatBadge()
+        showToast(getString(R.string.profile_switch_applied))
+    }
+
+    private fun updateQuickProfileSummary() {
+        val activeProfile = profileManager.getActiveProfile()
+        val effectiveContext = effectiveContextResolver.resolve()
+        val profileName = activeProfile?.name?.takeIf { it.isNotBlank() }
+            ?: activeSessionStore.getSession()?.profileName?.takeIf { it.isNotBlank() }
+            ?: getString(R.string.profile_switch_current_name)
+        val ownParentId = activeProfile?.ownParentDeviceId?.takeIf { it.isNotBlank() }
+            ?: effectiveContext.ownParentDeviceId.takeIf { it.isNotBlank() }
+        val childId = activeProfile?.linkedChildDeviceId?.takeIf { it.isNotBlank() }
+            ?: effectiveContext.linkedChildDeviceId.takeIf { it.isNotBlank() }
+        val serverUrl = activeProfile?.serverUrl?.takeIf { it.isNotBlank() }
+            ?: effectiveContext.serverUrl.takeIf { it.isNotBlank() }
+
+        if (ownParentId.isNullOrBlank() || serverUrl.isNullOrBlank()) {
+            binding.activeProfileName.text = getString(R.string.profile_switch_title)
+            binding.activeProfileMeta.text = getString(R.string.profile_switch_no_active)
+            return
+        }
+
+        binding.activeProfileName.text = profileName
+        val isSavedProfile = activeProfile?.id?.let { activeId ->
+            profileManager.getSavedProfiles().any { it.id == activeId }
+        } == true
+        val childLabel = formatChildReference(
+            rawChildId = childId ?: getString(R.string.profile_switch_unknown_link),
+            childDisplayName = activeProfile?.linkedChildDisplayName?.ifBlank { null }
+                ?: profileManager.resolveLinkedChildDisplayName(
+                    childDeviceId = childId.orEmpty(),
+                    serverUrl = serverUrl,
+                    ownParentDeviceId = ownParentId
+                )
+        )
+        val summary = getString(
+            R.string.profile_switch_summary_format,
+            profileName,
+            formatProfileServer(serverUrl),
+            formatProfileId(ownParentId),
+            childLabel
+        )
+        val sourceLine = getString(
+            R.string.profile_switch_source_line,
+            describeProfileContextSource(effectiveContext.source)
+        )
+        val statusLine = getString(
+            R.string.profile_switch_status_line,
+            getString(
+                if (isSavedProfile) {
+                    R.string.profile_switch_status_saved
+                } else {
+                    R.string.profile_switch_status_runtime_only
+                }
+            )
+        )
+        val linkedParentsLine = buildCachedLinkedParentsLine()
+        val mismatchLine = if (isProfileContextMismatched(activeProfile, effectiveContext)) {
+            "\n" + getString(R.string.profile_switch_warning_mismatch)
+        } else {
+            ""
+        }
+        binding.activeProfileMeta.text = summary + "\n" + sourceLine + "\n" + statusLine +
+            (linkedParentsLine?.let { "\n$it" } ?: "") + mismatchLine
+    }
+
+    private fun describeProfileContextSource(source: String): String {
+        return when (source.trim().lowercase(Locale.ROOT)) {
+            "session" -> getString(R.string.profile_switch_source_session)
+            "legacy" -> getString(R.string.profile_switch_source_legacy)
+            "empty" -> getString(R.string.profile_switch_source_unknown)
+            else -> getString(R.string.profile_switch_source_current)
+        }
+    }
+
+    private fun isProfileContextMismatched(
+        activeProfile: ParentMonitorProfile?,
+        effectiveContext: ru.example.childwatch.profile.ParentEffectiveContext
+    ): Boolean {
+        if (activeProfile == null) return false
+
+        fun differs(profileValue: String, effectiveValue: String): Boolean {
+            val p = profileValue.trim()
+            val e = effectiveValue.trim()
+            return p.isNotBlank() && e.isNotBlank() && p != e
+        }
+
+        return differs(activeProfile.serverUrl, effectiveContext.serverUrl) ||
+            differs(activeProfile.ownParentDeviceId, effectiveContext.ownParentDeviceId) ||
+            differs(activeProfile.linkedChildDeviceId, effectiveContext.linkedChildDeviceId)
+    }
+
+    private fun formatProfileServer(serverUrl: String): String {
+        val parsedHost = runCatching { Uri.parse(serverUrl).host }.getOrNull()
+        return (parsedHost ?: serverUrl).removePrefix("www.")
+    }
+
+    private fun formatProfileId(rawId: String): String {
+        return if (rawId.length <= 16) rawId else "${rawId.take(8)}...${rawId.takeLast(4)}"
+    }
+
+    private suspend fun loadProfilesAfterRelationshipSync(): List<ParentMonitorProfile> {
+        syncLinkedProfilesInBackground()
+        return profileManager.getSavedProfiles()
+    }
+
+    private suspend fun syncLinkedProfilesInBackground() {
+        val options = runCatching { linkedChildOptionsProvider.getOptions() }
+            .getOrElse { error ->
+                Log.w(TAG, "Unable to sync relationship-backed profiles", error)
+                return
+            }
+
+        if (options.isNotEmpty() && profileManager.syncLinkedChildProfiles(options) > 0) {
+            updateQuickProfileSummary()
+        }
+
+        syncLinkedParentsContextInBackground()
+    }
+
+    private suspend fun syncLinkedParentsContextInBackground() {
+        val childId = resolveTargetDeviceId().orEmpty()
+        val ownParentId = effectiveContextResolver.resolveOwnParentId().ifBlank {
+            profileManager.resolveCurrentParentId()
+        }
+        if (childId.isBlank() || ownParentId.isBlank()) return
+
+        val linkedParents = runCatching { linkedParentsProvider.getOptions(childId) }
+            .getOrElse { error ->
+                Log.w(TAG, "Unable to sync linked parents for child context", error)
+                return
+            }
+
+        if (linkedParents.isEmpty()) return
+
+        cacheLinkedParentsSnapshot(linkedParents, ownParentId)
+        updateQuickProfileSummary()
+    }
+
+    private fun cacheLinkedParentsSnapshot(
+        linkedParents: List<ParentLinkedParentOption>,
+        ownParentId: String
+    ) {
+        val labels = linkedParents
+            .map { it.displayName }
+            .filter { it.isNotBlank() }
+            .distinct()
+
+        val preview = when {
+            labels.isEmpty() -> ""
+            labels.size <= 3 -> labels.joinToString(", ")
+            else -> labels.take(3).joinToString(", ") + " +${labels.size - 3}"
+        }
+
+        val selfLabel = linkedParents.firstOrNull { it.parentDeviceId == ownParentId }?.displayName
+            ?.takeIf { it.isNotBlank() }
+            ?: ownParentId
+
+        prefs.edit()
+            .putInt(KEY_LINKED_PARENT_COUNT, linkedParents.size)
+            .putString(KEY_LINKED_PARENT_LABELS, preview)
+            .putString(KEY_LINKED_PARENT_SELF_LABEL, selfLabel)
+            .apply()
+    }
+
+    private fun buildCachedLinkedParentsLine(): String? {
+        val count = prefs.getInt(KEY_LINKED_PARENT_COUNT, 0)
+        if (count <= 0) return null
+
+        val labels = prefs.getString(KEY_LINKED_PARENT_LABELS, null).orEmpty()
+        val selfLabel = prefs.getString(KEY_LINKED_PARENT_SELF_LABEL, null).orEmpty()
+        val familyLine = if (labels.isNotBlank()) {
+            getString(R.string.profile_family_parents_named, count, labels)
+        } else {
+            getString(R.string.profile_family_parents_count, count)
+        }
+
+        return if (selfLabel.isNotBlank()) {
+            familyLine + "\n" + getString(R.string.profile_family_current_parent, selfLabel)
+        } else {
+            familyLine
+        }
+    }
+
+    private fun maybeApplySuggestedProfileName(
+        nameInput: EditText,
+        selectedChild: ParentLinkedChildOption,
+        previousChildId: String,
+        existingProfile: ParentMonitorProfile?
+    ) {
+        val currentName = nameInput.text?.toString()?.trim().orEmpty()
+        val previousLabel = existingProfile?.linkedChildDisplayName
+            ?.takeIf { it.isNotBlank() }
+            ?: profileManager.resolveLinkedChildDisplayName(previousChildId)
+        val previousSuggestedName = profileManager.buildSuggestedProfileName(previousLabel.orEmpty(), previousChildId)
+        val newSuggestedName = profileManager.buildSuggestedProfileName(
+            linkedChildDisplayName = selectedChild.displayName,
+            linkedChildDeviceId = selectedChild.deviceId
+        )
+
+        if (currentName.isBlank() || currentName == previousSuggestedName) {
+            nameInput.setText(newSuggestedName)
+        }
+    }
+
+    private fun formatChildReference(rawChildId: String, childDisplayName: String?): String {
+        val normalizedChildId = rawChildId.trim()
+        val normalizedDisplayName = childDisplayName?.trim().orEmpty()
+        if (normalizedDisplayName.isBlank() || normalizedDisplayName == normalizedChildId) {
+            return formatProfileId(normalizedChildId)
+        }
+        return "$normalizedDisplayName (${formatProfileId(normalizedChildId)})"
+    }
+
+    private fun createProfileInput(hint: String, value: String): EditText {
+        return EditText(this).apply {
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.view.ViewGroup.LayoutParams.MATCH_PARENT,
+                android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = (12 * resources.displayMetrics.density).toInt()
+            }
+            this.hint = hint
+            setText(value)
+            setSingleLine()
+        }
+    }
+
+    private fun createProfileDialogLayout(vararg inputs: EditText): android.widget.LinearLayout {
+        return android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            setPadding(
+                (20 * resources.displayMetrics.density).toInt(),
+                0,
+                (20 * resources.displayMetrics.density).toInt(),
+                0
+            )
+            inputs.forEach(::addView)
         }
     }
 
@@ -554,10 +1093,6 @@ class MainActivity : AppCompatActivity() {
         binding.deviceInfoProgress.isVisible = false
 
         val childDeviceId = resolveDeviceIdForStatus()
-        if (!childDeviceId.isNullOrBlank()) {
-            secureSettings.setChildDeviceId(childDeviceId)
-        }
-
         if (childDeviceId.isNullOrEmpty()) {
             binding.deviceInfoDeviceId.text = getString(R.string.device_info_device_id, getString(R.string.device_info_unknown))
             latestDeviceStatus = null
@@ -649,7 +1184,6 @@ class MainActivity : AppCompatActivity() {
             showDeviceInfoMessage(getString(R.string.device_info_needs_pairing))
             return
         }
-        secureSettings.setChildDeviceId(childDeviceId)
 
         val serverUrl = getConfiguredServerUrl()
         if (serverUrl.isNullOrBlank()) {
@@ -934,18 +1468,9 @@ class MainActivity : AppCompatActivity() {
         try {
             val shareEnabled = prefs.getBoolean("share_parent_location", true)
             val serverUrl = getConfiguredServerUrl()
-            val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-            val ownDeviceId = listOf(
-                secureSettings.getDeviceId(),
-                prefs.getString("device_id", null),
-                prefs.getString("parent_device_id", null),
-                prefs.getString("linked_parent_device_id", null),
-                legacyPrefs.getString("device_id", null),
-                legacyPrefs.getString("parent_device_id", null),
-                legacyPrefs.getString("linked_parent_device_id", null)
-            )
-                .mapNotNull { it?.trim() }
-                .firstOrNull { it.isNotBlank() }
+            val ownDeviceId = effectiveContextResolver
+                .resolveOwnParentCandidates()
+                .firstOrNull()
 
             if (shareEnabled && !serverUrl.isNullOrBlank() && !ownDeviceId.isNullOrBlank()) {
                 ParentLocationService.start(this)
@@ -996,37 +1521,20 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun resolveTargetDeviceId(): String? {
-        val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-        val myDeviceId = prefs.getString("device_id", null)?.trim().orEmpty()
-        val excluded = listOf(
-            myDeviceId,
-            prefs.getString("parent_device_id", null),
-            prefs.getString("linked_parent_device_id", null),
-            legacyPrefs.getString("parent_device_id", null),
-            legacyPrefs.getString("linked_parent_device_id", null)
-        )
-            .mapNotNull { it?.trim() }
-            .filter { it.isNotBlank() }
-            .toSet()
-
-        // Keep legacy single-pair behavior stable: prefer child_device_id over selected_device_id.
-        val resolved = listOf(
-            prefs.getString("child_device_id", null),
-            secureSettings.getChildDeviceId(),
-            legacyPrefs.getString("child_device_id", null),
-            prefs.getString("selected_device_id", null),
-            legacyPrefs.getString("selected_device_id", null)
-        )
-            .mapNotNull { it?.trim() }
-            .firstOrNull { it.isNotBlank() && it !in excluded }
+        val resolvedFromContext = effectiveContextResolver.resolveTargetDeviceId()
+        if (resolvedFromContext.isNotBlank()) {
+            activeSessionStore.updateFocusedChildId(resolvedFromContext)
+            if (secureSettings.getChildDeviceId().isNullOrBlank()) {
+                secureSettings.setChildDeviceId(resolvedFromContext)
+            }
+            return resolvedFromContext
+        }
+        val resolved = effectiveContextResolver
+            .resolveFocusedChildCandidates()
+            .firstOrNull()
             ?: return null
 
-        if (prefs.getString("child_device_id", null).isNullOrBlank()) {
-            prefs.edit().putString("child_device_id", resolved).apply()
-        }
-        if (prefs.getString("selected_device_id", null).isNullOrBlank()) {
-            prefs.edit().putString("selected_device_id", resolved).apply()
-        }
+        activeSessionStore.updateFocusedChildId(resolved)
         if (secureSettings.getChildDeviceId().isNullOrBlank()) {
             secureSettings.setChildDeviceId(resolved)
         }
@@ -1035,6 +1543,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun getConfiguredServerUrl(): String? {
+        val resolved = effectiveContextResolver.resolveServerUrl()
+        if (resolved.isNotBlank()) {
+            return normalizeServerUrl(resolved)
+        }
+
         val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
         val raw = listOf(
             secureSettings.getServerUrl(),
@@ -1058,33 +1571,13 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun resolveDeviceIdForStatus(): String? {
-        val preferred = resolveTargetDeviceId()
+        val preferred = effectiveContextResolver.resolveTargetDeviceId()
         if (!preferred.isNullOrBlank()) {
             return preferred
         }
-
-        val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
-        val myDeviceId = prefs.getString("device_id", null)?.trim().orEmpty()
-        val excluded = listOf(
-            myDeviceId,
-            prefs.getString("parent_device_id", null),
-            prefs.getString("linked_parent_device_id", null),
-            legacyPrefs.getString("parent_device_id", null),
-            legacyPrefs.getString("linked_parent_device_id", null)
-        )
-            .mapNotNull { it?.trim() }
-            .filter { it.isNotBlank() }
-            .toSet()
-
-        return listOf(
-            prefs.getString("selected_device_id", null),
-            prefs.getString("child_device_id", null),
-            secureSettings.getChildDeviceId(),
-            legacyPrefs.getString("selected_device_id", null),
-            legacyPrefs.getString("child_device_id", null)
-        )
-            .mapNotNull { it?.trim() }
-            .firstOrNull { it.isNotBlank() && it !in excluded }
+        return effectiveContextResolver
+            .resolveFocusedChildCandidates()
+            .firstOrNull()
     }
 
     private fun normalizeServerUrl(raw: String): String {
@@ -1138,6 +1631,10 @@ class MainActivity : AppCompatActivity() {
         runStartupTask("ensureChatBackgroundService") { ensureChatBackgroundService() }
         runStartupTask("ensureParentLocationService") { ensureParentLocationService() }
         runStartupTask("initializeWebSocket") { initializeWebSocket() }
+        runStartupTask("updateQuickProfileSummary") { updateQuickProfileSummary() }
+        lifecycleScope.launch {
+            syncLinkedProfilesInBackground()
+        }
     }
 
     override fun onPause() {
@@ -1205,16 +1702,19 @@ class MainActivity : AppCompatActivity() {
     private fun loadSelectedChild() {
         lifecycleScope.launch {
             try {
-                val selectedDeviceId = prefs.getString("selected_device_id", null)
+                val selectedDeviceId = resolveSelectedChildIdForUi()
 
-                if (selectedDeviceId != null) {
+                if (!selectedDeviceId.isNullOrBlank()) {
                     val database = ru.example.childwatch.database.ChildWatchDatabase.getInstance(this@MainActivity)
                     val childDao = database.childDao()
                     val child = childDao.getByDeviceId(selectedDeviceId)
 
                     if (child != null) {
                         binding.selectedChildName.text = child.name
-                        binding.selectedChildDeviceId.text = "ID: ${child.deviceId.take(12)}..."
+                        binding.selectedChildDeviceId.text = getString(
+                            R.string.main_selected_child_id_and_edit_hint,
+                            child.deviceId.take(12)
+                        )
 
                         // Р вЂ”Р В°Р С–РЎР‚РЎС“Р В·Р С‘РЎвЂљРЎРЉ Р В°Р Р†Р В°РЎвЂљР В°РЎР‚
                         if (child.avatarUrl != null) {
@@ -1261,8 +1761,7 @@ class MainActivity : AppCompatActivity() {
 
     private suspend fun getSelectedContact(): Child? {
         return try {
-            val selectedId = prefs.getString("selected_device_id", null)
-                ?: prefs.getString("child_device_id", null)
+            val selectedId = resolveSelectedChildIdForUi()
             if (selectedId.isNullOrBlank()) return null
             val database = ChildWatchDatabase.getInstance(this)
             database.childDao().getByDeviceId(selectedId)
@@ -1275,13 +1774,31 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun openCurrentChildEditor() {
+        lifecycleScope.launch {
+            val child = getSelectedContact()
+            if (child == null) {
+                showToast(getString(R.string.main_toast_select_child_first_to_edit))
+                return@launch
+            }
+
+            try {
+                val intent = Intent(this@MainActivity, ChildSelectionActivity::class.java).apply {
+                    putExtra(ChildSelectionActivity.EXTRA_EDIT_CHILD_ID, child.deviceId)
+                }
+                startActivity(intent)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error launching child editor", e)
+                showToast(getString(R.string.main_toast_launch_error, e.message ?: "unknown"))
+            }
+        }
+    }
+
     private fun ensureLegacyContact() {
-        val legacyId = prefs.getString("child_device_id", null)
+        val legacyId = resolveSelectedChildIdForUi()
         if (legacyId.isNullOrBlank()) return
 
-        if (prefs.getString("selected_device_id", null).isNullOrBlank()) {
-            prefs.edit().putString("selected_device_id", legacyId).apply()
-        }
+        persistSelectedChildCompat(legacyId)
 
         lifecycleScope.launch(Dispatchers.IO) {
             try {
@@ -1290,9 +1807,13 @@ class MainActivity : AppCompatActivity() {
                 val existing = childDao.getByDeviceId(legacyId)
                 if (existing == null) {
                     val now = System.currentTimeMillis()
+                    val linkedOption = runCatching {
+                        linkedChildOptionsProvider.getOptions().firstOrNull { it.deviceId == legacyId }
+                    }.getOrNull()
                     val child = Child(
                         deviceId = legacyId,
-                        name = getString(R.string.main_default_child_name),
+                        name = linkedOption?.displayName?.takeIf { it.isNotBlank() }
+                            ?: getString(R.string.main_default_child_name),
                         role = ContactRoles.CHILD,
                         iconId = ContactIcons.CHILD,
                         allowedFeatures = ContactFeatures.ALL,
@@ -1320,7 +1841,10 @@ class MainActivity : AppCompatActivity() {
                 if (child != null) {
                     // Р С›Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ UI
                     binding.selectedChildName.text = child.name
-                    binding.selectedChildDeviceId.text = "ID: ${child.deviceId.take(12)}..."
+                    binding.selectedChildDeviceId.text = getString(
+                        R.string.main_selected_child_id_and_edit_hint,
+                        child.deviceId.take(12)
+                    )
 
                     // Р С›Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ Р В°Р Р†Р В°РЎвЂљР В°РЎР‚
                     if (child.avatarUrl != null) {
@@ -1339,10 +1863,15 @@ class MainActivity : AppCompatActivity() {
                     }
 
                     // Р РЋР С•РЎвЂ¦РЎР‚Р В°Р Р…Р С‘РЎвЂљРЎРЉ Р Р† Р Р…Р В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р В°РЎвЂ¦
-                    prefs.edit()
-                        .putString("selected_device_id", deviceId)
-                        .putString("child_device_id", deviceId)
-                        .apply()
+                    persistSelectedChildCompat(deviceId)
+                    profileRuntimeCoordinator.switchFocusedChild(
+                        childDeviceId = deviceId,
+                        shareParentLocation = prefs.getBoolean("share_parent_location", true)
+                    )
+                    initializeWebSocket()
+                    updateQuickProfileSummary()
+                    updateChatBadge()
+                    refreshChildDeviceStatus(force = true)
 
                     showToast(getString(R.string.main_toast_contact_selected, child.name))
                     Log.d(TAG, "Р Р€РЎРѓРЎвЂљРЎР‚Р С•Р в„–РЎРѓРЎвЂљР Р†Р С• Р Р†РЎвЂ№Р В±РЎР‚Р В°Р Р…Р С•: ${child.name} ($deviceId)")
@@ -1355,6 +1884,37 @@ class MainActivity : AppCompatActivity() {
                 showToast(getString(R.string.main_toast_contact_update_error))
             }
         }
+    }
+
+    private fun resolveSelectedChildIdForUi(): String? {
+        val effectiveId = effectiveContextResolver.resolveFocusedChildId()
+        if (effectiveId.isNotBlank()) {
+            return effectiveId
+        }
+
+        profileManager.getActiveProfile()?.linkedChildDeviceId
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
+
+        val currentProfileChildId = profileManager.resolveCurrentChildId()
+        if (currentProfileChildId.isNotBlank()) {
+            return currentProfileChildId
+        }
+
+        return null
+    }
+
+    private fun persistSelectedChildCompat(deviceId: String) {
+        val normalized = deviceId.trim()
+        if (normalized.isBlank()) return
+
+        activeSessionStore.updateFocusedChildId(normalized)
+        secureSettings.setChildDeviceId(normalized)
+        prefs.edit()
+            .putString("selected_device_id", normalized)
+            .putString("child_device_id", normalized)
+            .apply()
     }
 
     /**
@@ -1370,11 +1930,31 @@ class MainActivity : AppCompatActivity() {
             ).show()
             return
         }
+        activeSessionStore.updateFocusedChildId(targetDeviceId)
         val intent = Intent(this@MainActivity, RemoteCameraActivity::class.java).apply {
             putExtra(RemoteCameraActivity.EXTRA_CHILD_ID, targetDeviceId)
             putExtra(RemoteCameraActivity.EXTRA_CHILD_NAME, binding.selectedChildName.text?.toString().orEmpty())
         }
         startActivity(intent)
+    }
+
+    private fun openDeviceUsage() {
+        val targetDeviceId = resolveTargetDeviceId()
+        if (targetDeviceId.isNullOrBlank()) {
+            showToast(getString(R.string.device_usage_pairing_required))
+            return
+        }
+        activeSessionStore.updateFocusedChildId(targetDeviceId)
+        runCatching {
+            startActivity(
+                Intent(this@MainActivity, DeviceUsageActivity::class.java).apply {
+                    putExtra(DeviceUsageActivity.EXTRA_DEVICE_ID, targetDeviceId)
+                }
+            )
+        }.onFailure { error ->
+            Log.e(TAG, "Failed to open device usage screen", error)
+            showToast(getString(R.string.device_usage_open_error))
+        }
     }
 
     /**
@@ -1492,5 +2072,8 @@ class MainActivity : AppCompatActivity() {
         private const val TAG = "MainActivity"
         private const val KEY_BATTERY_PROMPT_SUPPRESSED = "battery_prompt_suppressed"
         private const val DEVICE_STATUS_STALE_MS = 10 * 60 * 1000L
+        private const val KEY_LINKED_PARENT_COUNT = "linked_parent_context_count"
+        private const val KEY_LINKED_PARENT_LABELS = "linked_parent_context_labels"
+        private const val KEY_LINKED_PARENT_SELF_LABEL = "linked_parent_context_self_label"
     }
 }

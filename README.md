@@ -6,6 +6,8 @@ Before relying on older docs in this repository, read [TRACKING.md](./TRACKING.m
 
 `TRACKING.md` is the current high-level status file for active work and recent reality-checked behavior.
 
+The active roadmap for the profile system is also maintained in `TRACKING.md`.
+
 Important repository mapping:
 
 - `app/` = `ParentMonitor`

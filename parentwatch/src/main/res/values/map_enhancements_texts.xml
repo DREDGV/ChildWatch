@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="map_stats_status_stationary">&#x041D;&#x0430; &#x043C;&#x0435;&#x0441;&#x0442;&#x0435;</string>
+    <string name="map_stats_status_moving">&#x0412; &#x0434;&#x0432;&#x0438;&#x0436;&#x0435;&#x043D;&#x0438;&#x0438;</string>
+    <string name="map_stats_status_transit">&#x041F;&#x043E;&#x0445;&#x043E;&#x0436;&#x0435;, &#x0435;&#x0434;&#x0435;&#x0442;</string>
+    <string name="map_stats_status_stale">&#x0422;&#x043E;&#x0447;&#x043A;&#x0430; &#x0443;&#x0441;&#x0442;&#x0430;&#x0440;&#x0435;&#x043B;&#x0430;</string>
+    <string name="map_stats_source_server_short">&#x0421;&#x0435;&#x0440;&#x0432;&#x0435;&#x0440;</string>
+    <string name="map_stats_source_cache_short">&#x041A;&#x044D;&#x0448;</string>
+    <string name="map_stats_source_gps_short">GPS</string>
+    <string name="map_stats_meta_updated">&#x041E;&#x0431;&#x043D;&#x043E;&#x0432;&#x043B;&#x0435;&#x043D;&#x043E; %1$s</string>
+    <string name="map_stats_meta_accuracy">&#x00B1;%1$d &#x043C;</string>
+    <string name="map_stats_meta_battery">%1$d%%</string>
+    <string name="map_timeline_button">&#x0422;&#x0430;&#x0439;&#x043C;&#x043B;&#x0430;&#x0439;&#x043D; &#x0434;&#x043D;&#x044F;</string>
+    <string name="map_timeline_title">&#x0422;&#x0430;&#x0439;&#x043C;&#x043B;&#x0430;&#x0439;&#x043D; &#x0434;&#x043D;&#x044F;</string>
+    <string name="map_timeline_empty">&#x0417;&#x0430; &#x0441;&#x0435;&#x0433;&#x043E;&#x0434;&#x043D;&#x044F; &#x0437;&#x0430;&#x043C;&#x0435;&#x0442;&#x043D;&#x044B;&#x0445; &#x0441;&#x043E;&#x0431;&#x044B;&#x0442;&#x0438;&#x0439; &#x043F;&#x043E;&#x043A;&#x0430; &#x043D;&#x0435;&#x0442;</string>
+    <string name="map_timeline_start">&#x0421;&#x0442;&#x0430;&#x0440;&#x0442; &#x043C;&#x0430;&#x0440;&#x0448;&#x0440;&#x0443;&#x0442;&#x0430; | %1$s</string>
+    <string name="map_timeline_end">&#x041F;&#x043E;&#x0441;&#x043B;&#x0435;&#x0434;&#x043D;&#x044F;&#x044F; &#x0442;&#x043E;&#x0447;&#x043A;&#x0430; | %1$s</string>
+    <string name="map_timeline_stop">&#x041E;&#x0441;&#x0442;&#x0430;&#x043D;&#x043E;&#x0432;&#x043A;&#x0430; %1$s | %2$s</string>
+</resources>

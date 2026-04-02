@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="profile_switch_pick_child">Выбрать ребенка</string>
+    <string name="profile_switch_pick_child_short">Выбрать</string>
+    <string name="profile_switch_pick_child_empty">Нет доступных детей для выбора</string>
+    <string name="profile_switch_pick_child_error">Не удалось загрузить список детей</string>
+    <string name="profile_switch_source_linked">связь</string>
+    <string name="profile_switch_source_local">локально</string>
+    <string name="profile_switch_child_profile_name_format">Ребенок: %1$s</string>
+</resources>

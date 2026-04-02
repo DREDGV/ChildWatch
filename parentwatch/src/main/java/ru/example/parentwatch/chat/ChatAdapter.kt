@@ -11,10 +11,12 @@ import ru.example.parentwatch.R
 
 class ChatAdapter(
     private val currentUser: String,
+    private val currentUserDeviceId: String? = null,
     private val onRetryMessage: ((ChatMessage) -> Unit)? = null
 ) : ListAdapter<ChatMessage, ChatAdapter.MessageViewHolder>(MessageDiffCallback()) {
 
-    private fun isOutgoing(message: ChatMessage) = message.sender == currentUser
+    private fun isOutgoing(message: ChatMessage) =
+        message.isOutgoing(currentUser, currentUserDeviceId)
 
     fun submitMessages(messages: List<ChatMessage>) {
         submitList(messages.toList())
