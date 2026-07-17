@@ -108,7 +108,7 @@ class ChatActivity : AppCompatActivity() {
         getSharedPreferences("chat_emoji_prefs", MODE_PRIVATE)
     }
     private val chatNamespace: String by lazy {
-        contextProvider.storageNamespace("chat") ?: "legacy"
+        contextProvider.featureContext("chat")?.storageNamespace ?: "legacy"
     }
     private val recentEmojisKey: String by lazy { "$chatNamespace::$KEY_RECENT_EMOJIS" }
     private val chatOpenKey: String by lazy { "$chatNamespace::chat_open" }
@@ -258,7 +258,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun getServerUrl(): String {
-        contextProvider.current()?.serverUrl?.takeIf { it.isNotBlank() }?.let { return it }
+        contextProvider.featureContext("chat")?.serverUrl?.takeIf { it.isNotBlank() }?.let { return it }
         val resolved = effectiveContextResolver.resolveServerUrl()
         if (resolved.isNotBlank()) {
             return resolved
@@ -271,7 +271,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun getChildDeviceId(): String {
-        contextProvider.current()?.targetDeviceId?.takeIf { it.isNotBlank() }?.let { return it }
+        contextProvider.featureContext("chat")?.targetDeviceId?.takeIf { it.isNotBlank() }?.let { return it }
         val resolved = listOf(
             effectiveContextResolver.resolveFocusedChildId(),
             activeSessionStore.getSession()?.linkedChildDeviceId.orEmpty(),

@@ -49,6 +49,7 @@ import ru.example.parentwatch.location.LocationManager
 import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.contacts.ContactIcons
 import ru.example.parentwatch.session.ChildEffectiveContextResolver
+import ru.example.parentwatch.session.ChildEffectiveContextProvider
 import ru.example.parentwatch.session.ChildParticipantNameResolver
 import ru.example.parentwatch.network.ParentLocationData
 import kotlin.math.atan2
@@ -129,6 +130,8 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var resolvedOtherId: String = ""
     private var currentDiagnosticReason: MapDiagnosticReason = MapDiagnosticReason.NONE
     private var dependenciesReady = false
+    private val contextProvider by lazy { ChildEffectiveContextProvider.get(this) }
+    private val mapNamespace by lazy { contextProvider.featureContext("map")?.storageNamespace ?: "legacy" }
     private val participantNameResolver by lazy { ChildParticipantNameResolver(this) }
 
     private data class CachedLocation(val latitude: Double, val longitude: Double, val timestamp: Long, val speed: Float?)
@@ -173,6 +176,11 @@ class DualLocationMapActivity : AppCompatActivity() {
             myId = intent.getStringExtra(EXTRA_MY_ID)?.trim().orEmpty()
             otherId = intent.getStringExtra(EXTRA_OTHER_ID)?.trim().orEmpty()
 
+            val canonicalContext = contextProvider.featureContext("map")
+            if (myRole == ROLE_CHILD) {
+                canonicalContext?.selfDeviceId?.takeIf(String::isNotBlank)?.let { myId = it }
+                canonicalContext?.targetDeviceId?.takeIf(String::isNotBlank)?.let { otherId = it }
+            }
             val effectiveContext = ChildEffectiveContextResolver(this).resolveEffectiveContext()
             val localPrefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
             val legacyPrefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
@@ -1309,6 +1317,9 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun resolveParentIdCandidates(): List<String> {
+        contextProvider.current()?.targetDeviceId
+            ?.takeIf { it.isNotBlank() && it != myId.trim() }
+            ?.let { return listOf(it) }
         val legacyPrefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         return listOf(
             resolvedParentId,
@@ -1321,6 +1332,9 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun resolveChildIdCandidates(): List<String> {
+        contextProvider.current()?.selfDeviceId
+            ?.takeIf(String::isNotBlank)
+            ?.let { return listOf(it) }
         val legacyPrefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         val excluded = listOf(
             myId,
@@ -1416,8 +1430,8 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
     }
 
-    private fun cacheKeyMy(): String = "${MAP_CACHE_MY}_${myRole}"
-    private fun cacheKeyOther(): String = "${MAP_CACHE_OTHER}_${resolvedOtherId.ifBlank { otherId }}"
+    private fun cacheKeyMy(): String = "$mapNamespace::${MAP_CACHE_MY}_${myRole}"
+    private fun cacheKeyOther(): String = "$mapNamespace::${MAP_CACHE_OTHER}_${resolvedOtherId.ifBlank { otherId }}"
 
     private fun saveCachedLocation(key: String, lat: Double, lon: Double, timestamp: Long, speed: Float?) {
         val normalizedTimestamp = normalizeTimestampMillis(timestamp) ?: System.currentTimeMillis()

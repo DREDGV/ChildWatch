@@ -30,6 +30,7 @@ import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.profile.ParentActiveSession
 import ru.example.childwatch.profile.ParentActiveSessionStore
+import ru.example.childwatch.profile.ParentContextDiagnostics
 import ru.example.childwatch.service.ChatBackgroundService
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.profile.ParentLinkedChildOption

@@ -9,6 +9,8 @@ import ru.childwatch.shared.family.ActiveContextCandidate
 import ru.childwatch.shared.family.ActiveContextResolver
 import ru.childwatch.shared.family.ContextSource
 import ru.childwatch.shared.family.EffectiveContextProvider
+import ru.childwatch.shared.family.FeatureContext
+import ru.childwatch.shared.family.forFeature
 
 class ParentEffectiveContextProvider private constructor(context: Context) : EffectiveContextProvider {
     private val appContext = context.applicationContext
@@ -79,6 +81,10 @@ class ParentEffectiveContextProvider private constructor(context: Context) : Eff
 
     fun storageNamespace(feature: String): String? {
         return current()?.storageNamespace(OWNER_SCOPE, feature)
+    }
+
+    fun featureContext(feature: String): FeatureContext? {
+        return current()?.forFeature(OWNER_SCOPE, feature)
     }
 
     private fun persist(context: ActiveContext) {

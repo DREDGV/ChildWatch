@@ -38,6 +38,18 @@ class ContextNamespaceTest {
         assertFalse(first.contains("map/history"))
     }
 
+    @Test
+    fun `chat and map receive the same target from active context`() {
+        val context = context(self = "parent", target = "selected-child")
+
+        val chat = context.forFeature("parent", "chat")
+        val map = context.forFeature("parent", "map")
+
+        assertEquals("selected-child", chat.targetDeviceId)
+        assertEquals(chat.targetDeviceId, map.targetDeviceId)
+        assertNotEquals(chat.storageNamespace, map.storageNamespace)
+    }
+
     private fun context(self: String, target: String): ActiveContext {
         return ActiveContext(
             familyId = "family",

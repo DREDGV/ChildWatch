@@ -153,7 +153,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var currentDiagnosticReason: MapDiagnosticReason = MapDiagnosticReason.NONE
     private var dependenciesReady = false
     private val contextProvider by lazy { ParentEffectiveContextProvider.get(this) }
-    private val mapNamespace by lazy { contextProvider.storageNamespace("map") ?: "legacy" }
+    private val mapNamespace by lazy { contextProvider.featureContext("map")?.storageNamespace ?: "legacy" }
     private val participantNameResolver by lazy { ParentParticipantNameResolver(this) }
 
     private data class CachedLocation(
@@ -211,7 +211,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             otherId = intent.getStringExtra(EXTRA_OTHER_ID)?.trim().orEmpty()
             showAllContacts = intent.getBooleanExtra(EXTRA_SHOW_ALL, false)
 
-            val canonicalContext = contextProvider.current()
+            val canonicalContext = contextProvider.featureContext("map")
             if (myRole == ROLE_PARENT) {
                 canonicalContext?.selfDeviceId?.takeIf(String::isNotBlank)?.let { myId = it }
                 canonicalContext?.targetDeviceId?.takeIf(String::isNotBlank)?.let { otherId = it }
@@ -1048,7 +1048,7 @@ class DualLocationMapActivity : AppCompatActivity() {
 
     private fun resolveParentIdCandidates(): List<String> {
         contextProvider.current()?.selfDeviceId
-            ?.takeIf { it.isNotBlank() && it != myId.trim() }
+            ?.takeIf(String::isNotBlank)
             ?.let { return listOf(it) }
         val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
         return listOf(

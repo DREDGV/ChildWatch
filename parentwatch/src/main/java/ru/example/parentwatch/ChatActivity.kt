@@ -28,6 +28,7 @@ import ru.example.parentwatch.network.FamilyPresenceParticipant
 import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.network.WebSocketManager
 import ru.example.parentwatch.session.ChildActiveSessionStore
+import ru.example.parentwatch.session.ChildEffectiveContextProvider
 import ru.example.parentwatch.session.ChildEffectiveContextResolver
 import ru.example.parentwatch.session.ChildParticipantNameResolver
 import ru.example.parentwatch.utils.NotificationManager
@@ -48,6 +49,7 @@ class ChatActivity : AppCompatActivity() {
 
     companion object {
         private const val TAG = "ChatActivity"
+        const val EXTRA_TARGET_DEVICE_ID = "TARGET_DEVICE_ID"
         
         /**
          * Глобальный флаг активности UI чата для использования в ChatBackgroundService
@@ -57,6 +59,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private lateinit var binding: ActivityChatBinding
+    private lateinit var contextProvider: ChildEffectiveContextProvider
     private lateinit var effectiveContextResolver: ChildEffectiveContextResolver
     private lateinit var activeSessionStore: ChildActiveSessionStore
     private lateinit var participantNameResolver: ChildParticipantNameResolver
@@ -70,13 +73,18 @@ class ChatActivity : AppCompatActivity() {
     private var chatInfoDetailsText: String = ""
     private var familyPresenceParticipants: List<FamilyPresenceParticipant> = emptyList()
     private val ownChildDeviceId: String by lazy {
-        effectiveContextResolver.resolveChildDeviceId()
+        contextProvider.current()?.selfDeviceId.orEmpty()
+            .ifBlank { effectiveContextResolver.resolveChildDeviceId() }
             .ifBlank { activeSessionStore.resolveCurrentChildId() }
             .ifBlank {
                 getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
                     .getString("device_id", "")?.trim().orEmpty()
             }
     }
+    private val chatNamespace: String by lazy {
+        contextProvider.featureContext("chat")?.storageNamespace ?: "legacy"
+    }
+    private val chatOpenKey: String by lazy { "$chatNamespace::chat_open" }
     private val chatListener: (String, String, String, Long) -> Unit = { messageId, text, sender, timestamp ->
         runOnUiThread {
             receiveMessage(messageId, text, sender, timestamp)
@@ -116,19 +124,26 @@ class ChatActivity : AppCompatActivity() {
         binding = ActivityChatBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        contextProvider = ChildEffectiveContextProvider.get(this)
+        intent.getStringExtra(EXTRA_TARGET_DEVICE_ID)
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?.let { contextProvider.updateSelection(focusedMemberId = null, targetDeviceId = it) }
         effectiveContextResolver = ChildEffectiveContextResolver(this)
         activeSessionStore = ChildActiveSessionStore(this)
         participantNameResolver = ChildParticipantNameResolver(this)
         // Get device ID for ChatManagerAdapter initialization
         val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
-        val deviceId = effectiveContextResolver.resolveChildDeviceId()
+        val deviceId = contextProvider.current()?.selfDeviceId.orEmpty()
+            .ifBlank { effectiveContextResolver.resolveChildDeviceId() }
             .ifBlank { activeSessionStore.resolveCurrentChildId() }
             .ifBlank { prefs.getString("child_device_id", "") ?: "" }
             .ifBlank { prefs.getString("device_id", "") ?: "" }
-        val partnerId = if (deviceId.isBlank()) {
+        val partnerDeviceId = contextProvider.featureContext("chat")?.targetDeviceId.orEmpty()
+        val partnerId = if (partnerDeviceId.isBlank()) {
             getString(R.string.chat_partner_unknown_id)
         } else {
-            deviceId
+            partnerDeviceId
         }
         val childDisplayName = participantNameResolver.resolveChildDisplayName()
         binding.chatPartnerName.text = getString(R.string.chat_header_participants_title)
@@ -558,14 +573,16 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun syncChatHistory() {
-        val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
-        val deviceId = prefs.getString("device_id", "")?.trim().orEmpty()
+        val deviceId = contextProvider.current()?.selfDeviceId.orEmpty()
+            .ifBlank { effectiveContextResolver.resolveChildDeviceId() }
         if (deviceId.isBlank()) {
             Log.w(TAG, "Own Device ID not set, skipping chat sync")
             return
         }
 
-        val serverUrl = ServerUrlResolver.getServerUrl(this)
+        val serverUrl = contextProvider.featureContext("chat")?.serverUrl
+            ?.takeIf(String::isNotBlank)
+            ?: ServerUrlResolver.getServerUrl(this)
         if (serverUrl.isNullOrBlank()) {
             Log.w(TAG, "Server URL not configured, skipping chat sync")
             return
@@ -633,9 +650,11 @@ class ChatActivity : AppCompatActivity() {
      * Initialize WebSocket connection via ChatBackgroundService
      */
     private fun initializeWebSocket() {
-        val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
-        val serverUrl = ServerUrlResolver.getServerUrl(this)
-        val deviceId = prefs.getString("device_id", "") ?: ""
+        val serverUrl = contextProvider.featureContext("chat")?.serverUrl
+            ?.takeIf(String::isNotBlank)
+            ?: ServerUrlResolver.getServerUrl(this)
+        val deviceId = contextProvider.current()?.selfDeviceId.orEmpty()
+            .ifBlank { effectiveContextResolver.resolveChildDeviceId() }
 
         if (serverUrl.isNullOrBlank()) {
             Log.w(TAG, "Server URL not configured, cannot initialize WebSocket")
@@ -1150,6 +1169,7 @@ class ChatActivity : AppCompatActivity() {
         getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
             .edit()
             .putBoolean("chat_open", true)
+            .putBoolean(chatOpenKey, true)
             .apply()
         registerChatUiListeners()
         refreshFamilyPresenceSummary()
@@ -1166,6 +1186,7 @@ class ChatActivity : AppCompatActivity() {
         getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
             .edit()
             .putBoolean("chat_open", false)
+            .putBoolean(chatOpenKey, false)
             .apply()
         super.onPause()
     }

@@ -34,6 +34,7 @@ import ru.example.parentwatch.utils.ChildDeviceProfile
 import ru.example.parentwatch.utils.ChildDeviceProfileManager
 import ru.example.parentwatch.utils.ServerUrlResolver
 import ru.example.parentwatch.session.ChildActiveSessionStore
+import ru.example.parentwatch.session.ChildEffectiveContextProvider
 import ru.example.parentwatch.session.ChildParticipantNameResolver
 import ru.example.parentwatch.session.ChildProfileRuntimeCoordinator
 import android.view.MotionEvent
@@ -84,6 +85,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var lastUpdateText: TextView
     private lateinit var profileManager: ChildDeviceProfileManager
     private val sessionStore by lazy { ChildActiveSessionStore(this) }
+    private val contextProvider by lazy { ChildEffectiveContextProvider.get(this) }
     private val participantNameResolver by lazy { ChildParticipantNameResolver(this) }
     private val profileRuntimeCoordinator by lazy { ChildProfileRuntimeCoordinator(this) }
     private var chatManagerAdapter: ChatManagerAdapter? = null
@@ -160,7 +162,11 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra("open_chat", false)) {
             NotificationManager.resetUnreadCount()
             updateChatBadge()
-            val chatIntent = Intent(this, ChatActivity::class.java)
+            val chatIntent = Intent(this, ChatActivity::class.java).apply {
+                contextProvider.current()?.targetDeviceId?.let {
+                    putExtra(ChatActivity.EXTRA_TARGET_DEVICE_ID, it)
+                }
+            }
             startActivity(chatIntent)
         }
     }
@@ -210,17 +216,24 @@ class MainActivity : AppCompatActivity() {
                 Log.e("MainActivity", "Failed to mark child chat as read", e)
             }
             updateChatBadge()
-            val intent = Intent(this, ChatActivity::class.java)
+            val intent = Intent(this, ChatActivity::class.java).apply {
+                contextProvider.current()?.targetDeviceId?.let {
+                    putExtra(ChatActivity.EXTRA_TARGET_DEVICE_ID, it)
+                }
+            }
             startActivity(intent)
         }
         
         // Parent location map card (always open, limited mode if not paired)
         findViewById<MaterialCardView>(R.id.parentLocationCard)?.setOnClickListener {
         val prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
-        val myDeviceId = sessionStore.resolveCurrentChildId().ifBlank {
+        val myDeviceId = contextProvider.current()?.selfDeviceId.orEmpty().ifBlank {
+            sessionStore.resolveCurrentChildId()
+        }.ifBlank {
             prefs.getString("device_id", "unknown") ?: "unknown"
         }
-        val parentId = resolvePairedParentId(prefs, myDeviceId)
+        val parentId = contextProvider.current()?.targetDeviceId.orEmpty()
+            .ifBlank { resolvePairedParentId(prefs, myDeviceId) }
 
             val myId = if (myDeviceId != "unknown") myDeviceId else ""
             val otherId = parentId
@@ -1069,6 +1082,15 @@ class MainActivity : AppCompatActivity() {
         legacyEditor.apply()
     }
     private fun resolvePairedParentId(prefs: SharedPreferences, myDeviceId: String): String {
+        contextProvider.current()?.targetDeviceId
+            ?.takeIf { it.isNotBlank() && it != myDeviceId }
+            ?.let { resolved ->
+                mirrorLegacyIdsFromSession(
+                    contextProvider.current()?.selfDeviceId.orEmpty().ifBlank { myDeviceId },
+                    resolved
+                )
+                return resolved
+            }
         val legacyPrefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         val resolved = listOf(
             sessionStore.resolveCurrentParentId(),
@@ -1089,7 +1111,9 @@ class MainActivity : AppCompatActivity() {
         return resolved
     }
     private fun getUniqueDeviceId(): String {
-        var deviceId = sessionStore.resolveCurrentChildId().ifBlank {
+        var deviceId = contextProvider.current()?.selfDeviceId.orEmpty().ifBlank {
+            sessionStore.resolveCurrentChildId()
+        }.ifBlank {
             prefs.getString("device_id", null)
         }
 

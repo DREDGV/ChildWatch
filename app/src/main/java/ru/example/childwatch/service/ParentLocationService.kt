@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import com.google.android.gms.location.*
 import kotlinx.coroutines.*
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
+import ru.example.childwatch.profile.ParentEffectiveContextProvider
 import ru.example.childwatch.R
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.utils.SecureSettingsManager
@@ -120,8 +121,11 @@ class ParentLocationService : Service() {
                     Log.w(TAG, "Parent device ID is missing, skipping location upload")
                     return@launch
                 }
-                val targetDeviceId = resolveTargetDeviceId(parentId)
-                val serverUrl = SecureSettingsManager(this@ParentLocationService).getServerUrl().trim()
+                val targetDeviceId = resolveTargetDeviceId()
+                val serverUrl = ParentEffectiveContextProvider.get(this@ParentLocationService)
+                    .featureContext("location")?.serverUrl
+                    ?.takeIf { it.isNotBlank() }
+                    ?: SecureSettingsManager(this@ParentLocationService).getServerUrl().trim()
                 
                 val locationData = org.json.JSONObject().apply {
                     put("parentId", parentId)
@@ -311,10 +315,10 @@ class ParentLocationService : Service() {
         return resolved
     }
 
-    private fun resolveTargetDeviceId(parentId: String): String? {
-        return ParentEffectiveContextResolver(this)
-            .resolveTargetDeviceCandidates(parentId)
-            .firstOrNull()
+    private fun resolveTargetDeviceId(): String? {
+        return ParentEffectiveContextProvider.get(this).featureContext("location")?.targetDeviceId
+            ?.takeIf { it.isNotBlank() }
+            ?: ParentEffectiveContextResolver(this).resolveTargetDeviceId().takeIf { it.isNotBlank() }
     }
     
     private fun createNotificationChannel() {
