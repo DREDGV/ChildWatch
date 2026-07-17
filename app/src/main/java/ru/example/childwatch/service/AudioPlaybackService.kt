@@ -40,6 +40,7 @@ import ru.example.childwatch.diagnostics.ErrorSeverity
 import ru.example.childwatch.audio.StreamRecorder
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketClient
+import ru.example.childwatch.profile.ParentEffectiveContextProvider
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.utils.AlertNotifier
@@ -1449,9 +1450,17 @@ class AudioPlaybackService : LifecycleService() {
     }
 
     private fun resolvePreferredTargetDeviceId(initialDeviceId: String?): String? {
-        return ParentEffectiveContextResolver(this)
-            .resolveTargetDeviceCandidates(initialDeviceId)
-            .firstOrNull()
+        val explicitTarget = initialDeviceId?.trim()?.takeIf { it.isNotBlank() }
+        val contextProvider = ParentEffectiveContextProvider.get(this)
+        if (explicitTarget != null) {
+            // The user has just selected this child in the parent app. Persist it so
+            // recovery after a service restart uses the same exact target.
+            contextProvider.updateSelection(focusedMemberId = null, targetDeviceId = explicitTarget)
+            return explicitTarget
+        }
+
+        return contextProvider.featureContext("audio")?.targetDeviceId?.takeIf { it.isNotBlank() }
+            ?: ParentEffectiveContextResolver(this).resolveTargetDeviceId().takeIf { it.isNotBlank() }
     }
 
     /**
@@ -1516,37 +1525,33 @@ class AudioPlaybackService : LifecycleService() {
             return
         }
 
-        val targets = resolveStartCommandTargets(id)
-        Log.d(TAG, "Sending start command to child (reason=$reason, targets=${targets.joinToString()})")
+        Log.d(TAG, "Sending start command to child (reason=$reason, target=$id)")
 
         // HTTP trigger remains the most reliable bootstrap path when child reconnects after restart.
-        // If no chunks are flowing yet, we fan-out to all known candidate IDs for compatibility.
-        val shouldFanOut = chunksReceived == 0
-        val httpTargets = if (shouldFanOut) targets else listOf(id)
         var blockedByOtherParent = false
-        httpTargets.forEach { targetId ->
-            runCatching {
-                val result = networkClient?.startAudioStreaming(
-                    url,
-                    targetId,
-                    isRecording,
-                    STREAM_TIMEOUT_MINUTES,
-                    requestedSampleRate
-                )
-                if (result?.busy == true) {
-                    blockedByOtherParent = true
-                    val ownerLabel =
-                        result.ownerDisplayName?.takeIf { it.isNotBlank() }
-                            ?: result.ownerParentId?.takeIf { it.isNotBlank() }
-                            ?: getString(R.string.listen_connection_busy)
-                    val busyText = getString(R.string.listen_busy_other_parent, ownerLabel)
-                    Log.w(TAG, "Start command blocked by another parent for $targetId: owner=$ownerLabel")
-                    mainHandler.post {
-                        Toast.makeText(this@AudioPlaybackService, busyText, Toast.LENGTH_LONG).show()
-                    }
-                    updateNotification(busyText)
+        runCatching {
+            networkClient?.startAudioStreaming(
+                url,
+                id,
+                isRecording,
+                STREAM_TIMEOUT_MINUTES,
+                requestedSampleRate
+            )
+        }.onSuccess { result ->
+            if (result?.busy == true) {
+                blockedByOtherParent = true
+                val ownerLabel =
+                    result.ownerDisplayName?.takeIf { it.isNotBlank() }
+                        ?: result.ownerParentId?.takeIf { it.isNotBlank() }
+                        ?: getString(R.string.listen_connection_busy)
+                val busyText = getString(R.string.listen_busy_other_parent, ownerLabel)
+                Log.w(TAG, "Start command blocked by another parent for $id: owner=$ownerLabel")
+                mainHandler.post {
+                    Toast.makeText(this@AudioPlaybackService, busyText, Toast.LENGTH_LONG).show()
                 }
-            }.onFailure { Log.w(TAG, "HTTP start command failed for $targetId: ${it.message}") }
+                updateNotification(busyText)
+            }
+        }.onFailure { Log.w(TAG, "HTTP start command failed for $id: ${it.message}") }
         }
 
         if (blockedByOtherParent) {
@@ -1565,11 +1570,6 @@ class AudioPlaybackService : LifecycleService() {
         } else {
             Log.d(TAG, "WS command skipped (not ready yet): reason=$reason")
         }
-    }
-
-    private fun resolveStartCommandTargets(primaryId: String): List<String> {
-        val candidates = ParentEffectiveContextResolver(this).resolveTargetDeviceCandidates(primaryId)
-        return if (candidates.isNotEmpty()) candidates else listOf(primaryId)
     }
 
     /**
