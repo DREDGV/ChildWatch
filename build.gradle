@@ -16,6 +16,19 @@ def nameStamp = buildMoment.format("yyDDD.HHmmss")
 ext.cwVersionCode = (findProperty("cwVersionCode") ?: codeStamp).toString().toInteger()
 ext.cwVersionName = (findProperty("cwVersionName") ?: "${versionBase}.${nameStamp}").toString()
 
+// Optional isolated output directory for unattended/CI builds on Windows.
+// Android Studio keeps using the regular module build directories unless the
+// cwIsolatedBuildRoot property is explicitly supplied by the build script.
+def isolatedBuildRoot = findProperty("cwIsolatedBuildRoot")?.toString()?.trim()
+if (isolatedBuildRoot) {
+    def isolatedRootDirectory = rootProject.file(isolatedBuildRoot)
+    subprojects { subproject ->
+        subproject.layout.buildDirectory.set(
+            new File(isolatedRootDirectory, subproject.name)
+        )
+    }
+}
+
 tasks.register('printVersionInfo') {
     group = 'help'
     description = 'Shows resolved ChildWatch versionName/versionCode for this build session.'

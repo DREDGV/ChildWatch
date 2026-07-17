@@ -31,12 +31,16 @@ object ChildAttentionSignalLauncher {
         AttentionSignalSheet(
             context = activity,
             target = AttentionSignalTarget(
-                familyId = resolver.resolveFamilyId(),
-                targetMemberId = resolver.resolveFocusedMemberId().takeIf { targetDeviceId == canonicalTarget },
+                // Local profile identifiers predate the server family model and are
+                // not guaranteed to match its canonical IDs. The authenticated
+                // device pair is authoritative; the server resolves and verifies
+                // the family/member context before routing the signal.
+                familyId = null,
+                targetMemberId = null,
                 targetDeviceId = targetDeviceId,
                 targetDisplayName = explicitTargetName?.trim().orEmpty()
                     .ifBlank { names.resolveActiveParentDisplayName() },
-                requesterMemberId = resolver.resolveSelfMemberId(),
+                requesterMemberId = null,
                 requesterDeviceId = requesterDeviceId,
                 requesterDisplayName = names.resolveChildDisplayName()
             ),

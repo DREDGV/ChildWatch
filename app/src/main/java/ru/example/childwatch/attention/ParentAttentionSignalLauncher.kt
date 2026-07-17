@@ -29,16 +29,19 @@ object ParentAttentionSignalLauncher {
         ParentActiveSessionStore(activity).updateFocusedChildId(targetDeviceId)
         ChatBackgroundService.start(activity, context.serverUrl, targetDeviceId)
         val names = ParentParticipantNameResolver(activity)
-        val canonicalTarget = resolver.resolveTargetDeviceId()
         AttentionSignalSheet(
             context = activity,
             target = AttentionSignalTarget(
-                familyId = resolver.resolveFamilyId(),
-                targetMemberId = resolver.resolveFocusedMemberId().takeIf { canonicalTarget == targetDeviceId },
+                // Local profile identifiers predate the server family model and are
+                // not guaranteed to match its canonical IDs. The authenticated
+                // device pair is authoritative; the server resolves and verifies
+                // the family/member context before routing the signal.
+                familyId = null,
+                targetMemberId = null,
                 targetDeviceId = targetDeviceId,
                 targetDisplayName = explicitTargetName?.trim().orEmpty()
                     .ifBlank { names.resolveFocusedChildDisplayName(targetDeviceId) },
-                requesterMemberId = resolver.resolveSelfMemberId(),
+                requesterMemberId = null,
                 requesterDeviceId = requesterDeviceId,
                 requesterDisplayName = names.resolveOwnParentDisplayName()
             ),
