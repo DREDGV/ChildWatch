@@ -38,6 +38,7 @@ import org.osmdroid.config.Configuration
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
+import ru.example.parentwatch.attention.ChildAttentionSignalLauncher
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
@@ -208,6 +209,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             setupCenterButtons()
             setupHistoryButton()
             setupTimelineButton()
+            setupAttentionSignalButton()
             binding.root.post {
                 if (!isFinishing && !isDestroyed) {
                     initializeDependenciesAndLoad()
@@ -401,6 +403,20 @@ class DualLocationMapActivity : AppCompatActivity() {
     private fun setupTimelineButton() {
         binding.timelineButton.setOnClickListener { loadTodayTimeline() }
         updateTimelineButtonVisibility()
+    }
+
+    private fun setupAttentionSignalButton() {
+        val canCallParent = myRole == ROLE_CHILD && otherId.isNotBlank()
+        binding.attentionSignalButton.visibility = if (canCallParent) View.VISIBLE else View.GONE
+        if (!canCallParent) return
+        binding.attentionSignalButton.setOnClickListener {
+            val targetDeviceId = resolvedOtherId.ifBlank { otherId }
+            ChildAttentionSignalLauncher.show(
+                activity = this,
+                explicitTargetDeviceId = targetDeviceId,
+                explicitTargetName = participantNameResolver.resolveActiveParentDisplayName()
+            )
+        }
     }
 
     private fun updateTimelineButtonVisibility() {

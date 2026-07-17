@@ -21,6 +21,7 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import ru.example.parentwatch.BuildConfig
+import ru.example.parentwatch.attention.ChildAttentionSignalLauncher
 import ru.example.parentwatch.chat.ChatManagerAdapter
 import ru.example.parentwatch.contacts.ContactIcons
 import ru.example.parentwatch.network.NetworkClient
@@ -223,6 +224,10 @@ class MainActivity : AppCompatActivity() {
             }
             startActivity(intent)
         }
+
+        findViewById<MaterialCardView>(R.id.attentionSignalCard)?.setOnClickListener {
+            ChildAttentionSignalLauncher.show(this)
+        }
         
         // Parent location map card (always open, limited mode if not paired)
         findViewById<MaterialCardView>(R.id.parentLocationCard)?.setOnClickListener {
@@ -263,6 +268,7 @@ class MainActivity : AppCompatActivity() {
 
         // Add subtle press animation to cards
         applyPressAnimation(chatCard)
+        findViewById<MaterialCardView>(R.id.attentionSignalCard)?.let { applyPressAnimation(it) }
         findViewById<MaterialCardView>(R.id.parentLocationCard)?.let { applyPressAnimation(it) }
     // Remote Camera card was removed
         applyPressAnimation(settingsCard)

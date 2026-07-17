@@ -299,4 +299,15 @@
         app:icon="@drawable/ic_history"
         app:iconTint="@android:color/white" />
 
+    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+        android:id="@+id/attentionSignalButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal|bottom"
+        android:layout_margin="16dp"
+        android:text="Позвать"
+        android:textColor="@android:color/white"
+        app:icon="@android:drawable/ic_lock_idle_alarm"
+        app:iconTint="@android:color/white" />
+
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

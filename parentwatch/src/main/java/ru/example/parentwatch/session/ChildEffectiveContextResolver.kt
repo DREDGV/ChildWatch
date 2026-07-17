@@ -32,4 +32,10 @@ class ChildEffectiveContextResolver(context: Context) {
 
     fun resolveParentDeviceId(): String = provider.current()?.targetDeviceId.orEmpty()
         .ifBlank { store.resolveCurrentParentId() }
+
+    fun resolveFamilyId(): String? = provider.current()?.familyId
+
+    fun resolveSelfMemberId(): String? = provider.current()?.selfMemberId
+
+    fun resolveFocusedMemberId(): String? = provider.current()?.focusedMemberId
 }

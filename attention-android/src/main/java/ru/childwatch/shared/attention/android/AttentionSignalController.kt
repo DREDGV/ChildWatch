@@ -99,7 +99,7 @@ class AttentionSignalController(
             isLooping = true
             setOnErrorListener { _, what, extra ->
                 synchronized(this@AttentionSignalController) {
-                    active?.let { current ->
+                    active?.takeIf { it.requestId == request.requestId }?.let { current ->
                         stopInternal("PLAYBACK_ERROR", notify = false)
                         callback.onFailed(current, "MEDIA_PLAYER_ERROR_${what}_$extra", null)
                     }

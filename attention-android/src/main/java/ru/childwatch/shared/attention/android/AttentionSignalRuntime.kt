@@ -10,8 +10,7 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import org.json.JSONObject
 import ru.childwatch.shared.attention.AttentionSignalRequest
-import ru.childwatch.shared.attention.AttentionSignalStatus
-import ru.childwatch.shared.attention.AttentionSignalStatusEvent
+import ru.childwatch.shared.attention.AttentionSignalReceiverCoordinator
 
 class AttentionSignalRuntime(
     context: Context,
@@ -27,43 +26,22 @@ class AttentionSignalRuntime(
     private val notificationManager =
         appContext.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     private val controller = AttentionSignalController(appContext, this)
+    private val coordinator = AttentionSignalReceiverCoordinator(
+        ownDeviceId = ownDeviceId,
+        emitStatus = { emitStatus(AttentionSignalJson.statusToJson(it)) },
+        startPlayback = controller::start,
+        stopPlayback = controller::stop
+    )
 
     fun handleStart(payload: JSONObject?) {
         val request = runCatching { payload?.let(AttentionSignalJson::requestFromJson) }
             .getOrNull() ?: return
-        val mine = ownDeviceId().trim()
-        when {
-            mine.isBlank() -> send(request, AttentionSignalStatus.REJECTED, "NO_ACTIVE_CONTEXT", "MISSING_DEVICE_ID")
-            request.targetDeviceId != mine ->
-                send(request, AttentionSignalStatus.REJECTED, "WRONG_TARGET", "TARGET_DEVICE_MISMATCH")
-            request.expiresAt <= System.currentTimeMillis() ->
-                send(request, AttentionSignalStatus.EXPIRED, "TTL_EXPIRED")
-            request.validationError() != null ->
-                send(request, AttentionSignalStatus.REJECTED, "INVALID_REQUEST", request.validationError())
-            else -> {
-                send(request, AttentionSignalStatus.DELIVERED)
-                controller.start(request)
-            }
-        }
+        coordinator.handleStart(request)
     }
 
     fun handleStop(payload: JSONObject?) {
         val requestId = payload?.optString("requestId").orEmpty().trim()
-        if (requestId.isBlank()) return
-        val stopped = controller.stop(requestId, "REMOTE_REQUEST")
-        if (!stopped) {
-            emitStatus(
-                AttentionSignalJson.statusToJson(
-                    AttentionSignalStatusEvent(
-                        requestId = requestId,
-                        targetDeviceId = ownDeviceId(),
-                        status = AttentionSignalStatus.REJECTED,
-                        reason = "NOT_ACTIVE",
-                        errorCode = "SIGNAL_NOT_ACTIVE"
-                    )
-                )
-            )
-        }
+        coordinator.handleStop(requestId)
     }
 
     fun stopLocally(requestId: String? = null): Boolean =
@@ -75,23 +53,23 @@ class AttentionSignalRuntime(
 
     override fun onStarted(request: AttentionSignalRequest) {
         showNotification(request)
-        send(request, AttentionSignalStatus.STARTED)
+        coordinator.onStarted(request)
     }
 
     override fun onStopped(request: AttentionSignalRequest, reason: String) {
         cancelNotification(request.requestId)
-        send(request, AttentionSignalStatus.STOPPED, reason)
+        coordinator.onStopped(request, reason)
     }
 
     override fun onCompleted(request: AttentionSignalRequest) {
         cancelNotification(request.requestId)
-        send(request, AttentionSignalStatus.COMPLETED, "TIMEOUT")
+        coordinator.onCompleted(request)
     }
 
     override fun onFailed(request: AttentionSignalRequest, code: String, error: Throwable?) {
         cancelNotification(request.requestId)
         Log.e(TAG, "Attention signal playback failed: $code", error)
-        send(request, AttentionSignalStatus.FAILED, "PLAYBACK_FAILED", code, error?.message)
+        coordinator.onFailed(request, code, error?.message)
     }
 
     private fun showNotification(request: AttentionSignalRequest) {
@@ -143,27 +121,6 @@ class AttentionSignalRuntime(
 
     private fun cancelNotification(requestId: String) {
         notificationManager.cancel(notificationId(requestId))
-    }
-
-    private fun send(
-        request: AttentionSignalRequest,
-        status: AttentionSignalStatus,
-        reason: String? = null,
-        errorCode: String? = null,
-        message: String? = null
-    ) {
-        emitStatus(
-            AttentionSignalJson.statusToJson(
-                AttentionSignalStatusEvent(
-                    requestId = request.requestId,
-                    targetDeviceId = request.targetDeviceId,
-                    status = status,
-                    reason = reason,
-                    errorCode = errorCode,
-                    message = message
-                )
-            )
-        )
     }
 
     private fun notificationId(requestId: String): Int =

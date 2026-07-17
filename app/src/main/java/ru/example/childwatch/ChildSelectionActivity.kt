@@ -29,6 +29,7 @@ import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.launch
 import ru.example.childwatch.adapter.ChildrenAdapter
+import ru.example.childwatch.attention.ParentAttentionSignalLauncher
 import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.database.entity.Child
 import ru.example.childwatch.database.repository.ChildRepository
@@ -175,7 +176,14 @@ class ChildSelectionActivity : AppCompatActivity() {
     private fun setupRecyclerView() {
         childrenAdapter = ChildrenAdapter(
             onChildClick = { child -> onChildSelected(child) },
-            onChildEdit = { child -> showEditChildDialog(child) }
+            onChildEdit = { child -> showEditChildDialog(child) },
+            onChildAttention = { child ->
+                ParentAttentionSignalLauncher.show(
+                    activity = this,
+                    explicitTargetDeviceId = child.deviceId,
+                    explicitTargetName = child.name
+                )
+            }
         )
 
         binding.childrenRecyclerView.apply {

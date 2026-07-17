@@ -79,6 +79,12 @@ class ParentEffectiveContextResolver(context: Context) {
         return provider.current()?.targetDeviceId.orEmpty().ifBlank { resolveFocusedChildId() }
     }
 
+    fun resolveFamilyId(): String? = provider.current()?.familyId
+
+    fun resolveSelfMemberId(): String? = provider.current()?.selfMemberId
+
+    fun resolveFocusedMemberId(): String? = provider.current()?.focusedMemberId
+
     fun resolveOwnParentCandidates(vararg preferred: String?): List<String> {
         val activeSession = resolveActiveSession()
         return buildList {

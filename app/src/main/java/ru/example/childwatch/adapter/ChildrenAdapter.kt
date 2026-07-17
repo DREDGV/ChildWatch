@@ -21,13 +21,14 @@ import java.util.*
  */
 class ChildrenAdapter(
     private val onChildClick: (Child) -> Unit,
-    private val onChildEdit: (Child) -> Unit
+    private val onChildEdit: (Child) -> Unit,
+    private val onChildAttention: (Child) -> Unit
 ) : ListAdapter<Child, ChildrenAdapter.ChildViewHolder>(ChildDiffCallback()) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ChildViewHolder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_child, parent, false)
-        return ChildViewHolder(view, onChildClick, onChildEdit)
+        return ChildViewHolder(view, onChildClick, onChildEdit, onChildAttention)
     }
 
     override fun onBindViewHolder(holder: ChildViewHolder, position: Int) {
@@ -37,7 +38,8 @@ class ChildrenAdapter(
     class ChildViewHolder(
         itemView: View,
         private val onChildClick: (Child) -> Unit,
-        private val onChildEdit: (Child) -> Unit
+        private val onChildEdit: (Child) -> Unit,
+        private val onChildAttention: (Child) -> Unit
     ) : RecyclerView.ViewHolder(itemView) {
 
         private val childAvatar: ImageView = itemView.findViewById(R.id.childAvatar)
@@ -45,6 +47,7 @@ class ChildrenAdapter(
         private val childDeviceId: TextView = itemView.findViewById(R.id.childDeviceId)
         private val lastSeenText: TextView = itemView.findViewById(R.id.lastSeenText)
         private val activeIndicator: View = itemView.findViewById(R.id.activeIndicator)
+        private val attentionButton: ImageView = itemView.findViewById(R.id.attentionButton)
         private val editButton: ImageView = itemView.findViewById(R.id.editButton)
 
         private val dateFormat = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale("ru"))
@@ -113,6 +116,10 @@ class ChildrenAdapter(
             // Обработчик клика на кнопку редактирования
             editButton.setOnClickListener {
                 onChildEdit(child)
+            }
+
+            attentionButton.setOnClickListener {
+                onChildAttention(child)
             }
         }
 

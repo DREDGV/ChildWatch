@@ -20,6 +20,7 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.gson.Gson
 import ru.example.childwatch.alerts.CriticalAlertSyncScheduler
+import ru.example.childwatch.attention.ParentAttentionSignalLauncher
 import ru.example.childwatch.databinding.ActivityMainMenuBinding
 import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.network.DeviceStatus
@@ -264,6 +265,10 @@ class MainActivity : AppCompatActivity() {
                 putExtra(ChatActivity.EXTRA_TARGET_DEVICE_ID, targetDeviceId)
             }
             startActivity(intent)
+        }
+
+        binding.attentionSignalCard.setOnClickListener {
+            ParentAttentionSignalLauncher.show(this)
         }
         
         // Р•РґРёРЅСЃС‚РІРµРЅРЅР°СЏ РєРЅРѕРїРєР° РєР°РјРµСЂС‹ - СѓРґР°Р»С‘РЅРЅР°СЏ СЃСЉС‘РјРєР°

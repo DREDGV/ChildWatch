@@ -266,4 +266,82 @@ describe("attention signal protocol", () => {
       errorCode: "TARGET_COOLDOWN",
     });
   });
+
+  test("enforces strict request bounds and rejects unknown schema fields", async () => {
+    const invalidRequests = [
+      request({ requestId: "request-schema-duration", durationMs: 4_999 }),
+      request({ requestId: "request-schema-volume", volumePercent: 101 }),
+      request({
+        requestId: "request-schema-ttl",
+        expiresAt: now + AttentionSignalManager.ATTENTION.MAX_TTL_MS + 1,
+      }),
+      request({ requestId: "request-schema-unknown", unexpected: true }),
+    ];
+
+    const results = [];
+    for (const payload of invalidRequests) {
+      results.push(await attentionManager.handleRequest(requester, payload));
+    }
+
+    expect(results.map((result) => result.errorCode)).toEqual([
+      "INVALID_DURATION",
+      "INVALID_VOLUME",
+      "TTL_TOO_LONG",
+      "UNKNOWN_REQUEST_FIELD",
+    ]);
+    expect(target.emit).not.toHaveBeenCalledWith(
+      "attention_signal_start",
+      expect.anything()
+    );
+  });
+
+  test("limits one requester to ten accepted signals per minute", async () => {
+    for (let index = 0; index < 10; index += 1) {
+      const result = await attentionManager.handleRequest(
+        requester,
+        request({ requestId: `request-rate-${String(index).padStart(4, "0")}` })
+      );
+      expect(result.status).toBe("QUEUED");
+      now += AttentionSignalManager.ATTENTION.TARGET_COOLDOWN_MS + 1;
+    }
+
+    const limited = await attentionManager.handleRequest(
+      requester,
+      request({ requestId: "request-rate-limited" })
+    );
+
+    expect(limited).toMatchObject({
+      status: "REJECTED",
+      reason: "RATE_LIMITED",
+      errorCode: "RATE_LIMITED",
+    });
+    expect(target.emit).toHaveBeenCalledTimes(10);
+  });
+
+  test("does not let another authenticated family member stop a signal", async () => {
+    const requestId = "request-owner-stop-0001";
+    await attentionManager.handleRequest(requester, request({ requestId }));
+    const attacker = createSocket("attacker-socket", otherParentId);
+    sockets.set(attacker.id, attacker);
+    wsManager.registerDeviceSocket(attacker, otherParentId);
+    target.emit.mockClear();
+
+    const result = await attentionManager.handleStopRequest(attacker, {
+      requestId,
+      targetDeviceId: targetId,
+      requesterDeviceId: otherParentId,
+      createdAt: now,
+    });
+
+    expect(result).toMatchObject({
+      status: "REJECTED",
+      reason: "FORBIDDEN",
+      errorCode: "NOT_SIGNAL_OWNER",
+    });
+    expect(target.emit).not.toHaveBeenCalledWith(
+      "attention_signal_stop",
+      expect.anything()
+    );
+    expect(attentionManager.pendingSignals.has(requestId)).toBe(true);
+  });
 });
