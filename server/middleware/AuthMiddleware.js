@@ -24,17 +24,24 @@ class AuthMiddleware {
         return (req, res, next) => {
             try {
                 const authHeader = req.headers['authorization'];
-                const token = authHeader && authHeader.split(' ')[1];
                 
-                if (!token) {
+                if (!authHeader) {
                     return res.status(401).json({ 
                         error: 'Access token required',
                         code: 'MISSING_TOKEN'
                     });
                 }
+
+                const authParts = String(authHeader).trim().split(/\s+/);
+                const scheme = authParts[0];
+                const token = authParts[1];
                 
-                // Validate token format
-                if (!this.validator.validateTokenFormat(token)) {
+                // Require one standard Bearer credential and reject ambiguous headers.
+                if (
+                    authParts.length !== 2 ||
+                    scheme.toLowerCase() !== 'bearer' ||
+                    !this.validator.validateTokenFormat(token)
+                ) {
                     return res.status(401).json({ 
                         error: 'Invalid token format',
                         code: 'INVALID_TOKEN_FORMAT'

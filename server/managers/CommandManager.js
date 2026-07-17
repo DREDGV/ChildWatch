@@ -104,6 +104,20 @@ class CommandManager {
             this.commandQueue.set(deviceId, []);
         }
 
+        // Audio start/stop represents the latest desired state, not a list of
+        // operations that must all be replayed.  Coalesce stale control
+        // commands so a reconnect cannot deliver a burst of dozens of starts.
+        if (
+            command === this.COMMANDS.START_STREAM ||
+            command === this.COMMANDS.STOP_STREAM
+        ) {
+            const compacted = this.commandQueue.get(deviceId).filter((queued) =>
+                queued.type !== this.COMMANDS.START_STREAM &&
+                queued.type !== this.COMMANDS.STOP_STREAM
+            );
+            this.commandQueue.set(deviceId, compacted);
+        }
+
         const commandObj = {
             id: this.generateCommandId(),
             type: command,
@@ -113,7 +127,7 @@ class CommandManager {
         };
 
         this.commandQueue.get(deviceId).push(commandObj);
-        console.log(`рџ“¤ Command added for ${deviceId}: ${command}`, data);
+        console.log(`[cmd] Added for ${deviceId}: ${command}`, data);
 
         return commandObj;
     }
@@ -189,7 +203,7 @@ class CommandManager {
         });
 
         console.log(
-            `рџЋ™пёЏ Audio streaming started for ${deviceId} by ${normalizedParentId}`
+            `[stream] started for ${deviceId} by ${normalizedParentId}`
         );
         return {
             ok: true,
@@ -216,8 +230,49 @@ class CommandManager {
         this.streamingSessions.delete(deviceId);
         this.audioBuffers.delete(deviceId);
 
-        console.log(`рџ›‘ Audio streaming stopped for ${deviceId}`);
+        console.log(`[stream] stopped for ${deviceId}`);
         return { ok: true };
+    }
+
+    forceReleaseStreaming(deviceId, options = {}) {
+        const session = this.streamingSessions.get(deviceId);
+        if (!session) {
+            return { ok: false, code: "NO_ACTIVE_SESSION" };
+        }
+
+        const snapshot = this.buildSessionSnapshot(deviceId, session);
+        const reason =
+            typeof options.reason === "string" && options.reason.trim()
+                ? options.reason.trim()
+                : "FORCED_BY_CHILD";
+        const releasedByType =
+            typeof options.releasedByType === "string" && options.releasedByType.trim()
+                ? options.releasedByType.trim()
+                : "child";
+        const releasedByDisplayName =
+            typeof options.releasedByDisplayName === "string" && options.releasedByDisplayName.trim()
+                ? options.releasedByDisplayName.trim().slice(0, 100)
+                : null;
+
+        this.addCommand(deviceId, this.COMMANDS.STOP_STREAM, {
+            forced: true,
+            reason,
+            releasedByType,
+        });
+        this.streamingSessions.delete(deviceId);
+        this.audioBuffers.delete(deviceId);
+
+        console.log(
+            `[stream] force released for ${deviceId} by ${releasedByType} (${releasedByDisplayName || "unknown"})`
+        );
+        return {
+            ok: true,
+            forced: true,
+            reason,
+            releasedByType,
+            releasedByDisplayName,
+            session: snapshot,
+        };
     }
 
     requestRecordingStart(deviceId, parentId) {
@@ -388,7 +443,7 @@ class CommandManager {
             if (elapsed > timeout) {
                 const minutes = Math.floor(elapsed / 60000);
                 console.log(
-                    `рџ§№ Cleaning up old session for ${deviceId} (${minutes} minutes)`
+                    `[stream] cleaning up old session for ${deviceId} (${minutes} minutes)`
                 );
                 this.requestStreamingStop(
                     deviceId,

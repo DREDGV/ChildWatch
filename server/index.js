@@ -4,11 +4,11 @@ const { Server } = require("socket.io");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
-const crypto = require("crypto");
 
 // Import our custom modules
 const AuthManager = require("./auth/AuthManager");
 const AuthMiddleware = require("./middleware/AuthMiddleware");
+const SocketAuthMiddleware = require("./middleware/SocketAuthMiddleware");
 const DataValidator = require("./validators/DataValidator");
 const DatabaseManager = require("./database/DatabaseManager");
 const CommandManager = require("./managers/CommandManager");
@@ -41,6 +41,9 @@ const PORT = process.env.PORT || 3000;
 // Initialize managers
 const authManager = new AuthManager();
 const authMiddleware = new AuthMiddleware(authManager);
+const socketAuthMiddleware = new SocketAuthMiddleware(authManager, {
+  required: process.env.CW_REQUIRE_WS_AUTH === "1",
+});
 const validator = new DataValidator();
 const dbManager = new DatabaseManager();
 const commandManager = new CommandManager();
@@ -62,6 +65,10 @@ async function initializeDatabase() {
 
 // Initialize database on startup
 initializeDatabase();
+
+// Authenticate the Socket.IO handshake before feature handlers see the socket.
+// Compatibility mode is the default until all installed Android clients send tokens.
+io.use(socketAuthMiddleware.authenticate());
 
 // Initialize WebSocket handlers
 wsManager.initialize();
@@ -100,19 +107,6 @@ const upload = multer({
   },
 });
 
-// In-memory token storage (in production, use a database)
-const deviceTokens = new Map();
-const refreshTokens = new Map();
-
-// Generate secure tokens
-function generateToken() {
-  return crypto.randomBytes(32).toString("hex");
-}
-
-function generateRefreshToken() {
-  return crypto.randomBytes(32).toString("hex");
-}
-
 function extractRecentApps(raw) {
   if (!raw || typeof raw !== "object") {
     return [];
@@ -150,34 +144,67 @@ function enrichDeviceStatus(status) {
   };
 }
 
-// Authentication middleware
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers["authorization"];
-  const token = authHeader && authHeader.split(" ")[1];
+function formatShortId(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  if (normalized.length <= 16) return normalized;
+  return `${normalized.slice(0, 8)}...${normalized.slice(-4)}`;
+}
 
-  if (!token) {
-    return res.status(401).json({ error: "Access token required" });
+function looksLikeSyntheticParentDeviceId(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return false;
+  if (normalized.startsWith("parent_socket_")) return true;
+  return /^parent_(?:\d{6,}|[A-Za-z0-9_-]{8,})$/.test(normalized);
+}
+
+function sanitizeLinkedParents(childDeviceId, linkedParents, wsManager) {
+  const dedupedById = new Map();
+
+  for (const link of linkedParents || []) {
+    const parentDeviceId = String(link?.parentDeviceId || "").trim();
+    if (!parentDeviceId || dedupedById.has(parentDeviceId)) {
+      continue;
+    }
+
+    const hasKnownDeviceRecord = [
+      link?.parentDeviceName,
+      link?.parentDeviceType,
+      link?.parentAppVersion,
+    ].some((value) => String(value || "").trim().length > 0);
+    const isOnline =
+      wsManager.getConnectedParentSocketIdsForParent(
+        parentDeviceId,
+        childDeviceId
+      ).length > 0;
+
+    if (
+      looksLikeSyntheticParentDeviceId(parentDeviceId) &&
+      !hasKnownDeviceRecord &&
+      !isOnline
+    ) {
+      continue;
+    }
+
+    dedupedById.set(parentDeviceId, link);
   }
 
-  // Check if token exists and is valid
-  const deviceId = Array.from(deviceTokens.keys()).find(
-    (id) => deviceTokens.get(id).authToken === token
-  );
+  return Array.from(dedupedById.values());
+}
 
-  if (!deviceId) {
-    return res.status(403).json({ error: "Invalid token" });
+function resolveChatSenderDisplayName(message) {
+  const explicit = String(message?.sender_display_name || "").trim();
+  if (explicit) return explicit;
+
+  const senderRole = String(message?.sender || "").trim();
+  const senderDeviceId = String(message?.sender_device_id || "").trim();
+  if (senderRole === "child") {
+    return senderDeviceId ? formatShortId(senderDeviceId) : "Ребенок";
   }
-
-  const tokenData = deviceTokens.get(deviceId);
-
-  // Check if token is expired
-  if (Date.now() > tokenData.expiresAt) {
-    return res.status(401).json({ error: "Token expired" });
+  if (senderRole === "parent") {
+    return formatShortId(senderDeviceId) || "Родитель";
   }
-
-  req.deviceId = deviceId;
-  req.tokenData = tokenData;
-  next();
+  return "Неизвестно";
 }
 
 // Initialize streaming routes with managers
@@ -190,7 +217,7 @@ app.use("/api/location", locationRoutes);
 app.use("/api/media", mediaRoutes);
 app.use("/api/streaming", streamingRoutes);
 app.use("/api/debug", debugRoutes);
-app.use("/api/alerts", authenticateToken, alertsRoutes);
+app.use("/api/alerts", authMiddleware.authenticate(), alertsRoutes);
 
 // Routes
 
@@ -346,11 +373,11 @@ app.post(
 );
 
 // Token validation
-app.get("/api/auth/validate", authenticateToken, (req, res) => {
+app.get("/api/auth/validate", authMiddleware.authenticate(), (req, res) => {
   res.json({
     valid: true,
     deviceId: req.deviceId,
-    expiresAt: req.tokenData.expiresAt,
+    expiresAt: req.deviceData.expiresAt,
   });
 });
 
@@ -827,12 +854,30 @@ app.post(
   authMiddleware.rateLimit(60000, 30),
   async (req, res) => {
     try {
+      const parseMarkerIconId = (rawValue) => {
+        if (rawValue === null || rawValue === undefined || rawValue === "") {
+          return null;
+        }
+        const parsed = Number.parseInt(rawValue, 10);
+        if (!Number.isFinite(parsed) || parsed < 0 || parsed > 64) {
+          return null;
+        }
+        return parsed;
+      };
       const parentDeviceId = String(req.body.parentDeviceId || "").trim();
       const childDeviceId = String(req.body.childDeviceId || "").trim();
       const relationRole = String(req.body.relationRole || "guardian").trim() || "guardian";
       const displayName = typeof req.body.displayName === "string"
         ? req.body.displayName.trim().slice(0, 100)
         : null;
+      let parentDisplayName = typeof req.body.parentDisplayName === "string"
+        ? req.body.parentDisplayName.trim().slice(0, 100)
+        : null;
+      let childDisplayName = typeof req.body.childDisplayName === "string"
+        ? req.body.childDisplayName.trim().slice(0, 100)
+        : null;
+      const parentMarkerIconId = parseMarkerIconId(req.body.parentMarkerIconId);
+      const childMarkerIconId = parseMarkerIconId(req.body.childMarkerIconId);
 
       if (
         !validator.validateDeviceIdFormat(parentDeviceId) ||
@@ -851,11 +896,23 @@ app.post(
         });
       }
 
+      if (!parentDisplayName && !childDisplayName && displayName) {
+        if (req.deviceId === parentDeviceId) {
+          childDisplayName = displayName;
+        } else if (req.deviceId === childDeviceId) {
+          parentDisplayName = displayName;
+        }
+      }
+
       await dbManager.upsertDeviceLink({
         parentDeviceId,
         childDeviceId,
         relationRole,
         displayName,
+        parentDisplayName,
+        childDisplayName,
+        parentMarkerIconId,
+        childMarkerIconId,
         createdBy: req.deviceId,
         isActive: true,
       });
@@ -866,6 +923,10 @@ app.post(
         childDeviceId,
         relationRole,
         displayName,
+        parentDisplayName,
+        childDisplayName,
+        parentMarkerIconId,
+        childMarkerIconId,
       });
     } catch (error) {
       console.error("Link parent-child error:", error);
@@ -941,7 +1002,11 @@ app.get(
         });
       }
 
-      const parents = await dbManager.getLinkedParents(childDeviceId);
+      const parents = sanitizeLinkedParents(
+        childDeviceId,
+        await dbManager.getLinkedParents(childDeviceId),
+        wsManager
+      );
       res.json({
         success: true,
         childDeviceId,
@@ -953,6 +1018,94 @@ app.get(
       res.status(500).json({
         error: "Internal server error",
         code: "LINKED_PARENTS_ERROR",
+      });
+    }
+  }
+);
+
+app.get(
+  "/api/relationships/presence/:childDeviceId",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 60),
+  async (req, res) => {
+    try {
+      const childDeviceId = req.params.childDeviceId;
+      if (!validator.validateDeviceIdFormat(childDeviceId)) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      const requesterIsChild = req.deviceId === childDeviceId;
+      const requesterIsLinkedParent =
+        !requesterIsChild &&
+        (await dbManager.hasActiveDeviceLink(req.deviceId, childDeviceId));
+
+      if (!requesterIsChild && !requesterIsLinkedParent) {
+        return res.status(403).json({
+          error: "Authenticated device cannot read this family context",
+          code: "PRESENCE_FORBIDDEN",
+        });
+      }
+
+      const linkedParents = sanitizeLinkedParents(
+        childDeviceId,
+        await dbManager.getLinkedParents(childDeviceId),
+        wsManager
+      );
+      const childDisplayName =
+        linkedParents
+          .map((link) => String(link?.childDisplayName || "").trim())
+          .find(Boolean) ||
+        formatShortId(childDeviceId) ||
+        "Ребенок";
+
+      const parentsById = new Map();
+      linkedParents.forEach((link) => {
+        const parentDeviceId = String(link?.parentDeviceId || "").trim();
+        if (!parentDeviceId || parentsById.has(parentDeviceId)) return;
+
+        const displayName =
+          String(link?.parentDisplayName || "").trim() ||
+          String(link?.displayName || "").trim() ||
+          String(link?.parentDeviceName || "").trim() ||
+          formatShortId(parentDeviceId) ||
+          "Родитель";
+
+        parentsById.set(parentDeviceId, {
+          role: "parent",
+          deviceId: parentDeviceId,
+          displayName,
+          isOnline:
+            wsManager.getConnectedParentSocketIdsForParent(
+              parentDeviceId,
+              childDeviceId
+            ).length > 0,
+        });
+      });
+
+      const child = {
+        role: "child",
+        deviceId: childDeviceId,
+        displayName: childDisplayName,
+        isOnline: wsManager.isChildConnectedById(childDeviceId),
+      };
+      const parents = Array.from(parentsById.values());
+      const participants = [child, ...parents];
+
+      res.json({
+        success: true,
+        childDeviceId,
+        participants,
+        onlineCount: participants.filter((item) => item.isOnline).length,
+        totalCount: participants.length,
+      });
+    } catch (error) {
+      console.error("Get family presence error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "FAMILY_PRESENCE_ERROR",
       });
     }
   }
@@ -1241,10 +1394,7 @@ app.get(
           sender: msg.sender,
           senderRole: msg.sender,
           senderDeviceId: msg.sender_device_id || "",
-          senderDisplayName:
-            msg.sender === "child"
-              ? "Ребенок"
-              : (msg.sender_display_name || msg.sender_device_id || ""),
+          senderDisplayName: resolveChatSenderDisplayName(msg),
           message: msg.message,
           timestamp: msg.timestamp,
           isRead: msg.is_read === 1,

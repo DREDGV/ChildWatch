@@ -4,7 +4,7 @@
  * Architecture:
  * - ParentWatch (child device) connects and sends audio chunks
  * - ChildWatch (parent device) connects and receives audio chunks
- * - Server routes chunks from child в†’ parent in real-time
+ * - Server routes chunks from child -> parent in real time
  */
 
 class WebSocketManager {
@@ -12,22 +12,25 @@ class WebSocketManager {
     this.io = io;
     this.commandManager = commandManager;
     this.dbManager = dbManager;
+    this.verboseWsLogs = process.env.CW_VERBOSE_WS_LOGS === "1";
+    this.verboseAudioLogs = process.env.CW_VERBOSE_AUDIO_LOGS === "1";
 
-    // Map: deviceId (child) в†’ socket.id
+    // Map: deviceId (child) -> socket.id
     this.childSockets = new Map();
 
-    // Map: deviceId (child) в†’ parentSocketId
+    // Map: deviceId (child) -> parentSocketId
     this.activeStreams = new Map();
 
-    // Map: parentSocketId в†’ deviceId (child being monitored)
+    // Map: parentSocketId -> deviceId (child being monitored)
     this.parentSockets = new Map();
-    // Map: requestId в†’ { parentSocketId, deviceId, createdAt }
+    // Map: requestId -> { parentSocketId, deviceId, createdAt }
     this.pendingPhotoRequests = new Map();
     // Map: deviceId (child) -> active photo owner/request
     this.activePhotoRequests = new Map();
     this.PHOTO_REQUEST_TTL_MS = 25 * 1000;
+    this.lastMissingParentLogAt = new Map();
 
-    console.log("рџ”Њ WebSocketManager initialized");
+    console.log("[ws] WebSocketManager initialized");
   }
 
   normalizeDeviceId(value) {
@@ -35,12 +38,78 @@ class WebSocketManager {
     return String(value).trim();
   }
 
+  looksLikeSyntheticParentDeviceId(value) {
+    const normalized = this.normalizeDeviceId(value);
+    if (!normalized) return false;
+    if (normalized.startsWith("parent_socket_")) return true;
+    return /^parent_(?:\d{6,}|[A-Za-z0-9_-]{8,})$/.test(normalized);
+  }
+
+  formatShortId(value) {
+    const normalized = this.normalizeDeviceId(value);
+    if (!normalized) return "";
+    if (normalized.length <= 16) return normalized;
+    return `${normalized.slice(0, 8)}...${normalized.slice(-4)}`;
+  }
+
+  shouldLogAudioChunk(sequence) {
+    if (this.verboseAudioLogs) return true;
+    const numericSequence = Number(sequence);
+    return Number.isFinite(numericSequence) && numericSequence % 25 === 0;
+  }
+
+  shouldLogMissingParent(deviceId) {
+    if (this.verboseAudioLogs) return true;
+    const normalized = this.normalizeDeviceId(deviceId);
+    if (!normalized) return true;
+    const now = Date.now();
+    const lastLoggedAt = this.lastMissingParentLogAt.get(normalized) || 0;
+    if (now - lastLoggedAt < 30_000) {
+      return false;
+    }
+    this.lastMissingParentLogAt.set(normalized, now);
+    return true;
+  }
+
   getParentDisplayLabel(parentDeviceId, fallbackDisplayName = null) {
     const fallback = this.normalizeDeviceId(fallbackDisplayName);
     if (fallback) return fallback;
     const normalizedParentId = this.normalizeDeviceId(parentDeviceId);
-    if (!normalizedParentId) return "другой родитель";
-    return normalizedParentId;
+    if (!normalizedParentId) return "Родитель";
+    return this.formatShortId(normalizedParentId);
+  }
+
+  getChatDisplayLabel(senderRole, senderDeviceId, fallbackDisplayName = null) {
+    const explicit = this.normalizeDeviceId(fallbackDisplayName);
+    if (explicit) return explicit;
+
+    if (senderRole === "parent") {
+      return this.getParentDisplayLabel(senderDeviceId, fallbackDisplayName);
+    }
+
+    const normalizedSenderId = this.normalizeDeviceId(senderDeviceId);
+    return normalizedSenderId ? this.formatShortId(normalizedSenderId) : "Ребенок";
+  }
+
+  shouldDeliverChatMessageToTarget(message, targetRole, targetParentDeviceId = null) {
+    const normalizedTargetRole = this.normalizeDeviceId(targetRole).toLowerCase();
+    const normalizedTargetParentId = this.normalizeDeviceId(targetParentDeviceId);
+    const senderRole = this.normalizeDeviceId(message?.sender).toLowerCase();
+    const senderDeviceId = this.normalizeDeviceId(message?.sender_device_id);
+
+    if (normalizedTargetRole === "parent") {
+      return (
+        senderRole === "child" ||
+        (senderRole === "parent" &&
+          (!normalizedTargetParentId || senderDeviceId !== normalizedTargetParentId))
+      );
+    }
+
+    if (normalizedTargetRole === "child") {
+      return senderRole === "parent";
+    }
+
+    return true;
   }
 
   getConnectedParentSocketIdsForParent(parentDeviceId, childDeviceId = null) {
@@ -95,6 +164,34 @@ class WebSocketManager {
       const parentSocket = this.io.sockets.sockets.get(socketId);
       if (parentSocket && parentSocket.connected) {
         parentSocket.emit("stream_takeover_requested", payload);
+      }
+    }
+  }
+
+  notifyStreamForceReleased(
+    childDeviceId,
+    releasedSession,
+    releasedByType = "child",
+    releasedByDisplayName = null
+  ) {
+    const parentSocketIds = this.getConnectedParentSocketIdsForDevice(childDeviceId);
+    if (!parentSocketIds.length) return;
+
+    const payload = {
+      deviceId: childDeviceId,
+      ownerParentId: this.normalizeDeviceId(releasedSession?.ownerParentId),
+      ownerDisplayName: releasedSession?.ownerDisplayName || "",
+      releasedByType: this.normalizeDeviceId(releasedByType) || "child",
+      releasedByDisplayName: this.normalizeDeviceId(releasedByDisplayName),
+      startedAt: releasedSession?.startTime || 0,
+      durationMs: releasedSession?.durationMs || 0,
+      timestamp: Date.now(),
+    };
+
+    for (const socketId of parentSocketIds) {
+      const parentSocket = this.io.sockets.sockets.get(socketId);
+      if (parentSocket && parentSocket.connected) {
+        parentSocket.emit("stream_force_released", payload);
       }
     }
   }
@@ -187,7 +284,7 @@ class WebSocketManager {
    * Initialize WebSocket event handlers
    */
   initialize() {
-    // РџРѕР»СѓС‡РµРЅРёРµ РЅРµРґРѕСЃС‚Р°РІР»РµРЅРЅС‹С… СЃРѕРѕР±С‰РµРЅРёР№ РїРѕ Р·Р°РїСЂРѕСЃСѓ
+    // Return missed chat messages on explicit client sync requests.
     this.io.on("connection", (socket) => {
       socket.on("get_missed_messages", async (data) => {
         try {
@@ -213,7 +310,19 @@ class WebSocketManager {
                 )
               : await this.dbManager.getChatMessages(deviceId, 100);
           // Recovery mode: without a sync cursor, return recent history to heal client gaps.
-          const missed = messages || [];
+          const targetRole =
+            socket.deviceType === "parent"
+              ? "parent"
+              : socket.deviceType === "child"
+                ? "child"
+                : "";
+          const missed = (messages || []).filter((message) =>
+            this.shouldDeliverChatMessageToTarget(
+              message,
+              targetRole,
+              socket.parentDeviceId || null
+            )
+          );
           console.log(
             `Chat sync for ${deviceId}: since=${sinceTimestamp}, returned=${missed.length}`
           );
@@ -229,13 +338,11 @@ class WebSocketManager {
               sender: msg.sender,
               senderRole: msg.sender,
               senderDeviceId: msg.sender_device_id || "",
-              senderDisplayName:
-                msg.sender === "child"
-                  ? "Ребенок"
-                  : this.getParentDisplayLabel(
-                      msg.sender_device_id,
-                      msg.sender_display_name
-                    ),
+              senderDisplayName: this.getChatDisplayLabel(
+                msg.sender === "child" ? "child" : "parent",
+                msg.sender_device_id,
+                msg.sender_display_name
+              ),
               message: msg.message,
               timestamp: msg.timestamp,
               isRead: msg.is_read === 1,
@@ -248,19 +355,21 @@ class WebSocketManager {
       });
     });
     this.io.on("connection", (socket) => {
-      console.log(`рџ”Њ Client connected: ${socket.id}`);
+      console.log(`[ws] Client connected: ${socket.id}`);
 
       // Debug: log any incoming WS events to verify routing
-      try {
-        socket.onAny((event, ...args) => {
-          const type = socket.deviceType || "unknown";
-          const did = socket.deviceId || "n/a";
-          console.log(
-            `рџ”µ WS event '${event}' from ${type} ${socket.id} (deviceId=${did})`
-          );
-        });
-      } catch (e) {
-        console.warn("вљ пёЏ Failed to attach onAny logger:", e?.message || e);
+      if (this.verboseWsLogs) {
+        try {
+          socket.onAny((event, ...args) => {
+            const type = socket.deviceType || "unknown";
+            const did = socket.deviceId || "n/a";
+            console.log(
+              `[ws] event '${event}' from ${type} ${socket.id} (deviceId=${did})`
+            );
+          });
+        } catch (e) {
+          console.warn("[ws] Failed to attach onAny logger:", e?.message || e);
+        }
       }
 
       // Handle child device (ParentWatch) connection
@@ -276,11 +385,13 @@ class WebSocketManager {
       // Handle audio chunk from child device
       // Receives: metadata (JSON), binaryData (Buffer)
       socket.on("audio_chunk", (metadata, binaryData) => {
-        console.log(
-          `рџЋ¤ audio_chunk event received from ${socket.id}, metadata:`,
-          metadata,
-          `dataSize: ${binaryData ? binaryData.length : 0}`
-        );
+        if (this.shouldLogAudioChunk(metadata?.sequence)) {
+          console.log(
+            `[ws] audio_chunk received from ${socket.id}, metadata:`,
+            metadata,
+            `dataSize: ${binaryData ? binaryData.length : 0}`
+          );
+        }
         this.handleAudioChunk(socket, metadata, binaryData);
       });
 
@@ -289,6 +400,23 @@ class WebSocketManager {
           `Audio capture diagnostic from ${socket.deviceType || "unknown"} ${socket.id} (deviceId=${socket.deviceId || "n/a"}):`,
           data
         );
+
+        const deviceId = this.normalizeDeviceId(socket.deviceId);
+        if (socket.deviceType !== "child" || !deviceId) return;
+
+        const payload = {
+          deviceId,
+          reason: typeof data?.reason === "string" ? data.reason : "capture_failed",
+          message: typeof data?.message === "string" ? data.message : "",
+          timestamp: Number(data?.timestamp) || Date.now(),
+        };
+        const parentSocketIds = this.getConnectedParentSocketIdsForDevice(deviceId);
+        for (const parentSocketId of parentSocketIds) {
+          const parentSocket = this.io.sockets.sockets.get(parentSocketId);
+          if (parentSocket && parentSocket.connected) {
+            parentSocket.emit("audio_capture_error", payload);
+          }
+        }
       });
 
       // Handle heartbeat/ping
@@ -325,6 +453,10 @@ class WebSocketManager {
         this.handleCommand(socket, data);
       });
 
+      socket.on("force_release_stream", (data) => {
+        this.handleForceReleaseStream(socket, data);
+      });
+
         // Handle photo request from parent
         socket.on("request_photo", (data) => {
           this.handlePhotoRequest(socket, data);
@@ -346,11 +478,11 @@ class WebSocketManager {
 
       // Handle errors
       socket.on("error", (error) => {
-        console.error(`вќЊ Socket error (${socket.id}):`, error);
+        console.error(`[ws] Socket error (${socket.id}):`, error);
       });
     });
 
-    console.log("вњ… WebSocket event handlers registered");
+    console.log("[ws] WebSocket event handlers registered");
   }
 
   /**
@@ -358,13 +490,13 @@ class WebSocketManager {
    */
   handleCommand(socket, data) {
     console.log(
-      `рџ“Ґ [handleCommand] Received command from socket ${socket.id}, deviceType=${socket.deviceType}:`,
+      `[ws] [handleCommand] Received command from socket ${socket.id}, deviceType=${socket.deviceType}:`,
       JSON.stringify(data)
     );
 
     try {
       if (!data || typeof data !== "object") {
-        console.warn("вљ пёЏ Invalid command payload", data);
+        console.warn("[ws] Invalid command payload", data);
         return;
       }
 
@@ -376,11 +508,11 @@ class WebSocketManager {
       );
 
       console.log(
-        `рџ“‹ Command details: type=${rawType}, deviceId=${explicitDeviceId}, socketType=${socket.deviceType}`
+        `[ws] Command details: type=${rawType}, deviceId=${explicitDeviceId}, socketType=${socket.deviceType}`
       );
 
       if (!rawType) {
-        console.warn("вљ пёЏ Command missing type", data);
+        console.warn("[ws] Command missing type", data);
         return;
       }
 
@@ -398,7 +530,7 @@ class WebSocketManager {
 
       if (!targetDeviceId) {
         console.warn(
-          `вљ пёЏ Unable to resolve target device for command ${rawType}`,
+          `[ws] Unable to resolve target device for command ${rawType}`,
           data
         );
         return;
@@ -507,11 +639,110 @@ class WebSocketManager {
       if (!sent && this.commandManager) {
         this.commandManager.addCommand(targetDeviceId, rawType, payload);
         console.log(
-          `рџ“Ґ Child ${targetDeviceId} РѕС„С„Р»Р°Р№РЅ вЂ” РєРѕРјР°РЅРґР° ${rawType} РїРѕСЃС‚Р°РІР»РµРЅР° РІ РѕС‡РµСЂРµРґСЊ`
+          `[ws] Child ${targetDeviceId} is offline - queued command ${rawType}`
         );
       }
     } catch (error) {
-      console.error("вќЊ Error handling command from parent:", error);
+      console.error("[ws] Error handling command from parent:", error);
+    }
+  }
+
+  handleForceReleaseStream(socket, data) {
+    try {
+      if (socket.deviceType !== "child") {
+        console.warn("[ws] force_release_stream ignored from non-child socket");
+        socket.emit("stream_force_release_result", {
+          success: false,
+          code: "FORBIDDEN",
+          error: "Only child device may force release the listening line",
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
+      const socketDeviceId = this.normalizeDeviceId(socket.deviceId);
+      const explicitDeviceId = this.normalizeDeviceId(data?.deviceId);
+      const targetDeviceId = this.resolveConnectedChildDeviceId(
+        explicitDeviceId,
+        socketDeviceId
+      ) || socketDeviceId;
+
+      if (!targetDeviceId) {
+        socket.emit("stream_force_release_result", {
+          success: false,
+          code: "MISSING_DEVICE_ID",
+          error: "Child device id is missing",
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
+      if (explicitDeviceId && explicitDeviceId !== targetDeviceId) {
+        console.warn(
+          `[ws] force_release_stream remapped from ${explicitDeviceId} to ${targetDeviceId}`
+        );
+      }
+
+      const releasedByDisplayName =
+        this.normalizeDeviceId(data?.releasedByDisplayName) ||
+        this.normalizeDeviceId(socket.childDisplayName) ||
+        this.formatShortId(targetDeviceId);
+
+      const result = this.commandManager?.forceReleaseStreaming(targetDeviceId, {
+        reason: "FORCED_BY_CHILD",
+        releasedByType: "child",
+        releasedByDisplayName,
+      });
+
+      if (!result?.ok) {
+        socket.emit("stream_force_release_result", {
+          success: false,
+          code: result?.code || "NO_ACTIVE_SESSION",
+          error: "No active listening session",
+          deviceId: targetDeviceId,
+          timestamp: Date.now(),
+        });
+        return;
+      }
+
+      const stopSent = this.sendCommandToChild(targetDeviceId, {
+        type: "stop_audio_stream",
+        data: {
+          forced: true,
+          reason: "FORCED_BY_CHILD",
+        },
+        timestamp: Date.now(),
+      });
+      if (!stopSent) {
+        console.warn(
+          `[ws] force_release_stream stop command queued for ${targetDeviceId}`
+        );
+      }
+
+      this.notifyStreamForceReleased(
+        targetDeviceId,
+        result.session,
+        result.releasedByType,
+        result.releasedByDisplayName
+      );
+
+      socket.emit("stream_force_release_result", {
+        success: true,
+        deviceId: targetDeviceId,
+        ownerParentId: result.session?.ownerParentId || "",
+        ownerDisplayName: result.session?.ownerDisplayName || "",
+        releasedByType: result.releasedByType || "child",
+        releasedByDisplayName: result.releasedByDisplayName || releasedByDisplayName,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error("[ws] Error handling force_release_stream:", error);
+      socket.emit("stream_force_release_result", {
+        success: false,
+        code: "FORCE_RELEASE_ERROR",
+        error: error?.message || "Failed to force release stream",
+        timestamp: Date.now(),
+      });
     }
   }
 
@@ -602,7 +833,7 @@ class WebSocketManager {
           ? camera.trim().toLowerCase()
           : "back";
       console.log(
-        `рџ“ё Photo request from ${socket.id} -> device=${resolvedDeviceId} requestId=${reqId} camera=${cameraFacing}`
+        `[photo] request from ${socket.id} -> device=${resolvedDeviceId} requestId=${reqId} camera=${cameraFacing}`
       );
 
       if (!resolvedDeviceId) {
@@ -691,7 +922,7 @@ class WebSocketManager {
         camera: cameraFacing,
         timestamp: Date.now(),
       });
-      console.log(`рџ“ё Photo request routed to child ${resolvedDeviceId}`);
+      console.log(`[photo] request routed to child ${resolvedDeviceId}`);
     } catch (error) {
       console.error("Error handling photo request:", error);
       try {
@@ -714,7 +945,7 @@ class WebSocketManager {
         return;
       }
       console.log(
-        `рџ“ё Photo response received: requestId=${requestId} size=${photo ? photo.length : 0}`
+        `[photo] response received: requestId=${requestId} size=${photo ? photo.length : 0}`
       );
 
       const pending = this.pendingPhotoRequests.get(requestId);
@@ -761,7 +992,7 @@ class WebSocketManager {
           photo,
           timestamp: timestamp || Date.now(),
         });
-        console.log(`рџ“ё Photo delivered to parent socket ${pending.parentSocketId}`);
+        console.log(`[photo] delivered to parent socket ${pending.parentSocketId}`);
       }
       this.activePhotoRequests.delete(pending.deviceId);
       this.pendingPhotoRequests.delete(requestId);
@@ -780,7 +1011,7 @@ class WebSocketManager {
         console.warn("Photo error missing requestId");
         return;
       }
-      console.warn(`рџ“ё Photo error: requestId=${requestId} error=${error || "unknown"}`);
+      console.warn(`[photo] error: requestId=${requestId} error=${error || "unknown"}`);
       const pending = this.pendingPhotoRequests.get(requestId);
       if (!pending) {
         return;
@@ -830,10 +1061,35 @@ class WebSocketManager {
    * Register child device (ParentWatch)
    */
   async handleChildRegistration(socket, data) {
-    const deviceId = this.normalizeDeviceId(data?.deviceId);
+    const requestedDeviceId = this.normalizeDeviceId(data?.deviceId);
+    const authenticatedDeviceId = this.normalizeDeviceId(
+      socket?.authenticatedDeviceId
+    );
+
+    if (
+      authenticatedDeviceId &&
+      requestedDeviceId &&
+      authenticatedDeviceId !== requestedDeviceId
+    ) {
+      console.warn(
+        `[ws] Child registration identity mismatch: token=${authenticatedDeviceId}, requested=${requestedDeviceId}`
+      );
+      socket.emit("registration_error", {
+        code: "WS_DEVICE_ID_MISMATCH",
+        message: "Authenticated device does not match requested child identity",
+      });
+      return;
+    }
+
+    const deviceId = authenticatedDeviceId || requestedDeviceId;
+    const childDisplayName = this.getChatDisplayLabel(
+      "child",
+      deviceId,
+      data?.childDisplayName
+    );
 
     if (!deviceId) {
-      console.error("вќЊ Child registration failed: missing deviceId");
+      console.error("[ws] Child registration failed: missing deviceId");
       socket.emit("error", { message: "Missing deviceId" });
       return;
     }
@@ -851,12 +1107,13 @@ class WebSocketManager {
     this.childSockets.set(deviceId, socket.id);
     socket.deviceId = deviceId;
     socket.deviceType = "child";
+    socket.childDisplayName = childDisplayName;
     this.syncPendingPhotoRequestsForChild(deviceId, socket.id);
 
     console.log(
-      `рџ“± Child device registered: ${deviceId} (socket: ${socket.id})`
+      `[ws] Child device registered: ${deviceId} (socket: ${socket.id})`
     );
-    console.log(`рџ“Љ Total child devices connected: ${this.childSockets.size}`);
+    console.log(`[ws] Total child devices connected: ${this.childSockets.size}`);
 
     socket.emit("registered", {
       success: true,
@@ -865,7 +1122,7 @@ class WebSocketManager {
     });
 
     // Notify child that server is ready to receive audio
-    console.log(`вњ… Child ${deviceId} is now ready to send audio chunks`);
+    console.log(`[ws] Child ${deviceId} is now ready to send audio chunks`);
     const parentSocketIds = this.getConnectedParentSocketIdsForDevice(deviceId);
 
     if (parentSocketIds.length > 0) {
@@ -915,14 +1172,38 @@ class WebSocketManager {
    */
   async handleParentRegistration(socket, data) {
     const requestedDeviceId = this.normalizeDeviceId(data?.deviceId);
-    const parentDeviceId = this.normalizeDeviceId(data?.parentId) || `parent_${socket.id}`;
+    const explicitParentDeviceId = this.normalizeDeviceId(data?.parentId);
+    const authenticatedParentDeviceId = this.normalizeDeviceId(
+      socket?.authenticatedDeviceId
+    );
+
+    if (
+      authenticatedParentDeviceId &&
+      explicitParentDeviceId &&
+      authenticatedParentDeviceId !== explicitParentDeviceId
+    ) {
+      console.warn(
+        `[ws] Parent registration identity mismatch: token=${authenticatedParentDeviceId}, requested=${explicitParentDeviceId}`
+      );
+      socket.emit("registration_error", {
+        code: "WS_DEVICE_ID_MISMATCH",
+        message: "Authenticated device does not match requested parent identity",
+      });
+      return;
+    }
+
+    const parentDeviceId =
+      authenticatedParentDeviceId ||
+      explicitParentDeviceId ||
+      `parent_socket_${socket.id}`;
+    const previousRegistrationKey = socket.parentRegistrationKey || "";
     const parentDisplayName = this.getParentDisplayLabel(
       parentDeviceId,
       data?.parentDisplayName
     );
 
     if (!requestedDeviceId) {
-      console.error("вќЊ Parent registration failed: missing deviceId");
+      console.error("[ws] Parent registration failed: missing deviceId");
       socket.emit("error", { message: "Missing deviceId" });
       return;
     }
@@ -944,13 +1225,31 @@ class WebSocketManager {
     socket.deviceType = "parent";
     socket.parentDeviceId = parentDeviceId;
     socket.parentDisplayName = parentDisplayName;
+    socket.parentRegistrationKey = `${deviceId}|${parentDeviceId}`;
+    const isRepeatRegistration =
+      previousRegistrationKey === socket.parentRegistrationKey;
 
-    if (this.dbManager?.upsertDeviceLink) {
+    let shouldPersistParentLink = false;
+    if (this.dbManager?.getDevice && parentDeviceId) {
+      try {
+        const knownParentDevice = await this.dbManager.getDevice(parentDeviceId);
+        shouldPersistParentLink =
+          Boolean(knownParentDevice) ||
+          !this.looksLikeSyntheticParentDeviceId(parentDeviceId);
+      } catch (error) {
+        console.warn(
+          `Unable to verify parent device record for ${parentDeviceId}:`,
+          error
+        );
+      }
+    }
+
+    if (shouldPersistParentLink && this.dbManager?.upsertDeviceLink) {
       try {
         await this.dbManager.upsertDeviceLink({
           parentDeviceId,
           childDeviceId: deviceId,
-          displayName: parentDisplayName,
+          parentDisplayName,
           createdBy: "ws_registration",
           isActive: true,
         });
@@ -960,10 +1259,14 @@ class WebSocketManager {
           error
         );
       }
+    } else if (this.looksLikeSyntheticParentDeviceId(parentDeviceId)) {
+      console.warn(
+        `[ws] Skipping persistence for synthetic parent identity ${parentDeviceId} -> ${deviceId}`
+      );
     }
 
     console.log(
-      `рџ‘ЁвЂЌрџ‘©вЂЌрџ‘§ Parent device registered for child: ${deviceId} (parent=${parentDeviceId}, socket: ${socket.id})`
+      `[ws] Parent device registered for child: ${deviceId} (parent=${parentDeviceId}, socket: ${socket.id})`
     );
 
     socket.emit("registered", {
@@ -980,21 +1283,38 @@ class WebSocketManager {
 
     // Notify child that parent is connected
     const childSocketId = this.childSockets.get(deviceId);
-    if (childSocketId) {
-      const childSocket = this.io.sockets.sockets.get(childSocketId);
-      if (childSocket) {
-        childSocket.emit("parent_connected", { deviceId, timestamp: Date.now() });
-        console.log(`Parent connected notification sent to child: ${deviceId}`);
+    if (!isRepeatRegistration) {
+      if (childSocketId) {
+        const childSocket = this.io.sockets.sockets.get(childSocketId);
+        if (childSocket) {
+          childSocket.emit("parent_connected", { deviceId, timestamp: Date.now() });
+          console.log(`Parent connected notification sent to child: ${deviceId}`);
+        }
+        socket.emit("child_connected", { deviceId, timestamp: Date.now() });
+      } else {
+        socket.emit("child_disconnected", { deviceId, timestamp: Date.now() });
       }
-      socket.emit("child_connected", { deviceId, timestamp: Date.now() });
     } else {
-      socket.emit("child_disconnected", { deviceId, timestamp: Date.now() });
+      console.log(
+        `[ws] Skipping child status echo on repeated parent registration for ${deviceId} (${parentDeviceId})`
+      );
     }
-    await this.deliverPendingMessages(deviceId, "parent", socket);
+    if (!isRepeatRegistration) {
+      await this.deliverPendingMessages(
+        deviceId,
+        "parent",
+        socket,
+        parentDeviceId
+      );
+    } else {
+      console.log(
+        `[ws] Skipping pending chat delivery on repeated parent registration for ${deviceId} (${parentDeviceId})`
+      );
+    }
   }
 
 
-  async deliverPendingMessages(deviceId, targetRole, socket) {
+  async deliverPendingMessages(deviceId, targetRole, socket, targetParentDeviceId = null) {
     if (!this.dbManager || !this.dbManager.getUndeliveredMessages) {
       return;
     }
@@ -1002,7 +1322,8 @@ class WebSocketManager {
     try {
       const pending = await this.dbManager.getUndeliveredMessages(
         deviceId,
-        targetRole
+        targetRole,
+        targetParentDeviceId || socket?.parentDeviceId || null
       );
       if (!pending || !pending.length || !socket) {
         return;
@@ -1026,13 +1347,11 @@ class WebSocketManager {
           sender: message.sender,
           senderRole: message.sender === "child" ? "child" : "parent",
           senderDeviceId: message.sender_device_id || "",
-          senderDisplayName:
-            message.sender === "child"
-              ? "Ребенок"
-              : this.getParentDisplayLabel(
-                  message.sender_device_id,
-                  message.sender_display_name
-                ),
+          senderDisplayName: this.getChatDisplayLabel(
+            message.sender === "child" ? "child" : "parent",
+            message.sender_device_id,
+            message.sender_display_name
+          ),
           timestamp: message.timestamp,
           id: clientId,
           offline: true,
@@ -1064,18 +1383,20 @@ class WebSocketManager {
       const deviceId = this.normalizeDeviceId(metadata?.deviceId);
 
       if (!deviceId) {
-        console.error("вќЊ Audio chunk missing deviceId");
+        console.error("[ws] Audio chunk missing deviceId");
         return;
       }
 
       if (!binaryData || binaryData.length === 0) {
-        console.error("вќЊ Audio chunk is empty");
+        console.error("[ws] Audio chunk is empty");
         return;
       }
 
-      console.log(
-        `рџЋµ Audio chunk received from ${deviceId} (#${sequence}, ${binaryData.length} bytes)`
-      );
+      if (this.shouldLogAudioChunk(sequence)) {
+        console.log(
+          `[audio] chunk received from ${deviceId} (#${sequence}, ${binaryData.length} bytes)`
+        );
+      }
 
       // Forward chunk to ALL parent sockets mapped to this child.
       // Parent app may keep several sockets alive (main UI + playback service),
@@ -1096,9 +1417,11 @@ class WebSocketManager {
       if (targetParentSocketIds.size > 0) {
         let forwardedCount = 0;
         const targetList = Array.from(targetParentSocketIds.values());
-        console.log(
-          `Audio routing: chunk #${sequence} childSocket=${socket.id} device=${deviceId} -> parentSockets=${targetList.join(",")}`
-        );
+        if (this.shouldLogAudioChunk(sequence)) {
+          console.log(
+            `Audio routing: chunk #${sequence} childSocket=${socket.id} device=${deviceId} -> parentSockets=${targetList.join(",")}`
+          );
+        }
 
         for (const parentSocketId of targetParentSocketIds) {
           const parentSocket = this.io.sockets.sockets.get(parentSocketId);
@@ -1126,7 +1449,7 @@ class WebSocketManager {
           }
 
           parentSocket.emit("audio_chunk", metadata, binaryData);
-          if (sequence % 25 === 0) {
+          if (this.shouldLogAudioChunk(sequence)) {
             console.log(
               `Audio route detail: #${sequence} ${deviceId} ${socket.id} -> ${parentSocketId}`
             );
@@ -1135,25 +1458,31 @@ class WebSocketManager {
         }
 
         if (forwardedCount > 0) {
-          console.log(
-            `рџ“¤ Audio chunk #${sequence} forwarded to parent (${forwardedCount} socket${forwardedCount > 1 ? "s" : ""})`
-          );
+          if (this.shouldLogAudioChunk(sequence)) {
+            console.log(
+              `[audio] chunk #${sequence} forwarded to parent (${forwardedCount} socket${forwardedCount > 1 ? "s" : ""})`
+            );
+          }
         } else {
+          if (this.shouldLogMissingParent(deviceId)) {
+            console.log(
+              `[audio] No mapped parent socket for device: ${deviceId}. parentMappings=${JSON.stringify(
+                Array.from(this.parentSockets.entries())
+              )}`
+            );
+          }
+        }
+      } else {
+        if (this.shouldLogMissingParent(deviceId)) {
           console.log(
-            `рџ“­ No mapped parent socket for device: ${deviceId}. parentMappings=${JSON.stringify(
+            `[audio] No mapped parent socket for device: ${deviceId}. parentMappings=${JSON.stringify(
               Array.from(this.parentSockets.entries())
             )}`
           );
         }
-      } else {
-        console.log(
-          `рџ“­ No mapped parent socket for device: ${deviceId}. parentMappings=${JSON.stringify(
-            Array.from(this.parentSockets.entries())
-          )}`
-        );
       }
     } catch (error) {
-      console.error("вќЊ Error handling audio chunk:", error);
+      console.error("[audio] Error handling audio chunk:", error);
     }
   }
 
@@ -1166,7 +1495,11 @@ class WebSocketManager {
         sender: "child",
         senderRole: "child",
         senderDeviceId: this.normalizeDeviceId(socket.deviceId || data?.deviceId),
-        senderDisplayName: "Ребенок",
+        senderDisplayName: this.getChatDisplayLabel(
+          "child",
+          socket.deviceId || data?.deviceId,
+          socket.childDisplayName || data?.authorDisplayName || data?.childDisplayName
+        ),
       };
     }
 
@@ -1190,7 +1523,11 @@ class WebSocketManager {
         sender: "child",
         senderRole: "child",
         senderDeviceId: this.normalizeDeviceId(data?.deviceId),
-        senderDisplayName: "Ребенок",
+        senderDisplayName: this.getChatDisplayLabel(
+          "child",
+          data?.deviceId,
+          data?.authorDisplayName || data?.childDisplayName
+        ),
       };
     }
 
@@ -1416,15 +1753,23 @@ class WebSocketManager {
    */
   handleDisconnect(socket) {
     console.log(
-      `рџ”Њ Client disconnected: ${socket.id} (${socket.deviceType || "unknown"})`
+      `[ws] Client disconnected: ${socket.id} (${socket.deviceType || "unknown"})`
     );
 
     if (socket.deviceType === "child") {
       // Child device disconnected
       const deviceId = socket.deviceId;
       if (deviceId) {
+        const currentSocketId = this.childSockets.get(deviceId);
+        if (currentSocketId !== socket.id) {
+          console.log(
+            `[ws] Ignoring stale child disconnect: ${deviceId}, socket=${socket.id}, current=${currentSocketId || "none"}`
+          );
+          return;
+        }
+
         this.childSockets.delete(deviceId);
-        console.log(`рџ“± Child device removed: ${deviceId}`);
+        console.log(`[ws] Child device removed: ${deviceId}`);
 
         // Notify all mapped parent sockets that child disconnected
         const parentSocketIds = this.getConnectedParentSocketIdsForDevice(deviceId);
@@ -1470,7 +1815,7 @@ class WebSocketManager {
     if (!this.isChildConnectedById(targetDeviceId)) {
       const fallbackDeviceId = this.resolveConnectedChildDeviceId(targetDeviceId);
       if (!fallbackDeviceId) {
-        console.warn(`вљ пёЏ Cannot send command: child ${deviceId} not connected`);
+        console.warn(`[ws] Cannot send command: child ${deviceId} not connected`);
         return false;
       }
       if (fallbackDeviceId !== targetDeviceId) {
@@ -1483,20 +1828,20 @@ class WebSocketManager {
 
     const childSocketId = this.childSockets.get(targetDeviceId);
     if (!childSocketId) {
-      console.warn(`вљ пёЏ Cannot send command: child ${targetDeviceId} not connected`);
+      console.warn(`[ws] Cannot send command: child ${targetDeviceId} not connected`);
       return false;
     }
 
     const childSocket = this.io.sockets.sockets.get(childSocketId);
     if (!childSocket) {
-      console.warn(`вљ пёЏ Cannot send command: socket ${childSocketId} not found`);
+      console.warn(`[ws] Cannot send command: socket ${childSocketId} not found`);
       this.childSockets.delete(targetDeviceId);
       return false;
     }
 
     // Send command via WebSocket
     childSocket.emit("command", command);
-    console.log(`вњ… Command sent to child ${targetDeviceId}:`, command.type);
+    console.log(`[ws] Command sent to child ${targetDeviceId}:`, command.type);
     return true;
   }
 

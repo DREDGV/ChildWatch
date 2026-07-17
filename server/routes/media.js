@@ -5,6 +5,26 @@ const fs = require('fs');
 
 const router = express.Router();
 
+async function loadPhotoFileRecord(fileId) {
+    const dbManager = new DatabaseManager();
+    await dbManager.initialize();
+    try {
+        return await dbManager.get(
+            'SELECT * FROM photo_files WHERE id = ?',
+            [parseInt(fileId)]
+        );
+    } finally {
+        await dbManager.close();
+    }
+}
+
+function resolveStoredMediaPath(filePath) {
+    if (!filePath) {
+        return null;
+    }
+    return path.join(__dirname, '..', filePath);
+}
+
 /**
  * Media API Routes
  * Handles audio and photo files metadata and serving
@@ -137,16 +157,7 @@ router.get('/download/audio/:fileId', async (req, res) => {
 router.get('/download/photo/:fileId', async (req, res) => {
     try {
         const { fileId } = req.params;
-        
-        const dbManager = new DatabaseManager();
-        await dbManager.initialize();
-        
-        const photoFile = await dbManager.get(
-            'SELECT * FROM photo_files WHERE id = ?',
-            [parseInt(fileId)]
-        );
-        
-        await dbManager.close();
+        const photoFile = await loadPhotoFileRecord(fileId);
         
         if (!photoFile) {
             return res.status(404).json({
@@ -155,7 +166,7 @@ router.get('/download/photo/:fileId', async (req, res) => {
             });
         }
         
-        const filePath = path.join(__dirname, '..', photoFile.file_path);
+        const filePath = resolveStoredMediaPath(photoFile.file_path);
         
         if (!fs.existsSync(filePath)) {
             return res.status(404).json({
@@ -176,6 +187,41 @@ router.get('/download/photo/:fileId', async (req, res) => {
         res.status(500).json({
             error: 'Failed to download photo file',
             code: 'PHOTO_DOWNLOAD_ERROR'
+        });
+    }
+});
+
+router.get('/thumbnail/:fileId', async (req, res) => {
+    try {
+        const { fileId } = req.params;
+        const photoFile = await loadPhotoFileRecord(fileId);
+
+        if (!photoFile) {
+            return res.status(404).json({
+                error: 'Photo file not found',
+                code: 'PHOTO_FILE_NOT_FOUND'
+            });
+        }
+
+        const filePath = resolveStoredMediaPath(photoFile.file_path);
+        if (!filePath || !fs.existsSync(filePath)) {
+            return res.status(404).json({
+                error: 'Photo file not found on disk',
+                code: 'PHOTO_FILE_MISSING'
+            });
+        }
+
+        res.setHeader('Content-Type', photoFile.mime_type || 'image/jpeg');
+        res.setHeader('Content-Disposition', `inline; filename="${photoFile.filename}"`);
+        res.setHeader('Cache-Control', 'private, max-age=60');
+
+        const fileStream = fs.createReadStream(filePath);
+        fileStream.pipe(res);
+    } catch (error) {
+        console.error('Get photo thumbnail error:', error);
+        res.status(500).json({
+            error: 'Failed to get photo thumbnail',
+            code: 'PHOTO_THUMBNAIL_ERROR'
         });
     }
 });

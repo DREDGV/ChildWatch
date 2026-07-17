@@ -26,7 +26,10 @@ class DatabaseManager {
         `;
     return this.run(sql, [messageId, Number.isNaN(numericId) ? -1 : numericId]);
   }
-  constructor(dbPath = "./childwatch.db") {
+  constructor(
+    dbPath = process.env.CW_DB_PATH ||
+      path.join(__dirname, "..", "childwatch.db")
+  ) {
     this.dbPath = dbPath;
     this.db = null;
     this.isInitialized = false;
@@ -159,6 +162,10 @@ class DatabaseManager {
                 child_device_id TEXT NOT NULL,
                 relation_role TEXT DEFAULT 'guardian',
                 display_name TEXT,
+                parent_display_name TEXT,
+                child_display_name TEXT,
+                parent_marker_icon_id INTEGER,
+                child_marker_icon_id INTEGER,
                 created_by TEXT,
                 is_active INTEGER DEFAULT 1,
                 created_at INTEGER DEFAULT (strftime('%s', 'now')),
@@ -209,6 +216,26 @@ class DatabaseManager {
     }
 
     await this.addColumnIfNotExists(
+      "device_links",
+      "parent_display_name",
+      "TEXT"
+    );
+    await this.addColumnIfNotExists(
+      "device_links",
+      "child_display_name",
+      "TEXT"
+    );
+    await this.addColumnIfNotExists(
+      "device_links",
+      "parent_marker_icon_id",
+      "INTEGER"
+    );
+    await this.addColumnIfNotExists(
+      "device_links",
+      "child_marker_icon_id",
+      "INTEGER"
+    );
+    await this.addColumnIfNotExists(
       "chat_messages",
       "client_message_id",
       "TEXT"
@@ -227,6 +254,16 @@ class DatabaseManager {
       "chat_messages",
       "read_at",
       "INTEGER"
+    );
+    await this.addColumnIfNotExists(
+      "device_links",
+      "parent_display_name",
+      "TEXT"
+    );
+    await this.addColumnIfNotExists(
+      "device_links",
+      "child_display_name",
+      "TEXT"
     );
     await this.addColumnIfNotExists(
       "chat_messages",
@@ -762,6 +799,10 @@ class DatabaseManager {
     childDeviceId,
     relationRole = "guardian",
     displayName = null,
+    parentDisplayName = null,
+    childDisplayName = null,
+    parentMarkerIconId = null,
+    childMarkerIconId = null,
     createdBy = null,
     isActive = true,
   }) {
@@ -771,13 +812,21 @@ class DatabaseManager {
                 child_device_id,
                 relation_role,
                 display_name,
+                parent_display_name,
+                child_display_name,
+                parent_marker_icon_id,
+                child_marker_icon_id,
                 created_by,
                 is_active
             )
-            VALUES (?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(parent_device_id, child_device_id) DO UPDATE SET
                 relation_role = excluded.relation_role,
                 display_name = COALESCE(excluded.display_name, device_links.display_name),
+                parent_display_name = COALESCE(excluded.parent_display_name, device_links.parent_display_name),
+                child_display_name = COALESCE(excluded.child_display_name, device_links.child_display_name),
+                parent_marker_icon_id = COALESCE(excluded.parent_marker_icon_id, device_links.parent_marker_icon_id),
+                child_marker_icon_id = COALESCE(excluded.child_marker_icon_id, device_links.child_marker_icon_id),
                 created_by = COALESCE(device_links.created_by, excluded.created_by),
                 is_active = excluded.is_active,
                 updated_at = strftime('%s', 'now')
@@ -788,6 +837,10 @@ class DatabaseManager {
       childDeviceId,
       relationRole,
       displayName,
+      parentDisplayName,
+      childDisplayName,
+      parentMarkerIconId,
+      childMarkerIconId,
       createdBy,
       isActive ? 1 : 0,
     ]);
@@ -799,7 +852,11 @@ class DatabaseManager {
                 dl.parent_device_id AS parentDeviceId,
                 dl.child_device_id AS childDeviceId,
                 dl.relation_role AS relationRole,
-                dl.display_name AS displayName,
+                COALESCE(dl.child_display_name, dl.display_name) AS displayName,
+                dl.parent_display_name AS parentDisplayName,
+                dl.child_display_name AS childDisplayName,
+                dl.parent_marker_icon_id AS parentMarkerIconId,
+                dl.child_marker_icon_id AS childMarkerIconId,
                 dl.created_by AS createdBy,
                 dl.is_active AS isActive,
                 dl.created_at AS createdAt,
@@ -823,7 +880,11 @@ class DatabaseManager {
                 dl.parent_device_id AS parentDeviceId,
                 dl.child_device_id AS childDeviceId,
                 dl.relation_role AS relationRole,
-                dl.display_name AS displayName,
+                COALESCE(dl.parent_display_name, dl.display_name) AS displayName,
+                dl.parent_display_name AS parentDisplayName,
+                dl.child_display_name AS childDisplayName,
+                dl.parent_marker_icon_id AS parentMarkerIconId,
+                dl.child_marker_icon_id AS childMarkerIconId,
                 dl.created_by AS createdBy,
                 dl.is_active AS isActive,
                 dl.created_at AS createdAt,
@@ -923,15 +984,26 @@ class DatabaseManager {
     ]);
   }
 
-  async getUndeliveredMessages(deviceId, targetRole) {
-    const isParentTarget = String(targetRole || "").trim().toLowerCase() === "parent";
+  async getUndeliveredMessages(deviceId, targetRole, targetParentDeviceId = null) {
+    const isParentTarget =
+      String(targetRole || "").trim().toLowerCase() === "parent";
+    const normalizedTargetParentId = String(targetParentDeviceId || "").trim();
     const sql = isParentTarget
       ? `
             SELECT *, COALESCE(client_message_id, id) AS client_id
             FROM chat_messages
             WHERE device_id = ?
-              AND sender = ?
-              AND delivered = 0
+              AND (
+                (sender = ? AND delivered = 0)
+                OR (
+                  sender = ?
+                  AND (
+                    sender_device_id IS NULL
+                    OR sender_device_id = ''
+                    OR sender_device_id <> ?
+                  )
+                )
+              )
             ORDER BY timestamp ASC
             LIMIT 200
         `
@@ -945,7 +1017,9 @@ class DatabaseManager {
             LIMIT 200
         `;
 
-    return this.all(sql, [deviceId, "child"]);
+    return isParentTarget
+      ? this.all(sql, [deviceId, "child", "parent", normalizedTargetParentId])
+      : this.all(sql, [deviceId, "child"]);
   }
 
   async markMessagesDeliveredByClientIds(clientIds = []) {
