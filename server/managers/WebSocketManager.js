@@ -12,6 +12,7 @@ class WebSocketManager {
     this.io = io;
     this.commandManager = commandManager;
     this.dbManager = dbManager;
+    this.attentionSignalManager = null;
     this.verboseWsLogs = process.env.CW_VERBOSE_WS_LOGS === "1";
     this.verboseAudioLogs = process.env.CW_VERBOSE_AUDIO_LOGS === "1";
 
@@ -36,6 +37,10 @@ class WebSocketManager {
     this.lastMissingParentLogAt = new Map();
 
     console.log("[ws] WebSocketManager initialized");
+  }
+
+  setAttentionSignalManager(attentionSignalManager) {
+    this.attentionSignalManager = attentionSignalManager;
   }
 
   normalizeDeviceId(value) {
@@ -520,6 +525,24 @@ class WebSocketManager {
       // Handle direct commands from parent app (e.g. take_photo)
       socket.on("command", (data) => {
         this.handleCommand(socket, data);
+      });
+
+      socket.on("attention_signal_request", (data) => {
+        this.attentionSignalManager?.handleRequest(socket, data).catch((error) => {
+          console.error("[attention] request handler failed:", error);
+        });
+      });
+      socket.on("attention_signal_status", (data) => {
+        this.attentionSignalManager?.handleStatus(socket, data).catch((error) => {
+          console.error("[attention] status handler failed:", error);
+        });
+      });
+      socket.on("attention_signal_stop_request", (data) => {
+        this.attentionSignalManager
+          ?.handleStopRequest(socket, data)
+          .catch((error) => {
+            console.error("[attention] stop handler failed:", error);
+          });
       });
 
       socket.on("force_release_stream", (data) => {

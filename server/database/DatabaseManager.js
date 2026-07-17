@@ -245,6 +245,32 @@ class DatabaseManager {
                 FOREIGN KEY (target_member_id) REFERENCES family_members (id)
             )`,
 
+      `CREATE TABLE IF NOT EXISTS attention_signals (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id TEXT NOT NULL UNIQUE,
+                family_id TEXT,
+                requester_member_id TEXT,
+                requester_device_id TEXT NOT NULL,
+                requester_display_name TEXT,
+                target_member_id TEXT,
+                target_device_id TEXT NOT NULL,
+                tone TEXT NOT NULL,
+                duration_ms INTEGER NOT NULL,
+                volume_percent INTEGER NOT NULL,
+                vibrate INTEGER NOT NULL DEFAULT 1,
+                vibration_pattern TEXT NOT NULL,
+                status TEXT NOT NULL,
+                reason TEXT,
+                error_code TEXT,
+                created_at INTEGER NOT NULL,
+                expires_at INTEGER NOT NULL,
+                delivered_at INTEGER,
+                started_at INTEGER,
+                completed_at INTEGER,
+                stopped_at INTEGER,
+                updated_at INTEGER NOT NULL
+            )`,
+
       // Activity logs
       `CREATE TABLE IF NOT EXISTS activity_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -364,6 +390,9 @@ class DatabaseManager {
       "CREATE INDEX IF NOT EXISTS idx_family_devices_family ON family_devices (family_id)",
       "CREATE INDEX IF NOT EXISTS idx_family_devices_device ON family_devices (device_id)",
       "CREATE INDEX IF NOT EXISTS idx_family_permissions_lookup ON family_permissions (family_id, actor_member_id, target_member_id, feature)",
+      "CREATE INDEX IF NOT EXISTS idx_attention_target_created ON attention_signals (target_device_id, created_at DESC)",
+      "CREATE INDEX IF NOT EXISTS idx_attention_requester_created ON attention_signals (requester_device_id, created_at DESC)",
+      "CREATE INDEX IF NOT EXISTS idx_attention_family_created ON attention_signals (family_id, created_at DESC)",
       "CREATE INDEX IF NOT EXISTS idx_activity_device_timestamp ON activity_logs (device_id, timestamp)",
       "CREATE INDEX IF NOT EXISTS idx_alerts_device_created ON critical_alerts (device_id, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_devices_auth_token ON devices (auth_token)",
@@ -818,14 +847,20 @@ class DatabaseManager {
       `SELECT
          actor.family_id AS familyId,
          actor.member_id AS actorMemberId,
-         target.member_id AS targetMemberId
+         target.member_id AS targetMemberId,
+         actor_member.display_name AS actorDisplayName,
+         target_member.display_name AS targetDisplayName
        FROM family_devices actor
        JOIN family_devices target ON target.family_id = actor.family_id
        JOIN families f ON f.id = actor.family_id
+       JOIN family_members actor_member ON actor_member.id = actor.member_id
+       JOIN family_members target_member ON target_member.id = target.member_id
        WHERE actor.device_id = ?
          AND target.device_id = ?
          AND actor.is_active = 1
          AND target.is_active = 1
+         AND actor_member.is_active = 1
+         AND target_member.is_active = 1
          AND f.is_active = 1
        ORDER BY actor.family_id
        LIMIT 1`,
@@ -853,6 +888,102 @@ class DatabaseManager {
         targetMemberId,
         String(feature || "").trim().toUpperCase(),
       ]
+    );
+  }
+
+  async saveAttentionSignalEvent(signal) {
+    const now = Date.now();
+    return this.run(
+      `INSERT INTO attention_signals (
+         request_id,
+         family_id,
+         requester_member_id,
+         requester_device_id,
+         requester_display_name,
+         target_member_id,
+         target_device_id,
+         tone,
+         duration_ms,
+         volume_percent,
+         vibrate,
+         vibration_pattern,
+         status,
+         reason,
+         error_code,
+         created_at,
+         expires_at,
+         updated_at
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT(request_id) DO NOTHING`,
+      [
+        signal.requestId,
+        signal.familyId || null,
+        signal.requesterMemberId || null,
+        signal.requesterDeviceId,
+        signal.requesterDisplayName || null,
+        signal.targetMemberId || null,
+        signal.targetDeviceId,
+        signal.tone,
+        signal.durationMs,
+        signal.volumePercent,
+        signal.vibrate ? 1 : 0,
+        signal.vibrationPattern,
+        signal.status,
+        signal.reason || null,
+        signal.errorCode || null,
+        signal.createdAt,
+        signal.expiresAt,
+        now,
+      ]
+    );
+  }
+
+  async updateAttentionSignalStatus({
+    requestId,
+    status,
+    reason = null,
+    errorCode = null,
+    timestamp = Date.now(),
+  }) {
+    const timestampColumn = {
+      DELIVERED: "delivered_at",
+      STARTED: "started_at",
+      COMPLETED: "completed_at",
+      STOPPED: "stopped_at",
+    }[status];
+    const timestampAssignment = timestampColumn
+      ? `, ${timestampColumn} = COALESCE(${timestampColumn}, ?)`
+      : "";
+    const params = [status, reason, errorCode, timestamp];
+    if (timestampColumn) params.push(timestamp);
+    params.push(requestId);
+
+    return this.run(
+      `UPDATE attention_signals
+       SET status = ?,
+           reason = ?,
+           error_code = ?,
+           updated_at = ?
+           ${timestampAssignment}
+       WHERE request_id = ?`,
+      params
+    );
+  }
+
+  async getAttentionSignalByRequestId(requestId) {
+    return this.get(
+      `SELECT
+         request_id AS requestId,
+         family_id AS familyId,
+         requester_device_id AS requesterDeviceId,
+         target_device_id AS targetDeviceId,
+         status,
+         expires_at AS expiresAt,
+         updated_at AS updatedAt
+       FROM attention_signals
+       WHERE request_id = ?
+       LIMIT 1`,
+      [requestId]
     );
   }
 

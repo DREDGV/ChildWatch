@@ -70,6 +70,10 @@ class FamilyPermissionService {
       allowed: permission?.allowed === 1,
       code: permission?.allowed === 1 ? "FAMILY_PERMISSION_GRANTED" : "FAMILY_PERMISSION_DENIED",
       familyId: membership.familyId,
+      actorMemberId: membership.actorMemberId,
+      targetMemberId: membership.targetMemberId,
+      actorDisplayName: membership.actorDisplayName,
+      targetDisplayName: membership.targetDisplayName,
     };
   }
 }

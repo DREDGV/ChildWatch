@@ -13,6 +13,7 @@ const DataValidator = require("./validators/DataValidator");
 const DatabaseManager = require("./database/DatabaseManager");
 const CommandManager = require("./managers/CommandManager");
 const WebSocketManager = require("./managers/WebSocketManager");
+const AttentionSignalManager = require("./managers/AttentionSignalManager");
 const FamilyPermissionService = require("./services/FamilyPermissionService");
 
 // Import route modules
@@ -51,6 +52,12 @@ const dbManager = new DatabaseManager();
 const commandManager = new CommandManager();
 const wsManager = new WebSocketManager(io, commandManager, dbManager);
 const familyPermissionService = new FamilyPermissionService(dbManager);
+const attentionSignalManager = new AttentionSignalManager({
+  wsManager,
+  dbManager,
+  familyPermissionService,
+});
+wsManager.setAttentionSignalManager(attentionSignalManager);
 const familyRoutes = createFamilyRoutes(dbManager, familyPermissionService);
 wsManager.dbManager = dbManager;
 
