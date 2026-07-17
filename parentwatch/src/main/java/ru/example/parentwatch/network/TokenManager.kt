@@ -39,6 +39,10 @@ class TokenManager(private val context: Context) {
         .connectTimeout(30, TimeUnit.SECONDS)
         .readTimeout(30, TimeUnit.SECONDS)
         .build()
+
+    init {
+        migrateLegacyNetworkHelperTokens()
+    }
     
     /**
      * Register device and get authentication token
@@ -213,7 +217,7 @@ class TokenManager(private val context: Context) {
     /**
      * Get refresh token
      */
-    private fun getRefreshToken(): String? {
+    fun getRefreshToken(): String? {
         return prefs.getString(KEY_REFRESH_TOKEN, null)
     }
     
@@ -237,16 +241,44 @@ class TokenManager(private val context: Context) {
     /**
      * Save tokens securely
      */
-    private fun saveTokens(authToken: String, refreshToken: String, expiresIn: Long) {
+    fun saveTokens(authToken: String, refreshToken: String?, expiresIn: Long) {
         val expiryTime = System.currentTimeMillis() + expiresIn
-        
-        prefs.edit()
-            .putString(KEY_AUTH_TOKEN, authToken)
-            .putString(KEY_REFRESH_TOKEN, refreshToken)
-            .putLong(KEY_TOKEN_EXPIRY, expiryTime)
-            .apply()
+
+        prefs.edit().apply {
+            putString(KEY_AUTH_TOKEN, authToken)
+            if (!refreshToken.isNullOrBlank()) {
+                putString(KEY_REFRESH_TOKEN, refreshToken)
+            }
+            putLong(KEY_TOKEN_EXPIRY, expiryTime)
+        }.apply()
         
         Log.d(TAG, "Tokens saved. Expires at: ${java.util.Date(expiryTime)}")
+    }
+
+    /**
+     * Older LocationService builds stored authentication in parentwatch_prefs,
+     * while WebSocketClient read parentwatch_tokens. Copy that state once so an
+     * upgraded phone can recover without waiting for the user to open the app.
+     */
+    private fun migrateLegacyNetworkHelperTokens() {
+        if (!prefs.getString(KEY_AUTH_TOKEN, null).isNullOrBlank()) return
+
+        val legacyPrefs = context.getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
+        val legacyAuthToken = legacyPrefs.getString(KEY_AUTH_TOKEN, null)
+            ?.takeIf { it.isNotBlank() }
+            ?: return
+        val legacyRefreshToken = legacyPrefs.getString(KEY_REFRESH_TOKEN, null)
+
+        prefs.edit().apply {
+            putString(KEY_AUTH_TOKEN, legacyAuthToken)
+            if (!legacyRefreshToken.isNullOrBlank()) {
+                putString(KEY_REFRESH_TOKEN, legacyRefreshToken)
+            }
+            // The old store did not retain an expiry. Mark it for immediate
+            // refresh while still making it available for compatibility mode.
+            putLong(KEY_TOKEN_EXPIRY, 0L)
+        }.apply()
+        Log.i(TAG, "Migrated legacy NetworkHelper authentication state")
     }
     
     /**

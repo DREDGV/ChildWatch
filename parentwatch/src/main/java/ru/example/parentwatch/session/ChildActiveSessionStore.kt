@@ -168,18 +168,19 @@ class ChildActiveSessionStore(private val context: Context) {
     }
 
     fun resolveCurrentChildId(): String {
+        // child_device_id is the durable identity used by the parent-child link.
+        // Prefer it over a stale/generated device_id so independently restarted
+        // services cannot register the same phone under two different IDs.
+        val persisted = resolveCurrentChildIdFromSources()
+        if (persisted.isNotBlank()) return persisted
+
         val active = getActiveSession()?.ownChildDeviceId?.trim()
         if (!active.isNullOrBlank()) return active
 
         val current = buildCurrentSessionCandidate()?.ownChildDeviceId?.trim()
         if (!current.isNullOrBlank()) return current
 
-        return listOf(
-            prefs.getString(KEY_DEVICE_ID, null),
-            prefs.getString(KEY_CHILD_DEVICE_ID, null),
-            legacyPrefs.getString(KEY_DEVICE_ID, null),
-            legacyPrefs.getString(KEY_CHILD_DEVICE_ID, null)
-        ).mapNotNull { it?.trim() }.firstOrNull { it.isNotBlank() }.orEmpty()
+        return ""
     }
 
     fun resolveCurrentParentId(): String {
@@ -286,10 +287,10 @@ class ChildActiveSessionStore(private val context: Context) {
 
     private fun resolveCurrentChildIdFromSources(): String {
         return listOf(
-            prefs.getString(KEY_DEVICE_ID, null),
             prefs.getString(KEY_CHILD_DEVICE_ID, null),
-            legacyPrefs.getString(KEY_DEVICE_ID, null),
-            legacyPrefs.getString(KEY_CHILD_DEVICE_ID, null)
+            legacyPrefs.getString(KEY_CHILD_DEVICE_ID, null),
+            prefs.getString(KEY_DEVICE_ID, null),
+            legacyPrefs.getString(KEY_DEVICE_ID, null)
         ).mapNotNull { it?.trim() }.firstOrNull { it.isNotBlank() }.orEmpty()
     }
 

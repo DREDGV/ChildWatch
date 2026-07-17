@@ -11,6 +11,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import ru.example.parentwatch.chat.ChatMessage
 import ru.example.parentwatch.chat.ChatMessageRuntimeRegistry
+import ru.example.parentwatch.session.ChildParticipantNameResolver
 import java.nio.ByteBuffer
 import java.util.LinkedHashMap
 import java.util.concurrent.ConcurrentHashMap
@@ -27,10 +28,14 @@ class WebSocketClient(
 ) {
     private var socket: Socket? = null
     private var isConnected = false
+    private var isConnecting = false
     private var isRegistered = false
     private var registeredDeviceId: String = childDeviceId
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val appContext = context?.applicationContext
+    private val participantNameResolver =
+        appContext?.let { ChildParticipantNameResolver(it) }
+    private val tokenManager = appContext?.let { TokenManager(it) }
     private val syncPrefs =
         appContext?.getSharedPreferences("chat_sync_state", Context.MODE_PRIVATE)
 
@@ -132,6 +137,7 @@ class WebSocketClient(
     private val onConnect = Emitter.Listener {
         Log.d(TAG, "WebSocket connected")
         scope.launch {
+            isConnecting = false
             isConnected = true
             isRegistered = false
             registeredDeviceId = childDeviceId
@@ -145,6 +151,7 @@ class WebSocketClient(
 
     private val onDisconnect = Emitter.Listener { args ->
         Log.d(TAG, "WebSocket disconnected. Reason: ${args.getOrNull(0)}")
+        isConnecting = false
         isConnected = false
         isRegistered = false
         registeredDeviceId = childDeviceId
@@ -157,6 +164,7 @@ class WebSocketClient(
 
     private val onConnectError = Emitter.Listener { args ->
         val error = args.getOrNull(0)
+        isConnecting = false
         Log.e(TAG, "WebSocket connection error: $error")
         isConnected = false
         isRegistered = false
@@ -572,6 +580,30 @@ class WebSocketClient(
         onErrorCallback = onError
 
         try {
+            if (socket?.connected() == true && isConnected) {
+                Log.d(TAG, "WebSocket already connected")
+                onConnected()
+                if (!isRegistered) {
+                    requestRegistration()
+                }
+                return
+            }
+            if (isConnecting) {
+                Log.d(TAG, "WebSocket connection already in progress")
+                return
+            }
+            socket?.let { existingSocket ->
+                Log.d(TAG, "Disposing stale socket before reconnect")
+                runCatching {
+                    existingSocket.off()
+                    existingSocket.disconnect()
+                    existingSocket.close()
+                }.onFailure {
+                    Log.w(TAG, "Failed to dispose stale socket cleanly: ${it.message}")
+                }
+                socket = null
+            }
+
             Log.d(TAG, "Connecting to WebSocket: $serverUrl")
 
             val opts = IO.Options().apply {
@@ -581,10 +613,14 @@ class WebSocketClient(
                 reconnectionDelay = RECONNECTION_DELAY
                 reconnectionDelayMax = RECONNECTION_DELAY_MAX
                 timeout = CONNECTION_TIMEOUT
+                tokenManager?.getAuthToken()
+                    ?.takeIf { it.isNotBlank() }
+                    ?.let { authToken -> auth = mapOf("token" to authToken) }
                 // Socket.IO will handle ping/pong automatically
             }
 
             socket = IO.socket(serverUrl, opts)
+            isConnecting = true
 
             // Connection event handlers
             socket?.on(Socket.EVENT_CONNECT, onConnect)
@@ -612,6 +648,7 @@ class WebSocketClient(
             socket?.connect()
 
         } catch (e: Exception) {
+            isConnecting = false
             Log.e(TAG, "Connection error", e)
             onError("Connection error: ${e.message}")
         }
@@ -624,9 +661,11 @@ class WebSocketClient(
         try {
             Log.d(TAG, "Disconnecting from WebSocket")
             stopHeartbeat()
+            isConnecting = false
             socket?.disconnect()
             socket?.off("critical_alert")
             socket?.off()
+            runCatching { socket?.close() }
             socket = null
             isConnected = false
             isRegistered = false
@@ -660,8 +699,12 @@ class WebSocketClient(
      */
     private fun registerAsParent() {
         try {
+            val childDisplayName = participantNameResolver?.resolveChildDisplayName().orEmpty()
             val registrationData = JSONObject().apply {
                 put("deviceId", childDeviceId) // This IS our device ID (ParentWatch's own ID)
+                if (childDisplayName.isNotBlank()) {
+                    put("childDisplayName", childDisplayName)
+                }
             }
 
             socket?.emit("register_child", registrationData) // ParentWatch IS the child device!

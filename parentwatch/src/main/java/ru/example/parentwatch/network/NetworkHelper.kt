@@ -26,6 +26,7 @@ class NetworkHelper(private val context: Context) {
     }
 
     private val prefs = context.getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
+    private val tokenManager = TokenManager(context)
     private val effectiveContextResolver = ChildEffectiveContextResolver(context)
     private val refreshLock = Any()
     @Volatile private var isRefreshingToken = false
@@ -54,6 +55,7 @@ class NetworkHelper(private val context: Context) {
      */
     suspend fun registerDevice(serverUrl: String, deviceId: String): Boolean = withContext(Dispatchers.IO) {
         try {
+            tokenManager.setDeviceId(deviceId)
             val url = "${serverUrl.trimEnd('/')}/api/auth/register"
             val versionName = sanitizeVersionName(BuildConfig.VERSION_NAME)
 
@@ -81,9 +83,10 @@ class NetworkHelper(private val context: Context) {
 
                     val authToken = json.optString("authToken")
                     val refreshToken = json.optString("refreshToken")
+                    val expiresInSeconds = json.optLong("expiresIn", 3600L)
 
                     if (authToken.isNotEmpty()) {
-                        saveTokens(authToken, refreshToken)
+                        saveTokens(authToken, refreshToken, expiresInSeconds)
 
                         Log.d(TAG, "Device registered successfully")
                         return@withContext true
@@ -414,14 +417,18 @@ class NetworkHelper(private val context: Context) {
         }
     }
 
-    private fun getAuthToken(): String? = prefs.getString("auth_token", null)
+    private fun getAuthToken(): String? = tokenManager.getAuthToken()
 
-    private fun saveTokens(authToken: String, refreshToken: String?) {
-        val editor = prefs.edit().putString("auth_token", authToken)
-        if (!refreshToken.isNullOrBlank()) {
-            editor.putString("refresh_token", refreshToken)
-        }
-        editor.apply()
+    private fun saveTokens(
+        authToken: String,
+        refreshToken: String?,
+        expiresInSeconds: Long = 3600L
+    ) {
+        tokenManager.saveTokens(
+            authToken = authToken,
+            refreshToken = refreshToken,
+            expiresIn = expiresInSeconds.coerceAtLeast(1L) * 1000L
+        )
     }
 
     private fun resolveDeviceId(): String? {
@@ -454,7 +461,8 @@ class NetworkHelper(private val context: Context) {
         }
 
         try {
-            val refreshToken = prefs.getString("refresh_token", null)
+            tokenManager.setDeviceId(deviceId)
+            val refreshToken = tokenManager.getRefreshToken()
             if (refreshToken.isNullOrBlank()) {
                 Log.w(TAG, "No refresh token, attempting re-register")
                 return registerDeviceBlocking(serverUrl, deviceId)
@@ -478,8 +486,9 @@ class NetworkHelper(private val context: Context) {
                     val json = JSONObject(responseBody ?: "{}")
                     val authToken = json.optString("authToken")
                     val newRefreshToken = json.optString("refreshToken")
+                    val expiresInSeconds = json.optLong("expiresIn", 3600L)
                     if (authToken.isNotEmpty()) {
-                        saveTokens(authToken, newRefreshToken)
+                        saveTokens(authToken, newRefreshToken, expiresInSeconds)
                         Log.d(TAG, "Token refreshed successfully")
                         return authToken
                     }
@@ -502,6 +511,7 @@ class NetworkHelper(private val context: Context) {
 
     private fun registerDeviceBlocking(serverUrl: String, deviceId: String): String? {
         try {
+            tokenManager.setDeviceId(deviceId)
             val url = "${serverUrl.trimEnd('/')}/api/auth/register"
             val versionName = sanitizeVersionName(BuildConfig.VERSION_NAME)
             val jsonData = JSONObject().apply {
@@ -523,8 +533,9 @@ class NetworkHelper(private val context: Context) {
                     val json = JSONObject(responseBody ?: "{}")
                     val authToken = json.optString("authToken")
                     val refreshToken = json.optString("refreshToken")
+                    val expiresInSeconds = json.optLong("expiresIn", 3600L)
                     if (authToken.isNotEmpty()) {
-                        saveTokens(authToken, refreshToken)
+                        saveTokens(authToken, refreshToken, expiresInSeconds)
                         Log.d(TAG, "Device re-registered successfully")
                         return authToken
                     }

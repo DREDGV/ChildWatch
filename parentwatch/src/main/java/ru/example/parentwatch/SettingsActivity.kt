@@ -4,6 +4,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.provider.Settings
+import android.util.Log
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -13,18 +14,26 @@ import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import org.json.JSONArray
 import org.json.JSONObject
+import ru.example.parentwatch.contacts.ContactIcons
 import ru.example.parentwatch.databinding.ActivitySettingsBinding
+import ru.example.parentwatch.database.ParentWatchDatabase
+import ru.example.parentwatch.database.entity.Child
 import ru.example.parentwatch.network.LinkedParentLink
 import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.network.WebSocketManager
 import ru.example.parentwatch.service.AppUsageTracker
+import ru.example.parentwatch.service.AudioStreamingService
+import ru.example.parentwatch.service.LocationService
 import ru.example.parentwatch.session.ChildEffectiveContext
 import ru.example.parentwatch.utils.ChildDeviceProfile
 import ru.example.parentwatch.utils.ChildDeviceProfileManager
 import ru.example.parentwatch.utils.ServerUrlResolver
 import ru.example.parentwatch.session.ChildActiveSessionStore
+import ru.example.parentwatch.session.ChildParticipantNameResolver
 import ru.example.parentwatch.session.ChildProfileRuntimeCoordinator
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 
 /**
  * Settings Activity for ParentWatch
@@ -52,7 +61,9 @@ class SettingsActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var profileManager: ChildDeviceProfileManager
+    private val database by lazy { ParentWatchDatabase.getInstance(this) }
     private val sessionStore by lazy { ChildActiveSessionStore(this) }
+    private val participantNameResolver by lazy { ChildParticipantNameResolver(this) }
     private val profileRuntimeCoordinator by lazy { ChildProfileRuntimeCoordinator(this) }
     private val networkClient by lazy { NetworkClient(this) }
     
@@ -146,6 +157,17 @@ class SettingsActivity : AppCompatActivity() {
             showProfilePicker()
         }
 
+        binding.editSelfNameButton.setOnClickListener {
+            showEditOwnNameDialog()
+        }
+
+        binding.editSelfMarkerButton.setOnClickListener {
+            showEditOwnMarkerDialog()
+        }
+
+        binding.showQrButton.text = getString(R.string.child_pairing_show_child_qr_button)
+        binding.scanParentQrButton.text = getString(R.string.child_pairing_scan_parent_backup_button)
+
         // Server URL preset buttons
         binding.useVpsBtn.setOnClickListener {
             binding.serverUrlInput.setText(VPS_URL)
@@ -169,12 +191,15 @@ class SettingsActivity : AppCompatActivity() {
 
         // Scan Parent QR button
         binding.scanParentQrButton.setOnClickListener {
-            val intent = Intent(this, QrScannerActivity::class.java)
-            qrScannerLauncher.launch(intent)
+            showBackupParentScanDialog()
         }
 
         binding.selectActiveParentButton.setOnClickListener {
             showActiveParentPicker()
+        }
+
+        binding.releaseListeningLineButton.setOnClickListener {
+            showForceReleaseListeningDialog()
         }
 
         // Update parent connection status
@@ -459,6 +484,14 @@ class SettingsActivity : AppCompatActivity() {
         val profileName = activeProfile?.name?.takeIf { it.isNotBlank() }
             ?: sessionStore.getActiveSession()?.name?.takeIf { it.isNotBlank() }
             ?: getString(R.string.profile_switch_current_name)
+        val selfNameLine = getString(
+            R.string.participant_self_name_summary_line,
+            participantNameResolver.resolveChildDisplayName()
+        )
+        val selfMarkerLine = getString(
+            R.string.participant_self_marker_summary_line,
+            ContactIcons.labelFor(participantNameResolver.resolveChildMarkerIconId())
+        )
 
         if (ownChildId.isNullOrBlank() || serverUrl.isNullOrBlank()) {
             binding.profileSummaryText.text = getString(R.string.profile_switch_no_active)
@@ -474,7 +507,7 @@ class SettingsActivity : AppCompatActivity() {
                 parentId?.takeIf { it.isNotBlank() }
                     ?: getString(R.string.profile_switch_unknown_link)
             )
-        ) + "\n" + getString(
+        ) + "\n" + selfNameLine + "\n" + selfMarkerLine + "\n" + getString(
             R.string.profile_switch_source_line,
             describeProfileContextSource(effectiveContext?.source)
         ) + "\n" + getString(
@@ -495,6 +528,212 @@ class SettingsActivity : AppCompatActivity() {
         } else {
             ""
         }
+    }
+
+    private fun showEditOwnNameDialog() {
+        val input = createProfileInput(
+            getString(R.string.participant_self_name_hint_child),
+            participantNameResolver.resolveChildDisplayName()
+        )
+
+        val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.participant_self_name_title_child)
+            .setView(createProfileDialogLayout(input))
+            .setPositiveButton(android.R.string.ok, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE)
+                ?.setOnClickListener {
+                    val newName = input.text?.toString()?.trim().orEmpty()
+                    if (newName.isBlank()) {
+                        input.error = getString(R.string.participant_self_name_error_empty)
+                        return@setOnClickListener
+                    }
+                    input.error = null
+                    dialog.dismiss()
+                    saveOwnChildDisplayName(newName)
+                }
+        }
+
+        dialog.show()
+    }
+
+    private fun showEditOwnMarkerDialog() {
+        val options = ContactIcons.options()
+        var selectedIndex = options.indexOfFirst {
+            it.id == participantNameResolver.resolveChildMarkerIconId()
+        }.coerceAtLeast(0)
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.participant_self_marker_title_child)
+            .setSingleChoiceItems(
+                options.map { it.label }.toTypedArray(),
+                selectedIndex
+            ) { _, which ->
+                selectedIndex = which
+            }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                saveOwnChildMarkerIcon(options[selectedIndex].id)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun saveOwnChildDisplayName(newName: String) {
+        lifecycleScope.launch {
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit()
+                .putString(ChildParticipantNameResolver.KEY_SELF_DISPLAY_NAME, newName)
+                .apply()
+
+            updateLocalChildName(newName)
+            val synced = syncOwnChildNameToServer(newName)
+            updateParentConnectionStatus()
+            updateProfileSummary()
+
+            Toast.makeText(
+                this@SettingsActivity,
+                if (synced) {
+                    R.string.participant_self_name_saved
+                } else {
+                    R.string.participant_self_name_sync_partial
+                },
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    private fun saveOwnChildMarkerIcon(iconId: Int) {
+        lifecycleScope.launch {
+            getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+                .edit()
+                .putInt(ChildParticipantNameResolver.KEY_SELF_MARKER_ICON_ID, iconId)
+                .apply()
+
+            updateLocalChildMarkerIcon(iconId)
+            val synced = syncOwnChildMarkerToServer(iconId)
+            updateParentConnectionStatus()
+            updateProfileSummary()
+
+            Toast.makeText(
+                this@SettingsActivity,
+                if (synced) {
+                    R.string.participant_self_marker_saved
+                } else {
+                    R.string.participant_self_marker_sync_partial
+                },
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    private suspend fun updateLocalChildName(newName: String) {
+        val ownChildId = sessionStore.resolveCurrentChildId().trim()
+        if (ownChildId.isBlank()) return
+
+        withContext(Dispatchers.IO) {
+            val existing = database.childDao().getByDeviceId(ownChildId)
+            if (existing != null) {
+                database.childDao().update(
+                    existing.copy(
+                        name = newName,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            } else {
+                database.childDao().insert(
+                    Child(
+                        deviceId = ownChildId,
+                        name = newName
+                    )
+                )
+            }
+        }
+    }
+
+    private suspend fun updateLocalChildMarkerIcon(iconId: Int) {
+        val ownChildId = sessionStore.resolveCurrentChildId().trim()
+        if (ownChildId.isBlank()) return
+
+        withContext(Dispatchers.IO) {
+            val existing = database.childDao().getByDeviceId(ownChildId)
+            if (existing != null) {
+                database.childDao().update(
+                    existing.copy(
+                        iconId = iconId,
+                        updatedAt = System.currentTimeMillis()
+                    )
+                )
+            } else {
+                database.childDao().insert(
+                    Child(
+                        deviceId = ownChildId,
+                        name = participantNameResolver.resolveChildDisplayName(),
+                        iconId = iconId
+                    )
+                )
+            }
+        }
+    }
+
+    private suspend fun syncOwnChildNameToServer(newName: String): Boolean {
+        val ownChildId = sessionStore.resolveCurrentChildId().trim()
+        if (ownChildId.isBlank()) return true
+
+        val linkedParents = fetchLinkedParents(ownChildId)
+        if (linkedParents.isEmpty()) return true
+
+        var allSuccessful = true
+        linkedParents.forEach { parent ->
+            val response = runCatching {
+                networkClient.linkParentChild(
+                    parentDeviceId = parent.parentDeviceId,
+                    childDeviceId = ownChildId,
+                    childDisplayName = newName
+                )
+            }.getOrNull()
+            if (response?.isSuccessful != true) {
+                allSuccessful = false
+            }
+        }
+        if (allSuccessful) {
+            cacheLinkedParentsSnapshot(
+                localParentId = sessionStore.resolveCurrentParentId(),
+                linkedParents = fetchLinkedParents(ownChildId)
+            )
+        }
+        return allSuccessful
+    }
+
+    private suspend fun syncOwnChildMarkerToServer(iconId: Int): Boolean {
+        val ownChildId = sessionStore.resolveCurrentChildId().trim()
+        if (ownChildId.isBlank()) return true
+
+        val linkedParents = fetchLinkedParents(ownChildId)
+        if (linkedParents.isEmpty()) return true
+
+        var allSuccessful = true
+        linkedParents.forEach { parent ->
+            val response = runCatching {
+                networkClient.linkParentChild(
+                    parentDeviceId = parent.parentDeviceId,
+                    childDeviceId = ownChildId,
+                    childMarkerIconId = iconId
+                )
+            }.getOrNull()
+            if (response?.isSuccessful != true) {
+                allSuccessful = false
+            }
+        }
+        if (allSuccessful) {
+            cacheLinkedParentsSnapshot(
+                localParentId = sessionStore.resolveCurrentParentId(),
+                linkedParents = fetchLinkedParents(ownChildId)
+            )
+        }
+        return allSuccessful
     }
 
     private fun buildCachedLinkedParentsLine(): String? {
@@ -723,6 +962,18 @@ class SettingsActivity : AppCompatActivity() {
         val intent = Intent(this, QrCodeActivity::class.java)
         startActivity(intent)
     }
+
+    private fun showBackupParentScanDialog() {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.child_pairing_scan_parent_backup_title)
+            .setMessage(R.string.child_pairing_scan_parent_backup_message)
+            .setPositiveButton(R.string.child_pairing_scan_parent_backup_continue) { _, _ ->
+                val intent = Intent(this, QrScannerActivity::class.java)
+                qrScannerLauncher.launch(intent)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
     
     private fun saveParentDeviceId(parentId: String) {
         val normalized = parentId.trim()
@@ -735,11 +986,18 @@ class SettingsActivity : AppCompatActivity() {
         )
     }
 
-    private suspend fun linkParentOnServer(parentId: String, childDeviceId: String) {
+    private suspend fun linkParentOnServer(
+        parentId: String,
+        childDeviceId: String,
+        parentDisplayName: String? = null,
+        childDisplayName: String? = null
+    ) {
         runCatching {
             networkClient.linkParentChild(
                 parentDeviceId = parentId,
-                childDeviceId = childDeviceId
+                childDeviceId = childDeviceId,
+                parentDisplayName = parentDisplayName,
+                childDisplayName = childDisplayName
             )
         }.onFailure { error ->
             android.util.Log.w(TAG, "Unable to create parent-child link on server", error)
@@ -870,7 +1128,8 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun resolveParentDisplayName(link: LinkedParentLink): String {
-        return link.displayName?.takeIf { it.isNotBlank() }
+        return link.parentDisplayName?.takeIf { it.isNotBlank() }
+            ?: link.displayName?.takeIf { it.isNotBlank() }
             ?: link.parentDeviceName?.takeIf { it.isNotBlank() }
             ?: formatShortId(link.parentDeviceId)
     }
@@ -906,7 +1165,9 @@ class SettingsActivity : AppCompatActivity() {
                             JSONObject().apply {
                                 put("parentDeviceId", parent.parentDeviceId)
                                 put("displayName", parent.displayName ?: "")
+                                put("parentDisplayName", parent.parentDisplayName ?: "")
                                 put("parentDeviceName", parent.parentDeviceName ?: "")
+                                put("parentMarkerIconId", parent.parentMarkerIconId ?: ContactIcons.DEFAULT)
                             }
                         )
                     }
@@ -972,6 +1233,9 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
 
+        labels += getString(R.string.child_parent_link_action_rename)
+        actions += { showRenameParentDialog(parent) }
+
         labels += getString(R.string.child_parent_link_action_remove)
         actions += { confirmRemoveParentLink(parent) }
 
@@ -982,6 +1246,157 @@ class SettingsActivity : AppCompatActivity() {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    private fun showForceReleaseListeningDialog() {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val currentChildId = sessionStore.resolveCurrentChildId().ifBlank {
+            prefs.getString("device_id", null).orEmpty()
+        }
+        val currentServerUrl = sessionStore.resolveCurrentServerUrl().ifBlank {
+            ServerUrlResolver.getServerUrl(this) ?: ""
+        }
+
+        if (currentChildId.isBlank()) {
+            Toast.makeText(this, R.string.child_parent_link_no_child_id, Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (currentServerUrl.isBlank()) {
+            Toast.makeText(this, R.string.settings_error_enter_server_url_in_settings, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        lifecycleScope.launch {
+            val status = networkClient.getStreamingStatus(currentServerUrl, currentChildId)
+            if (status?.active != true) {
+                Toast.makeText(
+                    this@SettingsActivity,
+                    R.string.child_parent_link_release_listening_missing,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@launch
+            }
+
+            val ownerLabel = status.ownerDisplayName?.takeIf { it.isNotBlank() }
+                ?: status.ownerParentId?.takeIf { it.isNotBlank() }
+                ?: getString(R.string.child_parent_link_release_listening_unknown_owner)
+
+            androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                .setTitle(R.string.child_parent_link_release_listening_title)
+                .setMessage(
+                    getString(
+                        R.string.child_parent_link_release_listening_message,
+                        ownerLabel
+                    )
+                )
+                .setPositiveButton(R.string.child_parent_link_release_listening_button) { _, _ ->
+                    forceReleaseListeningLine(currentServerUrl, currentChildId)
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun forceReleaseListeningLine(serverUrl: String, childId: String) {
+        WebSocketManager.initialize(this, serverUrl, childId)
+        WebSocketManager.ensureConnected(
+            onReady = {
+                runOnUiThread {
+                    runCatching {
+                        val releasedByDisplayName = participantNameResolver.resolveChildDisplayName()
+                        val payload = JSONObject().apply {
+                            put("deviceId", childId)
+                            put("releasedByDisplayName", releasedByDisplayName)
+                            put("timestamp", System.currentTimeMillis())
+                        }
+                        val client = WebSocketManager.getClient()
+                        if (client == null || !client.isReady()) {
+                            throw IllegalStateException("WebSocket is not ready")
+                        }
+                        client.emit("force_release_stream", payload)
+                        LocationService.requestAudioStop(this)
+                        AudioStreamingService.stopStreaming(this)
+                        Toast.makeText(
+                            this,
+                            R.string.child_parent_link_release_listening_done,
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }.onFailure {
+                        Log.e(TAG, "Failed to force release listening line", it)
+                        Toast.makeText(
+                            this,
+                            getString(
+                                R.string.settings_error_stop,
+                                it.message ?: getString(R.string.child_parent_link_release_listening_failed)
+                            ),
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            },
+            onError = { error ->
+                runOnUiThread {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.settings_error_stop, error),
+                        Toast.LENGTH_LONG
+                    ).show()
+                }
+            }
+        )
+    }
+
+    private fun showRenameParentDialog(parent: LinkedParentLink) {
+        val input = EditText(this).apply {
+            setText(parent.displayName?.takeIf { it.isNotBlank() } ?: "")
+            hint = getString(R.string.child_parent_link_rename_hint)
+            setSingleLine()
+        }
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.child_parent_link_rename_title)
+            .setView(input)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val newDisplayName = input.text?.toString()?.trim().orEmpty()
+                lifecycleScope.launch {
+                    renameParentLink(parent, newDisplayName)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private suspend fun renameParentLink(parent: LinkedParentLink, newDisplayName: String) {
+        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+        val currentChildId = sessionStore.resolveCurrentChildId().ifBlank {
+            prefs.getString("device_id", null).orEmpty()
+        }
+        if (currentChildId.isBlank()) {
+            Toast.makeText(this, R.string.child_parent_link_no_child_id, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val response = runCatching {
+            networkClient.linkParentChild(
+                parentDeviceId = parent.parentDeviceId,
+                childDeviceId = currentChildId,
+                parentDisplayName = newDisplayName.ifBlank { null }
+            )
+        }.getOrNull()
+
+        if (response?.isSuccessful != true) {
+            Toast.makeText(this, R.string.child_parent_link_rename_failed, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val refreshedParents = fetchLinkedParents(currentChildId)
+        cacheLinkedParentsSnapshot(
+            localParentId = sessionStore.resolveCurrentParentId(),
+            linkedParents = refreshedParents
+        )
+        updateParentConnectionStatus()
+        updateProfileSummary()
+        Toast.makeText(this, R.string.child_parent_link_rename_done, Toast.LENGTH_SHORT).show()
     }
 
     private fun confirmRemoveParentLink(parent: LinkedParentLink) {
@@ -1131,8 +1546,10 @@ class SettingsActivity : AppCompatActivity() {
                     add(
                         LinkedParentLink(
                             parentDeviceId = parentDeviceId,
+                            parentDisplayName = item.optString("parentDisplayName").takeIf { it.isNotBlank() },
                             displayName = item.optString("displayName").takeIf { it.isNotBlank() },
-                            parentDeviceName = item.optString("parentDeviceName").takeIf { it.isNotBlank() }
+                            parentDeviceName = item.optString("parentDeviceName").takeIf { it.isNotBlank() },
+                            parentMarkerIconId = item.optInt("parentMarkerIconId", ContactIcons.DEFAULT)
                         )
                     )
                 }

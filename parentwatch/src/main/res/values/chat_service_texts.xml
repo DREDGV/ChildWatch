@@ -3,8 +3,12 @@
     <string name="chat_service_channel_name">Фоновый чат</string>
     <string name="chat_service_channel_description">Поддерживает соединение для чата и удалённых команд</string>
     <string name="chat_service_title">ChildDevice - чат</string>
-    <string name="chat_service_connecting">Подключение…</string>
-    <string name="chat_service_active">Чат активен</string>
+    <string name="chat_service_connecting">Восстановление фоновой связи…</string>
+    <string name="chat_service_active">Фоновая связь активна</string>
+    <string name="audio_recovery_channel_name">Восстановление прослушивания</string>
+    <string name="audio_recovery_channel_description">Сообщает, когда Android заблокировал микрофон после перезагрузки</string>
+    <string name="audio_recovery_notification_title">Требуется восстановить прослушивание</string>
+    <string name="audio_recovery_notification_text">Нажмите один раз, чтобы Android разрешил доступ к микрофону</string>
     <string name="chat_service_error">Ошибка подключения</string>
     <string name="chat_service_unavailable">Не удалось подключиться</string>
 </resources>

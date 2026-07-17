@@ -41,7 +41,7 @@ class ChatBackgroundService : LifecycleService() {
     companion object {
         private const val TAG = "ChatBackgroundService"
         private const val NOTIFICATION_ID = 2001
-        private const val CHANNEL_ID = "chat_background_service"
+        private const val CHANNEL_ID = "chat_background_service_silent_v2"
         private const val PREFS_NAME = "parentwatch_prefs"
         private const val PREF_CHAT_DESIRED = "chat_service_desired"
         private const val CONNECTION_HEALTH_INTERVAL_HEALTHY_MS = 45_000L
@@ -82,11 +82,13 @@ class ChatBackgroundService : LifecycleService() {
         handleIncomingMessage(messageId, text, sender, timestamp)
     }
     private var backgroundMessageSentListener: ((String, Boolean, Long) -> Unit)? = null
+    private var photoRequestListener: ((String, String, String) -> Unit)? = null
     private var backgroundListenerRegistered = false
     private var connectionHealthJob: kotlinx.coroutines.Job? = null
     private lateinit var effectiveContextResolver: ChildEffectiveContextResolver
     private lateinit var activeSessionStore: ChildActiveSessionStore
     @Volatile private var reconnectInProgress = false
+    private var lastNotificationText: String? = null
     private var stopRequested = false
     @Volatile private var lastStartStreamAtMs: Long = 0L
     @Volatile private var lastStartStreamRate: Int = 24_000
@@ -363,7 +365,8 @@ class ChatBackgroundService : LifecycleService() {
                                             context = this@ChatBackgroundService,
                                             senderName = msg.getSenderName(),
                                             messageText = msg.text,
-                                            timestamp = msg.timestamp
+                                            timestamp = msg.timestamp,
+                                            messageId = msg.id
                                         )
                                     }
                                 }
@@ -384,16 +387,19 @@ class ChatBackgroundService : LifecycleService() {
                             backgroundListenerRegistered = true
                         }
 
-                        WebSocketManager.setPhotoRequestCallback { requestId, targetDevice, cameraFacing ->
-                            Log.d(TAG, "Photo request received (req=$requestId, target=$targetDevice)")
-                            PhotoCaptureService.dispatchPhotoRequest(
-                                this@ChatBackgroundService,
-                                serverUrl,
-                                deviceId,
-                                requestId,
-                                targetDevice,
-                                cameraFacing
-                            )
+                        if (photoRequestListener == null) {
+                            photoRequestListener = { requestId, targetDevice, cameraFacing ->
+                                Log.d(TAG, "Photo request received (req=$requestId, target=$targetDevice)")
+                                PhotoCaptureService.dispatchPhotoRequest(
+                                    this@ChatBackgroundService,
+                                    serverUrl,
+                                    deviceId,
+                                    requestId,
+                                    targetDevice,
+                                    cameraFacing
+                                )
+                            }
+                            WebSocketManager.addPhotoRequestListener(photoRequestListener!!)
                         }
 
                         WebSocketManager.setParentLocationCallback { parentId, lat, lon, accuracy, timestamp, speed, bearing ->
@@ -469,6 +475,8 @@ class ChatBackgroundService : LifecycleService() {
         backgroundMessageSentListener?.let { WebSocketManager.removeChatMessageSentListener(it) }
         backgroundMessageSentListener = null
         WebSocketManager.removeCommandListener(commandListener)
+        photoRequestListener?.let { WebSocketManager.removePhotoRequestListener(it) }
+        photoRequestListener = null
         connectionHealthJob?.cancel()
         connectionHealthJob = null
 
@@ -529,7 +537,8 @@ class ChatBackgroundService : LifecycleService() {
                 context = this,
                 senderName = message.getSenderName(),
                 messageText = text,
-                timestamp = timestamp
+                timestamp = timestamp,
+                messageId = messageId
             )
         }
     }
@@ -591,9 +600,9 @@ class ChatBackgroundService : LifecycleService() {
     }
 
     private fun shouldShowIncomingChatNotification(message: ChatMessage): Boolean {
-        if (!message.isIncoming("child", resolveOwnChildDeviceId())) return false
-        val prefs = getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
-        return !prefs.getBoolean("chat_open", false)
+        // A persisted chat_open value can remain true after a reboot or an
+        // abrupt process stop. The caller already checks live UI visibility.
+        return message.isIncoming("child", resolveOwnChildDeviceId())
     }
 
     private fun resolveOwnChildDeviceId(): String {
@@ -611,6 +620,8 @@ class ChatBackgroundService : LifecycleService() {
             ).apply {
                 description = getString(R.string.chat_service_channel_description)
                 setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
             }
 
             val notificationManager = getSystemService(NotificationManager::class.java)
@@ -638,11 +649,18 @@ class ChatBackgroundService : LifecycleService() {
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
     }
 
     private fun updateNotification(contentText: String) {
+        if (lastNotificationText == contentText) {
+            Log.d(TAG, "Skipping duplicate chat service notification: $contentText")
+            return
+        }
+        lastNotificationText = contentText
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.notify(NOTIFICATION_ID, createNotification(contentText))
     }

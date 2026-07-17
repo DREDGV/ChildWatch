@@ -10,10 +10,6 @@ import com.google.zxing.qrcode.QRCodeWriter
 import ru.example.parentwatch.databinding.ActivityQrCodeBinding
 import ru.example.parentwatch.session.ChildActiveSessionStore
 
-/**
- * QR Code Activity for ParentWatch
- * Displays QR code with Device ID for easy pairing
- */
 class QrCodeActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityQrCodeBinding
@@ -29,20 +25,15 @@ class QrCodeActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = "QR-код устройства"
+        supportActionBar?.title = getString(R.string.child_qr_title_primary)
 
         setupUI()
         generateAndDisplayQrCode()
     }
 
     private fun setupUI() {
-        binding.closeButton.setOnClickListener {
-            finish()
-        }
-
-        binding.shareButton.setOnClickListener {
-            shareQrCode()
-        }
+        binding.closeButton.setOnClickListener { finish() }
+        binding.shareButton.setOnClickListener { shareQrCode() }
     }
 
     private fun generateAndDisplayQrCode() {
@@ -53,18 +44,16 @@ class QrCodeActivity : AppCompatActivity() {
             }
 
             if (deviceId.isBlank()) {
-                Toast.makeText(this, "Device ID не найден", Toast.LENGTH_SHORT).show()
-                binding.deviceIdText.text = "Device ID не настроен"
+                Toast.makeText(this, getString(R.string.child_qr_missing_device), Toast.LENGTH_SHORT).show()
+                binding.deviceIdText.text = getString(R.string.child_qr_missing_device)
                 return
             }
 
-            binding.deviceIdText.text = deviceId
+            binding.qrTitleText.text = getString(R.string.child_qr_title_primary)
+            binding.instructionsText.text = getString(R.string.child_qr_subtitle_primary)
+            binding.qrHelpText.text = getString(R.string.child_qr_help_primary)
+            binding.deviceIdText.text = getString(R.string.child_qr_device_label, deviceId)
             binding.qrCodeImageView.setImageBitmap(generateQrCode(deviceId))
-            binding.instructionsText.text = """
-                Отсканируйте этот QR-код с помощью
-                родительского приложения (ParentMonitor)
-                для быстрого сопряжения устройств
-            """.trimIndent()
         } catch (e: Exception) {
             Toast.makeText(this, "Ошибка генерации QR-кода: ${e.message}", Toast.LENGTH_LONG).show()
         }

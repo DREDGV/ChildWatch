@@ -15,12 +15,24 @@
     <string name="child_parent_link_manage_item_format">%1$s\n%2$s</string>
     <string name="child_parent_link_actions_title">Действия с родителем</string>
     <string name="child_parent_link_action_set_active">Сделать активным</string>
+    <string name="child_parent_link_action_rename">Переименовать</string>
     <string name="child_parent_link_action_remove">Отключить</string>
     <string name="child_parent_link_switch_done">Активный родитель обновлен</string>
+    <string name="child_parent_link_rename_title">Имя родителя</string>
+    <string name="child_parent_link_rename_hint">Например, мама или папа</string>
+    <string name="child_parent_link_rename_done">Имя родителя обновлено</string>
+    <string name="child_parent_link_rename_failed">Не удалось обновить имя родителя</string>
     <string name="child_parent_link_remove_title">Отключить родителя</string>
-    <string name="child_parent_link_remove_message">Отключить связь с родителем \"%1$s\"?</string>
+    <string name="child_parent_link_remove_message">Отключить связь с родителем "%1$s"?</string>
     <string name="child_parent_link_remove_done">Связь с родителем удалена</string>
     <string name="child_parent_link_remove_failed">Не удалось удалить связь с родителем</string>
     <string name="child_parent_link_load_failed">Не удалось загрузить список родителей</string>
     <string name="child_parent_link_no_child_id">Сначала настройте ID ребенка</string>
+    <string name="child_parent_link_release_listening_button">Освободить линию прослушки</string>
+    <string name="child_parent_link_release_listening_title">Освободить линию?</string>
+    <string name="child_parent_link_release_listening_message">Сейчас ребенка прослушивает %1$s. Принудительно освободить линию прослушки?</string>
+    <string name="child_parent_link_release_listening_unknown_owner">другой родитель</string>
+    <string name="child_parent_link_release_listening_done">Линия прослушки освобождена</string>
+    <string name="child_parent_link_release_listening_missing">Сейчас никто не прослушивает устройство</string>
+    <string name="child_parent_link_release_listening_failed">Не удалось освободить линию прослушки</string>
 </resources>

@@ -44,6 +44,11 @@ interface ChildWatchApi {
         @Path("childDeviceId") childDeviceId: String
     ): Response<LinkedParentsResponse>
 
+    @GET("api/relationships/presence/{childDeviceId}")
+    suspend fun getFamilyPresence(
+        @Path("childDeviceId") childDeviceId: String
+    ): Response<FamilyPresenceResponse>
+
     /**
      * Create or update a parent-child server-side link
      */
@@ -149,6 +154,10 @@ data class LinkedParentLink(
     val childDeviceId: String? = null,
     val relationRole: String? = null,
     val displayName: String? = null,
+    val parentDisplayName: String? = null,
+    val childDisplayName: String? = null,
+    val parentMarkerIconId: Int? = null,
+    val childMarkerIconId: Int? = null,
     val createdBy: String? = null,
     val isActive: Boolean? = null,
     val createdAt: String? = null,
@@ -158,11 +167,30 @@ data class LinkedParentLink(
     val parentAppVersion: String? = null
 )
 
+data class FamilyPresenceResponse(
+    val success: Boolean,
+    val childDeviceId: String,
+    val participants: List<FamilyPresenceParticipant> = emptyList(),
+    val onlineCount: Int = 0,
+    val totalCount: Int = 0
+)
+
+data class FamilyPresenceParticipant(
+    val role: String,
+    val deviceId: String,
+    val displayName: String,
+    val isOnline: Boolean
+)
+
 data class ParentChildLinkRequest(
     val parentDeviceId: String,
     val childDeviceId: String,
     val relationRole: String = "guardian",
-    val displayName: String? = null
+    val displayName: String? = null,
+    val parentDisplayName: String? = null,
+    val childDisplayName: String? = null,
+    val parentMarkerIconId: Int? = null,
+    val childMarkerIconId: Int? = null
 )
 
 data class ParentChildUnlinkRequest(

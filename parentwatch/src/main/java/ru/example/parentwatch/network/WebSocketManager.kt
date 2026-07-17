@@ -36,6 +36,10 @@ object WebSocketManager {
     private var chatStatusAckCallback: ((String, String, Long) -> Unit)? = null
     private var parentConnectedCallback: (() -> Unit)? = null
     private var parentDisconnectedCallback: (() -> Unit)? = null
+    private var photoRequestCallback: ((String, String, String) -> Unit)? = null
+    private val photoRequestListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(String, String, String) -> Unit>()
+    )
 
     /**
      * Initialize WebSocket client
@@ -77,6 +81,9 @@ object WebSocketManager {
         webSocketClient?.setCommandCallback { command, data ->
             dispatchCommand(command, data)
         }
+        webSocketClient?.onRequestPhotoCallback = { requestId, targetDevice, cameraFacing ->
+            dispatchPhotoRequest(requestId, targetDevice, cameraFacing)
+        }
         parentConnectedCallback?.let { webSocketClient?.setParentConnectedCallback(it) }
         parentDisconnectedCallback?.let { webSocketClient?.setParentDisconnectedCallback(it) }
         isInitialized = true
@@ -101,6 +108,9 @@ object WebSocketManager {
             }
             setCommandCallback { command, data ->
                 dispatchCommand(command, data)
+            }
+            onRequestPhotoCallback = { requestId, targetDevice, cameraFacing ->
+                dispatchPhotoRequest(requestId, targetDevice, cameraFacing)
             }
             setChatMessageSentCallback { messageId, delivered, timestamp ->
                 dispatchChatMessageSent(messageId, delivered, timestamp)
@@ -138,6 +148,29 @@ object WebSocketManager {
         } else {
             webSocketClient?.requestRegistration()
         }
+    }
+
+    /**
+     * Rebuild the socket after HTTP registration or token rotation so the next
+     * Socket.IO handshake always uses the latest persisted credential.
+     */
+    fun reconnectWithCurrentAuth(
+        onReady: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        if (!isInitialized || webSocketClient == null) {
+            Log.d(TAG, "WebSocket not initialized yet; the first connection will use current auth")
+            return
+        }
+
+        var delivered = false
+        webSocketClient?.setRegisteredCallback {
+            if (delivered) return@setRegisteredCallback
+            delivered = true
+            onReady()
+        }
+        webSocketClient?.disconnect()
+        connect(onConnected = {}, onError = onError)
     }
 
     /**
@@ -439,10 +472,12 @@ object WebSocketManager {
         chatStatusCallback = null
         parentConnectedCallback = null
         parentDisconnectedCallback = null
+        photoRequestCallback = null
         chatMessageSentListeners.clear()
         chatStatusListeners.clear()
         chatMessageListeners.clear()
         commandListeners.clear()
+        photoRequestListeners.clear()
     }
     
     private val commandListeners = java.util.Collections.synchronizedSet(
@@ -488,7 +523,37 @@ object WebSocketManager {
      * Set callback for photo requests
      */
     fun setPhotoRequestCallback(callback: (requestId: String, targetDevice: String, cameraFacing: String) -> Unit) {
-        webSocketClient?.onRequestPhotoCallback = callback
+        photoRequestCallback = callback
+        webSocketClient?.onRequestPhotoCallback = { requestId, targetDevice, cameraFacing ->
+            dispatchPhotoRequest(requestId, targetDevice, cameraFacing)
+        }
+    }
+
+    fun addPhotoRequestListener(callback: (requestId: String, targetDevice: String, cameraFacing: String) -> Unit) {
+        photoRequestListeners.add(callback)
+        webSocketClient?.onRequestPhotoCallback = { requestId, targetDevice, cameraFacing ->
+            dispatchPhotoRequest(requestId, targetDevice, cameraFacing)
+        }
+    }
+
+    fun removePhotoRequestListener(callback: ((requestId: String, targetDevice: String, cameraFacing: String) -> Unit)? = null) {
+        if (callback == null) {
+            photoRequestListeners.clear()
+        } else {
+            photoRequestListeners.remove(callback)
+        }
+    }
+
+    private fun dispatchPhotoRequest(requestId: String, targetDevice: String, cameraFacing: String) {
+        val snapshot = synchronized(photoRequestListeners) { photoRequestListeners.toList() }
+        snapshot.forEach { listener ->
+            try {
+                listener(requestId, targetDevice, cameraFacing)
+            } catch (e: Exception) {
+                Log.e(TAG, "Photo request listener failed", e)
+            }
+        }
+        photoRequestCallback?.invoke(requestId, targetDevice, cameraFacing)
     }
 }
 

@@ -15,6 +15,7 @@
 
         <!-- Header -->
         <TextView
+            android:id="@+id/qrTitleText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="📱 QR-код для сопряжения"
@@ -133,6 +134,7 @@
 
         <!-- Help Text -->
         <TextView
+            android:id="@+id/qrHelpText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"

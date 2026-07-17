@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="child_pairing_show_child_qr_button">Показать QR ребенка</string>
+    <string name="child_pairing_scan_parent_backup_button">Сканировать QR родителя (резерв)</string>
+    <string name="child_pairing_scan_parent_backup_title">Резервная привязка родителя</string>
+    <string name="child_pairing_scan_parent_backup_message">Обычный способ подключения проще: откройте QR ребенка на этом телефоне и отсканируйте его родительским приложением. Сканирование QR родителя оставлено как резервный вариант для ручного восстановления связи. Продолжить?</string>
+    <string name="child_pairing_scan_parent_backup_continue">Продолжить</string>
+    <string name="child_qr_title_primary">QR ребенка для подключения</string>
+    <string name="child_qr_subtitle_primary">Откройте этот экран на детском телефоне и отсканируйте QR в родительском приложении.</string>
+    <string name="child_qr_help_primary">Основной способ: родитель сканирует QR ребенка. Обратное сканирование родителя используйте только как резервный вариант.</string>
+    <string name="child_qr_device_label">ID ребенка: %1$s</string>
+    <string name="child_qr_missing_device">ID ребенка не найден</string>
+    <string name="child_qr_scanner_backup_title">Сканировать QR родителя (резерв)</string>
+</resources>

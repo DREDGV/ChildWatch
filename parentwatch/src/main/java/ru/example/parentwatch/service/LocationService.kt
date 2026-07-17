@@ -24,6 +24,7 @@ import ru.example.parentwatch.network.NetworkHelper
 import ru.example.parentwatch.audio.AudioStreamRecorder
 import ru.example.parentwatch.session.ChildActiveSessionStore
 import ru.example.parentwatch.session.ChildEffectiveContextResolver
+import ru.example.parentwatch.utils.AppVisibilityTracker
 import ru.example.parentwatch.utils.DeviceInfoCollector
 import ru.example.parentwatch.utils.RemoteLogger
 import ru.example.parentwatch.utils.ServerUrlResolver
@@ -51,6 +52,8 @@ class LocationService : Service() {
         private const val LOCATION_UPLOAD_DISTANCE_ACTIVE_METERS = 10f
         private const val COMMAND_CHECK_INTERVAL_WS_HEALTHY = 60_000L
         private const val COMMAND_CHECK_INTERVAL_WS_DEGRADED = 10_000L
+        private const val CHAT_SERVICE_RECOVERY_COOLDOWN_MS = 20_000L
+        private const val REGISTRATION_RECOVERY_COOLDOWN_MS = 30_000L
         private const val MOVING_SPEED_THRESHOLD_MPS = 1.4f
         private const val FAST_TRANSIT_SPEED_THRESHOLD_MPS = 6.0f
         private const val MOVEMENT_DISTANCE_THRESHOLD_METERS = 20f
@@ -64,8 +67,13 @@ class LocationService : Service() {
         const val ACTION_STOP_AUDIO_STREAM = "stop_audio_stream"
         const val ACTION_PAUSE_AUDIO_CAPTURE_FOR_PHOTO = "pause_audio_capture_for_photo"
         const val ACTION_RESUME_AUDIO_CAPTURE_AFTER_PHOTO = "resume_audio_capture_after_photo"
+        const val ACTION_RETRY_AUDIO_AFTER_FOREGROUND = "retry_audio_after_foreground"
         const val EXTRA_AUDIO_RECORDING = "audio_recording"
         const val EXTRA_AUDIO_SAMPLE_RATE = "audio_sample_rate"
+
+        @Volatile
+        var isServiceAlive = false
+            private set
 
         fun requestAudioStart(context: Context, recording: Boolean, sampleRate: Int = 24_000) {
             val intent = Intent(context, LocationService::class.java).apply {
@@ -84,6 +92,7 @@ class LocationService : Service() {
         }
 
         fun pauseAudioCaptureForPhoto(context: Context) {
+            if (!isServiceAlive) return
             val intent = Intent(context, LocationService::class.java).apply {
                 action = ACTION_PAUSE_AUDIO_CAPTURE_FOR_PHOTO
             }
@@ -91,8 +100,17 @@ class LocationService : Service() {
         }
 
         fun resumeAudioCaptureAfterPhoto(context: Context) {
+            if (!isServiceAlive) return
             val intent = Intent(context, LocationService::class.java).apply {
                 action = ACTION_RESUME_AUDIO_CAPTURE_AFTER_PHOTO
+            }
+            context.startService(intent)
+        }
+
+        fun retryAudioAfterForeground(context: Context) {
+            if (!isServiceAlive) return
+            val intent = Intent(context, LocationService::class.java).apply {
+                action = ACTION_RETRY_AUDIO_AFTER_FOREGROUND
             }
             context.startService(intent)
         }
@@ -115,10 +133,17 @@ class LocationService : Service() {
     private val serviceScope = CoroutineScope(Dispatchers.Default + SupervisorJob())
     private var isTracking = false
     private var isStreamingAudio = false
+    /**
+     * True only after this process successfully adds the CAMERA foreground-service type while an
+     * activity is visible. Never persist this flag: Android revokes the while-in-use elevation
+     * when the process is recreated (for example after a reboot).
+     */
+    private var cameraForegroundPrimed = false
     private var deviceId: String? = null
     private var serverUrl: String? = null
     private var commandCheckJob: Job? = null
     private var registrationJob: Job? = null
+    private var registrationRecoveryJob: Job? = null
     private var locationUpdatesStarted = false
     private var currentTrackingMode = TrackingMode.BALANCED
     private var lastTrackingModeChangeAt = 0L
@@ -127,9 +152,29 @@ class LocationService : Service() {
     private var lastUploadedLocation: Location? = null
     private var lastLocationUploadAt: Long = 0L
     private var locationUploadInFlight = false
+    @Volatile private var lastChatServiceRecoveryAt = 0L
+    @Volatile private var lastRegistrationRecoveryAt = 0L
+    private val photoRequestListener: (String, String, String) -> Unit = { requestId, targetDevice, cameraFacing ->
+        val currentServerUrl = serverUrl
+        val currentDeviceId = deviceId
+        if (!currentServerUrl.isNullOrBlank() && !currentDeviceId.isNullOrBlank()) {
+            Log.d(TAG, "LocationService relaying photo request: req=$requestId target=$targetDevice")
+            PhotoCaptureService.dispatchPhotoRequest(
+                this,
+                currentServerUrl,
+                currentDeviceId,
+                requestId,
+                targetDevice,
+                cameraFacing
+            )
+        } else {
+            Log.w(TAG, "Skipping photo relay: monitoring context is incomplete")
+        }
+    }
 
     override fun onCreate() {
         super.onCreate()
+        isServiceAlive = true
         android.util.Log.d("ParentWatch", "LocationService onCreate called")
         Log.d(TAG, "Service created")
 
@@ -139,6 +184,7 @@ class LocationService : Service() {
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
         networkHelper = NetworkHelper(this)
         audioRecorder = AudioStreamRecorder(this, networkHelper)
+        ru.example.parentwatch.network.WebSocketManager.addPhotoRequestListener(photoRequestListener)
 
         createNotificationChannel()
         setupLocationCallback()
@@ -198,6 +244,9 @@ class LocationService : Service() {
             ACTION_RESUME_AUDIO_CAPTURE_AFTER_PHOTO -> {
                 resumeAudioCaptureAfterPhoto()
             }
+            ACTION_RETRY_AUDIO_AFTER_FOREGROUND -> {
+                retryAudioCaptureAfterForeground()
+            }
             null -> {
                 // Service restarted by system, resume tracking if it was running
                 Log.d(TAG, "Service restarted by system, resuming tracking")
@@ -218,6 +267,7 @@ class LocationService : Service() {
 
         // Start foreground service FIRST to avoid crash
         promoteToForeground()
+        primeCameraForegroundAccessIfVisible()
 
         // Load settings (prefer intent extras to avoid async prefs race)
         val effectiveContext = effectiveContextResolver.resolveEffectiveContext()
@@ -296,6 +346,7 @@ class LocationService : Service() {
 
     private fun startRegistrationLoop() {
         registrationJob?.cancel()
+        registrationRecoveryJob?.cancel()
         registrationJob = serviceScope.launch {
             var attempt = 0
             while (isActive && isTracking && !locationUpdatesStarted) {
@@ -303,6 +354,12 @@ class LocationService : Service() {
                     val ok = networkHelper.registerDevice(serverUrl!!, deviceId!!)
                     if (ok) {
                         Log.d(TAG, "Device registered")
+                        ru.example.parentwatch.network.WebSocketManager.reconnectWithCurrentAuth(
+                            onReady = { Log.i(TAG, "WebSocket reconnected with current authentication") },
+                            onError = { error: String ->
+                                Log.w(TAG, "WebSocket authentication reconnect failed: $error")
+                            }
+                        )
                         withContext(Dispatchers.Main) {
                             Toast.makeText(
                                 this@LocationService,
@@ -331,6 +388,8 @@ class LocationService : Service() {
 
         registrationJob?.cancel()
         registrationJob = null
+        registrationRecoveryJob?.cancel()
+        registrationRecoveryJob = null
 
         fusedLocationClient.removeLocationUpdates(locationCallback)
         stopForeground(true)
@@ -462,11 +521,126 @@ class LocationService : Service() {
                 this,
                 NOTIFICATION_ID,
                 notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+                composeForegroundServiceTypes(includeMicrophone = false)
             )
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+    }
+
+    private fun promoteToForegroundForAudio(): Boolean {
+        val notification = createNotification(
+            getString(
+                R.string.location_service_notification_active_with_battery,
+                DeviceInfoCollector.getBatteryStatus(this)
+            )
+        )
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceCompat.startForeground(
+                    this,
+                    NOTIFICATION_ID,
+                    notification,
+                    composeForegroundServiceTypes(includeMicrophone = true)
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+            true
+        }.onFailure { error ->
+            Log.w(TAG, "Unable to promote LocationService for microphone capture", error)
+            RemoteLogger.warn(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "Microphone foreground promotion failed",
+                meta = mapOf("error" to (error.message ?: error.javaClass.simpleName))
+            )
+        }.getOrDefault(false)
+    }
+
+    /**
+     * Android 11+ only grants background camera access when the camera FGS type is activated while
+     * the app has a visible activity. LocationService is already persistent, so priming it avoids
+     * a second permanent notification from PhotoCaptureService.
+     */
+    private fun primeCameraForegroundAccessIfVisible(): Boolean {
+        val cameraPermissionGranted = ActivityCompat.checkSelfPermission(
+            this,
+            Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
+        if (!cameraPermissionGranted) {
+            cameraForegroundPrimed = false
+            Log.w(TAG, "Camera foreground access not primed: CAMERA permission missing")
+            return false
+        }
+        if (cameraForegroundPrimed) return true
+        if (!AppVisibilityTracker.isVisible()) {
+            Log.d(TAG, "Camera foreground access not primed: no visible activity")
+            return false
+        }
+
+        val notification = createNotification(
+            getString(
+                R.string.location_service_notification_active_with_battery,
+                DeviceInfoCollector.getBatteryStatus(this)
+            )
+        )
+        val promoted = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                val microphoneRequested = isStreamingAudio ||
+                    (this::audioRecorder.isInitialized && audioRecorder.isStreamingDesired())
+                ServiceCompat.startForeground(
+                    this,
+                    NOTIFICATION_ID,
+                    notification,
+                    composeForegroundServiceTypes(
+                        includeMicrophone = microphoneRequested,
+                        includeCamera = true
+                    )
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        }.onFailure { error ->
+            Log.w(TAG, "Unable to prime foreground camera access", error)
+            RemoteLogger.warn(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "Camera foreground promotion failed",
+                meta = mapOf("error" to (error.message ?: error.javaClass.simpleName))
+            )
+        }.isSuccess
+
+        if (promoted) {
+            cameraForegroundPrimed = true
+            Log.i(TAG, "Foreground camera access primed while app is visible")
+        } else {
+            // Keep the existing location foreground service alive even if an OEM rejects CAMERA.
+            promoteToForeground()
+        }
+        return promoted
+    }
+
+    private fun composeForegroundServiceTypes(
+        includeMicrophone: Boolean,
+        includeCamera: Boolean = cameraForegroundPrimed
+    ): Int {
+        var types = ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION
+        if (includeMicrophone &&
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE
+        }
+        if (includeCamera &&
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            types = types or ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+        }
+        return types
     }
 
     private fun updateNotification(text: String) {
@@ -590,6 +764,7 @@ class LocationService : Service() {
             } else {
                 // Service can remain "active" with alive WS but paused mic (e.g., after reconnect race).
                 // Force recorder resume on repeated start command.
+                promoteToForegroundForAudio()
                 audioRecorder.ensureCaptureRunning()
                 Log.w(TAG, "Already streaming audio, capture resume check performed")
                 RemoteLogger.warn(
@@ -636,17 +811,18 @@ class LocationService : Service() {
             return
         }
 
+        promoteToForegroundForAudio()
         audioRecorder.startStreaming(deviceId, serverUrl, recording, sampleRate)
         isStreamingAudio = true
         restartLocationUpdatesForCurrentMode()
         updateNotification(getString(R.string.location_service_notification_active_with_battery, DeviceInfoCollector.getBatteryStatus(this)))
 
-        Log.d(TAG, "Audio streaming started (silent mode)")
+        Log.d(TAG, "Audio streaming requested (silent mode)")
         RemoteLogger.info(
             serverUrl = serverUrl,
             deviceId = deviceId,
             source = TAG,
-            message = "Audio streaming started from LocationService",
+            message = "Audio streaming requested from LocationService",
             meta = mapOf("recording" to recording)
         )
     }
@@ -681,10 +857,20 @@ class LocationService : Service() {
         }
         Log.d(TAG, "Resuming active audio capture after remote photo")
         runCatching {
-            audioRecorder.ensureCaptureRunning()
+            promoteToForegroundForAudio()
+            audioRecorder.resumeCapture()
         }.onFailure { error ->
             Log.w(TAG, "Failed to resume audio capture after remote photo", error)
         }
+    }
+
+    private fun retryAudioCaptureAfterForeground() {
+        primeCameraForegroundAccessIfVisible()
+        if (!isStreamingAudio && !audioRecorder.isStreamingDesired()) return
+
+        Log.d(TAG, "Retrying requested audio capture while app is visible")
+        promoteToForegroundForAudio()
+        audioRecorder.retryCaptureAfterForeground()
     }
 
     /**
@@ -701,7 +887,9 @@ class LocationService : Service() {
         audioRecorder.stopStreaming()
         isStreamingAudio = false
         restartLocationUpdatesForCurrentMode()
-        updateNotification(getString(R.string.location_service_notification_active))
+        if (isServiceAlive) {
+            promoteToForeground(getString(R.string.location_service_notification_active))
+        }
 
         Log.d(TAG, "Audio streaming stopped (silent mode)")
         RemoteLogger.info(
@@ -715,14 +903,68 @@ class LocationService : Service() {
     private fun ensureBackgroundServicesHealthy() {
         val deviceId = this.deviceId?.takeIf { it.isNotBlank() } ?: return
         val serverUrl = this.serverUrl?.takeIf { it.isNotBlank() } ?: return
+        val socketDegraded =
+            !ru.example.parentwatch.network.WebSocketManager.isConnected() ||
+                !ru.example.parentwatch.network.WebSocketManager.isReady()
 
-        if (!ChatBackgroundService.isRunning) {
-            Log.w(TAG, "ChatBackgroundService is down, restarting from LocationService")
+        if (!ChatBackgroundService.isRunning || shouldRestartChatService(socketDegraded)) {
+            lastChatServiceRecoveryAt = System.currentTimeMillis()
+            Log.w(
+                TAG,
+                if (!ChatBackgroundService.isRunning) {
+                    "ChatBackgroundService is down, restarting from LocationService"
+                } else {
+                    "ChatBackgroundService socket degraded, forcing self-heal restart"
+                }
+            )
             ChatBackgroundService.start(this, serverUrl, deviceId)
+        }
+
+        if (!locationUpdatesStarted && registrationJob?.isActive != true) {
+            Log.w(TAG, "Location registration loop is idle, restarting it")
+            startRegistrationLoop()
+        }
+
+        if (socketDegraded) {
+            maybeRecoverRegistration(serverUrl, deviceId)
         }
 
         if (isStreamingAudio) {
             stopLegacyAudioBackstopIfNeeded("health_check")
+        }
+    }
+
+    private fun shouldRestartChatService(socketDegraded: Boolean): Boolean {
+        if (!socketDegraded) return false
+        val now = System.currentTimeMillis()
+        return now - lastChatServiceRecoveryAt >= CHAT_SERVICE_RECOVERY_COOLDOWN_MS
+    }
+
+    private fun maybeRecoverRegistration(serverUrl: String, deviceId: String) {
+        if (registrationRecoveryJob?.isActive == true) return
+
+        val now = System.currentTimeMillis()
+        if (now - lastRegistrationRecoveryAt < REGISTRATION_RECOVERY_COOLDOWN_MS) return
+
+        lastRegistrationRecoveryAt = now
+        registrationRecoveryJob = serviceScope.launch {
+            runCatching {
+                Log.w(TAG, "Attempting background registration recovery for degraded child connection")
+                val recovered = networkHelper.registerDevice(serverUrl, deviceId)
+                if (recovered) {
+                    Log.i(TAG, "Background registration recovery succeeded")
+                    ru.example.parentwatch.network.WebSocketManager.reconnectWithCurrentAuth(
+                        onReady = { Log.i(TAG, "WebSocket re-registered after background recovery") },
+                        onError = { error: String ->
+                            Log.w(TAG, "WebSocket recovery request failed: $error")
+                        }
+                    )
+                } else {
+                    Log.w(TAG, "Background registration recovery failed")
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "Background registration recovery crashed", error)
+            }
         }
     }
 
@@ -950,7 +1192,8 @@ class LocationService : Service() {
     }
 
     override fun onDestroy() {
-        super.onDestroy()
+        isServiceAlive = false
+        ru.example.parentwatch.network.WebSocketManager.removePhotoRequestListener(photoRequestListener)
         commandCheckJob?.cancel()
         if (isStreamingAudio) {
             stopAudioStreaming()
@@ -958,5 +1201,6 @@ class LocationService : Service() {
         fusedLocationClient.removeLocationUpdates(locationCallback)
         serviceScope.cancel()
         Log.d(TAG, "Service destroyed")
+        super.onDestroy()
     }
 }

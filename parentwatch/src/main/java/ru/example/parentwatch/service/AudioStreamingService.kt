@@ -51,6 +51,8 @@ class AudioStreamingService : Service() {
         const val ACTION_STOP_STREAMING = "ru.example.parentwatch.STOP_STREAMING"
         const val ACTION_PAUSE_CAPTURE = "ru.example.parentwatch.PAUSE_STREAM_CAPTURE"
         const val ACTION_RESUME_CAPTURE = "ru.example.parentwatch.RESUME_STREAM_CAPTURE"
+        const val ACTION_RETRY_CAPTURE_AFTER_FOREGROUND =
+            "ru.example.parentwatch.RETRY_STREAM_CAPTURE_AFTER_FOREGROUND"
 
         const val EXTRA_DEVICE_ID = "device_id"
         const val EXTRA_SERVER_URL = "server_url"
@@ -91,8 +93,25 @@ class AudioStreamingService : Service() {
         }
 
         fun pauseCaptureForPhoto(context: Context) {
+            if (!isServiceAlive) return
             val intent = Intent(context, AudioStreamingService::class.java).apply {
                 action = ACTION_PAUSE_CAPTURE
+            }
+            context.startService(intent)
+        }
+
+        fun resumeCaptureAfterPhoto(context: Context) {
+            if (!isServiceAlive) return
+            val intent = Intent(context, AudioStreamingService::class.java).apply {
+                action = ACTION_RESUME_CAPTURE
+            }
+            context.startService(intent)
+        }
+
+        fun retryCaptureAfterForeground(context: Context) {
+            if (!isServiceAlive) return
+            val intent = Intent(context, AudioStreamingService::class.java).apply {
+                action = ACTION_RETRY_CAPTURE_AFTER_FOREGROUND
             }
             context.startService(intent)
         }
@@ -134,7 +153,11 @@ class AudioStreamingService : Service() {
                 .putString(PREF_AUDIO_DEVICE_ID, deviceId)
                 .putString(PREF_AUDIO_SERVER_URL, normalizedServerUrl)
                 .apply()
-            val action = if (isServiceAlive) ACTION_RESUME_CAPTURE else ACTION_START_STREAMING
+            val action = if (isServiceAlive) {
+                ACTION_RETRY_CAPTURE_AFTER_FOREGROUND
+            } else {
+                ACTION_START_STREAMING
+            }
             val intent = Intent(context, AudioStreamingService::class.java).apply {
                 this.action = action
                 putExtra(EXTRA_DEVICE_ID, deviceId)
@@ -221,6 +244,7 @@ class AudioStreamingService : Service() {
             ACTION_STOP_STREAMING -> stopStreaming()
             ACTION_PAUSE_CAPTURE -> pauseCapture()
             ACTION_RESUME_CAPTURE -> resumeCapture()
+            ACTION_RETRY_CAPTURE_AFTER_FOREGROUND -> retryCaptureAfterForeground()
         }
 
         return START_STICKY
@@ -367,9 +391,15 @@ class AudioStreamingService : Service() {
     }
 
     private fun resumeCapture() {
-        audioStreamRecorder?.ensureCaptureRunning()
+        audioStreamRecorder?.resumeCapture()
         currentServerUrl?.let { startDeviceStatusSyncLoop(it) }
-        updateNotification("Audio stream active (${currentSampleRate / 1000} kHz)")
+        updateNotification("Audio stream reconnecting (${currentSampleRate / 1000} kHz)")
+    }
+
+    private fun retryCaptureAfterForeground() {
+        audioStreamRecorder?.retryCaptureAfterForeground()
+        currentServerUrl?.let { startDeviceStatusSyncLoop(it) }
+        updateNotification("Audio stream reconnecting (${currentSampleRate / 1000} kHz)")
     }
 
     private fun startDeviceStatusSyncLoop(serverUrl: String) {

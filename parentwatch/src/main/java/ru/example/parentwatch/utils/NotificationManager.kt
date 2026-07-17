@@ -32,8 +32,11 @@ object NotificationManager {
     private const val CHAT_PREVIEW_NOTIFICATION_ID = 1002
     private const val CHAT_GROUP_KEY = "ru.example.parentwatch.CHAT_GROUP"
     private const val MAX_HISTORY_SIZE = 10
+    private const val MAX_NOTIFIED_MESSAGE_IDS = 200
     private const val DEFAULT_QUIET_HOURS_START = "22:00"
     private const val DEFAULT_QUIET_HOURS_END = "07:00"
+    private const val STATE_PREFS_NAME = "chat_notification_state"
+    private const val KEY_NOTIFIED_MESSAGE_IDS = "notified_message_ids"
 
     private var unreadMessageCount = 0
     private val messageHistory = mutableListOf<NotificationMessage>()
@@ -75,8 +78,14 @@ object NotificationManager {
         context: Context,
         senderName: String = context.getString(R.string.notification_preview_sender),
         messageText: String,
-        timestamp: Long = System.currentTimeMillis()
+        timestamp: Long = System.currentTimeMillis(),
+        messageId: String? = null
     ) {
+        if (shouldSuppressMessageNotification(context, messageId)) {
+            Log.d(TAG, "Skipping duplicate chat notification for messageId=$messageId")
+            return
+        }
+        rememberNotifiedMessageId(context, messageId)
         unreadMessageCount++
 
         messageHistory.add(NotificationMessage(senderName, messageText, timestamp))
@@ -141,6 +150,47 @@ object NotificationManager {
     }
 
     fun getUnreadCount(): Int = unreadMessageCount
+
+    private fun shouldSuppressMessageNotification(context: Context, messageId: String?): Boolean {
+        val normalizedMessageId = messageId?.trim().orEmpty()
+        if (normalizedMessageId.isEmpty()) {
+            return false
+        }
+        return readNotifiedMessageIds(context).contains(normalizedMessageId)
+    }
+
+    private fun rememberNotifiedMessageId(context: Context, messageId: String?) {
+        val normalizedMessageId = messageId?.trim().orEmpty()
+        if (normalizedMessageId.isEmpty()) {
+            return
+        }
+
+        val updatedIds = readNotifiedMessageIds(context)
+            .filterNot { it == normalizedMessageId }
+            .toMutableList()
+        updatedIds.add(normalizedMessageId)
+        while (updatedIds.size > MAX_NOTIFIED_MESSAGE_IDS) {
+            updatedIds.removeAt(0)
+        }
+
+        context.getSharedPreferences(STATE_PREFS_NAME, Context.MODE_PRIVATE)
+            .edit()
+            .putString(KEY_NOTIFIED_MESSAGE_IDS, updatedIds.joinToString("\n"))
+            .apply()
+    }
+
+    private fun readNotifiedMessageIds(context: Context): List<String> {
+        val rawValue = context.getSharedPreferences(STATE_PREFS_NAME, Context.MODE_PRIVATE)
+            .getString(KEY_NOTIFIED_MESSAGE_IDS, "")
+            .orEmpty()
+        if (rawValue.isBlank()) {
+            return emptyList()
+        }
+        return rawValue
+            .split('\n')
+            .map { it.trim() }
+            .filter { it.isNotEmpty() }
+    }
 
     fun areNotificationsEnabled(context: Context): Boolean {
         return NotificationManagerCompat.from(context).areNotificationsEnabled()

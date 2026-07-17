@@ -9,10 +9,9 @@ import ru.example.parentwatch.database.repository.ChatRepository
 import ru.example.parentwatch.database.repository.ChildRepository
 
 /**
- * РќРѕРІС‹Р№ ChatManager РЅР° РѕСЃРЅРѕРІРµ Room Database
+ * ChatManager backed by Room Database.
  *
- * Р—Р°РјРµРЅСЏРµС‚ СЃС‚Р°СЂС‹Р№ ChatManager, РёСЃРїРѕР»СЊР·РѕРІР°РІС€РёР№ SharedPreferences.
- * Р Р°Р±РѕС‚Р°РµС‚ С‡РµСЂРµР· ChatRepository Рё РїРѕРґРґРµСЂР¶РёРІР°РµС‚ СЂРµР°РєС‚РёРІРЅС‹Рµ РѕР±РЅРѕРІР»РµРЅРёСЏ.
+ * Replaces the old SharedPreferences-based implementation and keeps chat updates reactive.
  */
 class ChatManagerV2(context: Context, private val deviceId: String) {
 
@@ -94,7 +93,7 @@ class ChatManagerV2(context: Context, private val deviceId: String) {
             val id = getChildId()
             chatRepository.getUnreadCountBySender(id, INCOMING_SENDER)
         } catch (e: Exception) {
-            Log.e(TAG, "РћС€РёР±РєР° РїРѕР»СѓС‡РµРЅРёСЏ РєРѕР»РёС‡РµСЃС‚РІР° РЅРµРїСЂРѕС‡РёС‚Р°РЅРЅС‹С…", e)
+            Log.e(TAG, "Ошибка получения количества непрочитанных сообщений", e)
             0
         }
     }
@@ -141,39 +140,39 @@ class ChatManagerV2(context: Context, private val deviceId: String) {
     }
 
     /**
-     * РћР±РЅРѕРІРёС‚СЊ СЃС‚Р°С‚СѓСЃ СЃРѕРѕР±С‰РµРЅРёСЏ
+     * Обновить статус сообщения.
      */
     suspend fun updateMessageStatus(messageId: String, status: ChatMessage.MessageStatus) {
         try {
             chatRepository.updateMessageStatus(messageId, status.name.lowercase())
-            Log.d(TAG, "РЎС‚Р°С‚СѓСЃ СЃРѕРѕР±С‰РµРЅРёСЏ РѕР±РЅРѕРІР»РµРЅ: $messageId -> $status")
+            Log.d(TAG, "Статус сообщения обновлен: $messageId -> $status")
         } catch (e: Exception) {
-            Log.e(TAG, "РћС€РёР±РєР° РѕР±РЅРѕРІР»РµРЅРёСЏ СЃС‚Р°С‚СѓСЃР° СЃРѕРѕР±С‰РµРЅРёСЏ", e)
+            Log.e(TAG, "Ошибка обновления статуса сообщения", e)
         }
     }
 
     /**
-     * РћС‡РёСЃС‚РёС‚СЊ РІСЃРµ СЃРѕРѕР±С‰РµРЅРёСЏ
+     * Очистить все сообщения.
      */
     suspend fun clearAllMessages() {
         try {
             val id = getChildId()
             chatRepository.deleteMessagesForChild(id)
-            Log.d(TAG, "Р’СЃРµ СЃРѕРѕР±С‰РµРЅРёСЏ СѓРґР°Р»РµРЅС‹")
+            Log.d(TAG, "Все сообщения удалены")
         } catch (e: Exception) {
-            Log.e(TAG, "РћС€РёР±РєР° РѕС‡РёСЃС‚РєРё СЃРѕРѕР±С‰РµРЅРёР№", e)
+            Log.e(TAG, "Ошибка очистки сообщений", e)
         }
     }
 
     /**
-     * РџРѕРёСЃРє СЃРѕРѕР±С‰РµРЅРёР№
+     * Поиск сообщений.
      */
     suspend fun searchMessages(query: String, limit: Int = 50): List<ChatMessage> {
         return try {
             val id = getChildId()
             chatRepository.searchMessages(id, query, limit)
         } catch (e: Exception) {
-            Log.e(TAG, "РћС€РёР±РєР° РїРѕРёСЃРєР° СЃРѕРѕР±С‰РµРЅРёР№", e)
+            Log.e(TAG, "Ошибка поиска сообщений", e)
             emptyList()
         }
     }
@@ -206,4 +205,3 @@ class ChatManagerV2(context: Context, private val deviceId: String) {
         Log.d(TAG, "ChatManagerV2 cleanup completed")
     }
 }
-

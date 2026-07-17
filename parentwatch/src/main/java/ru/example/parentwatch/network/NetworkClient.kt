@@ -1226,10 +1226,38 @@ class NetworkClient(private val context: Context) {
         }
     }
 
+    suspend fun getFamilyPresence(
+        childDeviceId: String
+    ): retrofit2.Response<FamilyPresenceResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot get family presence")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+                api.getFamilyPresence(childDeviceId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting family presence", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
     suspend fun linkParentChild(
         parentDeviceId: String,
         childDeviceId: String,
-        displayName: String? = null
+        displayName: String? = null,
+        parentDisplayName: String? = null,
+        childDisplayName: String? = null,
+        parentMarkerIconId: Int? = null,
+        childMarkerIconId: Int? = null
     ): retrofit2.Response<GenericResponse> {
         return withContext(Dispatchers.IO) {
             try {
@@ -1249,7 +1277,11 @@ class NetworkClient(private val context: Context) {
                     ParentChildLinkRequest(
                         parentDeviceId = parentDeviceId,
                         childDeviceId = childDeviceId,
-                        displayName = displayName
+                        displayName = displayName,
+                        parentDisplayName = parentDisplayName,
+                        childDisplayName = childDisplayName,
+                        parentMarkerIconId = parentMarkerIconId,
+                        childMarkerIconId = childMarkerIconId
                     )
                 )
             } catch (e: Exception) {
@@ -1594,7 +1626,10 @@ class NetworkClient(private val context: Context) {
                         return@withContext StreamingStatus(
                             active = json.getBoolean("active"),
                             recording = json.optBoolean("recording", false),
-                            startedAt = json.optLong("startedAt", 0L)
+                            startedAt = json.optLong("startedAt", json.optLong("startTime", 0L)),
+                            ownerParentId = json.optString("ownerParentId").takeIf { it.isNotBlank() },
+                            ownerDisplayName = json.optString("ownerDisplayName").takeIf { it.isNotBlank() },
+                            ownerStale = json.optBoolean("ownerStale", false)
                         )
                     }
                 } else {
@@ -1624,7 +1659,10 @@ class NetworkClient(private val context: Context) {
     data class StreamingStatus(
         val active: Boolean,
         val recording: Boolean,
-        val startedAt: Long
+        val startedAt: Long,
+        val ownerParentId: String? = null,
+        val ownerDisplayName: String? = null,
+        val ownerStale: Boolean = false
     )
     suspend fun sendCriticalEvent(
         serverUrl: String,

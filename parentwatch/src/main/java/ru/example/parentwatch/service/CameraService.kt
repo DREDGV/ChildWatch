@@ -1,7 +1,9 @@
 package ru.example.parentwatch.service
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.ImageFormat
 import android.graphics.SurfaceTexture
 import android.hardware.camera2.CameraAccessException
@@ -20,9 +22,12 @@ import android.os.HandlerThread
 import android.util.Log
 import android.util.Size
 import android.view.Surface
+import androidx.core.content.ContextCompat
+import ru.example.parentwatch.utils.AppVisibilityTracker
 import java.io.File
 import java.io.FileOutputStream
 import java.text.SimpleDateFormat
+import java.util.ArrayDeque
 import java.util.Date
 import java.util.Locale
 
@@ -43,6 +48,9 @@ class CameraService(private val context: Context) {
         private const val MAX_JPEG_HEIGHT = 1080
         private const val PREVIEW_WARMUP_MS = 350L
         private const val CAPTURE_TIMEOUT_MS = 5000L
+        private const val RETRY_BACKOFF_MS = 300L
+        const val ERROR_BACKGROUND_CAMERA_RESTRICTED = "background_camera_restricted"
+        const val ERROR_CAMERA_PERMISSION_DENIED = "camera_permission_denied"
     }
 
     enum class CameraFacing {
@@ -56,6 +64,15 @@ class CameraService(private val context: Context) {
         val sensorOrientation: Int
     )
 
+    private data class CaptureAttempt(
+        val facing: CameraFacing,
+        val config: CameraConfig,
+        val usePreviewWarmup: Boolean
+    ) {
+        val description: String
+            get() = "${facing.name.lowercase(Locale.US)}:${config.cameraId}:${if (usePreviewWarmup) "warm" else "direct"}"
+    }
+
     private var cameraManager: CameraManager? = null
     private var cameraDevice: CameraDevice? = null
     private var captureSession: CameraCaptureSession? = null
@@ -68,6 +85,9 @@ class CameraService(private val context: Context) {
     private var captureInProgress = false
     private var resultDelivered = false
     private var captureTriggered = false
+    private var activeAttemptToken = 0
+    private var lastFailureReason: String? = null
+    private val captureAttempts = ArrayDeque<CaptureAttempt>()
 
     fun initialize() {
         if (cameraManager == null) {
@@ -79,6 +99,12 @@ class CameraService(private val context: Context) {
     fun hasCameraFacing(facing: CameraFacing): Boolean {
         if (cameraManager == null) initialize()
         return resolveCameraConfig(facing) != null
+    }
+
+    fun consumeLastFailureReason(): String? = synchronized(this) {
+        val reason = lastFailureReason
+        lastFailureReason = null
+        reason
     }
 
     /**
@@ -98,59 +124,165 @@ class CameraService(private val context: Context) {
             resultDelivered = false
             captureTriggered = false
             captureCallback = callback
+            activeAttemptToken = 0
+            lastFailureReason = null
+            captureAttempts.clear()
+        }
+
+        cleanupCaptureObjects()
+        buildCaptureAttempts(cameraFacing).forEach { captureAttempts.addLast(it) }
+        if (captureAttempts.isEmpty()) {
+            lastFailureReason = "No suitable camera found for ${cameraFacing.name.lowercase(Locale.US)} capture"
+            Log.e(TAG, lastFailureReason!!)
+            finalizeResult(null)
+            return
+        }
+
+        startNextAttempt()
+    }
+
+    private fun buildCaptureAttempts(preferredFacing: CameraFacing): List<CaptureAttempt> {
+        val attempts = mutableListOf<CaptureAttempt>()
+        val alternateFacing = if (preferredFacing == CameraFacing.FRONT) {
+            CameraFacing.BACK
+        } else {
+            CameraFacing.FRONT
+        }
+
+        fun enqueue(facing: CameraFacing, config: CameraConfig?) {
+            if (config == null) return
+            attempts += CaptureAttempt(facing, config, usePreviewWarmup = true)
+            attempts += CaptureAttempt(facing, config, usePreviewWarmup = false)
+        }
+
+        val preferredConfig = resolveCameraConfig(preferredFacing)
+        enqueue(preferredFacing, preferredConfig)
+
+        val alternateConfig = resolveCameraConfig(alternateFacing)
+        if (alternateConfig != null && alternateConfig.cameraId != preferredConfig?.cameraId) {
+            enqueue(alternateFacing, alternateConfig)
+        }
+
+        return attempts
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun startNextAttempt() {
+        val attempt: CaptureAttempt
+        val attemptToken: Int
+
+        synchronized(this) {
+            if (!captureInProgress || resultDelivered) return
+            if (captureAttempts.isEmpty()) {
+                Log.e(TAG, "All photo capture attempts failed: ${lastFailureReason ?: "unknown error"}")
+                finalizeResult(null)
+                return
+            }
+            captureTriggered = false
+            attempt = captureAttempts.removeFirst()
+            activeAttemptToken += 1
+            attemptToken = activeAttemptToken
         }
 
         cleanupCaptureObjects()
 
-        val config = resolveCameraConfig(cameraFacing)
-        if (config == null) {
-            Log.e(TAG, "No suitable camera found for facing: $cameraFacing")
-            deliverResult(null)
-            return
-        }
-
         val handler = backgroundHandler
         if (handler == null) {
-            Log.e(TAG, "Background handler is not available")
-            deliverResult(null)
+            handleAttemptFailure(attemptToken, "Background handler is not available")
             return
         }
 
         Log.d(
             TAG,
-            "Opening camera ${config.cameraId} facing=$cameraFacing size=${config.jpegSize.width}x${config.jpegSize.height}"
+            "Opening camera attempt=$attemptToken ${attempt.description} size=${attempt.config.jpegSize.width}x${attempt.config.jpegSize.height}"
         )
 
         try {
             cameraManager?.openCamera(
-                config.cameraId,
+                attempt.config.cameraId,
                 object : CameraDevice.StateCallback() {
                     override fun onOpened(camera: CameraDevice) {
-                        cameraDevice = camera
-                        createCaptureSession(config)
+                        val accepted = synchronized(this@CameraService) {
+                            if (!captureInProgress || resultDelivered ||
+                                attemptToken != activeAttemptToken
+                            ) {
+                                false
+                            } else {
+                                cameraDevice = camera
+                                true
+                            }
+                        }
+                        if (!accepted) {
+                            Log.w(TAG, "Closing camera from stale onOpened callback: ${attempt.description}")
+                            runCatching { camera.close() }
+                            return
+                        }
+                        createCaptureSession(attempt, attemptToken)
                     }
 
                     override fun onDisconnected(camera: CameraDevice) {
-                        Log.w(TAG, "Camera disconnected: ${config.cameraId}")
-                        deliverResult(null)
+                        closeCallbackCamera(camera)
+                        handleAttemptFailure(
+                            attemptToken,
+                            "Camera disconnected during ${attempt.description}"
+                        )
                     }
 
                     override fun onError(camera: CameraDevice, error: Int) {
-                        Log.e(TAG, "Camera open error: id=${config.cameraId} code=$error")
-                        deliverResult(null)
+                        closeCallbackCamera(camera)
+                        val backgroundRestricted =
+                            error == CameraDevice.StateCallback.ERROR_CAMERA_DISABLED &&
+                                !AppVisibilityTracker.isVisible()
+                        handleAttemptFailure(
+                            attemptToken,
+                            if (backgroundRestricted) {
+                                ERROR_BACKGROUND_CAMERA_RESTRICTED
+                            } else {
+                                "Camera open error for ${attempt.description}: ${cameraDeviceErrorName(error)}"
+                            },
+                            retryable = !backgroundRestricted &&
+                                error != CameraDevice.StateCallback.ERROR_CAMERA_DISABLED
+                        )
                     }
                 },
                 handler
             )
         } catch (e: SecurityException) {
-            Log.e(TAG, "Camera permission not granted", e)
-            deliverResult(null)
+            val hasPermission = ContextCompat.checkSelfPermission(
+                context,
+                Manifest.permission.CAMERA
+            ) == PackageManager.PERMISSION_GRANTED
+            val backgroundRestricted = hasPermission && !AppVisibilityTracker.isVisible()
+            handleAttemptFailure(
+                attemptToken,
+                if (backgroundRestricted) {
+                    ERROR_BACKGROUND_CAMERA_RESTRICTED
+                } else {
+                    ERROR_CAMERA_PERMISSION_DENIED
+                },
+                e,
+                retryable = false
+            )
         } catch (e: CameraAccessException) {
-            Log.e(TAG, "Camera access error while opening ${config.cameraId}", e)
-            deliverResult(null)
+            val backgroundRestricted =
+                e.reason == CameraAccessException.CAMERA_DISABLED &&
+                    !AppVisibilityTracker.isVisible()
+            handleAttemptFailure(
+                attemptToken,
+                if (backgroundRestricted) {
+                    ERROR_BACKGROUND_CAMERA_RESTRICTED
+                } else {
+                    "Camera access error while opening ${attempt.description}: ${cameraAccessReasonName(e.reason)}"
+                },
+                e,
+                retryable = e.reason != CameraAccessException.CAMERA_DISABLED
+            )
         } catch (e: Exception) {
-            Log.e(TAG, "Unexpected camera open error", e)
-            deliverResult(null)
+            handleAttemptFailure(
+                attemptToken,
+                "Unexpected camera open error for ${attempt.description}",
+                e
+            )
         }
     }
 
@@ -207,18 +339,21 @@ class CameraService(private val context: Context) {
             ?: outputSizes.minByOrNull { it.width.toLong() * it.height.toLong() }
     }
 
-    private fun createCaptureSession(config: CameraConfig) {
+    private fun createCaptureSession(attempt: CaptureAttempt, attemptToken: Int) {
         val handler = backgroundHandler
         val camera = cameraDevice
         if (handler == null || camera == null) {
-            deliverResult(null)
+            handleAttemptFailure(
+                attemptToken,
+                "Camera or handler became unavailable during ${attempt.description}"
+            )
             return
         }
 
         try {
             imageReader = ImageReader.newInstance(
-                config.jpegSize.width,
-                config.jpegSize.height,
+                attempt.config.jpegSize.width,
+                attempt.config.jpegSize.height,
                 ImageFormat.JPEG,
                 2
             )
@@ -226,74 +361,127 @@ class CameraService(private val context: Context) {
             imageReader?.setOnImageAvailableListener({ reader ->
                 val image = reader.acquireLatestImage()
                 if (image == null) {
-                    Log.w(TAG, "ImageReader returned null image")
+                    Log.w(TAG, "ImageReader returned null image for ${attempt.description}")
                     return@setOnImageAvailableListener
                 }
 
                 try {
+                    if (!isAttemptActive(attemptToken)) {
+                        return@setOnImageAvailableListener
+                    }
                     val buffer = image.planes[0].buffer
                     val bytes = ByteArray(buffer.remaining())
                     buffer.get(bytes)
 
                     if (bytes.isEmpty()) {
-                        Log.e(TAG, "Captured JPEG is empty")
-                        deliverResult(null)
+                        handleAttemptFailure(
+                            attemptToken,
+                            "Captured JPEG is empty for ${attempt.description}"
+                        )
                     } else {
                         val photoFile = createOutputFile()
                         FileOutputStream(photoFile).use { output ->
                             output.write(bytes)
                         }
                         Log.d(TAG, "Photo saved: ${photoFile.absolutePath} (${bytes.size} bytes)")
-                        deliverResult(photoFile)
+                        deliverAttemptSuccess(attemptToken, photoFile)
                     }
                 } catch (e: Exception) {
-                    Log.e(TAG, "Error saving captured image", e)
-                    deliverResult(null)
+                    handleAttemptFailure(
+                        attemptToken,
+                        "Error saving captured image for ${attempt.description}",
+                        e
+                    )
                 } finally {
                     image.close()
                 }
             }, handler)
 
-            previewTexture = SurfaceTexture(0).apply {
-                setDefaultBufferSize(config.jpegSize.width, config.jpegSize.height)
-            }
-            previewSurface = Surface(previewTexture)
-
             val photoSurface = imageReader?.surface
-            val preview = previewSurface
-            if (photoSurface == null || preview == null) {
-                Log.e(TAG, "Capture surfaces are not ready")
-                deliverResult(null)
+            if (photoSurface == null) {
+                handleAttemptFailure(
+                    attemptToken,
+                    "Photo surface is not ready for ${attempt.description}"
+                )
                 return
             }
 
+            val surfaces = mutableListOf(photoSurface)
+            if (attempt.usePreviewWarmup) {
+                previewTexture = SurfaceTexture(0).apply {
+                    setDefaultBufferSize(attempt.config.jpegSize.width, attempt.config.jpegSize.height)
+                }
+                previewSurface = Surface(previewTexture)
+                val preview = previewSurface
+                if (preview == null) {
+                    handleAttemptFailure(
+                        attemptToken,
+                        "Preview surface is not ready for ${attempt.description}"
+                    )
+                    return
+                }
+                surfaces.add(0, preview)
+            }
+
             camera.createCaptureSession(
-                listOf(preview, photoSurface),
+                surfaces,
                 object : CameraCaptureSession.StateCallback() {
                     override fun onConfigured(session: CameraCaptureSession) {
-                        captureSession = session
-                        startPreviewAndCapture(session, config)
+                        val accepted = synchronized(this@CameraService) {
+                            if (!captureInProgress || resultDelivered ||
+                                attemptToken != activeAttemptToken
+                            ) {
+                                false
+                            } else {
+                                captureSession = session
+                                true
+                            }
+                        }
+                        if (!accepted) {
+                            Log.w(TAG, "Closing session from stale onConfigured callback: ${attempt.description}")
+                            runCatching { session.close() }
+                            return
+                        }
+                        if (attempt.usePreviewWarmup) {
+                            startPreviewAndCapture(session, attempt, attemptToken)
+                        } else {
+                            Log.d(TAG, "Running direct JPEG capture for ${attempt.description}")
+                            captureStillImage(session, attempt.config, attempt.description, attemptToken)
+                        }
                     }
 
                     override fun onConfigureFailed(session: CameraCaptureSession) {
-                        Log.e(TAG, "Capture session configuration failed for ${config.cameraId}")
-                        deliverResult(null)
+                        runCatching { session.close() }
+                        handleAttemptFailure(
+                            attemptToken,
+                            "Capture session configuration failed for ${attempt.description}"
+                        )
                     }
                 },
                 handler
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Error creating capture session", e)
-            deliverResult(null)
+            handleAttemptFailure(
+                attemptToken,
+                "Error creating capture session for ${attempt.description}",
+                e
+            )
         }
     }
 
-    private fun startPreviewAndCapture(session: CameraCaptureSession, config: CameraConfig) {
+    private fun startPreviewAndCapture(
+        session: CameraCaptureSession,
+        attempt: CaptureAttempt,
+        attemptToken: Int
+    ) {
         val handler = backgroundHandler
         val camera = cameraDevice
         val preview = previewSurface
         if (handler == null || camera == null || preview == null) {
-            deliverResult(null)
+            handleAttemptFailure(
+                attemptToken,
+                "Preview prerequisites became unavailable for ${attempt.description}"
+            )
             return
         }
 
@@ -309,9 +497,9 @@ class CameraService(private val context: Context) {
             }
 
             val fallbackCapture = Runnable {
-                if (!captureTriggered && !resultDelivered) {
-                    Log.d(TAG, "3A warmup timeout, capturing with fallback timer")
-                    captureStillImage(session, config)
+                if (!captureTriggered && !resultDelivered && isAttemptActive(attemptToken)) {
+                    Log.d(TAG, "3A warmup timeout, capturing with fallback timer for ${attempt.description}")
+                    captureStillImage(session, attempt.config, attempt.description, attemptToken)
                 }
             }
 
@@ -323,10 +511,10 @@ class CameraService(private val context: Context) {
                         request: CaptureRequest,
                         result: TotalCaptureResult
                     ) {
-                        if (!captureTriggered && is3aReady(result)) {
+                        if (!captureTriggered && isAttemptActive(attemptToken) && is3aReady(result)) {
                             handler.removeCallbacks(fallbackCapture)
-                            Log.d(TAG, "3A converged, capturing still image")
-                            captureStillImage(session, config)
+                            Log.d(TAG, "3A converged, capturing still image for ${attempt.description}")
+                            captureStillImage(session, attempt.config, attempt.description, attemptToken)
                         }
                     }
                 },
@@ -335,21 +523,32 @@ class CameraService(private val context: Context) {
 
             handler.postDelayed(fallbackCapture, PREVIEW_WARMUP_MS)
         } catch (e: Exception) {
-            Log.e(TAG, "Error starting preview warmup", e)
-            deliverResult(null)
+            handleAttemptFailure(
+                attemptToken,
+                "Error starting preview warmup for ${attempt.description}",
+                e
+            )
         }
     }
 
-    private fun captureStillImage(session: CameraCaptureSession, config: CameraConfig) {
+    private fun captureStillImage(
+        session: CameraCaptureSession,
+        config: CameraConfig,
+        attemptDescription: String,
+        attemptToken: Int
+    ) {
         val handler = backgroundHandler
         val camera = cameraDevice
         val photoSurface = imageReader?.surface
         if (handler == null || camera == null || photoSurface == null) {
-            deliverResult(null)
+            handleAttemptFailure(
+                attemptToken,
+                "Still capture prerequisites became unavailable for $attemptDescription"
+            )
             return
         }
 
-        if (captureTriggered) return
+        if (captureTriggered || !isAttemptActive(attemptToken)) return
         captureTriggered = true
 
         try {
@@ -375,9 +574,11 @@ class CameraService(private val context: Context) {
                 }
 
             handler.postDelayed({
-                if (!resultDelivered) {
-                    Log.e(TAG, "Capture timed out waiting for image")
-                    deliverResult(null)
+                if (!resultDelivered && isAttemptActive(attemptToken)) {
+                    handleAttemptFailure(
+                        attemptToken,
+                        "Capture timed out waiting for image for $attemptDescription"
+                    )
                 }
             }, CAPTURE_TIMEOUT_MS)
 
@@ -389,7 +590,7 @@ class CameraService(private val context: Context) {
                         request: CaptureRequest,
                         result: TotalCaptureResult
                     ) {
-                        Log.d(TAG, "Still capture completed for ${config.cameraId}")
+                        Log.d(TAG, "Still capture completed for $attemptDescription")
                     }
 
                     override fun onCaptureFailed(
@@ -397,15 +598,20 @@ class CameraService(private val context: Context) {
                         request: CaptureRequest,
                         failure: CaptureFailure
                     ) {
-                        Log.e(TAG, "Still capture failed: ${failure.reason}")
-                        deliverResult(null)
+                        handleAttemptFailure(
+                            attemptToken,
+                            "Still capture failed for $attemptDescription: reason=${failure.reason}"
+                        )
                     }
                 },
                 handler
             )
         } catch (e: Exception) {
-            Log.e(TAG, "Error capturing still image", e)
-            deliverResult(null)
+            handleAttemptFailure(
+                attemptToken,
+                "Error capturing still image for $attemptDescription",
+                e
+            )
         }
     }
 
@@ -440,14 +646,94 @@ class CameraService(private val context: Context) {
         return File(photoDir, "PHOTO_$timestamp.jpg")
     }
 
+    private fun isAttemptActive(attemptToken: Int): Boolean = synchronized(this) {
+        captureInProgress && !resultDelivered && attemptToken == activeAttemptToken
+    }
+
+    private fun deliverAttemptSuccess(attemptToken: Int, photoFile: File) {
+        val shouldDeliver = synchronized(this) {
+            captureInProgress && !resultDelivered && attemptToken == activeAttemptToken
+        }
+
+        if (!shouldDeliver) {
+            photoFile.delete()
+            return
+        }
+
+        lastFailureReason = null
+        finalizeResult(photoFile)
+    }
+
+    private fun handleAttemptFailure(
+        attemptToken: Int,
+        message: String,
+        throwable: Throwable? = null,
+        retryable: Boolean = true
+    ) {
+        if (throwable != null) {
+            Log.e(TAG, message, throwable)
+        } else {
+            Log.e(TAG, message)
+        }
+
+        val shouldRetry = synchronized(this) {
+            if (!captureInProgress || resultDelivered || attemptToken != activeAttemptToken) {
+                return
+            }
+            lastFailureReason = message
+            captureTriggered = false
+            activeAttemptToken += 1
+            retryable && captureAttempts.isNotEmpty()
+        }
+
+        cleanupCaptureObjects()
+
+        if (shouldRetry) {
+            Log.w(TAG, "Retrying photo capture after failure: $message")
+            backgroundHandler?.postDelayed({ startNextAttempt() }, RETRY_BACKOFF_MS)
+                ?: startNextAttempt()
+        } else {
+            finalizeResult(null)
+        }
+    }
+
+    private fun closeCallbackCamera(camera: CameraDevice) {
+        synchronized(this) {
+            if (cameraDevice === camera) {
+                cameraDevice = null
+            }
+        }
+        runCatching { camera.close() }
+            .onFailure { Log.w(TAG, "Error closing callback camera", it) }
+    }
+
+    private fun cameraDeviceErrorName(error: Int): String = when (error) {
+        CameraDevice.StateCallback.ERROR_CAMERA_IN_USE -> "camera_in_use"
+        CameraDevice.StateCallback.ERROR_MAX_CAMERAS_IN_USE -> "max_cameras_in_use"
+        CameraDevice.StateCallback.ERROR_CAMERA_DISABLED -> "camera_disabled"
+        CameraDevice.StateCallback.ERROR_CAMERA_DEVICE -> "camera_device_error"
+        CameraDevice.StateCallback.ERROR_CAMERA_SERVICE -> "camera_service_error"
+        else -> "unknown_error_$error"
+    }
+
+    private fun cameraAccessReasonName(reason: Int): String = when (reason) {
+        CameraAccessException.CAMERA_DISABLED -> "camera_disabled"
+        CameraAccessException.CAMERA_DISCONNECTED -> "camera_disconnected"
+        CameraAccessException.CAMERA_ERROR -> "camera_error"
+        CameraAccessException.CAMERA_IN_USE -> "camera_in_use"
+        CameraAccessException.MAX_CAMERAS_IN_USE -> "max_cameras_in_use"
+        else -> "unknown_reason_$reason"
+    }
+
     @Synchronized
-    private fun deliverResult(photoFile: File?) {
+    private fun finalizeResult(photoFile: File?) {
         if (resultDelivered) return
         resultDelivered = true
         val callback = captureCallback
         captureCallback = null
         captureInProgress = false
         captureTriggered = false
+        captureAttempts.clear()
         cleanupCaptureObjects()
         callback?.invoke(photoFile)
     }

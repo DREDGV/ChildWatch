@@ -21,6 +21,8 @@ import ru.example.parentwatch.R
 import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.network.WebSocketManager
 import ru.example.parentwatch.session.ChildEffectiveContextResolver
+import ru.example.parentwatch.utils.AppVisibilityTracker
+import ru.example.parentwatch.utils.RemoteLogger
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.ArrayDeque
@@ -45,11 +47,14 @@ class PhotoCaptureService : Service() {
         private const val EXTRA_REQUEST_ID = "request_id"
         private const val EXTRA_TARGET_DEVICE = "target_device"
         private const val EXTRA_CAMERA_FACING = "camera_facing"
+        private const val ACTION_PREPARE_CAMERA_FOREGROUND =
+            "ru.example.parentwatch.PREPARE_CAMERA_FOREGROUND"
         private const val MAX_PREVIEW_DIMENSION = 960
         private const val PREVIEW_JPEG_QUALITY = 72
 
         fun start(context: Context, serverUrl: String, deviceId: String) {
             val intent = Intent(context, PhotoCaptureService::class.java).apply {
+                action = ACTION_PREPARE_CAMERA_FOREGROUND
                 putExtra(EXTRA_SERVER_URL, serverUrl)
                 putExtra(EXTRA_DEVICE_ID, deviceId)
             }
@@ -97,6 +102,7 @@ class PhotoCaptureService : Service() {
     private var deviceId: String? = null
     private lateinit var effectiveContextResolver: ChildEffectiveContextResolver
     private var listenersRegistered = false
+    private var cameraForegroundPrimed = false
     private val requestLock = Any()
     private val activePhotoRequests = mutableSetOf<String>()
     private val recentPhotoRequests = ArrayDeque<String>()
@@ -119,17 +125,7 @@ class PhotoCaptureService : Service() {
         Log.d(TAG, "PhotoCaptureService created")
 
         createNotificationChannel()
-        val notification = createNotification()
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            ServiceCompat.startForeground(
-                this,
-                NOTIFICATION_ID,
-                notification,
-                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
-            )
-        } else {
-            startForeground(NOTIFICATION_ID, notification)
-        }
+        promoteToCameraForeground()
 
         cameraService = CameraService(this)
         cameraService?.initialize()
@@ -149,6 +145,20 @@ class PhotoCaptureService : Service() {
             ?: effectiveContext?.ownChildDeviceId?.takeIf { it.isNotBlank() }
             ?: deviceId
 
+        if (intent?.action == ACTION_PREPARE_CAMERA_FOREGROUND || AppVisibilityTracker.isVisible()) {
+            val primed = promoteToCameraForeground() && AppVisibilityTracker.isVisible()
+            if (primed && !cameraForegroundPrimed) {
+                cameraForegroundPrimed = true
+                Log.i(TAG, "PhotoCaptureService camera access primed while app is visible")
+                RemoteLogger.info(
+                    serverUrl = serverUrl,
+                    deviceId = deviceId,
+                    source = TAG,
+                    message = "Photo camera foreground access primed"
+                )
+            }
+        }
+
         if (serverUrl != null && deviceId != null) {
             setupWebSocketListener()
         }
@@ -161,6 +171,31 @@ class PhotoCaptureService : Service() {
         }
 
         return START_STICKY
+    }
+
+    private fun promoteToCameraForeground(): Boolean {
+        val notification = createNotification()
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                ServiceCompat.startForeground(
+                    this,
+                    NOTIFICATION_ID,
+                    notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+                )
+            } else {
+                startForeground(NOTIFICATION_ID, notification)
+            }
+        }.onFailure { error ->
+            Log.e(TAG, "Unable to promote PhotoCaptureService for camera access", error)
+            RemoteLogger.warn(
+                serverUrl = serverUrl,
+                deviceId = deviceId,
+                source = TAG,
+                message = "Photo camera foreground promotion failed",
+                meta = mapOf("error" to (error.message ?: error.javaClass.simpleName))
+            )
+        }.isSuccess
     }
 
     /**
@@ -213,9 +248,16 @@ class PhotoCaptureService : Service() {
                 resumeAudioAfterPhoto()
                 uploadPhoto(photoFile)
             } else {
-                Log.e(TAG, "Photo capture failed")
+                val failureReason = service.consumeLastFailureReason()
+                    ?: "Failed to capture photo"
+                Log.e(TAG, "Photo capture failed: $failureReason")
                 resumeAudioAfterPhoto()
-                updateNotification(R.string.photo_capture_capture_error)
+                updateNotification(
+                    getString(
+                        R.string.photo_capture_error_with_reason,
+                        failureReason
+                    )
+                )
             }
         }
     }
@@ -266,12 +308,22 @@ class PhotoCaptureService : Service() {
         service.capturePhoto(requestedFacing) { photoFile ->
             if (photoFile != null) {
                 Log.d(TAG, "Photo captured for request: $requestId")
+                // The camera no longer needs the microphone. Resume listening before JPEG
+                // encoding/gallery upload so a slow network cannot mute audio for several seconds.
+                resumeAudioAfterPhoto()
                 sendPhotoViaWebSocket(photoFile, requestId)
             } else {
-                Log.e(TAG, "Photo capture failed for request: $requestId")
+                val failureReason = service.consumeLastFailureReason()
+                    ?: "Failed to capture photo"
+                Log.e(TAG, "Photo capture failed for request: $requestId, reason=$failureReason")
                 resumeAudioAfterPhoto()
-                completePhotoRequestAfterError(requestId, "Failed to capture photo")
-                updateNotification(R.string.photo_capture_capture_error)
+                completePhotoRequestAfterError(requestId, failureReason)
+                updateNotification(
+                    getString(
+                        R.string.photo_capture_error_with_reason,
+                        failureReason
+                    )
+                )
             }
         }
     }
@@ -386,7 +438,6 @@ class PhotoCaptureService : Service() {
                 delay(2000)
                 updateNotification(R.string.photo_capture_ready)
                 finishPhotoRequest(requestId)
-                resumeAudioAfterPhoto()
                 
             } catch (e: Exception) {
                 Log.e(TAG, "Error sending photo via WebSocket", e)
@@ -399,7 +450,6 @@ class PhotoCaptureService : Service() {
                 } else {
                     abandonPhotoRequest(requestId)
                 }
-                resumeAudioAfterPhoto()
             }
         }
     }
@@ -543,7 +593,7 @@ class PhotoCaptureService : Service() {
 
     private fun resumeAudioAfterPhoto() {
         LocationService.resumeAudioCaptureAfterPhoto(this)
-        AudioStreamingService.resumeIfDesired(this)
+        AudioStreamingService.resumeCaptureAfterPhoto(this)
     }
 
     private fun createNotificationChannel() {

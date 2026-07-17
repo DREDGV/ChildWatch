@@ -22,6 +22,7 @@ import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import ru.example.parentwatch.BuildConfig
 import ru.example.parentwatch.chat.ChatManagerAdapter
+import ru.example.parentwatch.contacts.ContactIcons
 import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.network.WebSocketManager
 import ru.example.parentwatch.utils.NotificationManager
@@ -33,6 +34,7 @@ import ru.example.parentwatch.utils.ChildDeviceProfile
 import ru.example.parentwatch.utils.ChildDeviceProfileManager
 import ru.example.parentwatch.utils.ServerUrlResolver
 import ru.example.parentwatch.session.ChildActiveSessionStore
+import ru.example.parentwatch.session.ChildParticipantNameResolver
 import ru.example.parentwatch.session.ChildProfileRuntimeCoordinator
 import android.view.MotionEvent
 import android.view.View
@@ -82,6 +84,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var lastUpdateText: TextView
     private lateinit var profileManager: ChildDeviceProfileManager
     private val sessionStore by lazy { ChildActiveSessionStore(this) }
+    private val participantNameResolver by lazy { ChildParticipantNameResolver(this) }
     private val profileRuntimeCoordinator by lazy { ChildProfileRuntimeCoordinator(this) }
     private var chatManagerAdapter: ChatManagerAdapter? = null
     private val networkClient by lazy { NetworkClient(this) }
@@ -94,11 +97,17 @@ class MainActivity : AppCompatActivity() {
         val fineLocationGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] ?: false
         val coarseLocationGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] ?: false
         val recordAudioGranted = permissions[Manifest.permission.RECORD_AUDIO] ?: false
-        val postNotificationsGranted = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            permissions[Manifest.permission.POST_NOTIFICATIONS] ?: false
-        } else true
-
-        if (fineLocationGranted && coarseLocationGranted && recordAudioGranted && postNotificationsGranted) {
+        val cameraGranted = permissions[Manifest.permission.CAMERA]
+            ?: (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) ==
+                PackageManager.PERMISSION_GRANTED)
+        if (fineLocationGranted && coarseLocationGranted && recordAudioGranted) {
+            if (!cameraGranted) {
+                Toast.makeText(
+                    this,
+                    "Мониторинг запустится, но удалённое фото недоступно без разрешения камеры",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 requestBackgroundLocationPermission()
             } else {
@@ -609,6 +618,14 @@ class MainActivity : AppCompatActivity() {
                 }
             )
         )
+        val selfNameLine = getString(
+            R.string.participant_self_name_summary_line,
+            participantNameResolver.resolveChildDisplayName()
+        )
+        val selfMarkerLine = getString(
+            R.string.participant_self_marker_summary_line,
+            ContactIcons.labelFor(participantNameResolver.resolveChildMarkerIconId())
+        )
         val linkedParentsLine = buildCachedLinkedParentsLine()
         val activeParentLine = buildCachedActiveParentLine(parentId)
         val mismatchLine = if (isProfileContextMismatched(activeProfile, effectiveContext)) {
@@ -616,7 +633,7 @@ class MainActivity : AppCompatActivity() {
         } else {
             ""
         }
-        activeProfileMeta.text = summary + "\n" + sourceLine + "\n" + statusLine +
+        activeProfileMeta.text = summary + "\n" + selfNameLine + "\n" + selfMarkerLine + "\n" + sourceLine + "\n" + statusLine +
             (linkedParentsLine?.let { "\n$it" } ?: "") +
             (activeParentLine?.let { "\n$it" } ?: "") +
             mismatchLine
@@ -747,10 +764,33 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private fun ensurePhotoCaptureService() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) !=
+            PackageManager.PERMISSION_GRANTED
+        ) {
+            return
+        }
+        val serverUrl = sessionStore.resolveCurrentServerUrl().ifBlank {
+            ServerUrlResolver.getServerUrl(this) ?: ""
+        }
+        val deviceId = sessionStore.resolveCurrentChildId().ifBlank {
+            prefs.getString("device_id", null).orEmpty()
+        }
+        if (serverUrl.isNotBlank() && deviceId.isNotBlank()) {
+            PhotoCaptureService.start(this, serverUrl, deviceId)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
         prefs.edit().putBoolean("chat_open", false).apply()
         recoverMonitoringServiceIfNeeded()
+        if (LocationService.isServiceAlive) {
+            LocationService.retryAudioAfterForeground(this)
+        } else if (ru.example.parentwatch.service.AudioStreamingService.isStreamingDesired(this)) {
+            ru.example.parentwatch.service.AudioStreamingService.resumeIfDesired(this)
+        }
+        ensurePhotoCaptureService()
         ensureChatBackgroundService()
         updateQuickProfileSummary()
         updateChatBadge()
@@ -849,6 +889,14 @@ class MainActivity : AppCompatActivity() {
                 serviceIntent.putExtra("device_id", getUniqueDeviceId())
                 ContextCompat.startForegroundService(this, serviceIntent)
 
+                // ACTION_START is asynchronous. Retry once while this Activity is still visible so
+                // Android can attach the CAMERA foreground-service type after permission approval.
+                window.decorView.postDelayed({
+                    if (!isFinishing && LocationService.isServiceAlive) {
+                        LocationService.retryAudioAfterForeground(this)
+                    }
+                }, 600L)
+
                 ensureChatBackgroundService()
 
             isServiceRunning = true
@@ -862,6 +910,7 @@ class MainActivity : AppCompatActivity() {
                     Toast.makeText(this, "Мониторинг уже запущен", Toast.LENGTH_SHORT).show()
                 }
             }
+            ensurePhotoCaptureService()
         } catch (e: Exception) {
             Log.e("MainActivity", "Error starting location service", e)
             if (!silent) {

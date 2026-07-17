@@ -32,7 +32,8 @@ class ChatNotificationService : Service() {
             context = this,
             senderName = message.getSenderName(),
             messageText = text,
-            timestamp = timestamp
+            timestamp = timestamp,
+            messageId = messageId
         )
     }
 

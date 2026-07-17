@@ -87,6 +87,24 @@
 
                 </LinearLayout>
 
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/editSelfNameButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/participant_self_name_button"
+                    android:textAllCaps="false"
+                    style="@style/Widget.ParentWatch.Button.Outlined" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/editSelfMarkerButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/participant_self_marker_button"
+                    android:textAllCaps="false"
+                    style="@style/Widget.ParentWatch.Button.Outlined" />
+
             </LinearLayout>
 
         </com.google.android.material.card.MaterialCardView>
@@ -300,6 +318,15 @@
                     android:text="@string/child_parent_link_manage_button"
                     android:textAllCaps="false"
                     android:visibility="gone"
+                    style="@style/Widget.ParentWatch.Button.Outlined" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/releaseListeningLineButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/child_parent_link_release_listening_button"
+                    android:textAllCaps="false"
                     style="@style/Widget.ParentWatch.Button.Outlined" />
 
                 <TextView

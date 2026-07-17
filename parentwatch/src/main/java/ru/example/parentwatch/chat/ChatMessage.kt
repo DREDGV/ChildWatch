@@ -55,9 +55,19 @@ data class ChatMessage(
         if (sender != currentRole) {
             return false
         }
+
         val normalizedOwnId = ownDeviceId?.trim().orEmpty()
         val normalizedAuthorId = authorDeviceId?.trim().orEmpty()
-        return normalizedOwnId.isBlank() || normalizedAuthorId.isBlank() || normalizedOwnId == normalizedAuthorId
+
+        if (normalizedOwnId.isBlank()) {
+            return sender == "child"
+        }
+
+        if (normalizedAuthorId.isBlank()) {
+            return sender == "child"
+        }
+
+        return normalizedOwnId == normalizedAuthorId
     }
 
     fun isIncoming(currentRole: String, ownDeviceId: String?): Boolean {
@@ -82,8 +92,10 @@ data class ChatMessage(
                 id = json.getString("id"),
                 text = json.getString("text"),
                 sender = json.getString("sender"),
-                authorDeviceId = json.optString("authorDeviceId", json.optString("senderDeviceId", null)),
-                authorDisplayName = json.optString("authorDisplayName", json.optString("senderDisplayName", null)),
+                authorDeviceId = json.optString("authorDeviceId", json.optString("senderDeviceId", null))
+                    .takeIf { it.isNotBlank() },
+                authorDisplayName = json.optString("authorDisplayName", json.optString("senderDisplayName", null))
+                    .takeIf { it.isNotBlank() },
                 timestamp = json.getLong("timestamp"),
                 isRead = json.optBoolean("isRead", status == MessageStatus.READ),
                 status = status
