@@ -21,6 +21,7 @@ class ParentLegacyContextMigration(context: Context) {
 
     internal fun legacyCandidates(): List<ActiveContextCandidate> {
         val active = sessionStore.readPersistedSession()
+        val savedProfile = ParentLegacyProfileMigration.readActiveSavedProfile(appContext)
         return listOf(
             ActiveContextCandidate(
                 selfDeviceId = active?.ownParentDeviceId,
@@ -34,6 +35,13 @@ class ParentLegacyContextMigration(context: Context) {
                 targetDeviceId = secureSettings.getChildDeviceId(),
                 serverUrl = secureSettings.getServerUrl(),
                 source = ContextSource.SECURE_SETTINGS
+            ),
+            ActiveContextCandidate(
+                selfDeviceId = savedProfile?.ownParentDeviceId,
+                targetDeviceId = savedProfile?.linkedChildDeviceId,
+                serverUrl = savedProfile?.serverUrl,
+                source = ContextSource.LEGACY_MIGRATION,
+                updatedAt = savedProfile?.updatedAt ?: 0L
             ),
             ActiveContextCandidate(
                 selfDeviceId = firstNotBlank(

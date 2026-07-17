@@ -32,6 +32,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
+import ru.example.childwatch.profile.ParentEffectiveContextProvider
 import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentParticipantNameResolver
 import ru.example.childwatch.service.AudioPlaybackService
@@ -82,6 +83,7 @@ class RemoteCameraActivity : AppCompatActivity() {
     private var pendingRequestId: String? = null
     private var selectedCameraFacing: String = "back"
     private var resolvedGalleryDeviceId: String? = null
+    private lateinit var contextProvider: ParentEffectiveContextProvider
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
     private lateinit var activeSessionStore: ParentActiveSessionStore
     private lateinit var participantNameResolver: ParentParticipantNameResolver
@@ -89,12 +91,14 @@ class RemoteCameraActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_remote_camera)
+        contextProvider = ParentEffectiveContextProvider.get(this)
         effectiveContextResolver = ParentEffectiveContextResolver(this)
         activeSessionStore = ParentActiveSessionStore(this)
         participantNameResolver = ParentParticipantNameResolver(this)
 
         // Get child device info from intent
         childId = intent.getStringExtra(EXTRA_CHILD_ID)?.takeIf { it.isNotBlank() }
+            ?: contextProvider.featureContext("photo")?.targetDeviceId?.takeIf { it.isNotBlank() }
             ?: effectiveContextResolver.resolveFocusedChildId().takeIf { it.isNotBlank() }
         childName = intent.getStringExtra(EXTRA_CHILD_NAME)
 
@@ -104,6 +108,7 @@ class RemoteCameraActivity : AppCompatActivity() {
             return
         }
         activeSessionStore.updateFocusedChildId(childId!!)
+        contextProvider.updateSelection(focusedMemberId = null, targetDeviceId = childId!!)
 
         initViews()
         setupToolbar()
@@ -204,7 +209,9 @@ class RemoteCameraActivity : AppCompatActivity() {
 
     private fun ensureWebSocketReady(onReady: () -> Unit = {}) {
         val targetId = childId ?: return
-        val serverUrl = effectiveContextResolver.resolveServerUrl()
+        val serverUrl = contextProvider.featureContext("photo")?.serverUrl
+            ?.takeIf { it.isNotBlank() }
+            ?: effectiveContextResolver.resolveServerUrl()
             .ifBlank { SecureSettingsManager(this).getServerUrl().trim() }
         if (serverUrl.isBlank()) {
             updateStatus(getString(R.string.server_url_missing))
@@ -429,7 +436,8 @@ class RemoteCameraActivity : AppCompatActivity() {
                     RemotePhotoCache.saveBase64PhotoToCache(
                         this@RemoteCameraActivity,
                         photoBase64,
-                        timestamp
+                        timestamp,
+                        contextProvider.featureContext("photo")?.storageNamespace ?: childId
                     )
                 }
 
@@ -492,7 +500,10 @@ class RemoteCameraActivity : AppCompatActivity() {
                         updateStatus(getString(R.string.remote_camera_no_photos))
                     } else {
                         resolvedGalleryDeviceId = resolvedDeviceId
-                        val serverUrl = SecureSettingsManager(this@RemoteCameraActivity).getServerUrl().trim()
+                        val serverUrl = contextProvider.featureContext("photo")?.serverUrl
+                            ?.takeIf { it.isNotBlank() }
+                            ?: effectiveContextResolver.resolveServerUrl()
+                                .ifBlank { SecureSettingsManager(this@RemoteCameraActivity).getServerUrl().trim() }
                         if (serverUrl.isBlank()) {
                             emptyStateLayout.visibility = View.VISIBLE
                             photosRecyclerView.visibility = View.GONE
@@ -573,7 +584,8 @@ class RemoteCameraActivity : AppCompatActivity() {
                         this@RemoteCameraActivity,
                         bytes,
                         System.currentTimeMillis(),
-                        prefix = "remote_gallery"
+                        prefix = "remote_gallery",
+                        scopeKey = contextProvider.featureContext("photo")?.storageNamespace ?: childId
                     )
                 }
 
@@ -643,10 +655,7 @@ class RemoteCameraActivity : AppCompatActivity() {
     }
 
     private fun resolveGalleryDeviceIds(): List<String> {
-        return effectiveContextResolver.resolveTargetDeviceCandidates(
-            resolvedGalleryDeviceId,
-            childId
-        )
+        return listOfNotNull(childId?.trim()?.takeIf { it.isNotBlank() })
     }
 
     override fun onDestroy() {
@@ -848,4 +857,3 @@ class RemoteCameraActivity : AppCompatActivity() {
         return listOfNotNull(formattedDate, resolution, sizeLabel).joinToString(" | ")
     }
 }
-
