@@ -4,7 +4,11 @@ All notable changes to ChildWatch will be documented in this file.
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased] - 2026-02-15
+## [7.2.0] - 2026-07-17
+
+See [CHANGELOG-v7.2.0.md](CHANGELOG-v7.2.0.md) for the verified release summary and the current Android 11 remote-camera limitation.
+
+## [Unreleased]
 
 ### Changed
 

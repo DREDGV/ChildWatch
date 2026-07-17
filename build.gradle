@@ -6,7 +6,7 @@ plugins {
     id 'com.google.gms.google-services' version '4.3.15' apply false
 }
 
-def versionBase = (findProperty("cwVersionBase") ?: "7.1").toString()
+def versionBase = (findProperty("cwVersionBase") ?: "7.2").toString()
 def buildMoment = new Date()
 def codeStamp = (System.currentTimeMillis() / 1000L).toLong()
 def nameStamp = buildMoment.format("yyDDD.HHmmss")

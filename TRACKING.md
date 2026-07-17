@@ -28,6 +28,48 @@ The key practical rule for anyone entering the repo now:
 - some docs describe past architecture
 - current behavior must be checked against code and recent device testing
 
+## Latest Verified Work
+
+### 2026-07-17: Real-device recovery pass
+
+- Both applications and the server were rebuilt and tested after a real VPS interruption and phone reconnect.
+- ChildDevice now has stronger restart, reconnect, audio-capture, and WebSocket recovery paths; ParentMonitor has matching chat/listening status handling.
+- Real-device checks confirmed chat, device status, location updates, and listening can recover after the child app is opened following a reboot.
+- Camera2 resource cleanup, stale callback protection, short retry backoff, and automatic audio resumption after a photo were added.
+- Android 11 on the tested Moto G 5 Plus still blocks remote camera access when ChildDevice is backgrounded. Camera works with ChildDevice open; the parent now receives an explicit restricted-background diagnostic instead of a generic failure.
+- Release baseline is now `7.2`; the full scope and known limitation are recorded in `CHANGELOG-v7.2.0.md`.
+
+### 2026-07-14: Server Authentication Baseline
+
+- removed the duplicate token store from `server/index.js`
+- `/api/auth/validate` and `/api/alerts` now use the same `AuthManager`-backed middleware as device registration
+- authorization parsing now requires one well-formed `Bearer` credential
+- added staged Socket.IO handshake authentication through `SocketAuthMiddleware`
+- both Android applications now attach their saved token to the Socket.IO handshake
+- authenticated sockets reject parent/child registration identity mismatches
+- `CW_REQUIRE_WS_AUTH=0` is the compatibility default; set it to `1` only after updated devices have re-registered
+- made the SQLite path independent of the process working directory and configurable with `CW_DB_PATH`
+- authentication sessions now survive normal server restarts through `CW_AUTH_SESSION_PATH`; only SHA-256 token hashes and device metadata are persisted
+- expired access tokens retain refresh recovery for up to seven days, so a phone returning after a long offline period can recover without manual intervention
+- both boot receivers now react to application replacement, and ChildDevice boot recovery isolates foreground-service start failures so LocationService can continue self-healing
+- ChildDevice HTTP location/auth traffic and Socket.IO now share one token store; existing `parentwatch_prefs` tokens are migrated without deleting legacy state
+- both apps rebuild their Socket.IO connection after successful HTTP registration so a connection started before registration cannot keep retrying with a missing or stale token
+- added Jest coverage for HTTP authentication, Socket.IO rollout modes, and database path configuration
+- verified with `npm test -- --runInBand` (22 tests passing), `node --check`, Android Kotlin compilation, and an integration test that registers a phone, stops the server process, restarts it, and validates the original token
+
+Deployment status on 2026-07-14:
+
+- the Hoster control panel shows the VPS as running and shows PM2-owned `node /var/www/childwatch/index.js` under `adminuser`
+- direct checks from the development environment still time out before SSH authentication and receive no HTTP response on ports 80 or 3000; no remote files were changed and no remote process was restarted
+- debug APKs were assembled successfully as `ParentMonitor-v7.1.26195.011553-debug.apk` and `ChildDevice-v7.1.26195.011553-debug.apk`; no Android device was connected, so neither APK was installed
+- a WinSCP/PuTTY runtime-only deployment archive was prepared as `server/childwatch-server-reconnect-update-20260714.zip` (SHA-256 `0565D1225C25D993D73FB677D97F164156CD2B621D7B2801DE48A320657E6AA8`); it contains no database, uploads, sessions, logs, or dependencies
+
+Deliberate next-step boundary:
+
+- modular chat, location, media, and streaming routes are not yet globally protected
+- Socket.IO authentication is not mandatory until `CW_REQUIRE_WS_AUTH=1` is enabled after rollout
+- modular HTTP paths must be secured together with parent-child relationship authorization and Android client compatibility tests, rather than by adding middleware blindly
+
 ## What Is Already Improved
 
 ### Chat

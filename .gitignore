@@ -96,6 +96,8 @@ yarn-error.log*
 
 # Server uploads
 server/uploads/
+server/data/auth-sessions.json
+server/data/auth-sessions.json.*.tmp
 
 # OS generated files
 .DS_Store
@@ -129,3 +131,9 @@ backup-childwatch/
 .idea/
 .idea/deploymentTargetSelector.xml
 .idea/kotlinc.xml
+# Local diagnostics and manual deployment packages
+.qwen/
+childwatch.db
+parent_repro_logcat.txt
+server/*.zip
+server/deploy/
