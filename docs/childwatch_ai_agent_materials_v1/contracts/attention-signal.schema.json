@@ -1,0 +1,217 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://childwatch.local/contracts/attention-signal.schema.json",
+  "title": "ChildWatch Attention Signal Protocol",
+  "$defs": {
+    "tone": {
+      "type": "string",
+      "enum": [
+        "ATTENTION",
+        "RINGTONE",
+        "ALARM",
+        "SIREN"
+      ]
+    },
+    "vibrationPattern": {
+      "type": "string",
+      "enum": [
+        "OFF",
+        "PULSE",
+        "URGENT",
+        "SOS"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "QUEUED",
+        "DELIVERED",
+        "STARTED",
+        "COMPLETED",
+        "STOPPED",
+        "REJECTED",
+        "FAILED",
+        "EXPIRED"
+      ]
+    },
+    "startRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "targetDeviceId",
+        "requesterDeviceId",
+        "requesterDisplayName",
+        "tone",
+        "durationMs",
+        "volumePercent",
+        "vibrate",
+        "vibrationPattern",
+        "createdAt",
+        "expiresAt"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 100
+        },
+        "familyId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 100
+        },
+        "targetMemberId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 100
+        },
+        "targetDeviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "requesterMemberId": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 100
+        },
+        "requesterDeviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "requesterDisplayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "tone": {
+          "$ref": "#/$defs/tone"
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 5000,
+          "maximum": 60000
+        },
+        "volumePercent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "vibrate": {
+          "type": "boolean"
+        },
+        "vibrationPattern": {
+          "$ref": "#/$defs/vibrationPattern"
+        },
+        "createdAt": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "expiresAt": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "stopRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "targetDeviceId",
+        "requesterDeviceId",
+        "createdAt"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 100
+        },
+        "targetDeviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "requesterDeviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "createdAt": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "statusEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "requestId",
+        "targetDeviceId",
+        "status",
+        "timestamp"
+      ],
+      "properties": {
+        "requestId": {
+          "type": "string",
+          "minLength": 8,
+          "maxLength": 100
+        },
+        "targetDeviceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 100
+        },
+        "errorCode": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 100
+        },
+        "message": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 500
+        },
+        "timestamp": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/$defs/startRequest"
+    },
+    {
+      "$ref": "#/$defs/stopRequest"
+    },
+    {
+      "$ref": "#/$defs/statusEvent"
+    }
+  ]
+}

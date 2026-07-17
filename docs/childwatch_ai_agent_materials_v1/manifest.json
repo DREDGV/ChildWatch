@@ -1,0 +1,27 @@
+{
+  "package": "childwatch_ai_agent_materials_v1",
+  "repository": "DREDGV/ChildWatch",
+  "baseline_sha": "6c67319f45811196da862ab02845da5696d81016",
+  "file_count": 18,
+  "files": [
+    "00_README.md",
+    "01_MASTER_SPEC.md",
+    "02_ROADMAP.md",
+    "03_AGENT_RULES.md",
+    "04_UI_WIREFRAMES.md",
+    "acceptance/REAL_DEVICE_TEST_MATRIX.md",
+    "contracts/attention-signal.schema.json",
+    "prompts/00_BASELINE_PROMPT.md",
+    "prompts/01_CONTEXT_PROMPT.md",
+    "prompts/02_SERVER_FAMILY_PROMPT.md",
+    "prompts/03_ATTENTION_SIGNAL_PROMPT.md",
+    "reference/APP_USAGE_IMPLEMENTATION.md",
+    "reference/AttentionSignalCommandHandler.kt",
+    "reference/AttentionSignalController.kt",
+    "reference/AttentionSignalModels.kt",
+    "reference/FamilyModels.kt",
+    "reference/attention_signal_migration.sql",
+    "reference/attention_signal_server_reference.js"
+  ],
+  "warning": "Compare with fresh main before implementation."
+}
