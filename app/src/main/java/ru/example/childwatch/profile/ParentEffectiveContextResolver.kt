@@ -10,16 +10,18 @@ class ParentEffectiveContextResolver(context: Context) {
     private val secureSettings = SecureSettingsManager(this.context)
     private val legacyPrefs = this.context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
     private val appPrefs = this.context.getSharedPreferences("app_prefs", Context.MODE_PRIVATE)
+    private val provider = ParentEffectiveContextProvider.get(this.context)
 
     fun resolve(): ParentEffectiveContext {
-        val activeSession = resolveActiveSession()
-        val serverUrl = firstNotBlank(
+        val activeSession = sessionStore.readPersistedSession()
+        val canonical = provider.current()
+        val serverUrl = canonical?.serverUrl ?: firstNotBlank(
             activeSession?.serverUrl,
             secureSettings.getServerUrl(),
             legacyPrefs.getString("server_url", null),
             appPrefs.getString("server_url", null)
         )
-        val ownParentDeviceId = firstNotBlank(
+        val ownParentDeviceId = canonical?.selfDeviceId ?: firstNotBlank(
             activeSession?.ownParentDeviceId,
             secureSettings.getDeviceId(),
             legacyPrefs.getString("device_id", null),
@@ -27,18 +29,20 @@ class ParentEffectiveContextResolver(context: Context) {
             appPrefs.getString("device_id", null),
             appPrefs.getString("parent_device_id", null)
         )
-        val linkedChildDeviceId = firstNotBlank(
-            activeSession?.linkedChildDeviceId,
-            secureSettings.getChildDeviceId(),
-            legacyPrefs.getString("child_device_id", null),
-            legacyPrefs.getString("selected_device_id", null),
-            appPrefs.getString("child_device_id", null),
-            appPrefs.getString("selected_device_id", null)
-        )
+        val linkedChildDeviceId = canonical?.targetDeviceId.orEmpty().ifBlank {
+            firstNotBlank(
+                activeSession?.linkedChildDeviceId,
+                secureSettings.getChildDeviceId(),
+                legacyPrefs.getString("child_device_id", null),
+                legacyPrefs.getString("selected_device_id", null),
+                appPrefs.getString("child_device_id", null),
+                appPrefs.getString("selected_device_id", null)
+            )
+        }
 
-        val source = when {
-            activeSession != null -> "session"
-            serverUrl.isNotBlank() || ownParentDeviceId.isNotBlank() || linkedChildDeviceId.isNotBlank() -> "legacy"
+        val source = canonical?.source?.name?.lowercase() ?: when {
+            activeSession != null -> "active_session"
+            serverUrl.isNotBlank() || ownParentDeviceId.isNotBlank() || linkedChildDeviceId.isNotBlank() -> "legacy_migration"
             else -> "empty"
         }
 
@@ -52,7 +56,7 @@ class ParentEffectiveContextResolver(context: Context) {
     }
 
     fun resolveActiveSession(): ParentActiveSession? {
-        return sessionStore.getSession()
+        return sessionStore.readPersistedSession() ?: sessionStore.getSession()
     }
 
     fun resolveActiveProfileId(): String {
@@ -68,11 +72,11 @@ class ParentEffectiveContextResolver(context: Context) {
     }
 
     fun resolveFocusedChildId(): String {
-        return resolve().linkedChildDeviceId
+        return provider.current()?.targetDeviceId.orEmpty().ifBlank { resolve().linkedChildDeviceId }
     }
 
     fun resolveTargetDeviceId(): String {
-        return resolveFocusedChildId()
+        return provider.current()?.targetDeviceId.orEmpty().ifBlank { resolveFocusedChildId() }
     }
 
     fun resolveOwnParentCandidates(vararg preferred: String?): List<String> {

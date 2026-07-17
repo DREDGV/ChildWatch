@@ -98,13 +98,15 @@ class ChildActiveSessionStore(private val context: Context) {
         }
 
         persistSessions(sessions)
-        setActiveSessionId(
-            sessions.firstOrNull {
-                it.id == session.id ||
-                    it.name.equals(session.name, ignoreCase = true) ||
-                    sameIdentity(it, session)
-            }?.id
-        )
+        val selectedSession = sessions.firstOrNull {
+            it.id == session.id ||
+                it.name.equals(session.name, ignoreCase = true) ||
+                sameIdentity(it, session)
+        }
+        setActiveSessionId(selectedSession?.id)
+        selectedSession?.let {
+            ChildEffectiveContextProvider.get(context).updateFromActiveSession(it)
+        }
     }
 
     fun applySession(session: ChildActiveSession) {
@@ -115,6 +117,7 @@ class ChildActiveSessionStore(private val context: Context) {
     fun syncRuntimeIdentity(session: ChildActiveSession) {
         persistRuntimeIdentity(session)
         setActiveSessionId(session.id)
+        ChildEffectiveContextProvider.get(context).updateFromActiveSession(session)
     }
 
     fun removeSession(sessionId: String) {
@@ -201,6 +204,29 @@ class ChildActiveSessionStore(private val context: Context) {
     }
 
     fun resolveEffectiveContext(): ChildEffectiveContext? {
+        // All runtime consumers (services as well as UI) must observe the same
+        // canonical selection.  The direct SharedPreferences path below remains
+        // only as a one-time migration fallback for installs that do not yet
+        // have an ActiveContext.
+        ChildEffectiveContextProvider.get(context).current()?.let { canonical ->
+            return ChildEffectiveContext(
+                serverUrl = canonical.serverUrl,
+                ownChildDeviceId = canonical.selfDeviceId,
+                linkedParentDeviceId = canonical.targetDeviceId.orEmpty(),
+                activeSessionId = getActiveSessionId(),
+                source = when (canonical.source) {
+                    ru.childwatch.shared.family.ContextSource.CANONICAL,
+                    ru.childwatch.shared.family.ContextSource.ACTIVE_SESSION ->
+                        ChildEffectiveContext.Source.ACTIVE_SESSION
+                    ru.childwatch.shared.family.ContextSource.SECURE_SETTINGS ->
+                        ChildEffectiveContext.Source.CURRENT_SESSION
+                    ru.childwatch.shared.family.ContextSource.LEGACY_MIGRATION ->
+                        ChildEffectiveContext.Source.LEGACY_PREFS
+                },
+                updatedAt = canonical.updatedAt
+            )
+        }
+
         getActiveSession()?.let { active ->
             return ChildEffectiveContext(
                 serverUrl = ServerUrlResolver.normalizeServerUrl(active.serverUrl),

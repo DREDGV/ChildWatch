@@ -510,7 +510,7 @@ class SettingsActivity : AppCompatActivity() {
         ) + "\n" + selfNameLine + "\n" + selfMarkerLine + "\n" + getString(
             R.string.profile_switch_source_line,
             describeProfileContextSource(effectiveContext?.source)
-        ) + "\n" + getString(
+        ) + "\n" + buildCanonicalContextDiagnosticsLine() + "\n" + getString(
             R.string.profile_switch_status_line,
             getString(
                 if (activeProfile?.id?.let { activeId ->
@@ -528,6 +528,18 @@ class SettingsActivity : AppCompatActivity() {
         } else {
             ""
         }
+    }
+
+    private fun buildCanonicalContextDiagnosticsLine(): String {
+        val snapshot = ru.example.parentwatch.session.ChildContextDiagnostics(this).snapshot()
+        val unknown = getString(R.string.profile_switch_context_diagnostics_unknown)
+        return getString(
+            R.string.profile_switch_context_diagnostics_line,
+            snapshot.version?.toString() ?: unknown,
+            snapshot.familyId ?: unknown,
+            snapshot.selfMemberId ?: unknown,
+            snapshot.focusedMemberId ?: unknown
+        )
     }
 
     private fun showEditOwnNameDialog() {

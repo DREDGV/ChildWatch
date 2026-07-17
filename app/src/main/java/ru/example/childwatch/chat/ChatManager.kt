@@ -3,6 +3,7 @@ package ru.example.childwatch.chat
 import android.content.Context
 import android.util.Log
 import ru.example.childwatch.utils.SecurePreferences
+import ru.example.childwatch.profile.ParentEffectiveContextProvider
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -18,6 +19,7 @@ class ChatManager(private val context: Context) {
     }
     
     private val securePreferences = SecurePreferences(context, "chat_prefs")
+    private val messagesKey = "${ParentEffectiveContextProvider.get(context).storageNamespace("chat") ?: "legacy"}::$MESSAGES_KEY"
     
     /**
      * Save a message to storage
@@ -46,7 +48,11 @@ class ChatManager(private val context: Context) {
      */
     fun getAllMessages(): List<ChatMessage> {
         try {
-            val messagesJson = securePreferences.getString(MESSAGES_KEY, "[]")
+            val messagesJson = securePreferences.getString(messagesKey, null)
+                ?: securePreferences.getString(MESSAGES_KEY, "[]")?.also { legacy ->
+                    securePreferences.putString(messagesKey, legacy)
+                }
+                ?: "[]"
             val jsonArray = JSONArray(messagesJson)
             val messages = mutableListOf<ChatMessage>()
             
@@ -69,7 +75,7 @@ class ChatManager(private val context: Context) {
      */
     fun clearAllMessages() {
         try {
-            securePreferences.remove(MESSAGES_KEY)
+            securePreferences.putString(messagesKey, "[]")
             Log.d(TAG, "All messages cleared")
         } catch (e: Exception) {
             Log.e(TAG, "Error clearing messages", e)
@@ -144,6 +150,6 @@ class ChatManager(private val context: Context) {
             jsonArray.put(jsonObject)
         }
 
-        securePreferences.putString(MESSAGES_KEY, jsonArray.toString())
+        securePreferences.putString(messagesKey, jsonArray.toString())
     }
 }

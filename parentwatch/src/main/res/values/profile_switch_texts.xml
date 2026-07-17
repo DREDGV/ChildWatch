@@ -29,6 +29,8 @@
     <string name="profile_switch_validation_own_id">Введите ID этого телефона</string>
     <string name="profile_switch_summary_format">%1$s\nСервер: %2$s\nРебенок: %3$s\nРодитель: %4$s</string>
     <string name="profile_switch_source_line">Контекст: %1$s</string>
+    <string name="profile_switch_context_diagnostics_line">Контекст v%1$s • семья %2$s • участник %3$s • фокус %4$s</string>
+    <string name="profile_switch_context_diagnostics_unknown">—</string>
     <string name="profile_switch_status_line">Статус: %1$s</string>
     <string name="profile_switch_source_session">сессия</string>
     <string name="profile_switch_source_current">текущее состояние</string>

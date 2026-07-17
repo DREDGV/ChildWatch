@@ -38,6 +38,7 @@ class ParentActiveSessionStore(private val context: Context) {
         val normalized = normalizeSession(session)
         prefs.edit().putString(KEY_SESSION_JSON, normalized.toJson().toString()).apply()
         mirrorLegacyPrefs(normalized)
+        ParentEffectiveContextProvider.get(context).updateFromActiveSession(normalized)
     }
 
     fun updateFocusedChildId(linkedChildDeviceId: String): ParentActiveSession? {
@@ -53,6 +54,10 @@ class ParentActiveSessionStore(private val context: Context) {
             updatedAt = System.currentTimeMillis()
         )
         setSession(updated)
+        ParentEffectiveContextProvider.get(context).updateSelection(
+            focusedMemberId = null,
+            targetDeviceId = normalizedChildId
+        )
         return updated
     }
 

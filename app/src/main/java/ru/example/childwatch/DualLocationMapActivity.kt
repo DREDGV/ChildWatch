@@ -36,6 +36,7 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polygon
 import org.osmdroid.views.overlay.Polyline
 import ru.example.childwatch.profile.ParentActiveSessionStore
+import ru.example.childwatch.profile.ParentEffectiveContextProvider
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.profile.ParentParticipantNameResolver
 import ru.example.childwatch.database.ChildWatchDatabase
@@ -151,6 +152,8 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var resolvedOtherId: String = ""
     private var currentDiagnosticReason: MapDiagnosticReason = MapDiagnosticReason.NONE
     private var dependenciesReady = false
+    private val contextProvider by lazy { ParentEffectiveContextProvider.get(this) }
+    private val mapNamespace by lazy { contextProvider.storageNamespace("map") ?: "legacy" }
     private val participantNameResolver by lazy { ParentParticipantNameResolver(this) }
 
     private data class CachedLocation(
@@ -208,6 +211,11 @@ class DualLocationMapActivity : AppCompatActivity() {
             otherId = intent.getStringExtra(EXTRA_OTHER_ID)?.trim().orEmpty()
             showAllContacts = intent.getBooleanExtra(EXTRA_SHOW_ALL, false)
 
+            val canonicalContext = contextProvider.current()
+            if (myRole == ROLE_PARENT) {
+                canonicalContext?.selfDeviceId?.takeIf(String::isNotBlank)?.let { myId = it }
+                canonicalContext?.targetDeviceId?.takeIf(String::isNotBlank)?.let { otherId = it }
+            }
             val effectiveContext = ParentEffectiveContextResolver(this).resolve()
             val activeSessionStore = ParentActiveSessionStore(this)
             val localPrefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
@@ -1039,6 +1047,9 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun resolveParentIdCandidates(): List<String> {
+        contextProvider.current()?.selfDeviceId
+            ?.takeIf { it.isNotBlank() && it != myId.trim() }
+            ?.let { return listOf(it) }
         val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
         return listOf(
             resolvedParentId,
@@ -1053,6 +1064,9 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private suspend fun resolveChildIdCandidates(): List<String> {
+        contextProvider.current()?.targetDeviceId
+            ?.takeIf { it.isNotBlank() && it != myId.trim() }
+            ?.let { return listOf(it) }
         val effectiveContext = ParentEffectiveContextResolver(this).resolve()
         val secureSettings = SecureSettingsManager(this)
         val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
@@ -1099,6 +1113,9 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun resolveSelfParentIdCandidates(): List<String> {
+        contextProvider.current()?.selfDeviceId
+            ?.takeIf(String::isNotBlank)
+            ?.let { return listOf(it) }
         val effectiveContext = ParentEffectiveContextResolver(this).resolve()
         val secureSettings = SecureSettingsManager(this)
         val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
@@ -1367,9 +1384,9 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
     }
 
-    private fun cacheKeyMy(): String = "${MAP_CACHE_MY}_${myRole}"
+    private fun cacheKeyMy(): String = "$mapNamespace::${MAP_CACHE_MY}_${myRole}"
 
-    private fun cacheKeyOther(): String = "${MAP_CACHE_OTHER}_${resolvedOtherId.ifBlank { otherId }}"
+    private fun cacheKeyOther(): String = "$mapNamespace::${MAP_CACHE_OTHER}_${resolvedOtherId.ifBlank { otherId }}"
 
     private fun saveCachedLocation(key: String, lat: Double, lon: Double, timestamp: Long, speed: Float?) {
         val normalizedTimestamp = normalizeTimestampMillis(timestamp) ?: System.currentTimeMillis()
@@ -2194,7 +2211,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         val location: ParentLocationData
     )
 
-    private fun cacheKeyContact(deviceId: String): String = "map_cache_contact_$deviceId"
+    private fun cacheKeyContact(deviceId: String): String = "$mapNamespace::map_cache_contact_$deviceId"
 
     private fun loadAllContactsLocations() {
         loadLocationsJob = lifecycleScope.launch {

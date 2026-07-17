@@ -129,6 +129,7 @@ nul
 .codex-logs/
 backup-childwatch/
 .idea/
+.kotlin/
 .idea/deploymentTargetSelector.xml
 .idea/kotlinc.xml
 # Local diagnostics and manual deployment packages

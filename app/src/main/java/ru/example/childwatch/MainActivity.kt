@@ -36,6 +36,7 @@ import ru.example.childwatch.utils.PermissionHelper
 import ru.example.childwatch.utils.SecurityChecker
 import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.profile.ParentActiveSessionStore
+import ru.example.childwatch.profile.ParentEffectiveContextProvider
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.profile.ParentLinkedChildOption
 import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
@@ -73,6 +74,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var batteryOptimizationHelper: BatteryOptimizationHelper
     private lateinit var chatManager: ChatManager
     private val effectiveContextResolver by lazy { ParentEffectiveContextResolver(this) }
+    private val contextProvider by lazy { ParentEffectiveContextProvider.get(this) }
     private val activeSessionStore by lazy { ParentActiveSessionStore(this) }
     private val linkedChildOptionsProvider by lazy { ParentLinkedChildOptionsProvider(this) }
     private val linkedParentsProvider by lazy { ParentLinkedParentsProvider(this) }
@@ -258,7 +260,9 @@ class MainActivity : AppCompatActivity() {
                 Log.e(TAG, "Failed to mark chat messages as read before opening chat", e)
             }
             updateChatBadge()
-            val intent = Intent(this@MainActivity, ChatActivity::class.java)
+            val intent = Intent(this@MainActivity, ChatActivity::class.java).apply {
+                putExtra(ChatActivity.EXTRA_TARGET_DEVICE_ID, targetDeviceId)
+            }
             startActivity(intent)
         }
         
@@ -274,7 +278,9 @@ class MainActivity : AppCompatActivity() {
         // Location map card (legacy mode): parent + selected child
         findViewById<View>(R.id.parentLocationCard)?.setOnClickListener {
             val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
-            val myId = effectiveContextResolver.resolveOwnParentId().ifBlank {
+            val myId = contextProvider.current()?.selfDeviceId.orEmpty().ifBlank {
+                effectiveContextResolver.resolveOwnParentId()
+            }.ifBlank {
                 listOf(
                     prefs.getString("device_id", null),
                     prefs.getString("parent_device_id", null)
@@ -1535,12 +1541,16 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun resolveTargetDeviceId(): String? {
+        contextProvider.current()?.targetDeviceId
+            ?.takeIf { it.isNotBlank() }
+            ?.let { return it }
         val resolvedFromContext = effectiveContextResolver.resolveTargetDeviceId()
         if (resolvedFromContext.isNotBlank()) {
             activeSessionStore.updateFocusedChildId(resolvedFromContext)
             if (secureSettings.getChildDeviceId().isNullOrBlank()) {
                 secureSettings.setChildDeviceId(resolvedFromContext)
             }
+            contextProvider.updateSelection(focusedMemberId = null, targetDeviceId = resolvedFromContext)
             return resolvedFromContext
         }
         val resolved = effectiveContextResolver
@@ -1552,6 +1562,7 @@ class MainActivity : AppCompatActivity() {
         if (secureSettings.getChildDeviceId().isNullOrBlank()) {
             secureSettings.setChildDeviceId(resolved)
         }
+        contextProvider.updateSelection(focusedMemberId = null, targetDeviceId = resolved)
 
         return resolved
     }
@@ -1924,6 +1935,7 @@ class MainActivity : AppCompatActivity() {
         if (normalized.isBlank()) return
 
         activeSessionStore.updateFocusedChildId(normalized)
+        contextProvider.updateSelection(focusedMemberId = null, targetDeviceId = normalized)
         secureSettings.setChildDeviceId(normalized)
         prefs.edit()
             .putString("selected_device_id", normalized)

@@ -38,6 +38,7 @@ import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.FamilyPresenceParticipant
 import ru.example.childwatch.profile.ParentActiveSessionStore
+import ru.example.childwatch.profile.ParentEffectiveContextProvider
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.profile.ParentParticipantNameResolver
 import ru.example.childwatch.utils.SecureSettingsManager
@@ -59,6 +60,7 @@ class ChatActivity : AppCompatActivity() {
     
     companion object {
         private const val TAG = "ChatActivity"
+        const val EXTRA_TARGET_DEVICE_ID = "TARGET_DEVICE_ID"
         private const val KEY_RECENT_EMOJIS = "recent_emojis"
         private const val MAX_RECENT_EMOJIS = 18
         private const val EMOJI_DELIMITER = "|:|"
@@ -74,6 +76,7 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var chatAdapter: ChatAdapter
     private lateinit var chatManager: ChatManager
     private lateinit var networkClient: NetworkClient
+    private lateinit var contextProvider: ParentEffectiveContextProvider
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
     private lateinit var activeSessionStore: ParentActiveSessionStore
     private lateinit var participantNameResolver: ParentParticipantNameResolver
@@ -104,6 +107,11 @@ class ChatActivity : AppCompatActivity() {
     private val emojiPrefs: SharedPreferences by lazy {
         getSharedPreferences("chat_emoji_prefs", MODE_PRIVATE)
     }
+    private val chatNamespace: String by lazy {
+        contextProvider.storageNamespace("chat") ?: "legacy"
+    }
+    private val recentEmojisKey: String by lazy { "$chatNamespace::$KEY_RECENT_EMOJIS" }
+    private val chatOpenKey: String by lazy { "$chatNamespace::chat_open" }
 
     private val typingHandler = Handler(Looper.getMainLooper())
     private var typingRunnable: Runnable? = null
@@ -188,6 +196,11 @@ class ChatActivity : AppCompatActivity() {
         binding = ActivityChatBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        contextProvider = ParentEffectiveContextProvider.get(this)
+        intent.getStringExtra(EXTRA_TARGET_DEVICE_ID)
+            ?.trim()
+            ?.takeIf(String::isNotEmpty)
+            ?.let { contextProvider.updateSelection(focusedMemberId = null, targetDeviceId = it) }
         effectiveContextResolver = ParentEffectiveContextResolver(this)
         activeSessionStore = ParentActiveSessionStore(this)
         participantNameResolver = ParentParticipantNameResolver(this)
@@ -245,6 +258,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun getServerUrl(): String {
+        contextProvider.current()?.serverUrl?.takeIf { it.isNotBlank() }?.let { return it }
         val resolved = effectiveContextResolver.resolveServerUrl()
         if (resolved.isNotBlank()) {
             return resolved
@@ -257,12 +271,14 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun getChildDeviceId(): String {
+        contextProvider.current()?.targetDeviceId?.takeIf { it.isNotBlank() }?.let { return it }
         val resolved = listOf(
             effectiveContextResolver.resolveFocusedChildId(),
             activeSessionStore.getSession()?.linkedChildDeviceId.orEmpty(),
             SecureSettingsManager(this).getChildDeviceId().orEmpty()
         ).firstOrNull { it.isNotBlank() }.orEmpty()
         if (resolved.isNotBlank()) {
+            contextProvider.updateSelection(focusedMemberId = null, targetDeviceId = resolved)
             activeSessionStore.updateFocusedChildId(resolved)
         }
         return resolved
@@ -270,8 +286,8 @@ class ChatActivity : AppCompatActivity() {
 
     private fun describeProfileContextSource(source: String): String {
         return when (source.trim().lowercase(Locale.ROOT)) {
-            "session" -> getString(R.string.profile_switch_source_session)
-            "legacy" -> getString(R.string.profile_switch_source_legacy)
+            "session", "active_session" -> getString(R.string.profile_switch_source_session)
+            "legacy", "legacy_migration" -> getString(R.string.profile_switch_source_legacy)
             "empty" -> getString(R.string.profile_switch_source_unknown)
             else -> getString(R.string.profile_switch_source_current)
         }
@@ -687,10 +703,7 @@ class ChatActivity : AppCompatActivity() {
      * Sync chat history from server
      */
     private fun syncChatHistory() {
-        val candidateIds = effectiveContextResolver.resolveTargetDeviceCandidates(
-            activeSessionStore.getSession()?.linkedChildDeviceId,
-            SecureSettingsManager(this).getChildDeviceId()
-        )
+        val candidateIds = listOf(getChildDeviceId()).filter(String::isNotBlank)
         if (candidateIds.isEmpty()) {
             Log.w(TAG, "Target Device ID not set, skipping chat sync")
             return
@@ -1177,7 +1190,11 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun getRecentEmojis(): List<String> {
-        return emojiPrefs.getString(KEY_RECENT_EMOJIS, null)
+        val scoped = emojiPrefs.getString(recentEmojisKey, null)
+        val stored = scoped ?: emojiPrefs.getString(KEY_RECENT_EMOJIS, null)?.also { legacy ->
+            emojiPrefs.edit().putString(recentEmojisKey, legacy).apply()
+        }
+        return stored
             ?.split(EMOJI_DELIMITER)
             ?.map { it.trim() }
             ?.filter { it.isNotBlank() }
@@ -1189,7 +1206,7 @@ class ChatActivity : AppCompatActivity() {
             .distinct()
             .take(MAX_RECENT_EMOJIS)
         emojiPrefs.edit()
-            .putString(KEY_RECENT_EMOJIS, updated.joinToString(EMOJI_DELIMITER))
+            .putString(recentEmojisKey, updated.joinToString(EMOJI_DELIMITER))
             .apply()
     }
 
@@ -1376,6 +1393,7 @@ class ChatActivity : AppCompatActivity() {
         getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
             .edit()
             .putBoolean("chat_open", true)
+            .putBoolean(chatOpenKey, true)
             .apply()
         registerChatUiListeners()
         refreshFamilyPresenceSummary()
@@ -1390,6 +1408,7 @@ class ChatActivity : AppCompatActivity() {
         getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
             .edit()
             .putBoolean("chat_open", false)
+            .putBoolean(chatOpenKey, false)
             .apply()
         super.onPause()
     }
