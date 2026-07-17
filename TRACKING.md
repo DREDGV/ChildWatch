@@ -30,6 +30,16 @@ The key practical rule for anyone entering the repo now:
 
 ## Latest Verified Work
 
+### 2026-07-17: ActiveContext foundation (stage 1)
+
+- Added a shared `ActiveContext` model and resolver used by both Android applications.
+- Added canonical stores, effective-context providers, idempotent legacy migrations, masked diagnostics, and stable local family/member IDs.
+- Context resolution now follows `canonical -> active session -> secure/current settings -> legacy profile/prefs`; blank values cannot erase valid lower-priority values and self cannot become target.
+- ParentMonitor and ChildDevice chat/map navigation now consume the same selected target; local chat/map preference keys are context-namespaced.
+- Legacy keys remain mirrored for compatibility. Audio and remote-photo internals were deliberately kept outside stage 1.
+- Verification passed: 11 shared-core tests, both Android Kotlin compilations, 6 server suites/26 tests, and non-strict `utf8Guard` with only the previously documented warnings.
+- Full report: `docs/modernization/STAGE_1_ACTIVE_CONTEXT.md`.
+
 ### 2026-07-17: Baseline 7.2 protection
 
 - Created `chore/baseline-7-2-protection` from `main` at `6c67319f45811196da862ab02845da5696d81016`; no product behavior or UI was changed.
@@ -329,8 +339,8 @@ The profile system can be considered successfully rebuilt when these conditions 
 
 ## Immediate Priorities
 
-1. Rebuild the profile system foundation using the roadmap above.
-2. Continue real-device stabilization of maps, listening, remote photo, and chat without bypassing the new profile model.
+1. Implement the server-backed family/member/device/membership model while preserving current pair-based compatibility.
+2. Continue real-device stabilization of maps, listening, remote photo, and chat without bypassing the new ActiveContext.
 3. Keep removing mojibake and prevent new encoding regressions.
 4. Avoid drift between server behavior, Android code, and documentation.
 5. Prefer updating this file over creating another roadmap document unless a separate spec is truly needed.
