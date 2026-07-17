@@ -7,19 +7,13 @@ import android.util.Log
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.FileOutputStream
-import java.security.MessageDigest
 
 object RemotePhotoCache {
     private const val TAG = "RemotePhotoCache"
     private const val MAX_CACHE_FILES = 20
     private const val BUFFER_SIZE = 8 * 1024
 
-    fun saveBase64PhotoToCache(
-        context: Context,
-        base64: String,
-        timestamp: Long,
-        scopeKey: String? = null
-    ): File? {
+    fun saveBase64PhotoToCache(context: Context, base64: String, timestamp: Long): File? {
         return try {
             val payload = sanitizeBase64Payload(base64)
             if (payload.isEmpty()) {
@@ -27,7 +21,7 @@ object RemotePhotoCache {
                 return null
             }
 
-            val cacheDir = resolveCacheDir(context, scopeKey)
+            val cacheDir = File(context.cacheDir, "remote_photo_preview")
             if (!cacheDir.exists()) {
                 cacheDir.mkdirs()
             }
@@ -68,8 +62,7 @@ object RemotePhotoCache {
         context: Context,
         bytes: ByteArray,
         timestamp: Long,
-        prefix: String = "remote_photo",
-        scopeKey: String? = null
+        prefix: String = "remote_photo"
     ): File? {
         return try {
             if (bytes.isEmpty()) {
@@ -77,7 +70,7 @@ object RemotePhotoCache {
                 return null
             }
 
-            val cacheDir = resolveCacheDir(context, scopeKey)
+            val cacheDir = File(context.cacheDir, "remote_photo_preview")
             if (!cacheDir.exists()) {
                 cacheDir.mkdirs()
             }
@@ -106,23 +99,6 @@ object RemotePhotoCache {
         val trimmed = base64.trim()
         if (trimmed.isEmpty()) return ""
         return trimmed.substringAfter(',', trimmed)
-    }
-
-    /**
-     * Photo previews are temporary, but they still must not leak from one
-     * selected child into another child's screen. The scope digest prevents
-     * raw device identifiers from appearing in a file path.
-     */
-    private fun resolveCacheDir(context: Context, scopeKey: String?): File {
-        val scope = scopeKey?.trim().orEmpty()
-        val root = File(context.cacheDir, "remote_photo_preview")
-        if (scope.isEmpty() || scope == "legacy") return root
-
-        val digest = MessageDigest.getInstance("SHA-256")
-            .digest(scope.toByteArray(Charsets.UTF_8))
-            .joinToString(separator = "") { byte -> "%02x".format(byte.toInt() and 0xff) }
-            .take(24)
-        return File(root, digest)
     }
 
     private fun pruneOldFiles(cacheDir: File) {

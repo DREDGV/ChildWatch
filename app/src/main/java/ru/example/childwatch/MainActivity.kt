@@ -2073,8 +2073,7 @@ class MainActivity : AppCompatActivity() {
                 RemotePhotoCache.saveBase64PhotoToCache(
                     this@MainActivity,
                     photoBase64,
-                    timestamp,
-                    contextProvider.featureContext("photo")?.storageNamespace ?: deviceId
+                    timestamp
                 )
             }
 

@@ -39,7 +39,6 @@ import ru.example.childwatch.network.DeviceStatus
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
-import ru.example.childwatch.profile.ParentEffectiveContextProvider
 import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentParticipantNameResolver
 import ru.example.childwatch.recordings.RecordingsLibraryActivity
@@ -83,7 +82,6 @@ class AudioStreamingActivity : AppCompatActivity() {
     private lateinit var serverUrl: String
     private lateinit var audioPrefs: SharedPreferences
     private lateinit var secureSettings: SecureSettingsManager
-    private lateinit var contextProvider: ParentEffectiveContextProvider
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
     private lateinit var activeSessionStore: ParentActiveSessionStore
     private lateinit var participantNameResolver: ParentParticipantNameResolver
@@ -189,7 +187,6 @@ class AudioStreamingActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         secureSettings = SecureSettingsManager(this)
-        contextProvider = ParentEffectiveContextProvider.get(this)
         effectiveContextResolver = ParentEffectiveContextResolver(this)
         activeSessionStore = ParentActiveSessionStore(this)
         participantNameResolver = ParentParticipantNameResolver(this)
@@ -204,12 +201,10 @@ class AudioStreamingActivity : AppCompatActivity() {
                 ).show()
                 finish()
                 return
-        }
+            }
         activeSessionStore.updateFocusedChildId(deviceId)
-        contextProvider.updateSelection(focusedMemberId = null, targetDeviceId = deviceId)
 
         val resolvedServerUrl = intent.getStringExtra(EXTRA_SERVER_URL)
-            ?: contextProvider.featureContext("audio")?.serverUrl?.takeIf { it.isNotBlank() }
             ?: effectiveContextResolver.resolveServerUrl().takeIf { it.isNotBlank() }
             ?: secureSettings.getServerUrl().trim()
         if (resolvedServerUrl.isBlank()) {
@@ -242,9 +237,8 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun resolveTargetDeviceIdForStreaming(): String? {
-        return intent.getStringExtra(EXTRA_DEVICE_ID)?.trim()?.takeIf { it.isNotBlank() }
-            ?: contextProvider.featureContext("audio")?.targetDeviceId?.takeIf { it.isNotBlank() }
-            ?: effectiveContextResolver.resolveTargetDeviceId().takeIf { it.isNotBlank() }
+        val fromIntent = intent.getStringExtra(EXTRA_DEVICE_ID)?.trim()
+        return effectiveContextResolver.resolveTargetDeviceCandidates(fromIntent).firstOrNull()
     }
 
     private fun loadAudioSettings() {
