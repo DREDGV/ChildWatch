@@ -9,6 +9,7 @@
 
     <!-- Заголовок -->
     <TextView
+        android:id="@+id/qrTitleText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Покажите этот QR-код"
@@ -18,6 +19,7 @@
         android:layout_marginBottom="8dp" />
 
     <TextView
+        android:id="@+id/qrSubtitleText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:text="Отсканируйте его в ParentWatch (детское приложение)"
@@ -58,6 +60,7 @@
 
     <!-- Инструкция -->
     <TextView
+        android:id="@+id/qrHelpText"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text="💡 Этот код связывает родительское и детское устройства для просмотра карты"

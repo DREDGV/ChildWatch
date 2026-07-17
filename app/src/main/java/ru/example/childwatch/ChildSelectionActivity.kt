@@ -328,7 +328,8 @@ class ChildSelectionActivity : AppCompatActivity() {
 
     private suspend fun linkChildOnServer(
         childDeviceId: String,
-        childName: String
+        childName: String,
+        childIconId: Int? = null
     ): Boolean {
         val parentDeviceId = effectiveContextResolver.resolveOwnParentId().trim()
         val serverUrl = effectiveContextResolver.resolveServerUrl().trim()
@@ -341,7 +342,8 @@ class ChildSelectionActivity : AppCompatActivity() {
             networkClient.linkParentChild(
                 parentDeviceId = parentDeviceId,
                 childDeviceId = childDeviceId,
-                displayName = childName.ifBlank { null }
+                childDisplayName = childName.ifBlank { null },
+                childMarkerIconId = childIconId
             ).isSuccessful
         }.getOrElse { error ->
             Log.w(TAG, "Unable to link child on server: $childDeviceId", error)
@@ -576,7 +578,7 @@ class ChildSelectionActivity : AppCompatActivity() {
                 )
 
                 childRepository.insertOrUpdateChild(child)
-                linkChildOnServer(deviceId, name)
+                linkChildOnServer(deviceId, name, iconId)
                 Log.d(TAG, "Устройство добавлено: $name ($deviceId)")
 
                 // Обновить список
@@ -791,7 +793,7 @@ class ChildSelectionActivity : AppCompatActivity() {
                     updatedAt = System.currentTimeMillis()
                 )
                 childRepository.insertOrUpdateChild(updatedChild)
-                linkChildOnServer(child.deviceId, newName)
+                linkChildOnServer(child.deviceId, newName, newIconId)
                 Log.d(TAG, "Устройство обновлено: $newName (${child.deviceId})")
 
                 // Обновить список

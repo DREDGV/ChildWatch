@@ -5,7 +5,13 @@ import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.content.pm.PackageManager
+import android.graphics.Bitmap
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.Typeface
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.Drawable
 import android.os.Bundle
 import android.text.InputType
 import android.text.format.DateUtils
@@ -14,9 +20,11 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.EditText
 import android.widget.Toast
+import androidx.annotation.DrawableRes
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
+import androidx.core.graphics.drawable.DrawableCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.*
 import org.osmdroid.config.Configuration
@@ -29,6 +37,7 @@ import org.osmdroid.views.overlay.Polygon
 import org.osmdroid.views.overlay.Polyline
 import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
+import ru.example.childwatch.profile.ParentParticipantNameResolver
 import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.database.entity.ParentLocation
 import ru.example.childwatch.database.entity.Geofence
@@ -142,6 +151,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var resolvedOtherId: String = ""
     private var currentDiagnosticReason: MapDiagnosticReason = MapDiagnosticReason.NONE
     private var dependenciesReady = false
+    private val participantNameResolver by lazy { ParentParticipantNameResolver(this) }
 
     private data class CachedLocation(
         val latitude: Double,
@@ -180,7 +190,8 @@ class DualLocationMapActivity : AppCompatActivity() {
         val title: String,
         val latitude: Double,
         val longitude: Double,
-        val timestamp: Long?
+        val timestamp: Long?,
+        val iconId: Int
     )
     
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -454,16 +465,8 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun updateCenterIcons() {
-        val myIcon = when (myRole) {
-            ROLE_PARENT -> R.drawable.ic_parent_marker
-            ROLE_CHILD -> R.drawable.ic_child_marker
-            else -> R.drawable.ic_parent_marker
-        }
-        val otherIcon = when (myRole) {
-            ROLE_PARENT -> R.drawable.ic_child_marker
-            ROLE_CHILD -> R.drawable.ic_parent_marker
-            else -> R.drawable.ic_child_marker
-        }
+        val myIcon = resolveMyMarkerIconRes()
+        val otherIcon = resolveOtherMarkerIconRes()
         binding.centerMyButton.setImageResource(myIcon)
         binding.centerOtherButton.setImageResource(otherIcon)
     }
@@ -786,7 +789,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             setPoints(points)
             
             // Keep the route visually distinct from the live markers.
-            outlinePaint.color = Color.parseColor("#4285F4") // Google Blue
+            outlinePaint.color = historyAccentColor()
             outlinePaint.strokeWidth = 8f
             outlinePaint.alpha = 200
         }
@@ -796,8 +799,8 @@ class DualLocationMapActivity : AppCompatActivity() {
         // Add route start/end markers for context.
         val firstPoint = validHistory.firstOrNull()
         val lastPoint = validHistory.lastOrNull()
-        val historyStartIcon = ContextCompat.getDrawable(this@DualLocationMapActivity, R.drawable.ic_route_start_marker)
-        val historyEndIcon = ContextCompat.getDrawable(this@DualLocationMapActivity, R.drawable.ic_route_end_marker)
+        val historyStartIcon = tintedDrawable(R.drawable.ic_route_start_marker, historyAccentColor())
+        val historyEndIcon = tintedDrawable(R.drawable.ic_route_end_marker, historyAccentColor())
         
         if (firstPoint != null && lastPoint != null && firstPoint != lastPoint) {
             // Start marker.
@@ -861,6 +864,169 @@ class DualLocationMapActivity : AppCompatActivity() {
         } else {
             getString(R.string.map_marker_snippet_fresh, label, timeInfo)
         }
+    }
+
+    private fun childAccentColor(): Int = Color.parseColor("#F59E0B")
+
+    private fun selfParentAccentColor(): Int = Color.parseColor("#0F766E")
+
+    private fun participantAccentColor(deviceId: String?, role: String, emphasizeSelf: Boolean = false): Int {
+        if (role == ROLE_CHILD || role == ContactRoles.CHILD) return childAccentColor()
+        if (emphasizeSelf) return selfParentAccentColor()
+        val palette = intArrayOf(
+            Color.parseColor("#2563EB"),
+            Color.parseColor("#7C3AED"),
+            Color.parseColor("#DC2626"),
+            Color.parseColor("#0891B2"),
+            Color.parseColor("#16A34A"),
+            Color.parseColor("#EA580C")
+        )
+        val normalized = deviceId?.trim().orEmpty()
+        if (normalized.isBlank()) return palette.first()
+        return palette[(normalized.hashCode() and Int.MAX_VALUE) % palette.size]
+    }
+
+    private fun resolveLocalChildMarkerIconId(childDeviceId: String?): Int {
+        val normalizedChildId = childDeviceId?.trim().orEmpty()
+        if (normalizedChildId.isBlank()) return ContactIcons.CHILD
+        if (!::database.isInitialized) return ContactIcons.CHILD
+
+        return runBlocking(Dispatchers.IO) {
+            database.childDao().getByDeviceId(normalizedChildId)
+        }?.iconId?.takeIf(ContactIcons::isKnown) ?: ContactIcons.CHILD
+    }
+
+    private fun resolveMyMarkerIconRes(): Int {
+        return when (myRole) {
+            ROLE_PARENT -> ContactIcons.resolve(
+                participantNameResolver.resolveOwnParentMarkerIconId(),
+                ContactRoles.PARENT
+            )
+            ROLE_CHILD -> ContactIcons.resolve(
+                resolveLocalChildMarkerIconId(myId),
+                ContactRoles.CHILD
+            )
+            else -> R.drawable.ic_parent_marker
+        }
+    }
+
+    private fun resolveOtherMarkerIconRes(): Int {
+        return when (myRole) {
+            ROLE_PARENT -> ContactIcons.resolve(
+                resolveLocalChildMarkerIconId(otherId),
+                ContactRoles.CHILD
+            )
+            ROLE_CHILD -> ContactIcons.resolve(
+                participantNameResolver.resolveOwnParentMarkerIconId(),
+                ContactRoles.PARENT
+            )
+            else -> R.drawable.ic_child_marker
+        }
+    }
+
+    private fun historyAccentColor(): Int = when (myRole) {
+        ROLE_PARENT -> childAccentColor()
+        ROLE_CHILD -> participantAccentColor(historyTargetId(), ROLE_PARENT)
+        else -> Color.parseColor("#4285F4")
+    }
+
+    private fun connectionAccentColor(): Int = when (myRole) {
+        ROLE_PARENT -> Color.parseColor("#0EA5E9")
+        ROLE_CHILD -> Color.parseColor("#6366F1")
+        else -> Color.parseColor("#2196F3")
+    }
+
+    private fun shortMarkerLabel(title: String): String {
+        val normalized = title.trim()
+        if (normalized.isBlank()) return "?"
+        val words = normalized.split(Regex("\\s+")).filter { it.isNotBlank() }
+        return when {
+            words.size >= 2 -> "${words[0].first().uppercaseChar()}${words[1].first().uppercaseChar()}"
+            normalized.length <= 8 -> normalized
+            else -> normalized.take(7)
+        }
+    }
+
+    private fun createParticipantMarkerDrawable(
+        @DrawableRes iconRes: Int,
+        accentColor: Int,
+        title: String
+    ): Drawable? {
+        val density = resources.displayMetrics.density
+        val label = shortMarkerLabel(title)
+        val textPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = accentColor
+            textSize = 12f * density
+            typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+            textAlign = Paint.Align.CENTER
+        }
+        val chipHeight = 22f * density
+        val chipPadding = 10f * density
+        val iconSize = 34f * density
+        val outerCircle = iconSize / 2f + 5f * density
+        val textWidth = maxOf(24f * density, textPaint.measureText(label))
+        val width = maxOf((iconSize + 18f * density).toInt(), (textWidth + chipPadding * 2f).toInt())
+        val height = (chipHeight + outerCircle * 2f + 6f * density).toInt()
+
+        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+
+        val chipFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+        val chipStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = accentColor
+            style = Paint.Style.STROKE
+            strokeWidth = 1.5f * density
+        }
+        canvas.drawRoundRect(
+            2f * density,
+            0f,
+            width - 2f * density,
+            chipHeight,
+            10f * density,
+            10f * density,
+            chipFill
+        )
+        canvas.drawRoundRect(
+            2f * density,
+            0f,
+            width - 2f * density,
+            chipHeight,
+            10f * density,
+            10f * density,
+            chipStroke
+        )
+        val textY = chipHeight / 2f - ((textPaint.descent() + textPaint.ascent()) / 2f)
+        canvas.drawText(label, width / 2f, textY, textPaint)
+
+        val circleCx = width / 2f
+        val circleCy = chipHeight + outerCircle
+        val circleFill = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+        val circleStroke = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = accentColor
+            style = Paint.Style.STROKE
+            strokeWidth = 2f * density
+        }
+        canvas.drawCircle(circleCx, circleCy, outerCircle, circleFill)
+        canvas.drawCircle(circleCx, circleCy, outerCircle, circleStroke)
+
+        val iconDrawable = ContextCompat.getDrawable(this, iconRes)?.mutate()
+            ?: return BitmapDrawable(resources, bitmap)
+        DrawableCompat.setTint(iconDrawable, accentColor)
+        val halfIcon = iconSize / 2f
+        iconDrawable.setBounds(
+            (circleCx - halfIcon).toInt(),
+            (circleCy - halfIcon).toInt(),
+            (circleCx + halfIcon).toInt(),
+            (circleCy + halfIcon).toInt()
+        )
+        iconDrawable.draw(canvas)
+        return BitmapDrawable(resources, bitmap)
+    }
+
+    private fun tintedDrawable(@DrawableRes iconRes: Int, accentColor: Int): Drawable? {
+        val drawable = ContextCompat.getDrawable(this, iconRes)?.mutate() ?: return null
+        DrawableCompat.setTint(drawable, accentColor)
+        return drawable
     }
 
     private fun historyTargetId(): String? = when (myRole) {
@@ -1564,11 +1730,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         clearFamilyMarkers()
         
         // Use role-specific icons for the current device.
-        val myMarkerIcon = when (myRole) {
-            ROLE_PARENT -> R.drawable.ic_parent_marker
-            ROLE_CHILD -> R.drawable.ic_child_marker
-            else -> R.drawable.ic_parent_marker
-        }
+        val myMarkerIcon = resolveMyMarkerIconRes()
         
         val myMarkerTitle = selfMarkerTitle()
         
@@ -1577,16 +1739,16 @@ class DualLocationMapActivity : AppCompatActivity() {
             title = myMarkerTitle
             snippet = buildMarkerSnippet(getString(R.string.map_my_location), myTimestamp)
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            icon = ContextCompat.getDrawable(this@DualLocationMapActivity, myMarkerIcon)
+            icon = createParticipantMarkerDrawable(
+                iconRes = myMarkerIcon,
+                accentColor = if (myRole == ROLE_PARENT) selfParentAccentColor() else childAccentColor(),
+                title = myMarkerTitle
+            )
         }
         mapView.overlays.add(myMarker)
         
         // Use the opposite role icon for the linked device.
-        val otherMarkerIcon = when (myRole) {
-            ROLE_PARENT -> R.drawable.ic_child_marker
-            ROLE_CHILD -> R.drawable.ic_parent_marker
-            else -> R.drawable.ic_child_marker
-        }
+        val otherMarkerIcon = resolveOtherMarkerIconRes()
         
         val otherMarkerTitle = otherMarkerTitle()
         
@@ -1595,7 +1757,11 @@ class DualLocationMapActivity : AppCompatActivity() {
             title = otherMarkerTitle
             snippet = buildMarkerSnippet(getString(R.string.map_other_location), otherTimestamp)
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            icon = ContextCompat.getDrawable(this@DualLocationMapActivity, otherMarkerIcon)
+            icon = createParticipantMarkerDrawable(
+                iconRes = otherMarkerIcon,
+                accentColor = if (myRole == ROLE_PARENT) childAccentColor() else participantAccentColor(otherId, ROLE_PARENT),
+                title = otherMarkerTitle
+            )
         }
         mapView.overlays.add(otherMarker)
         
@@ -1603,7 +1769,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         connectionLine = Polyline().apply {
             addPoint(GeoPoint(myLat, myLon))
             addPoint(GeoPoint(otherLat, otherLon))
-            outlinePaint.color = Color.parseColor("#2196F3")
+            outlinePaint.color = connectionAccentColor()
             outlinePaint.strokeWidth = 8f
         }
         mapView.overlays.add(connectionLine)
@@ -1657,7 +1823,15 @@ class DualLocationMapActivity : AppCompatActivity() {
             this.title = title
             snippet = buildMarkerSnippet(snippetLabel, timestamp)
             setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-            icon = ContextCompat.getDrawable(this@DualLocationMapActivity, iconRes)
+            icon = createParticipantMarkerDrawable(
+                iconRes = iconRes,
+                accentColor = if (iconRes == R.drawable.ic_child_marker) {
+                    childAccentColor()
+                } else {
+                    participantAccentColor(title, ROLE_PARENT, emphasizeSelf = myRole == ROLE_PARENT)
+                },
+                title = title
+            )
         }
         mapView.overlays.add(myMarker)
         
@@ -1760,7 +1934,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun buildFamilyMarkerTitle(link: ru.example.childwatch.network.LinkedParentLink): String {
-        return listOf(link.displayName, link.parentDeviceName, link.parentDeviceId)
+        return listOf(link.parentDisplayName, link.displayName, link.parentDeviceName, link.parentDeviceId)
             .mapNotNull { it?.trim() }
             .firstOrNull { it.isNotBlank() }
             .orEmpty()
@@ -1768,6 +1942,40 @@ class DualLocationMapActivity : AppCompatActivity() {
 
     private fun isActiveFamilyLink(link: ru.example.childwatch.network.LinkedParentLink): Boolean {
         return link.isActive?.let { it != 0 } ?: true
+    }
+
+    private fun excludedFamilyParentIds(): Set<String> {
+        val secureSettings = SecureSettingsManager(this)
+        val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
+        return listOf(
+            myId,
+            resolvedParentId,
+            secureSettings.getDeviceId(),
+            prefs.getString("device_id", null),
+            prefs.getString("parent_device_id", null),
+            legacyPrefs.getString("device_id", null),
+            legacyPrefs.getString("parent_device_id", null)
+        )
+            .mapNotNull { it?.trim() }
+            .filter { it.isNotBlank() }
+            .toSet()
+    }
+
+    private fun dedupeLinkedParents(
+        linkedParents: List<ru.example.childwatch.network.LinkedParentLink>,
+        excludedParentIds: Set<String>
+    ): List<ru.example.childwatch.network.LinkedParentLink> {
+        val deduped = LinkedHashMap<String, ru.example.childwatch.network.LinkedParentLink>()
+        linkedParents.asSequence()
+            .filter(::isActiveFamilyLink)
+            .forEach { link ->
+                val parentId = link.parentDeviceId.trim()
+                if (parentId.isBlank() || parentId in excludedParentIds || deduped.containsKey(parentId)) {
+                    return@forEach
+                }
+                deduped[parentId] = link
+            }
+        return deduped.values.toList()
     }
 
     private suspend fun loadFamilyMarkersForCurrentChild(): List<FamilyMarkerCandidate> = withContext(Dispatchers.IO) {
@@ -1783,20 +1991,22 @@ class DualLocationMapActivity : AppCompatActivity() {
 
         if (childDeviceId.isBlank()) return@withContext emptyList()
 
-        val selectedParentId = when (myRole) {
-            ROLE_PARENT -> myId.trim()
-            ROLE_CHILD -> listOf(resolvedOtherId, otherId).mapNotNull { it?.trim() }.firstOrNull { it.isNotBlank() }.orEmpty()
-            else -> ""
-        }
-
         val response = runCatching { networkClient.getLinkedParents(childDeviceId) }.getOrNull()
         val linkedParents = response?.body()?.parents.orEmpty()
         if (linkedParents.isEmpty()) return@withContext emptyList()
 
+        val excludedParentIds = buildSet {
+            addAll(excludedFamilyParentIds())
+            if (myRole == ROLE_CHILD) {
+                listOf(resolvedOtherId, otherId)
+                    .mapNotNull { it?.trim() }
+                    .filter { it.isNotBlank() }
+                    .forEach(::add)
+            }
+        }
+
         val markers = mutableListOf<FamilyMarkerCandidate>()
-        linkedParents.asSequence()
-            .filter(::isActiveFamilyLink)
-            .filter { it.parentDeviceId.isNotBlank() && it.parentDeviceId != selectedParentId }
+        dedupeLinkedParents(linkedParents, excludedParentIds).asSequence()
             .forEach { link ->
                 val location = try {
                     networkClient.getLatestParentLocation(link.parentDeviceId)?.takeIfUsable()
@@ -1809,7 +2019,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                     title = buildFamilyMarkerTitle(link),
                     latitude = location.latitude,
                     longitude = location.longitude,
-                    timestamp = location.timestamp
+                    timestamp = location.timestamp,
+                    iconId = link.parentMarkerIconId?.takeIf(ContactIcons::isKnown) ?: ContactIcons.PARENT
                 )
             }
         markers
@@ -1831,7 +2042,11 @@ class DualLocationMapActivity : AppCompatActivity() {
                 title = candidate.title.ifBlank { candidate.deviceId }
                 snippet = buildMarkerSnippet(title, candidate.timestamp)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                icon = ContextCompat.getDrawable(this@DualLocationMapActivity, R.drawable.ic_parent_marker)
+                icon = createParticipantMarkerDrawable(
+                    iconRes = ContactIcons.resolve(candidate.iconId, ContactRoles.PARENT),
+                    accentColor = participantAccentColor(candidate.deviceId, ROLE_PARENT, emphasizeSelf = candidate.deviceId == myId),
+                    title = title
+                )
             }
             familyMarkers[candidate.deviceId] = marker
             mapView.overlays.add(marker)
@@ -2102,7 +2317,11 @@ class DualLocationMapActivity : AppCompatActivity() {
                     title = selfMarkerTitle()
                     snippet = buildMarkerSnippet(getString(R.string.map_my_location), null)
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    icon = ContextCompat.getDrawable(this@DualLocationMapActivity, ContactIcons.resolve(0, myRole))
+                    icon = createParticipantMarkerDrawable(
+                        iconRes = ContactIcons.resolve(0, myRole),
+                        accentColor = if (myRole == ROLE_PARENT) selfParentAccentColor() else childAccentColor(),
+                        title = selfMarkerTitle()
+                    )
                 }
                 mapView.overlays.add(myMarker)
             }
@@ -2122,9 +2341,10 @@ class DualLocationMapActivity : AppCompatActivity() {
                     title = contact.alias ?: contact.name
                     snippet = buildMarkerSnippet(getString(R.string.map_location_label), location.timestamp)
                     setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                    icon = ContextCompat.getDrawable(
-                        this@DualLocationMapActivity,
-                        ContactIcons.resolve(contact.iconId, contact.role)
+                    icon = createParticipantMarkerDrawable(
+                        iconRes = ContactIcons.resolve(contact.iconId, contact.role),
+                        accentColor = participantAccentColor(contact.deviceId, contact.role, emphasizeSelf = contact.deviceId == myId),
+                        title = contact.alias ?: contact.name
                     )
                 }
                 mapView.overlays.add(marker)
@@ -2149,13 +2369,15 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun selfMarkerTitle(): String = when (myRole) {
-        ROLE_PARENT -> getString(R.string.map_title_me_parent)
+        ROLE_PARENT -> participantNameResolver.resolveOwnParentDisplayName()
         ROLE_CHILD -> getString(R.string.map_title_me_child)
         else -> getString(R.string.map_title_me)
     }
 
     private fun otherMarkerTitle(): String = when (myRole) {
-        ROLE_PARENT -> getString(R.string.map_title_child)
+        ROLE_PARENT -> participantNameResolver.resolveFocusedChildDisplayName(
+            historyTargetId() ?: resolvedOtherId.ifBlank { otherId }
+        )
         ROLE_CHILD -> getString(R.string.map_title_parent)
         else -> getString(R.string.map_title_other_device)
     }

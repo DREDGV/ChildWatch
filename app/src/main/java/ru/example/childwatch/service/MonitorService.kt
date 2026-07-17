@@ -400,6 +400,12 @@ class MonitorService : Service() {
                 val token = networkClient.registerDevice(serverUrl)
                 if (token != null) {
                     Log.d(TAG, "Device registered successfully")
+                    ru.example.childwatch.network.WebSocketManager.reconnectWithCurrentAuth(
+                        onReady = { Log.i(TAG, "WebSocket reconnected with current authentication") },
+                        onError = { error ->
+                            Log.w(TAG, "WebSocket authentication reconnect failed: $error")
+                        }
+                    )
                 } else {
                     Log.w(TAG, "Failed to register device, continuing without auth")
                 }

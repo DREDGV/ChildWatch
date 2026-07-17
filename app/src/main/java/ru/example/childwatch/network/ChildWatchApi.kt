@@ -55,6 +55,11 @@ interface ChildWatchApi {
         @Path("childDeviceId") childDeviceId: String
     ): Response<LinkedParentsResponse>
 
+    @GET("api/relationships/presence/{childDeviceId}")
+    suspend fun getFamilyPresence(
+        @Path("childDeviceId") childDeviceId: String
+    ): Response<FamilyPresenceResponse>
+
     @POST("api/relationships/link")
     suspend fun linkParentChild(
         @Body request: ParentChildLinkRequest
@@ -193,7 +198,11 @@ data class ParentChildLinkRequest(
     val parentDeviceId: String,
     val childDeviceId: String,
     val relationRole: String = "guardian",
-    val displayName: String? = null
+    val displayName: String? = null,
+    val parentDisplayName: String? = null,
+    val childDisplayName: String? = null,
+    val parentMarkerIconId: Int? = null,
+    val childMarkerIconId: Int? = null
 )
 
 data class ParentChildUnlinkRequest(
@@ -220,6 +229,10 @@ data class LinkedChildLink(
     val childDeviceId: String,
     val relationRole: String?,
     val displayName: String?,
+    val parentDisplayName: String? = null,
+    val childDisplayName: String? = null,
+    val parentMarkerIconId: Int? = null,
+    val childMarkerIconId: Int? = null,
     val createdBy: String?,
     val isActive: Int? = null,
     val createdAt: Long? = null,
@@ -234,6 +247,10 @@ data class LinkedParentLink(
     val childDeviceId: String,
     val relationRole: String?,
     val displayName: String?,
+    val parentDisplayName: String? = null,
+    val childDisplayName: String? = null,
+    val parentMarkerIconId: Int? = null,
+    val childMarkerIconId: Int? = null,
     val createdBy: String?,
     val isActive: Int? = null,
     val createdAt: Long? = null,
@@ -241,6 +258,21 @@ data class LinkedParentLink(
     val parentDeviceName: String?,
     val parentDeviceType: String?,
     val parentAppVersion: String?
+)
+
+data class FamilyPresenceResponse(
+    val success: Boolean,
+    val childDeviceId: String,
+    val participants: List<FamilyPresenceParticipant> = emptyList(),
+    val onlineCount: Int = 0,
+    val totalCount: Int = 0
+)
+
+data class FamilyPresenceParticipant(
+    val role: String,
+    val deviceId: String,
+    val displayName: String,
+    val isOnline: Boolean
 )
 
 data class ChatHistoryResponse(

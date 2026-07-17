@@ -1,8 +1,5 @@
 package ru.example.childwatch.remote
 
-import android.content.Intent
-import android.net.Uri
-import android.util.Log
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -20,13 +17,14 @@ import ru.example.childwatch.R
  * Adapter for displaying remote camera photos in a grid.
  */
 class RemotePhotoAdapter(
+    private val onPhotoOpen: ((RemotePhotoItem) -> Unit)? = null,
     private val onPhotoSave: ((RemotePhotoItem) -> Unit)? = null,
     private val onPhotoShare: ((RemotePhotoItem) -> Unit)? = null
 ) : ListAdapter<RemotePhotoItem, RemotePhotoAdapter.PhotoViewHolder>(DiffCallback) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): PhotoViewHolder {
         val view = LayoutInflater.from(parent.context).inflate(R.layout.item_remote_photo, parent, false)
-        return PhotoViewHolder(view, onPhotoSave, onPhotoShare)
+        return PhotoViewHolder(view, onPhotoOpen, onPhotoSave, onPhotoShare)
     }
 
     override fun onBindViewHolder(holder: PhotoViewHolder, position: Int) {
@@ -35,6 +33,7 @@ class RemotePhotoAdapter(
 
     class PhotoViewHolder(
         itemView: View,
+        private val onPhotoOpen: ((RemotePhotoItem) -> Unit)?,
         private val onPhotoSave: ((RemotePhotoItem) -> Unit)?,
         private val onPhotoShare: ((RemotePhotoItem) -> Unit)?
     ) : RecyclerView.ViewHolder(itemView) {
@@ -55,11 +54,11 @@ class RemotePhotoAdapter(
                 .into(photoPreview)
 
             itemView.setOnClickListener {
-                showPhotoContextMenu(itemView.context, item, onPhotoSave, onPhotoShare)
+                onPhotoOpen?.invoke(item)
             }
 
             itemView.setOnLongClickListener {
-                openInBrowser(itemView.context, item.fullImageUrl)
+                showPhotoContextMenu(itemView.context, item, onPhotoOpen, onPhotoSave, onPhotoShare)
                 true
             }
         }
@@ -67,6 +66,7 @@ class RemotePhotoAdapter(
         private fun showPhotoContextMenu(
             context: android.content.Context,
             item: RemotePhotoItem,
+            onOpen: ((RemotePhotoItem) -> Unit)?,
             onSave: ((RemotePhotoItem) -> Unit)?,
             onShare: ((RemotePhotoItem) -> Unit)?
         ) {
@@ -80,23 +80,12 @@ class RemotePhotoAdapter(
                     )
                 ) { _, which ->
                     when (which) {
-                        0 -> openInBrowser(context, item.fullImageUrl)
+                        0 -> onOpen?.invoke(item)
                         1 -> onSave?.invoke(item)
                         2 -> onShare?.invoke(item)
                     }
                 }
                 .show()
-        }
-
-        private fun openInBrowser(context: android.content.Context, url: String) {
-            try {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
-                    flags = Intent.FLAG_ACTIVITY_NEW_TASK
-                }
-                context.startActivity(intent)
-            } catch (e: Exception) {
-                Log.e("RemotePhotoAdapter", "Unable to open photo", e)
-            }
         }
     }
 

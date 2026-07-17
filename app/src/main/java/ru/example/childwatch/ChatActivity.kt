@@ -2,6 +2,7 @@
 
 import android.content.Context
 import android.content.SharedPreferences
+import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
 import android.os.Handler
@@ -23,6 +24,7 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -33,8 +35,11 @@ import ru.example.childwatch.chat.ChatManager
 import ru.example.childwatch.chat.ChatMessageRuntimeRegistry
 import ru.example.childwatch.chat.withStatus
 import ru.example.childwatch.network.WebSocketManager
+import ru.example.childwatch.network.NetworkClient
+import ru.example.childwatch.network.FamilyPresenceParticipant
 import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
+import ru.example.childwatch.profile.ParentParticipantNameResolver
 import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.viewmodel.ChatViewModel
 import java.util.*
@@ -68,11 +73,16 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var binding: ActivityChatBinding
     private lateinit var chatAdapter: ChatAdapter
     private lateinit var chatManager: ChatManager
+    private lateinit var networkClient: NetworkClient
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
     private lateinit var activeSessionStore: ParentActiveSessionStore
+    private lateinit var participantNameResolver: ParentParticipantNameResolver
     private lateinit var messageQueue: ru.example.childwatch.chat.MessageQueue
     private val messages = mutableListOf<ChatMessage>()
+    private var hasPerformedInitialScroll = false
     private val currentUser = "parent" // ChildWatch - приложение родителя
+    private var chatInfoDetailsText: String = ""
+    private var familyPresenceParticipants: List<FamilyPresenceParticipant> = emptyList()
     private val ownParentDeviceId: String by lazy {
         effectiveContextResolver.resolveOwnParentId().ifBlank {
             activeSessionStore.getSession()?.ownParentDeviceId.orEmpty()
@@ -180,7 +190,9 @@ class ChatActivity : AppCompatActivity() {
 
         effectiveContextResolver = ParentEffectiveContextResolver(this)
         activeSessionStore = ParentActiveSessionStore(this)
+        participantNameResolver = ParentParticipantNameResolver(this)
         chatManager = ChatManager(this)
+        networkClient = NetworkClient(this)
 
         val deviceId = getChildDeviceId()
         val partnerId = if (deviceId.isBlank()) {
@@ -189,13 +201,18 @@ class ChatActivity : AppCompatActivity() {
             deviceId
         }
         val contextSource = describeProfileContextSource(effectiveContextResolver.resolve().source)
-        binding.chatPartnerName.text = getString(R.string.chat_partner_child)
-        binding.chatPartnerMeta.text = getString(
-            R.string.chat_partner_device_id,
-            partnerId
-        ) + "\n" + getString(R.string.profile_switch_source_line, contextSource)
+        val childDisplayName = participantNameResolver.resolveFocusedChildDisplayName(deviceId)
+        binding.chatPartnerName.text = getString(R.string.chat_header_participants_title)
+        binding.chatPartnerMeta.text = getString(R.string.chat_partner_meta_family)
+        chatInfoDetailsText = buildString {
+            append(getString(R.string.chat_info_name_line, childDisplayName))
+            append('\n')
+            append(getString(R.string.chat_partner_device_id, partnerId))
+            append('\n')
+            append(getString(R.string.profile_switch_source_line, contextSource))
+        }
         binding.chatInfoButton.setOnClickListener {
-            Toast.makeText(this, binding.chatPartnerMeta.text, Toast.LENGTH_SHORT).show()
+            showChatInfoDialog()
         }
         Log.d(TAG, "Resolved childDeviceId='$deviceId' (empty=${deviceId.isEmpty()})")
 
@@ -263,6 +280,7 @@ class ChatActivity : AppCompatActivity() {
     private fun setupUI() {
         // Set up action bar
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        supportActionBar?.title = getString(R.string.chat_title_family)
 
         // Загрузить имя ребенка из БД
         loadChildName()
@@ -394,7 +412,7 @@ class ChatActivity : AppCompatActivity() {
         }
         binding.messagesRecyclerView.apply {
             layoutManager = LinearLayoutManager(this@ChatActivity).apply {
-            stackFromEnd = true // Показываем новые сообщения снизу
+                stackFromEnd = true // Показываем новые сообщения снизу
             }
             adapter = chatAdapter
         }
@@ -411,11 +429,14 @@ class ChatActivity : AppCompatActivity() {
             val shouldScrollToBottom = shouldAutoScroll(previousCount)
             messages.clear()
             messages.addAll(messagesList)
-            chatAdapter.submitMessages(messagesList)
-            updateEmptyState()
-            if (messages.isNotEmpty() && shouldScrollToBottom) {
-                binding.messagesRecyclerView.scrollToPosition(messages.size - 1)
+            val forceInitialScroll = messagesList.isNotEmpty() && !hasPerformedInitialScroll
+            chatAdapter.submitMessages(messagesList) {
+                if (messages.isNotEmpty() && (forceInitialScroll || shouldScrollToBottom)) {
+                    hasPerformedInitialScroll = true
+                    scrollChatToBottom(force = true)
+                }
             }
+            updateEmptyState()
             sendReadReceiptsFor(messagesList)
         }
 
@@ -462,11 +483,11 @@ class ChatActivity : AppCompatActivity() {
 
         // Создаем сообщение от родителя (ChildWatch - это приложение родителя)
         val message = ChatMessage(
-            id = System.currentTimeMillis().toString(),
+            id = createLocalMessageId(),
             text = messageText,
             sender = currentUser, // "parent"
             authorDeviceId = ownParentDeviceId.ifBlank { null },
-            authorDisplayName = ownParentDeviceId.ifBlank { null },
+            authorDisplayName = participantNameResolver.resolveOwnParentDisplayName(),
             timestamp = System.currentTimeMillis(),
             isRead = false,
             status = ChatMessage.MessageStatus.SENDING
@@ -478,6 +499,7 @@ class ChatActivity : AppCompatActivity() {
         viewModel.sendMessage(message)
 
         messageQueue.enqueue(message)
+        scrollChatToBottom(force = true)
 
         Log.d(TAG, "Message queued: $messageText, pending: ${messageQueue.size()}")
     }
@@ -643,6 +665,7 @@ class ChatActivity : AppCompatActivity() {
 
     private fun clearChat() {
         messages.clear()
+        hasPerformedInitialScroll = false
         readReceiptSentIds.clear()
         chatAdapter.submitMessages(emptyList())
         chatManager.clearAllMessages()
@@ -842,6 +865,9 @@ class ChatActivity : AppCompatActivity() {
                 binding.connectionStatusText.setTextColor(getColor(android.R.color.holo_red_dark))
             }
         }
+        if (familyPresenceParticipants.isNotEmpty()) {
+            renderFamilyPresenceSummary()
+        }
         updateComposerState()
     }
 
@@ -872,6 +898,15 @@ class ChatActivity : AppCompatActivity() {
         val layoutManager = binding.messagesRecyclerView.layoutManager as? LinearLayoutManager ?: return true
         val lastVisible = layoutManager.findLastVisibleItemPosition()
         return previousCount == 0 || lastVisible == RecyclerView.NO_POSITION || lastVisible >= previousCount - 2
+    }
+
+    private fun scrollChatToBottom(force: Boolean = false) {
+        if (messages.isEmpty()) return
+        if (!force && !shouldAutoScroll(messages.size)) return
+        binding.messagesRecyclerView.post {
+            val lastIndex = (chatAdapter.itemCount - 1).coerceAtLeast(0)
+            binding.messagesRecyclerView.scrollToPosition(lastIndex)
+        }
     }
 
     /**
@@ -1173,24 +1208,110 @@ class ChatActivity : AppCompatActivity() {
                 val deviceId = getChildDeviceId()
                 val database = ru.example.childwatch.database.ChildWatchDatabase.getInstance(this@ChatActivity)
                 val child = database.childDao().getByDeviceId(deviceId)
-
-                val title = if (child != null) {
-                    getString(R.string.chat_title_with_name, child.name)
-                } else {
-                    getString(R.string.chat_title_with_child)
-                }
+                val childDisplayName = child?.name?.trim().takeUnless { it.isNullOrBlank() }
+                    ?: participantNameResolver.resolveFocusedChildDisplayName(deviceId)
 
                 runOnUiThread {
-                    supportActionBar?.title = title
-                    Log.d(TAG, "Chat title set to: $title")
+                    chatInfoDetailsText = updateChatInfoDetails(name = childDisplayName)
+                    supportActionBar?.title = getString(R.string.chat_title_family)
+                    refreshFamilyPresenceSummary()
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading child name", e)
                 runOnUiThread {
-                    supportActionBar?.title = getString(R.string.chat_title_generic)
+                    val fallbackName = participantNameResolver.resolveFocusedChildDisplayName()
+                    chatInfoDetailsText = updateChatInfoDetails(name = fallbackName)
+                    supportActionBar?.title = getString(R.string.chat_title_family)
+                    refreshFamilyPresenceSummary()
                 }
             }
         }
+    }
+
+    private fun updateChatInfoDetails(name: String): String {
+        val deviceId = getChildDeviceId().ifBlank { getString(R.string.chat_partner_unknown_id) }
+        val contextSource = describeProfileContextSource(effectiveContextResolver.resolve().source)
+        return buildString {
+            append(getString(R.string.chat_info_name_line, name))
+            append('\n')
+            append(getString(R.string.chat_info_total_line, familyPresenceParticipants.size.coerceAtLeast(1)))
+            val onlineNames = familyPresenceParticipants.filter { it.isOnline }.map { it.displayName }
+            val offlineNames = familyPresenceParticipants.filterNot { it.isOnline }.map { it.displayName }
+            if (onlineNames.isNotEmpty()) {
+                append('\n')
+                append(getString(R.string.chat_info_online_line, onlineNames.joinToString(", ")))
+            }
+            if (offlineNames.isNotEmpty()) {
+                append('\n')
+                append(getString(R.string.chat_info_offline_line, offlineNames.joinToString(", ")))
+            }
+            append('\n')
+            append(getString(R.string.chat_partner_device_id, deviceId))
+            append('\n')
+            append(getString(R.string.profile_switch_source_line, contextSource))
+        }.also { chatInfoDetailsText = it }
+    }
+
+    private fun refreshFamilyPresenceSummary() {
+        val childDeviceId = getChildDeviceId()
+        if (childDeviceId.isBlank()) return
+
+        lifecycleScope.launch {
+            val response = runCatching { networkClient.getFamilyPresence(childDeviceId) }.getOrNull()
+            val body = response?.takeIf { it.isSuccessful }?.body()
+            if (body?.success != true) {
+                renderFamilyPresenceSummary()
+                return@launch
+            }
+
+            familyPresenceParticipants = body.participants
+            val childName = familyPresenceParticipants
+                .firstOrNull { it.role == "child" }
+                ?.displayName
+                .orEmpty()
+                .ifBlank { participantNameResolver.resolveFocusedChildDisplayName(childDeviceId) }
+            renderFamilyPresenceSummary()
+            chatInfoDetailsText = updateChatInfoDetails(childName)
+        }
+    }
+
+    private fun renderFamilyPresenceSummary() {
+        binding.chatPartnerName.text = getString(R.string.chat_header_participants_title)
+        if (familyPresenceParticipants.isEmpty()) {
+            binding.connectionStatusText.text = getString(R.string.chat_presence_connecting)
+            binding.chatPartnerMeta.text = getString(R.string.chat_partner_meta_family)
+            return
+        }
+
+        val totalCount = familyPresenceParticipants.size.coerceAtLeast(1)
+        val onlineCount = familyPresenceParticipants.count { it.isOnline }
+        val offlineCount = (totalCount - onlineCount).coerceAtLeast(0)
+        binding.connectionStatusText.text = if (onlineCount > 0) {
+            getString(R.string.chat_presence_online_count, onlineCount)
+        } else {
+            getString(R.string.chat_presence_none_online)
+        }
+        binding.chatPartnerMeta.text = if (offlineCount > 0) {
+            getString(R.string.chat_presence_offline_count, offlineCount)
+        } else {
+            getString(R.string.chat_presence_total_count, totalCount)
+        }
+    }
+
+    private fun showChatInfoDialog() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.chat_info_dialog_title))
+            .setMessage(chatInfoDetailsText)
+            .setPositiveButton(R.string.chat_info_dialog_notifications) { _, _ ->
+                startActivity(Intent(this, SettingsActivity::class.java))
+            }
+            .setNegativeButton(R.string.chat_info_dialog_close, null)
+            .show()
+    }
+
+    private fun createLocalMessageId(): String {
+        val authorId = ownParentDeviceId.ifBlank { "parent" }
+        return "${authorId}_${System.currentTimeMillis()}_${UUID.randomUUID().toString().take(8)}"
     }
 
     /**
@@ -1257,6 +1378,7 @@ class ChatActivity : AppCompatActivity() {
             .putBoolean("chat_open", true)
             .apply()
         registerChatUiListeners()
+        refreshFamilyPresenceSummary()
         sendReadReceiptsFor(messages.toList())
     }
 

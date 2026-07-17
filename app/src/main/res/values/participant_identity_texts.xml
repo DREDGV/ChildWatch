@@ -1,0 +1,15 @@
+<resources>
+    <string name="chat_partner_parent">Родитель</string>
+    <string name="participant_self_name_button">Мое имя</string>
+    <string name="participant_self_name_title_parent">Как вас будут видеть</string>
+    <string name="participant_self_name_hint_parent">Например: Мама</string>
+    <string name="participant_self_name_saved">Имя обновлено</string>
+    <string name="participant_self_name_sync_partial">Имя сохранено. Семейные связи обновятся после следующей синхронизации.</string>
+    <string name="participant_self_name_error_empty">Введите имя</string>
+    <string name="participant_self_name_summary_line">Мое имя: %1$s</string>
+    <string name="participant_self_marker_button">Моя метка</string>
+    <string name="participant_self_marker_title_parent">Выберите свою метку</string>
+    <string name="participant_self_marker_saved">Метка обновлена</string>
+    <string name="participant_self_marker_sync_partial">Метка сохранена. Семейные связи обновятся после следующей синхронизации.</string>
+    <string name="participant_self_marker_summary_line">Моя метка: %1$s</string>
+</resources>

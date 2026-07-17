@@ -10,6 +10,17 @@
     android:orientation="vertical">
 
     <TextView
+        android:id="@+id/senderText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginEnd="4dp"
+        android:layout_marginBottom="2dp"
+        android:text="@string/chat_partner_parent"
+        android:textColor="#B3FFFFFF"
+        android:textSize="12sp"
+        android:textStyle="bold" />
+
+    <TextView
         android:id="@+id/messageText"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

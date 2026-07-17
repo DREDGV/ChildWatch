@@ -58,6 +58,43 @@ object RemotePhotoCache {
         }
     }
 
+    fun saveBinaryPhotoToCache(
+        context: Context,
+        bytes: ByteArray,
+        timestamp: Long,
+        prefix: String = "remote_photo"
+    ): File? {
+        return try {
+            if (bytes.isEmpty()) {
+                Log.e(TAG, "Binary photo payload is empty")
+                return null
+            }
+
+            val cacheDir = File(context.cacheDir, "remote_photo_preview")
+            if (!cacheDir.exists()) {
+                cacheDir.mkdirs()
+            }
+
+            pruneOldFiles(cacheDir)
+
+            val file = File(cacheDir, "${prefix}_${timestamp}.jpg")
+            FileOutputStream(file).use { output ->
+                output.write(bytes)
+            }
+
+            if (!file.exists() || file.length() == 0L) {
+                runCatching { file.delete() }
+                Log.e(TAG, "Saved binary photo file is empty")
+                null
+            } else {
+                file
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Failed to cache binary photo", e)
+            null
+        }
+    }
+
     private fun sanitizeBase64Payload(base64: String): String {
         val trimmed = base64.trim()
         if (trimmed.isEmpty()) return ""

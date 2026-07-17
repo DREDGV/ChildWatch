@@ -138,6 +138,29 @@ object WebSocketManager {
     }
 
     /**
+     * Rebuild the socket after HTTP registration or token rotation so the next
+     * Socket.IO handshake always uses the latest persisted credential.
+     */
+    fun reconnectWithCurrentAuth(
+        onReady: () -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        if (!isInitialized || webSocketClient == null) {
+            Log.d(TAG, "WebSocket not initialized yet; the first connection will use current auth")
+            return
+        }
+
+        var delivered = false
+        webSocketClient?.setRegisteredCallback {
+            if (delivered) return@setRegisteredCallback
+            delivered = true
+            onReady()
+        }
+        webSocketClient?.disconnect()
+        connect(onConnected = {}, onError = onError)
+    }
+
+    /**
      * Disconnect from WebSocket server
      */
     fun disconnect() {

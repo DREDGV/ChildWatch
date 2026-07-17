@@ -20,6 +20,7 @@ import ru.example.childwatch.chat.ChatManager
 import ru.example.childwatch.chat.ChatMessage
 import ru.example.childwatch.chat.ChatMessageRuntimeRegistry
 import ru.example.childwatch.network.WebSocketManager
+import ru.example.childwatch.remote.RemotePhotoErrorMessages
 import ru.example.childwatch.profile.ParentActiveSession
 import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
@@ -35,7 +36,7 @@ class ChatBackgroundService : LifecycleService() {
     companion object {
         private const val TAG = "ChatBackgroundService"
         private const val NOTIFICATION_ID = 3001
-        private const val CHANNEL_ID = "chat_background_service"
+        private const val CHANNEL_ID = "chat_background_service_silent_v2"
 
         const val ACTION_START_SERVICE = "ru.example.childwatch.START_CHAT_SERVICE"
         const val ACTION_STOP_SERVICE = "ru.example.childwatch.STOP_CHAT_SERVICE"
@@ -75,6 +76,7 @@ class ChatBackgroundService : LifecycleService() {
     private var chatMessageSentListener: ((String, Boolean, Long) -> Unit)? = null
     private var photoReceivedListener: ((String, String, Long) -> Unit)? = null
     private var photoErrorListener: ((String, String) -> Unit)? = null
+    private var lastNotificationText: String? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -158,7 +160,7 @@ class ChatBackgroundService : LifecycleService() {
 
         // Start foreground with notification
         if (!isRunning) {
-            startForeground(NOTIFICATION_ID, createNotification("Подключение..."))
+            startForeground(NOTIFICATION_ID, createNotification("Восстановление фоновой связи…"))
         }
 
         if (isRunning &&
@@ -166,8 +168,9 @@ class ChatBackgroundService : LifecycleService() {
             childDeviceId == lastDeviceId &&
             WebSocketManager.getClient() != null
         ) {
+            val wasAlreadyConnected = WebSocketManager.isConnected()
             WebSocketManager.ensureConnected(
-                onReady = { updateNotification("Чат активен") },
+                onReady = { updateNotification("Фоновая связь активна") },
                 onError = { updateNotification("Ошибка подключения") }
             )
             return
@@ -239,7 +242,8 @@ class ChatBackgroundService : LifecycleService() {
                                     context = this@ChatBackgroundService,
                                     senderName = msg.getSenderName(),
                                     messageText = msg.text,
-                                    timestamp = msg.timestamp
+                                    timestamp = msg.timestamp,
+                                    messageId = msg.id
                                 )
                             }
                         }
@@ -289,10 +293,11 @@ class ChatBackgroundService : LifecycleService() {
                     if (photoErrorListener == null) {
                         photoErrorListener = { requestId, error ->
                             Log.e(TAG, "❌ Photo error (request=$requestId): $error")
+                            val uiError = RemotePhotoErrorMessages.resolve(this@ChatBackgroundService, error)
                             ru.example.childwatch.utils.NotificationManager.showChatNotification(
                                 context = this@ChatBackgroundService,
                                 senderName = "Ошибка фото",
-                                messageText = "$error (req $requestId)",
+                                messageText = uiError.message,
                                 timestamp = System.currentTimeMillis()
                             )
                         }
@@ -303,7 +308,7 @@ class ChatBackgroundService : LifecycleService() {
                     WebSocketManager.connect(
                         onConnected = {
                             Log.d(TAG, "✅ WebSocket connected successfully on attempt $attempt")
-                            updateNotification("Чат активен")
+                            updateNotification("Фоновая связь активна")
                             // Запускаем отправку локации родителя (если разрешено)
                             maybeStartParentLocationService()
                             // Запускаем heartbeat для стабильности
@@ -406,7 +411,8 @@ class ChatBackgroundService : LifecycleService() {
                 context = this,
                 senderName = message.getSenderName(),
                 messageText = text,
-                timestamp = timestamp
+                timestamp = timestamp,
+                messageId = messageId
             )
         }
     }
@@ -486,6 +492,8 @@ class ChatBackgroundService : LifecycleService() {
             ).apply {
                 description = "Держит соединение для получения сообщений"
                 setShowBadge(false)
+                setSound(null, null)
+                enableVibration(false)
             }
 
             val notificationManager = getSystemService(NotificationManager::class.java)
@@ -513,11 +521,18 @@ class ChatBackgroundService : LifecycleService() {
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setSilent(true)
+            .setOnlyAlertOnce(true)
             .setCategory(NotificationCompat.CATEGORY_SERVICE)
             .build()
     }
 
     private fun updateNotification(contentText: String) {
+        if (lastNotificationText == contentText) {
+            Log.d(TAG, "Skipping duplicate chat service notification: $contentText")
+            return
+        }
+        lastNotificationText = contentText
         val notificationManager = getSystemService(NotificationManager::class.java)
         notificationManager.notify(NOTIFICATION_ID, createNotification(contentText))
     }
@@ -538,9 +553,9 @@ class ChatBackgroundService : LifecycleService() {
     }
 
     private fun shouldShowIncomingChatNotification(message: ChatMessage): Boolean {
-        if (!message.isIncoming("parent", resolveOwnParentId())) return false
-        val prefs = getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
-        return !prefs.getBoolean("chat_open", false)
+        // A persisted chat_open value can remain true after a reboot or an
+        // abrupt process stop. The caller already checks live UI visibility.
+        return message.isIncoming("parent", resolveOwnParentId())
     }
 
     private fun resolveOwnParentId(): String {

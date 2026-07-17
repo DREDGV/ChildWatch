@@ -40,6 +40,7 @@ import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.profile.ParentActiveSessionStore
+import ru.example.childwatch.profile.ParentParticipantNameResolver
 import ru.example.childwatch.recordings.RecordingsLibraryActivity
 import ru.example.childwatch.service.AudioPlaybackService
 import ru.example.childwatch.ui.AdvancedAudioVisualizer
@@ -83,6 +84,7 @@ class AudioStreamingActivity : AppCompatActivity() {
     private lateinit var secureSettings: SecureSettingsManager
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
     private lateinit var activeSessionStore: ParentActiveSessionStore
+    private lateinit var participantNameResolver: ParentParticipantNameResolver
     private val networkClient by lazy { NetworkClient(this) }
     private val gson by lazy { Gson() }
 
@@ -187,6 +189,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         secureSettings = SecureSettingsManager(this)
         effectiveContextResolver = ParentEffectiveContextResolver(this)
         activeSessionStore = ParentActiveSessionStore(this)
+        participantNameResolver = ParentParticipantNameResolver(this)
         audioPrefs = getSharedPreferences("audio_streaming", MODE_PRIVATE)
 
         deviceId = resolveTargetDeviceIdForStreaming()
@@ -284,7 +287,12 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
-        binding.deviceIdText.text = getString(R.string.listen_device_id, deviceId)
+        val childLabel = participantNameResolver.resolveFocusedChildDisplayName(deviceId)
+        binding.deviceIdText.text = if (childLabel == deviceId) {
+            getString(R.string.listen_device_id, deviceId)
+        } else {
+            childLabel
+        }
         binding.topAppBar.setNavigationOnClickListener { finish() }
 
         binding.filterCard.isVisible = false
@@ -1209,6 +1217,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         syncChildStatusFromPlaybackService(updateUi = false)
 
         val isPlaying = AudioPlaybackService.isPlaying
+        val chunksReceived = AudioPlaybackService.chunksReceived
         val lastChunkAgeMs = if (AudioPlaybackService.lastChunkTimestamp > 0L) {
             (System.currentTimeMillis() - AudioPlaybackService.lastChunkTimestamp).coerceAtLeast(0L)
         } else {
@@ -1236,6 +1245,8 @@ class AudioStreamingActivity : AppCompatActivity() {
 
         val busyOwner = busyOwnerLabel
         binding.statusText.text = when {
+            isPlaying && chunksReceived == 0 -> getString(R.string.listen_state_connecting)
+            isPlaying && lastChunkAgeMs > 10_000L -> getString(R.string.listen_state_reconnecting)
             isPlaying -> getString(R.string.listen_state_running)
             !busyOwner.isNullOrBlank() -> getString(R.string.listen_state_busy)
             else -> getString(R.string.listen_state_stopped)

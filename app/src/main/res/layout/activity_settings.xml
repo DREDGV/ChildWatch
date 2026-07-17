@@ -77,6 +77,22 @@
 
                 </LinearLayout>
 
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/editSelfNameButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/participant_self_name_button"
+                    style="@style/Widget.Material3.Button.OutlinedButton" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/editSelfMarkerButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="@string/participant_self_marker_button"
+                    style="@style/Widget.Material3.Button.OutlinedButton" />
+
             </LinearLayout>
 
         </com.google.android.material.card.MaterialCardView>

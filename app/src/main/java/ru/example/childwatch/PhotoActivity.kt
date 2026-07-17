@@ -164,7 +164,11 @@ class PhotoActivity : AppCompatActivity() {
         try {
             binding.statusText?.text = "Подключение к серверу..."
 
-            webSocketClient = WebSocketClient(serverUrl!!, childDeviceId!!)
+            webSocketClient = WebSocketClient(
+                serverUrl!!,
+                childDeviceId!!,
+                context = this
+            )
             webSocketClient?.connect(
                 onConnected = {
                     runOnUiThread {

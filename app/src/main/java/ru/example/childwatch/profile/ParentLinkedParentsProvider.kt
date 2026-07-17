@@ -33,8 +33,9 @@ class ParentLinkedParentsProvider(context: Context) {
         val parentDeviceId = link.parentDeviceId.trim()
         if (parentDeviceId.isBlank()) return null
 
-        val displayName = link.parentDeviceName?.trim().takeUnless { it.isNullOrBlank() }
+        val displayName = link.parentDisplayName?.trim().takeUnless { it.isNullOrBlank() }
             ?: link.displayName?.trim().takeUnless { it.isNullOrBlank() }
+            ?: link.parentDeviceName?.trim().takeUnless { it.isNullOrBlank() }
             ?: parentDeviceId
 
         return ParentLinkedParentOption(

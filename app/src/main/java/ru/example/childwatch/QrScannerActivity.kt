@@ -7,7 +7,11 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.camera.core.*
+import androidx.camera.core.CameraSelector
+import androidx.camera.core.ExperimentalGetImage
+import androidx.camera.core.ImageAnalysis
+import androidx.camera.core.ImageProxy
+import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.barcode.BarcodeScanning
@@ -17,9 +21,6 @@ import ru.example.childwatch.databinding.ActivityQrScannerBinding
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
-/**
- * QR Scanner Activity for scanning child device ID
- */
 class QrScannerActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityQrScannerBinding
@@ -43,13 +44,13 @@ class QrScannerActivity : AppCompatActivity() {
         setContentView(binding.root)
 
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = "Сканировать QR-код"
+        supportActionBar?.title = getString(R.string.parent_qr_scanner_title)
 
         cameraExecutor = Executors.newSingleThreadExecutor()
 
-        // Check camera permission
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-            == PackageManager.PERMISSION_GRANTED) {
+            == PackageManager.PERMISSION_GRANTED
+        ) {
             startCamera()
         } else {
             requestPermissionLauncher.launch(Manifest.permission.CAMERA)
@@ -77,18 +78,18 @@ class QrScannerActivity : AppCompatActivity() {
                     })
                 }
 
-            val cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-
             try {
                 cameraProvider.unbindAll()
                 cameraProvider.bindToLifecycle(
-                    this, cameraSelector, preview, imageAnalyzer
+                    this,
+                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    preview,
+                    imageAnalyzer
                 )
             } catch (e: Exception) {
                 Log.e("QrScanner", "Camera binding failed", e)
                 Toast.makeText(this, "Ошибка запуска камеры", Toast.LENGTH_SHORT).show()
             }
-
         }, ContextCompat.getMainExecutor(this))
     }
 
@@ -119,7 +120,7 @@ class QrScannerActivity : AppCompatActivity() {
         private val scanner = BarcodeScanning.getClient()
         private var isProcessing = false
 
-        @androidx.camera.core.ExperimentalGetImage
+        @ExperimentalGetImage
         override fun analyze(imageProxy: ImageProxy) {
             if (isProcessing) {
                 imageProxy.close()
@@ -135,9 +136,7 @@ class QrScannerActivity : AppCompatActivity() {
                     .addOnSuccessListener { barcodes ->
                         for (barcode in barcodes) {
                             if (barcode.format == Barcode.FORMAT_QR_CODE) {
-                                barcode.rawValue?.let { qrCode ->
-                                    onQrCodeDetected(qrCode)
-                                }
+                                barcode.rawValue?.let(onQrCodeDetected)
                                 break
                             }
                         }

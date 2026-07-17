@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_camera_background_restricted_status">Камера недоступна в фоне</string>
+    <string name="remote_camera_background_restricted_title">Android временно заблокировал камеру</string>
+    <string name="remote_camera_background_restricted_message">Откройте ChildDevice на детском телефоне один раз, затем вернитесь на главный экран телефона и повторите запрос. После перезагрузки телефона это может потребоваться снова.</string>
+    <string name="remote_camera_permission_denied_status">Нет разрешения на камеру</string>
+    <string name="remote_camera_permission_denied_title">ChildDevice не имеет доступа к камере</string>
+    <string name="remote_camera_permission_denied_message">На детском телефоне откройте настройки ChildDevice, разрешите доступ к камере, затем откройте приложение один раз и повторите запрос.</string>
+    <string name="remote_camera_recovery_action">Понятно</string>
+</resources>

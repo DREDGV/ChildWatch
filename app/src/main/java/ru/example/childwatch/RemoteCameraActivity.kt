@@ -13,6 +13,7 @@ import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.progressindicator.CircularProgressIndicator
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import ru.example.childwatch.network.WebSocketManager
 import android.view.View
 import android.widget.LinearLayout
@@ -21,6 +22,7 @@ import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.remote.RemotePhotoAdapter
 import ru.example.childwatch.remote.RemotePhotoCache
 import ru.example.childwatch.remote.RemotePhotoItem
+import ru.example.childwatch.remote.RemotePhotoErrorMessages
 import ru.example.childwatch.utils.SecureSettingsManager
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -29,10 +31,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import okhttp3.OkHttpClient
-import okhttp3.Request
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.profile.ParentActiveSessionStore
+import ru.example.childwatch.profile.ParentParticipantNameResolver
 import ru.example.childwatch.service.AudioPlaybackService
 
 /**
@@ -49,6 +50,7 @@ class RemoteCameraActivity : AppCompatActivity() {
         private const val TAG = "RemoteCameraActivity"
         const val EXTRA_CHILD_ID = "childId"
         const val EXTRA_CHILD_NAME = "childName"
+        private const val WEBSOCKET_READY_TIMEOUT_MS = 12_000L
         private const val PHOTO_RESPONSE_TIMEOUT_MS = 30_000L
     }
 
@@ -75,18 +77,21 @@ class RemoteCameraActivity : AppCompatActivity() {
     private var photoQueuedListener: ((String, String, String, Long) -> Unit)? = null
     private var photoBusyListener: ((String, String, String, String, Long) -> Unit)? = null
     private var retryJob: Job? = null
+    private var connectionTimeoutJob: Job? = null
     private var responseTimeoutJob: Job? = null
     private var pendingRequestId: String? = null
     private var selectedCameraFacing: String = "back"
     private var resolvedGalleryDeviceId: String? = null
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
     private lateinit var activeSessionStore: ParentActiveSessionStore
+    private lateinit var participantNameResolver: ParentParticipantNameResolver
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_remote_camera)
         effectiveContextResolver = ParentEffectiveContextResolver(this)
         activeSessionStore = ParentActiveSessionStore(this)
+        participantNameResolver = ParentParticipantNameResolver(this)
 
         // Get child device info from intent
         childId = intent.getStringExtra(EXTRA_CHILD_ID)?.takeIf { it.isNotBlank() }
@@ -123,6 +128,7 @@ class RemoteCameraActivity : AppCompatActivity() {
             refreshGalleryButton = findViewById(R.id.refreshGalleryButton)
 
             photoAdapter = RemotePhotoAdapter(
+                onPhotoOpen = { photoItem -> openRemotePhotoPreview(photoItem) },
                 onPhotoSave = { photoItem -> downloadAndSavePhoto(photoItem) },
                 onPhotoShare = { photoItem -> sharePhoto(photoItem) }
             )
@@ -132,11 +138,14 @@ class RemoteCameraActivity : AppCompatActivity() {
             }
 
             // Display child name if available
-            childNameText.text = if (!childName.isNullOrBlank()) {
-                getString(R.string.remote_camera_device_label, childName)
-            } else {
-                getString(R.string.remote_camera_device_id, childId)
-            }
+        val resolvedChildName = childName?.takeIf { it.isNotBlank() }
+            ?: childId?.let { participantNameResolver.resolveFocusedChildDisplayName(it) }
+
+        childNameText.text = if (!resolvedChildName.isNullOrBlank() && resolvedChildName != childId) {
+            getString(R.string.remote_camera_device_label, resolvedChildName)
+        } else {
+            getString(R.string.remote_camera_device_id, childId)
+        }
             cameraToggleGroup.check(cameraBackButton.id)
             selectedCameraFacing = "back"
         } catch (e: Exception) {
@@ -186,7 +195,9 @@ class RemoteCameraActivity : AppCompatActivity() {
         Log.d(TAG, "Taking photo for child: $childId")
         updateStatus(getString(R.string.remote_camera_status_connecting))
         disableButtons()
+        startConnectionTimeout()
         ensureWebSocketReady {
+            cancelConnectionTimeout()
             sendPhotoRequestWithRetry()
         }
     }
@@ -208,12 +219,14 @@ class RemoteCameraActivity : AppCompatActivity() {
         WebSocketManager.ensureConnected(
             onReady = {
                 runOnUiThread {
+                    cancelConnectionTimeout()
                     updateStatus(getString(R.string.remote_camera_connected))
                     onReady()
                 }
             },
             onError = { error ->
                 runOnUiThread {
+                    cancelConnectionTimeout()
                     updateStatus(getString(R.string.remote_camera_connect_error))
                     Toast.makeText(
                         this,
@@ -224,6 +237,34 @@ class RemoteCameraActivity : AppCompatActivity() {
                 }
             }
         )
+    }
+
+    /**
+     * A Socket.IO connection can occasionally get stuck between the transport
+     * connection and parent registration.  Without a timeout the photo screen
+     * keeps its controls disabled forever and the command never reaches the
+     * server.  Always return the screen to an actionable state in that case.
+     */
+    private fun startConnectionTimeout() {
+        connectionTimeoutJob?.cancel()
+        connectionTimeoutJob = lifecycleScope.launch {
+            delay(WEBSOCKET_READY_TIMEOUT_MS)
+            if (pendingRequestId != null || takePhotoButton.isEnabled) return@launch
+
+            Log.w(TAG, "Timed out waiting for WebSocket registration before photo request")
+            updateStatus(getString(R.string.remote_camera_connect_error))
+            Toast.makeText(
+                this@RemoteCameraActivity,
+                getString(R.string.remote_camera_connect_error_with_reason, "истекло время ожидания"),
+                Toast.LENGTH_SHORT
+            ).show()
+            enableButtons()
+        }
+    }
+
+    private fun cancelConnectionTimeout() {
+        connectionTimeoutJob?.cancel()
+        connectionTimeoutJob = null
     }
 
     private fun registerPhotoListeners() {
@@ -247,13 +288,19 @@ class RemoteCameraActivity : AppCompatActivity() {
                 if (pendingRequestId != requestId) return@photoErrorListener
                 clearPendingRequest()
                 runOnUiThread {
-                    updateStatus(getString(R.string.remote_camera_error_format, error))
+                    Log.w(TAG, "Remote photo failed: request=$requestId error=$error")
+                    val uiError = RemotePhotoErrorMessages.resolve(this, error)
+                    updateStatus(uiError.status)
                     AudioPlaybackService.restoreIfNeeded(this@RemoteCameraActivity)
-                    Toast.makeText(
-                        this,
-                        getString(R.string.remote_camera_error_format, error),
-                        Toast.LENGTH_SHORT
-                    ).show()
+                    if (uiError.actionable) {
+                        MaterialAlertDialogBuilder(this)
+                            .setTitle(uiError.title)
+                            .setMessage(uiError.message)
+                            .setPositiveButton(R.string.remote_camera_recovery_action, null)
+                            .show()
+                    } else {
+                        Toast.makeText(this, uiError.message, Toast.LENGTH_SHORT).show()
+                    }
                     enableButtons()
                 }
             }
@@ -354,6 +401,7 @@ class RemoteCameraActivity : AppCompatActivity() {
 
     private fun clearPendingRequest() {
         pendingRequestId = null
+        cancelConnectionTimeout()
         retryJob?.cancel()
         retryJob = null
         responseTimeoutJob?.cancel()
@@ -505,6 +553,62 @@ class RemoteCameraActivity : AppCompatActivity() {
         }
     }
 
+    private fun openRemotePhotoPreview(photoItem: RemotePhotoItem) {
+        lifecycleScope.launch {
+            try {
+                updateStatus(getString(R.string.remote_camera_loading_gallery))
+                val bytes = networkClient.downloadRemoteMediaBytes(photoItem.fullImageUrl)
+                if (bytes == null || bytes.isEmpty()) {
+                    updateStatus(getString(R.string.remote_camera_download_failed))
+                    Toast.makeText(
+                        this@RemoteCameraActivity,
+                        getString(R.string.remote_camera_download_failed),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@launch
+                }
+
+                val cachedFile = withContext(Dispatchers.IO) {
+                    RemotePhotoCache.saveBinaryPhotoToCache(
+                        this@RemoteCameraActivity,
+                        bytes,
+                        System.currentTimeMillis(),
+                        prefix = "remote_gallery"
+                    )
+                }
+
+                if (cachedFile == null) {
+                    updateStatus(getString(R.string.remote_photo_preview_error))
+                    Toast.makeText(
+                        this@RemoteCameraActivity,
+                        getString(R.string.remote_photo_preview_error),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@launch
+                }
+
+                val intent = Intent(this@RemoteCameraActivity, PhotoPreviewActivity::class.java).apply {
+                    putExtra(PhotoPreviewActivity.EXTRA_PHOTO_FILE_PATH, cachedFile.absolutePath)
+                    putExtra(PhotoPreviewActivity.EXTRA_PHOTO_TIMESTAMP, System.currentTimeMillis())
+                    putExtra(
+                        PhotoPreviewActivity.EXTRA_DEVICE_NAME,
+                        childName ?: getString(R.string.photo_preview_device_fallback)
+                    )
+                }
+                startActivity(intent)
+                updateStatus(getString(R.string.remote_camera_done))
+            } catch (e: Exception) {
+                Log.e(TAG, "Error opening remote gallery photo", e)
+                updateStatus(getString(R.string.remote_photo_preview_error))
+                Toast.makeText(
+                    this@RemoteCameraActivity,
+                    getString(R.string.remote_camera_error_format, e.message ?: "unknown"),
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
+        }
+    }
+
     private suspend fun fetchRemotePhotos(
         deviceIds: List<String>
     ): Pair<retrofit2.Response<ru.example.childwatch.network.PhotoGalleryResponse>, String?> {
@@ -566,33 +670,19 @@ class RemoteCameraActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 updateStatus(getString(R.string.remote_camera_downloading))
-                
-                // Download photo
-                val client = OkHttpClient.Builder()
-                    .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                    .writeTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                    .build()
-                
-                val request = Request.Builder()
-                    .url(photoItem.fullImageUrl)
-                    .build()
-                
-                val response = withContext(Dispatchers.IO) {
-                    client.newCall(request).execute()
-                }
-                
-                if (!response.isSuccessful) {
+                val bytes = networkClient.downloadRemoteMediaBytes(photoItem.fullImageUrl)
+
+                if (bytes == null) {
                     updateStatus(getString(R.string.remote_camera_download_failed))
                     Toast.makeText(
                         this@RemoteCameraActivity,
-                        getString(R.string.remote_camera_error_format, response.code.toString()),
+                        getString(R.string.remote_camera_download_failed),
                         Toast.LENGTH_SHORT
                     ).show()
                     return@launch
                 }
-                
-                val bytes = response.body?.bytes() ?: run {
+
+                if (bytes.isEmpty()) {
                     updateStatus(getString(R.string.remote_camera_save_empty))
                     Toast.makeText(
                         this@RemoteCameraActivity,
@@ -652,22 +742,9 @@ class RemoteCameraActivity : AppCompatActivity() {
         lifecycleScope.launch {
             try {
                 updateStatus(getString(R.string.remote_camera_share_prep))
-                
-                // Download to cache
-                val client = OkHttpClient.Builder()
-                    .connectTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                    .readTimeout(30, java.util.concurrent.TimeUnit.SECONDS)
-                    .build()
-                
-                val request = Request.Builder()
-                    .url(photoItem.fullImageUrl)
-                    .build()
-                
-                val response = withContext(Dispatchers.IO) {
-                    client.newCall(request).execute()
-                }
-                
-                if (!response.isSuccessful) {
+                val bytes = networkClient.downloadRemoteMediaBytes(photoItem.fullImageUrl)
+
+                if (bytes == null || bytes.isEmpty()) {
                     updateStatus(getString(R.string.remote_camera_download_failed))
                     Toast.makeText(
                         this@RemoteCameraActivity,
@@ -676,8 +753,6 @@ class RemoteCameraActivity : AppCompatActivity() {
                     ).show()
                     return@launch
                 }
-                
-                val bytes = response.body?.bytes() ?: return@launch
                 
                 // Save to cache
                 val cacheDir = java.io.File(cacheDir, "shared_photos")

@@ -22,7 +22,10 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.Dispatchers
+import ru.example.childwatch.contacts.ContactIcons
 import ru.example.childwatch.databinding.ActivitySettingsBinding
+import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.profile.ParentActiveSession
@@ -33,6 +36,7 @@ import ru.example.childwatch.profile.ParentLinkedChildOption
 import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
 import ru.example.childwatch.profile.ParentLinkedParentOption
 import ru.example.childwatch.profile.ParentLinkedParentsProvider
+import ru.example.childwatch.profile.ParentParticipantNameResolver
 import ru.example.childwatch.profile.ParentProfileRuntimeCoordinator
 import ru.example.childwatch.utils.NotificationManager as ChatNotificationManager
 import ru.example.childwatch.utils.PermissionHelper
@@ -42,6 +46,7 @@ import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.service.MonitorService
 import ru.example.childwatch.service.ParentLocationService
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 /**
@@ -58,6 +63,8 @@ class SettingsActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "SettingsActivity"
         private const val PREFS_NAME = "childwatch_prefs"
+        private const val PARENT_ONBOARDING_PREFS = "parent_onboarding"
+        private const val KEY_PARENT_ID = "parent_id"
 
         // Default values
         private const val DEFAULT_LOCATION_INTERVAL = 30
@@ -89,10 +96,12 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private lateinit var secureSettings: SecureSettingsManager
     private lateinit var profileManager: ParentMonitorProfileManager
+    private val database by lazy { ChildWatchDatabase.getInstance(this) }
     private val activeSessionStore by lazy { ParentActiveSessionStore(this) }
     private val effectiveContextResolver by lazy { ParentEffectiveContextResolver(this) }
     private val linkedChildOptionsProvider by lazy { ParentLinkedChildOptionsProvider(this) }
     private val linkedParentsProvider by lazy { ParentLinkedParentsProvider(this) }
+    private val participantNameResolver by lazy { ParentParticipantNameResolver(this) }
     private val profileRuntimeCoordinator by lazy { ParentProfileRuntimeCoordinator(this) }
     private val networkClient by lazy { NetworkClient(this) }
     private var quietHoursStart = DEFAULT_QUIET_HOURS_START
@@ -173,6 +182,17 @@ class SettingsActivity : AppCompatActivity() {
         binding.switchProfileButton.setOnClickListener {
             showProfilePicker()
         }
+
+        binding.editSelfNameButton.setOnClickListener {
+            showEditOwnNameDialog()
+        }
+
+        binding.editSelfMarkerButton.setOnClickListener {
+            showEditOwnMarkerDialog()
+        }
+
+        binding.scanQrButton.text = getString(R.string.parent_pairing_scan_child_qr_button)
+        binding.showQrCodeBtn.text = getString(R.string.parent_pairing_show_own_qr_backup_button)
 
         binding.scanQrButton.setOnClickListener {
             val intent = Intent(this, QrScannerActivity::class.java)
@@ -641,6 +661,14 @@ class SettingsActivity : AppCompatActivity() {
         val profileName = activeProfile?.name?.takeIf { it.isNotBlank() }
             ?: activeSessionStore.getSession()?.profileName?.takeIf { it.isNotBlank() }
             ?: getString(R.string.profile_switch_current_name)
+        val selfNameLine = getString(
+            R.string.participant_self_name_summary_line,
+            participantNameResolver.resolveOwnParentDisplayName()
+        )
+        val selfMarkerLine = getString(
+            R.string.participant_self_marker_summary_line,
+            ContactIcons.labelFor(participantNameResolver.resolveOwnParentMarkerIconId())
+        )
 
         if (ownParentId.isNullOrBlank() || serverUrl.isNullOrBlank()) {
             binding.profileSummaryText.text = getString(R.string.profile_switch_no_active)
@@ -662,7 +690,7 @@ class SettingsActivity : AppCompatActivity() {
                         ownParentDeviceId = ownParentId
                     )
             )
-        ) + "\n" + getString(
+        ) + "\n" + selfNameLine + "\n" + selfMarkerLine + "\n" + getString(
             R.string.profile_switch_source_line,
             describeProfileContextSource(effectiveContext.source)
         ) + "\n" + getString(
@@ -681,6 +709,190 @@ class SettingsActivity : AppCompatActivity() {
         } else {
             ""
         }
+    }
+
+    private fun showEditOwnNameDialog() {
+        val input = createProfileInput(
+            getString(R.string.participant_self_name_hint_parent),
+            participantNameResolver.resolveOwnParentDisplayName()
+        )
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle(R.string.participant_self_name_title_parent)
+            .setView(createProfileDialogLayout(input))
+            .setPositiveButton(android.R.string.ok, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+                val newName = input.text?.toString()?.trim().orEmpty()
+                if (newName.isBlank()) {
+                    input.error = getString(R.string.participant_self_name_error_empty)
+                    return@setOnClickListener
+                }
+                input.error = null
+                dialog.dismiss()
+                saveOwnParentDisplayName(newName)
+            }
+        }
+
+        dialog.show()
+    }
+
+    private fun showEditOwnMarkerDialog() {
+        val options = ContactIcons.options()
+        var selectedIndex = options.indexOfFirst {
+            it.id == participantNameResolver.resolveOwnParentMarkerIconId()
+        }.coerceAtLeast(0)
+
+        AlertDialog.Builder(this)
+            .setTitle(R.string.participant_self_marker_title_parent)
+            .setSingleChoiceItems(
+                options.map { it.label }.toTypedArray(),
+                selectedIndex
+            ) { _, which ->
+                selectedIndex = which
+            }
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                saveOwnParentMarkerIcon(options[selectedIndex].id)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun saveOwnParentDisplayName(newName: String) {
+        lifecycleScope.launch {
+            prefs.edit()
+                .putString(ParentParticipantNameResolver.KEY_SELF_DISPLAY_NAME, newName)
+                .putString(KEY_LINKED_PARENT_SELF_LABEL, newName)
+                .apply()
+
+            updateLocalParentName(newName)
+            val synced = syncOwnParentNameToServer(newName)
+            syncLinkedProfilesInBackground()
+            updateProfileSummary()
+
+            Toast.makeText(
+                this@SettingsActivity,
+                if (synced) {
+                    R.string.participant_self_name_saved
+                } else {
+                    R.string.participant_self_name_sync_partial
+                },
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    private fun saveOwnParentMarkerIcon(iconId: Int) {
+        lifecycleScope.launch {
+            prefs.edit()
+                .putInt(ParentParticipantNameResolver.KEY_SELF_MARKER_ICON_ID, iconId)
+                .apply()
+
+            val synced = syncOwnParentMarkerToServer(iconId)
+            syncLinkedProfilesInBackground()
+            updateProfileSummary()
+
+            Toast.makeText(
+                this@SettingsActivity,
+                if (synced) {
+                    R.string.participant_self_marker_saved
+                } else {
+                    R.string.participant_self_marker_sync_partial
+                },
+                Toast.LENGTH_SHORT
+            ).show()
+        }
+    }
+
+    private suspend fun updateLocalParentName(newName: String) {
+        withContext(Dispatchers.IO) {
+            val onboardingPrefs = getSharedPreferences(PARENT_ONBOARDING_PREFS, MODE_PRIVATE)
+            val storedParentId = onboardingPrefs.getLong(KEY_PARENT_ID, 0L)
+            val existingParent = if (storedParentId > 0) {
+                database.parentDao().getById(storedParentId)
+            } else {
+                database.parentDao().getAll().firstOrNull()
+            } ?: return@withContext
+
+            database.parentDao().update(
+                existingParent.copy(
+                    name = newName,
+                    updatedAt = System.currentTimeMillis()
+                )
+            )
+        }
+    }
+
+    private suspend fun syncOwnParentNameToServer(newName: String): Boolean {
+        val ownParentId = effectiveContextResolver.resolveOwnParentId().ifBlank {
+            profileManager.resolveCurrentParentId()
+        }.trim()
+        if (ownParentId.isBlank()) return true
+
+        val linkedChildrenResponse = runCatching {
+            networkClient.getLinkedChildren(ownParentId)
+        }.getOrNull() ?: return false
+        if (!linkedChildrenResponse.isSuccessful) return false
+
+        val childIds = linkedChildrenResponse.body()
+            ?.children
+            .orEmpty()
+            .map { it.childDeviceId.trim() }
+            .filter { it.isNotBlank() }
+            .toMutableSet()
+
+        binding.childDeviceIdInput.text?.toString()?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?.let(childIds::add)
+
+        if (childIds.isEmpty()) return true
+
+        var allSuccessful = true
+        childIds.forEach { childId ->
+            val response = runCatching {
+                networkClient.linkParentChild(
+                    parentDeviceId = ownParentId,
+                    childDeviceId = childId,
+                    parentDisplayName = newName
+                )
+            }.getOrNull()
+            if (response?.isSuccessful != true) {
+                allSuccessful = false
+            }
+        }
+
+        return allSuccessful
+    }
+
+    private suspend fun syncOwnParentMarkerToServer(iconId: Int): Boolean {
+        val ownParentId = effectiveContextResolver.resolveOwnParentId().ifBlank {
+            profileManager.resolveCurrentParentId()
+        }.trim()
+        if (ownParentId.isBlank()) return true
+
+        val linkedChildrenResponse = runCatching {
+            networkClient.getLinkedChildren(ownParentId)
+        }.getOrNull()
+        val linkedChildren = linkedChildrenResponse?.body()?.children.orEmpty()
+        if (linkedChildren.isEmpty()) return true
+
+        var allSuccessful = true
+        linkedChildren.forEach { child ->
+            val response = runCatching {
+                networkClient.linkParentChild(
+                    parentDeviceId = ownParentId,
+                    childDeviceId = child.childDeviceId,
+                    parentMarkerIconId = iconId
+                )
+            }.getOrNull()
+            if (response?.isSuccessful != true) {
+                allSuccessful = false
+            }
+        }
+        return allSuccessful
     }
 
     private fun describeProfileContextSource(source: String): String {
@@ -772,6 +984,9 @@ class SettingsActivity : AppCompatActivity() {
                 return
             }
 
+        if (options.isNotEmpty()) {
+            linkedChildOptionsProvider.syncLocalChildren(options)
+        }
         if (options.isNotEmpty() && profileManager.syncLinkedChildProfiles(options) > 0) {
             updateProfileSummary()
         }

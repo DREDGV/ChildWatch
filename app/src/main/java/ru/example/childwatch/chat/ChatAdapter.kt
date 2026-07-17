@@ -18,8 +18,13 @@ class ChatAdapter(
     private fun isOutgoing(message: ChatMessage) =
         message.isOutgoing(currentUser, currentUserDeviceId)
 
-    fun submitMessages(messages: List<ChatMessage>) {
-        submitList(messages.toList())
+    fun submitMessages(
+        messages: List<ChatMessage>,
+        onCommitted: (() -> Unit)? = null
+    ) {
+        submitList(messages.toList()) {
+            onCommitted?.invoke()
+        }
     }
 
     override fun getItemViewType(position: Int): Int {
@@ -52,10 +57,11 @@ class ChatAdapter(
             messageText.text = message.text
             timestampText.text = message.getFormattedTime()
 
-            if (!isOutgoing) {
+            val senderName = message.getSenderName().trim()
+            if (senderName.isNotEmpty()) {
                 senderText?.apply {
                     visibility = View.VISIBLE
-                    text = message.getSenderName()
+                    text = senderName
                 }
             } else {
                 senderText?.visibility = View.GONE

@@ -1,0 +1,19 @@
+<resources>
+    <string name="chat_title_family">Семейный чат</string>
+    <string name="chat_header_participants_title">Участники семьи</string>
+    <string name="chat_partner_meta_family">Семейный чат</string>
+    <string name="chat_info_name_line">Имя: %1$s</string>
+    <string name="chat_info_online_line">В сети: %1$s</string>
+    <string name="chat_info_offline_line">Офлайн: %1$s</string>
+    <string name="chat_info_total_line">Участников: %1$d</string>
+    <string name="chat_presence_none_online">Сейчас никто не в сети</string>
+    <string name="chat_presence_all_online">Все участники в сети</string>
+    <string name="chat_presence_online_named">В сети: %1$s</string>
+    <string name="chat_presence_offline_named">Офлайн: %1$s</string>
+    <string name="chat_presence_online_count">В сети: %1$d</string>
+    <string name="chat_presence_offline_count">Офлайн: %1$d</string>
+    <string name="chat_presence_total_count">Участников: %1$d</string>
+    <string name="chat_info_dialog_title">Информация о чате</string>
+    <string name="chat_info_dialog_close">Закрыть</string>
+    <string name="chat_info_dialog_notifications">Уведомления</string>
+</resources>

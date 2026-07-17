@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="parent_pairing_scan_child_qr_button">Подключить ребенка по QR</string>
+    <string name="parent_pairing_show_own_qr_backup_button">Мой QR родителя (резерв)</string>
+    <string name="parent_qr_title_backup">Резервный QR родителя</string>
+    <string name="parent_qr_subtitle_backup">Используйте его только если основной способ недоступен.</string>
+    <string name="parent_qr_help_backup">Основной способ подключения: родитель сканирует QR ребенка на детском телефоне.</string>
+    <string name="parent_qr_device_label">ID родителя: %1$s</string>
+    <string name="parent_qr_share_unavailable">Отправка QR пока не реализована</string>
+    <string name="parent_qr_missing_device">ID родителя не найден</string>
+    <string name="parent_qr_scanner_title">Сканировать QR ребенка</string>
+</resources>

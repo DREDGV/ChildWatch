@@ -1320,10 +1320,38 @@ class NetworkClient(private val context: Context) {
         }
     }
 
+    suspend fun getFamilyPresence(
+        childDeviceId: String
+    ): retrofit2.Response<FamilyPresenceResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot get family presence")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                val retrofit = createRetrofitClient(serverUrl)
+                val api = retrofit.create(ChildWatchApi::class.java)
+                api.getFamilyPresence(childDeviceId)
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting family presence", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
     suspend fun linkParentChild(
         parentDeviceId: String,
         childDeviceId: String,
-        displayName: String? = null
+        displayName: String? = null,
+        parentDisplayName: String? = null,
+        childDisplayName: String? = null,
+        parentMarkerIconId: Int? = null,
+        childMarkerIconId: Int? = null
     ): retrofit2.Response<GenericResponse> {
         return withContext(Dispatchers.IO) {
             try {
@@ -1342,7 +1370,11 @@ class NetworkClient(private val context: Context) {
                     ParentChildLinkRequest(
                         parentDeviceId = parentDeviceId,
                         childDeviceId = childDeviceId,
-                        displayName = displayName
+                        displayName = displayName,
+                        parentDisplayName = parentDisplayName,
+                        childDisplayName = childDisplayName,
+                        parentMarkerIconId = parentMarkerIconId,
+                        childMarkerIconId = childMarkerIconId
                     )
                 )
             } catch (e: Exception) {
@@ -1443,6 +1475,30 @@ class NetworkClient(private val context: Context) {
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting remote photos", e)
                 retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    suspend fun downloadRemoteMediaBytes(absoluteUrl: String): ByteArray? {
+        return withContext(Dispatchers.IO) {
+            try {
+                val request = Request.Builder()
+                    .url(absoluteUrl)
+                    .build()
+
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.e(
+                            TAG,
+                            "Failed to download remote media: ${response.code} ${response.message}"
+                        )
+                        return@withContext null
+                    }
+                    response.body?.bytes()
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error downloading remote media", e)
+                null
             }
         }
     }

@@ -1,14 +1,17 @@
 package ru.example.childwatch.profile
 
 import android.content.Context
+import ru.example.childwatch.contacts.ContactIcons
 import ru.example.childwatch.database.ChildWatchDatabase
+import ru.example.childwatch.database.entity.Child
 import ru.example.childwatch.network.LinkedChildLink
 import ru.example.childwatch.network.NetworkClient
 
 data class ParentLinkedChildOption(
     val deviceId: String,
     val displayName: String,
-    val source: String
+    val source: String,
+    val markerIconId: Int = ContactIcons.CHILD
 )
 
 class ParentLinkedChildOptionsProvider(context: Context) {
@@ -27,7 +30,8 @@ class ParentLinkedChildOptionsProvider(context: Context) {
             result[deviceId] = ParentLinkedChildOption(
                 deviceId = deviceId,
                 displayName = child.name.trim().ifBlank { deviceId },
-                source = "local"
+                source = "local",
+                markerIconId = child.iconId.takeIf(ContactIcons::isKnown) ?: ContactIcons.CHILD
             )
         }
 
@@ -51,7 +55,8 @@ class ParentLinkedChildOptionsProvider(context: Context) {
                     } else {
                         existing.displayName
                     },
-                    source = "linked"
+                    source = "linked",
+                    markerIconId = merged.markerIconId
                 )
             }
         }
@@ -59,16 +64,48 @@ class ParentLinkedChildOptionsProvider(context: Context) {
         return result.values.sortedBy { it.displayName.lowercase() }
     }
 
+    suspend fun syncLocalChildren(options: List<ParentLinkedChildOption>) {
+        val normalized = options
+            .filter { it.deviceId.isNotBlank() }
+            .distinctBy { it.deviceId }
+
+        normalized.forEach { option ->
+            val existing = database.childDao().getByDeviceId(option.deviceId)
+            val normalizedIconId = option.markerIconId.takeIf(ContactIcons::isKnown) ?: ContactIcons.CHILD
+            if (existing == null) {
+                database.childDao().insert(
+                    Child(
+                        deviceId = option.deviceId,
+                        name = option.displayName.ifBlank { option.deviceId },
+                        iconId = normalizedIconId
+                    )
+                )
+            } else {
+                val updated = existing.copy(
+                    name = option.displayName.ifBlank { existing.name },
+                    iconId = normalizedIconId,
+                    updatedAt = System.currentTimeMillis()
+                )
+                if (updated != existing) {
+                    database.childDao().update(updated)
+                }
+            }
+        }
+    }
+
     private fun buildOption(link: LinkedChildLink): ParentLinkedChildOption? {
         val deviceId = link.childDeviceId.trim()
         if (deviceId.isBlank()) return null
-        val displayName = link.displayName?.trim().takeUnless { it.isNullOrBlank() }
+        val displayName = link.childDisplayName?.trim().takeUnless { it.isNullOrBlank() }
+            ?: link.displayName?.trim().takeUnless { it.isNullOrBlank() }
             ?: link.childDeviceName?.trim().takeUnless { it.isNullOrBlank() }
             ?: deviceId
+        val markerIconId = link.childMarkerIconId?.takeIf(ContactIcons::isKnown) ?: ContactIcons.CHILD
         return ParentLinkedChildOption(
             deviceId = deviceId,
             displayName = displayName,
-            source = "linked"
+            source = "linked",
+            markerIconId = markerIconId
         )
     }
 }

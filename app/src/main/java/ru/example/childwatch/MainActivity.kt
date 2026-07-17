@@ -25,6 +25,7 @@ import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.network.DeviceStatus
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.remote.RemotePhotoCache
+import ru.example.childwatch.remote.RemotePhotoErrorMessages
 import ru.example.childwatch.service.MonitorService
 import ru.example.childwatch.service.ChatBackgroundService
 import ru.example.childwatch.service.ParentLocationService
@@ -40,6 +41,7 @@ import ru.example.childwatch.profile.ParentLinkedChildOption
 import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
 import ru.example.childwatch.profile.ParentLinkedParentOption
 import ru.example.childwatch.profile.ParentLinkedParentsProvider
+import ru.example.childwatch.profile.ParentParticipantNameResolver
 import ru.example.childwatch.profile.ParentProfileRuntimeCoordinator
 import ru.example.childwatch.chat.ChatManager
 import ru.example.childwatch.network.WebSocketManager
@@ -74,6 +76,7 @@ class MainActivity : AppCompatActivity() {
     private val activeSessionStore by lazy { ParentActiveSessionStore(this) }
     private val linkedChildOptionsProvider by lazy { ParentLinkedChildOptionsProvider(this) }
     private val linkedParentsProvider by lazy { ParentLinkedParentsProvider(this) }
+    private val participantNameResolver by lazy { ParentParticipantNameResolver(this) }
     private val profileRuntimeCoordinator by lazy { ParentProfileRuntimeCoordinator(this) }
     private var hasConsent = false
     private var batteryOptimizationDialogDisplayed = false
@@ -661,13 +664,21 @@ class MainActivity : AppCompatActivity() {
                 }
             )
         )
+        val selfNameLine = getString(
+            R.string.participant_self_name_summary_line,
+            participantNameResolver.resolveOwnParentDisplayName()
+        )
+        val selfMarkerLine = getString(
+            R.string.participant_self_marker_summary_line,
+            ContactIcons.labelFor(participantNameResolver.resolveOwnParentMarkerIconId())
+        )
         val linkedParentsLine = buildCachedLinkedParentsLine()
         val mismatchLine = if (isProfileContextMismatched(activeProfile, effectiveContext)) {
             "\n" + getString(R.string.profile_switch_warning_mismatch)
         } else {
             ""
         }
-        binding.activeProfileMeta.text = summary + "\n" + sourceLine + "\n" + statusLine +
+        binding.activeProfileMeta.text = summary + "\n" + selfNameLine + "\n" + selfMarkerLine + "\n" + sourceLine + "\n" + statusLine +
             (linkedParentsLine?.let { "\n$it" } ?: "") + mismatchLine
     }
 
@@ -718,6 +729,9 @@ class MainActivity : AppCompatActivity() {
                 return
             }
 
+        if (options.isNotEmpty()) {
+            linkedChildOptionsProvider.syncLocalChildren(options)
+        }
         if (options.isNotEmpty() && profileManager.syncLinkedChildProfiles(options) > 0) {
             updateQuickProfileSummary()
         }
@@ -1202,12 +1216,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
         
-        // Р вЂўРЎРѓР В»Р С‘ force=false Р С‘ Р В·Р В°Р С–РЎР‚РЎС“Р В·Р С”Р В° РЎС“Р В¶Р Вµ Р С‘Р Т‘РЎвЂРЎвЂљ, Р Р…Р Вµ Р В·Р В°Р С—РЎС“РЎРѓР С”Р В°Р ВµР С Р Р…Р С•Р Р†РЎС“РЎР‹
+        // Avoid parallel status fetches unless the caller explicitly forces a refresh.
         if (!force && deviceStatusJob?.isActive == true) {
             return
         }
         
-        // Р вЂўРЎРѓР В»Р С‘ force=true, Р С•РЎвЂљР СР ВµР Р…РЎРЏР ВµР С РЎРѓРЎвЂљР В°РЎР‚РЎС“РЎР‹ Р В·Р В°Р С–РЎР‚РЎС“Р В·Р С”РЎС“ Р С‘ Р В·Р В°Р С—РЎС“РЎРѓР С”Р В°Р ВµР С Р Р…Р С•Р Р†РЎС“РЎР‹
+        // Forced refresh cancels any in-flight job and starts a new one.
         if (force) {
             deviceStatusJob?.cancel()
         }
@@ -1248,7 +1262,7 @@ class MainActivity : AppCompatActivity() {
                     showDeviceInfoMessage(getString(R.string.device_info_not_available))
                 }
             } catch (error: CancellationException) {
-                // Р ВР С–Р Р…Р С•РЎР‚Р С‘РЎР‚РЎС“Р ВµР С Р С•РЎвЂљР СР ВµР Р…РЎС“ Р С”Р С•РЎР‚РЎС“РЎвЂљР С‘Р Р…РЎвЂ№ - РЎРЊРЎвЂљР С• Р Р…Р С•РЎР‚Р СР В°Р В»РЎРЉР Р…Р С•
+                // Cancellation is expected here, so do not treat it as an error.
                 Log.d(TAG, "Device status fetch cancelled")
             } catch (error: Exception) {
                 Log.e(TAG, "Failed to load device status", error)
@@ -1678,7 +1692,7 @@ class MainActivity : AppCompatActivity() {
             .setTitle(getString(R.string.main_dialog_device_id_missing_title))
             .setMessage(getString(R.string.main_dialog_device_id_missing_message))
             .setPositiveButton(getString(R.string.main_dialog_device_id_missing_test)) { _, _ ->
-                // Р ВРЎРѓР С—Р С•Р В»РЎРЉР В·Р С•Р Р†Р В°РЎвЂљРЎРЉ РЎвЂљР ВµРЎРѓРЎвЂљР С•Р Р†РЎвЂ№Р в„– ID Р Т‘Р В»РЎРЏ Р Т‘Р ВµР СР С•Р Р…РЎРѓРЎвЂљРЎР‚Р В°РЎвЂ Р С‘Р С‘
+                // Use a dedicated test child ID for diagnostics and recovery drills.
                 val testDeviceId = "test-child-device-001"
                 val intent = Intent(this, AudioStreamingActivity::class.java).apply {
                     putExtra(AudioStreamingActivity.EXTRA_DEVICE_ID, testDeviceId)
@@ -1688,7 +1702,7 @@ class MainActivity : AppCompatActivity() {
                 showToast(getString(R.string.main_toast_started_test_mode, testDeviceId))
             }
             .setNeutralButton(getString(R.string.main_dialog_device_id_missing_settings)) { _, _ ->
-                // Р СџР ВµРЎР‚Р ВµР в„–РЎвЂљР С‘ Р Р† Р Р…Р В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р С‘ Р Т‘Р В»РЎРЏ Р Р†Р Р†Р С•Р Т‘Р В° ID
+                // Open settings so the operator can configure a real child ID.
                 val intent = Intent(this, SettingsActivity::class.java)
                 startActivity(intent)
             }
@@ -1697,7 +1711,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Р вЂ”Р В°Р С–РЎР‚РЎС“Р В·Р С‘РЎвЂљРЎРЉ Р С‘ Р С•РЎвЂљР С•Р В±РЎР‚Р В°Р В·Р С‘РЎвЂљРЎРЉ Р Р†РЎвЂ№Р В±РЎР‚Р В°Р Р…Р Р…Р С•Р Вµ РЎС“РЎРѓРЎвЂљРЎР‚Р С•Р в„–РЎРѓРЎвЂљР Р†Р С•
+     * Load and render the currently selected child profile.
      */
     private fun loadSelectedChild() {
         lifecycleScope.launch {
@@ -1716,7 +1730,7 @@ class MainActivity : AppCompatActivity() {
                             child.deviceId.take(12)
                         )
 
-                        // Р вЂ”Р В°Р С–РЎР‚РЎС“Р В·Р С‘РЎвЂљРЎРЉ Р В°Р Р†Р В°РЎвЂљР В°РЎР‚
+                        // Load avatar if the stored URI is still accessible.
                         if (child.avatarUrl != null) {
                             try {
                                 val uri = android.net.Uri.parse(child.avatarUrl)
@@ -1747,7 +1761,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Р СџР С•Р С”Р В°Р В·Р В°РЎвЂљРЎРЉ РЎРѓР С•РЎРѓРЎвЂљР С•РЎРЏР Р…Р С‘Р Вµ Р С—Р С• РЎС“Р СР С•Р В»РЎвЂЎР В°Р Р…Р С‘РЎР‹ (РЎС“РЎРѓРЎвЂљРЎР‚Р С•Р в„–РЎРѓРЎвЂљР Р†Р С• Р Р…Р Вµ Р Р†РЎвЂ№Р В±РЎР‚Р В°Р Р…Р С•)
+     * Show the placeholder state when no child has been selected yet.
      */
     private fun showDefaultChildSelection() {
         try {
@@ -1829,7 +1843,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     /**
-     * Р С›Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ Р Р†РЎвЂ№Р В±РЎР‚Р В°Р Р…Р Р…Р С•Р Вµ РЎС“РЎРѓРЎвЂљРЎР‚Р С•Р в„–РЎРѓРЎвЂљР Р†Р С•
+     * Apply the selected child to the UI and the active runtime context.
      */
     private fun updateSelectedChild(deviceId: String) {
         lifecycleScope.launch {
@@ -1839,14 +1853,14 @@ class MainActivity : AppCompatActivity() {
                 val child = childDao.getByDeviceId(deviceId)
 
                 if (child != null) {
-                    // Р С›Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ UI
+                    // Update the visible child card.
                     binding.selectedChildName.text = child.name
                     binding.selectedChildDeviceId.text = getString(
                         R.string.main_selected_child_id_and_edit_hint,
                         child.deviceId.take(12)
                     )
 
-                    // Р С›Р В±Р Р…Р С•Р Р†Р С‘РЎвЂљРЎРЉ Р В°Р Р†Р В°РЎвЂљР В°РЎР‚
+                    // Refresh avatar from URI when available.
                     if (child.avatarUrl != null) {
                         try {
                             val uri = android.net.Uri.parse(child.avatarUrl)
@@ -1862,7 +1876,7 @@ class MainActivity : AppCompatActivity() {
                         binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
                     }
 
-                    // Р РЋР С•РЎвЂ¦РЎР‚Р В°Р Р…Р С‘РЎвЂљРЎРЉ Р Р† Р Р…Р В°РЎРѓРЎвЂљРЎР‚Р С•Р в„–Р С”Р В°РЎвЂ¦
+                    // Persist and activate the selection across runtime entry points.
                     persistSelectedChildCompat(deviceId)
                     profileRuntimeCoordinator.switchFocusedChild(
                         childDeviceId = deviceId,
@@ -1874,13 +1888,13 @@ class MainActivity : AppCompatActivity() {
                     refreshChildDeviceStatus(force = true)
 
                     showToast(getString(R.string.main_toast_contact_selected, child.name))
-                    Log.d(TAG, "Р Р€РЎРѓРЎвЂљРЎР‚Р С•Р в„–РЎРѓРЎвЂљР Р†Р С• Р Р†РЎвЂ№Р В±РЎР‚Р В°Р Р…Р С•: ${child.name} ($deviceId)")
+                    Log.d(TAG, "Selected child updated: ${child.name} ($deviceId)")
                 } else {
                     showToast(getString(R.string.main_toast_contact_not_found))
                     showDefaultChildSelection()
                 }
             } catch (e: Exception) {
-                Log.e(TAG, "Р С›РЎв‚¬Р С‘Р В±Р С”Р В° Р С•Р В±Р Р…Р С•Р Р†Р В»Р ВµР Р…Р С‘РЎРЏ Р С—РЎР‚Р С•РЎвЂћР С‘Р В»РЎРЏ РЎР‚Р ВµР В±Р ВµР Р…Р С”Р В°", e)
+                Log.e(TAG, "Failed to update selected child", e)
                 showToast(getString(R.string.main_toast_contact_update_error))
             }
         }
@@ -2018,9 +2032,10 @@ class MainActivity : AppCompatActivity() {
                 timeoutHandler.removeCallbacks(timeoutRunnable)
                 runOnUiThread {
                     progressDialog.dismiss()
+                    val uiError = RemotePhotoErrorMessages.resolve(this, error)
                     Toast.makeText(
                         this,
-                        getString(R.string.remote_camera_child_error, error),
+                        uiError.message,
                         Toast.LENGTH_LONG
                     ).show()
                 }
