@@ -3,6 +3,7 @@ package ru.example.childwatch.network
 import android.content.Context
 import android.util.Log
 import org.json.JSONObject
+import ru.childwatch.shared.attention.AttentionSignalContract
 import ru.example.childwatch.chat.ChatMessage
 
 /**
@@ -36,6 +37,16 @@ object WebSocketManager {
     private var chatStatusAckCallback: ((String, String, Long) -> Unit)? = null
     private var childConnectedCallback: (() -> Unit)? = null
     private var childDisconnectedCallback: (() -> Unit)? = null
+    private val attentionStartListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(JSONObject) -> Unit>()
+    )
+    private val attentionStopListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(JSONObject) -> Unit>()
+    )
+    private val attentionStatusListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(JSONObject) -> Unit>()
+    )
+    private val pendingAttentionStatuses = mutableListOf<JSONObject>()
 
     /**
      * Initialize WebSocket client
@@ -78,6 +89,7 @@ object WebSocketManager {
         }
         childConnectedCallback?.let { webSocketClient?.setChildConnectedCallback(it) }
         childDisconnectedCallback?.let { webSocketClient?.setChildDisconnectedCallback(it) }
+        configureAttentionCallbacks()
         isInitialized = true
         currentServerUrl = serverUrl
         currentDeviceId = childDeviceId
@@ -110,6 +122,7 @@ object WebSocketManager {
             childConnectedCallback?.let { setChildConnectedCallback(it) }
             childDisconnectedCallback?.let { setChildDisconnectedCallback(it) }
             streamTakeoverRequestedCallback?.let { setStreamTakeoverRequestedCallback(it) }
+            configureAttentionCallbacks()
             connect(onConnected, onError)
         }
     }
@@ -661,5 +674,86 @@ object WebSocketManager {
         photoErrorListeners.clear()
         photoQueuedListeners.clear()
         photoBusyListeners.clear()
+    }
+
+    private fun configureAttentionCallbacks() {
+        webSocketClient?.setAttentionCallbacks(
+            onStart = { dispatchAttention(attentionStartListeners, it, "start") },
+            onStop = { dispatchAttention(attentionStopListeners, it, "stop") },
+            onStatus = { dispatchAttention(attentionStatusListeners, it, "status") },
+            onTransportReady = ::flushPendingAttentionStatuses
+        )
+    }
+
+    private fun dispatchAttention(
+        listeners: MutableSet<(JSONObject) -> Unit>,
+        payload: JSONObject,
+        event: String
+    ) {
+        val snapshot = synchronized(listeners) { listeners.toList() }
+        snapshot.forEach { listener ->
+            runCatching { listener(payload) }
+                .onFailure { Log.e(TAG, "Attention $event listener failed", it) }
+        }
+    }
+
+    fun addAttentionStartListener(listener: (JSONObject) -> Unit) {
+        attentionStartListeners.add(listener)
+        configureAttentionCallbacks()
+    }
+
+    fun removeAttentionStartListener(listener: (JSONObject) -> Unit) {
+        attentionStartListeners.remove(listener)
+    }
+
+    fun addAttentionStopListener(listener: (JSONObject) -> Unit) {
+        attentionStopListeners.add(listener)
+        configureAttentionCallbacks()
+    }
+
+    fun removeAttentionStopListener(listener: (JSONObject) -> Unit) {
+        attentionStopListeners.remove(listener)
+    }
+
+    fun addAttentionStatusListener(listener: (JSONObject) -> Unit) {
+        attentionStatusListeners.add(listener)
+        configureAttentionCallbacks()
+    }
+
+    fun removeAttentionStatusListener(listener: (JSONObject) -> Unit) {
+        attentionStatusListeners.remove(listener)
+    }
+
+    fun sendAttentionRequest(payload: JSONObject): Boolean =
+        emitAttention(AttentionSignalContract.EVENT_REQUEST, payload)
+
+    fun sendAttentionStopRequest(payload: JSONObject): Boolean =
+        emitAttention(AttentionSignalContract.EVENT_STOP_REQUEST, payload)
+
+    fun sendAttentionStatus(payload: JSONObject): Boolean {
+        if (emitAttention(AttentionSignalContract.EVENT_STATUS, payload)) return true
+        synchronized(pendingAttentionStatuses) {
+            if (pendingAttentionStatuses.size >= 32) pendingAttentionStatuses.removeAt(0)
+            pendingAttentionStatuses.add(JSONObject(payload.toString()))
+        }
+        return false
+    }
+
+    private fun flushPendingAttentionStatuses() {
+        val client = webSocketClient?.takeIf { it.isReady() } ?: return
+        val now = System.currentTimeMillis()
+        val pending = synchronized(pendingAttentionStatuses) {
+            pendingAttentionStatuses.filter {
+                now - it.optLong("timestamp", now) <= AttentionSignalContract.MAX_TTL_MS
+            }.also { pendingAttentionStatuses.clear() }
+        }
+        pending.forEach { client.emit(AttentionSignalContract.EVENT_STATUS, it) }
+    }
+
+    private fun emitAttention(event: String, payload: JSONObject): Boolean {
+        val client = webSocketClient ?: return false
+        if (!client.isReady()) return false
+        client.emit(event, payload)
+        return true
     }
 }

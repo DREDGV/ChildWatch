@@ -34,6 +34,7 @@
     
     <!-- Wake lock for keeping service alive -->
     <uses-permission android:name="android.permission.WAKE_LOCK" />
+    <uses-permission android:name="android.permission.VIBRATE" />
     
     <!-- Storage permissions for audio files and map tiles -->
     <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
@@ -281,4 +282,3 @@
     </application>
 
 </manifest>
-

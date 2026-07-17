@@ -9,6 +9,7 @@ import io.socket.emitter.Emitter
 import kotlinx.coroutines.*
 import org.json.JSONArray
 import org.json.JSONObject
+import ru.childwatch.shared.attention.AttentionSignalContract
 import ru.example.childwatch.chat.ChatMessage
 import ru.example.childwatch.chat.ChatMessageRuntimeRegistry
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
@@ -73,6 +74,10 @@ class WebSocketClient(
     var onStreamForceReleased: ((deviceId: String, ownerParentId: String, ownerDisplayName: String, releasedByType: String, releasedByDisplayName: String, timestamp: Long) -> Unit)? = null
     private var onTypingCallback: ((isTyping: Boolean) -> Unit)? = null
     private var onAudioStreamResetCallback: (() -> Unit)? = null
+    private var onAttentionStartCallback: ((JSONObject) -> Unit)? = null
+    private var onAttentionStopCallback: ((JSONObject) -> Unit)? = null
+    private var onAttentionStatusCallback: ((JSONObject) -> Unit)? = null
+    private var onAttentionTransportReadyCallback: (() -> Unit)? = null
     
     // Track last processed sequence to prevent duplicates
     private var lastProcessedSequence = -1
@@ -264,6 +269,7 @@ class WebSocketClient(
             }
             isRegistered = true
             audioDeviceMismatchLogged = false
+            onAttentionTransportReadyCallback?.invoke()
             onRegisteredCallback?.invoke()
             if (shouldRequestMissedMessagesAfterRegistration) {
                 shouldRequestMissedMessagesAfterRegistration = false
@@ -768,6 +774,27 @@ class WebSocketClient(
         }
     }
 
+    private val onAttentionStart = Emitter.Listener { args ->
+        (args.getOrNull(0) as? JSONObject)?.let { payload ->
+            runCatching { onAttentionStartCallback?.invoke(payload) }
+                .onFailure { Log.e(TAG, "Error handling attention signal start", it) }
+        }
+    }
+
+    private val onAttentionStop = Emitter.Listener { args ->
+        (args.getOrNull(0) as? JSONObject)?.let { payload ->
+            runCatching { onAttentionStopCallback?.invoke(payload) }
+                .onFailure { Log.e(TAG, "Error handling attention signal stop", it) }
+        }
+    }
+
+    private val onAttentionStatus = Emitter.Listener { args ->
+        (args.getOrNull(0) as? JSONObject)?.let { payload ->
+            runCatching { onAttentionStatusCallback?.invoke(payload) }
+                .onFailure { Log.e(TAG, "Error handling attention signal status", it) }
+        }
+    }
+
     /**
      * Connect to WebSocket server
      */
@@ -847,6 +874,9 @@ class WebSocketClient(
             socket?.on("missed_messages", onMissedMessagesEvent)
             socket?.on("typing_start", onTypingStart)
             socket?.on("typing_stop", onTypingStop)
+            socket?.on(AttentionSignalContract.EVENT_START, onAttentionStart)
+            socket?.on(AttentionSignalContract.EVENT_STOP, onAttentionStop)
+            socket?.on(AttentionSignalContract.EVENT_STATUS, onAttentionStatus)
 
             socket?.connect()
 
@@ -1246,6 +1276,18 @@ class WebSocketClient(
         socket?.emit(event, data)
     }
 
+    fun setAttentionCallbacks(
+        onStart: ((JSONObject) -> Unit)?,
+        onStop: ((JSONObject) -> Unit)?,
+        onStatus: ((JSONObject) -> Unit)?,
+        onTransportReady: (() -> Unit)? = null
+    ) {
+        onAttentionStartCallback = onStart
+        onAttentionStopCallback = onStop
+        onAttentionStatusCallback = onStatus
+        onAttentionTransportReadyCallback = onTransportReady
+    }
+
     /**
      * Cleanup resources
      */
@@ -1270,6 +1312,10 @@ class WebSocketClient(
         onPhotoBusy = null
         onStreamTakeoverRequested = null
         onStreamForceReleased = null
+        onAttentionStartCallback = null
+        onAttentionStopCallback = null
+        onAttentionStatusCallback = null
+        onAttentionTransportReadyCallback = null
     }
 
     private fun failPendingChat(reason: String) {
@@ -1285,4 +1331,3 @@ class WebSocketClient(
         }
     }
 }
-

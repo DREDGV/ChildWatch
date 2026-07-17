@@ -30,6 +30,7 @@ import ru.example.parentwatch.session.ChildActiveSessionStore
 import ru.example.parentwatch.session.ChildEffectiveContextResolver
 import ru.example.parentwatch.utils.RemoteLogger
 import ru.example.parentwatch.utils.ServerUrlResolver
+import ru.childwatch.shared.attention.android.AttentionSignalRuntime
 import java.util.Locale
 
 /**
@@ -49,6 +50,7 @@ class ChatBackgroundService : LifecycleService() {
 
         const val ACTION_START_SERVICE = "ru.example.parentwatch.START_CHAT_SERVICE"
         const val ACTION_STOP_SERVICE = "ru.example.parentwatch.STOP_CHAT_SERVICE"
+        const val ACTION_STOP_ATTENTION = "ru.example.parentwatch.STOP_ATTENTION_SIGNAL"
 
         var isRunning = false
             private set
@@ -90,6 +92,9 @@ class ChatBackgroundService : LifecycleService() {
     @Volatile private var reconnectInProgress = false
     private var lastNotificationText: String? = null
     private var stopRequested = false
+    private lateinit var attentionSignalRuntime: AttentionSignalRuntime
+    private val attentionStartListener: (JSONObject) -> Unit = { attentionSignalRuntime.handleStart(it) }
+    private val attentionStopListener: (JSONObject) -> Unit = { attentionSignalRuntime.handleStop(it) }
     @Volatile private var lastStartStreamAtMs: Long = 0L
     @Volatile private var lastStartStreamRate: Int = 24_000
     @Volatile private var lastStartStreamRecording: Boolean = false
@@ -194,6 +199,18 @@ class ChatBackgroundService : LifecycleService() {
 
         effectiveContextResolver = ChildEffectiveContextResolver(this)
         activeSessionStore = ChildActiveSessionStore(this)
+        attentionSignalRuntime = AttentionSignalRuntime(
+            context = this,
+            ownDeviceId = { effectiveContextResolver.resolveChildDeviceId() },
+            emitStatus = { WebSocketManager.sendAttentionStatus(it) },
+            serviceClass = ChatBackgroundService::class.java,
+            mainActivityClass = MainActivity::class.java,
+            stopAction = ACTION_STOP_ATTENTION,
+            notificationIcon = R.mipmap.ic_launcher,
+            appName = getString(R.string.app_name)
+        )
+        WebSocketManager.addAttentionStartListener(attentionStartListener)
+        WebSocketManager.addAttentionStopListener(attentionStopListener)
         // Initialize ChatManagerAdapter - will be fully initialized in onStartCommand with deviceId
         createNotificationChannel()
         ru.example.parentwatch.utils.NotificationManager.createNotificationChannels(this)
@@ -203,6 +220,13 @@ class ChatBackgroundService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
 
         Log.d(TAG, "onStartCommand: action=${intent?.action}")
+
+        if (intent?.action == ACTION_STOP_ATTENTION) {
+            attentionSignalRuntime.stopLocally(
+                intent.getStringExtra(AttentionSignalRuntime.EXTRA_REQUEST_ID)
+            )
+            return START_STICKY
+        }
 
         // Service may be relaunched by the system with null intent; recover configuration from prefs
         if (intent == null) {
@@ -677,6 +701,9 @@ class ChatBackgroundService : LifecycleService() {
         backgroundMessageSentListener?.let { WebSocketManager.removeChatMessageSentListener(it) }
         backgroundMessageSentListener = null
         WebSocketManager.removeCommandListener(commandListener)
+        WebSocketManager.removeAttentionStartListener(attentionStartListener)
+        WebSocketManager.removeAttentionStopListener(attentionStopListener)
+        if (::attentionSignalRuntime.isInitialized) attentionSignalRuntime.shutdown()
         connectionHealthJob?.cancel()
         connectionHealthJob = null
         isRunning = false
@@ -717,4 +744,3 @@ class ChatBackgroundService : LifecycleService() {
             .getBoolean(PREF_CHAT_DESIRED, false)
     }
 }
-

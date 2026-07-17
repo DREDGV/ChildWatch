@@ -25,6 +25,7 @@ import ru.example.childwatch.profile.ParentActiveSession
 import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.utils.SecureSettingsManager
+import ru.childwatch.shared.attention.android.AttentionSignalRuntime
 import java.util.Locale
 
 /**
@@ -40,6 +41,7 @@ class ChatBackgroundService : LifecycleService() {
 
         const val ACTION_START_SERVICE = "ru.example.childwatch.START_CHAT_SERVICE"
         const val ACTION_STOP_SERVICE = "ru.example.childwatch.STOP_CHAT_SERVICE"
+        const val ACTION_STOP_ATTENTION = "ru.example.childwatch.STOP_ATTENTION_SIGNAL"
 
         var isRunning = false
             private set
@@ -77,6 +79,9 @@ class ChatBackgroundService : LifecycleService() {
     private var photoReceivedListener: ((String, String, Long) -> Unit)? = null
     private var photoErrorListener: ((String, String) -> Unit)? = null
     private var lastNotificationText: String? = null
+    private lateinit var attentionSignalRuntime: AttentionSignalRuntime
+    private val attentionStartListener: (org.json.JSONObject) -> Unit = { attentionSignalRuntime.handleStart(it) }
+    private val attentionStopListener: (org.json.JSONObject) -> Unit = { attentionSignalRuntime.handleStop(it) }
 
     override fun onCreate() {
         super.onCreate()
@@ -85,6 +90,18 @@ class ChatBackgroundService : LifecycleService() {
         chatManager = ChatManager(this)
         effectiveContextResolver = ParentEffectiveContextResolver(this)
         activeSessionStore = ParentActiveSessionStore(this)
+        attentionSignalRuntime = AttentionSignalRuntime(
+            context = this,
+            ownDeviceId = { effectiveContextResolver.resolve().ownParentDeviceId },
+            emitStatus = { WebSocketManager.sendAttentionStatus(it) },
+            serviceClass = ChatBackgroundService::class.java,
+            mainActivityClass = MainActivity::class.java,
+            stopAction = ACTION_STOP_ATTENTION,
+            notificationIcon = R.drawable.ic_notification,
+            appName = getString(R.string.app_name)
+        )
+        WebSocketManager.addAttentionStartListener(attentionStartListener)
+        WebSocketManager.addAttentionStopListener(attentionStopListener)
         createNotificationChannel()
         ru.example.childwatch.utils.NotificationManager.createNotificationChannels(this)
     }
@@ -93,6 +110,13 @@ class ChatBackgroundService : LifecycleService() {
         super.onStartCommand(intent, flags, startId)
 
         Log.d(TAG, "onStartCommand: action=${intent?.action}")
+
+        if (intent?.action == ACTION_STOP_ATTENTION) {
+            attentionSignalRuntime.stopLocally(
+                intent.getStringExtra(AttentionSignalRuntime.EXTRA_REQUEST_ID)
+            )
+            return START_STICKY
+        }
 
         // Service may be relaunched by the system with null intent; recover configuration from prefs
         if (intent == null) {
@@ -596,6 +620,9 @@ class ChatBackgroundService : LifecycleService() {
         photoReceivedListener = null
         photoErrorListener?.let { WebSocketManager.removePhotoErrorListener(it) }
         photoErrorListener = null
+        WebSocketManager.removeAttentionStartListener(attentionStartListener)
+        WebSocketManager.removeAttentionStopListener(attentionStopListener)
+        if (::attentionSignalRuntime.isInitialized) attentionSignalRuntime.shutdown()
         isRunning = false
     }
 }
