@@ -4,13 +4,13 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
-    android:background="?attr/colorSurface">
+    android:background="@color/cw_color_background">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:padding="@dimen/cw_space_6">
 
         <!-- Header -->
         <LinearLayout
@@ -32,9 +32,7 @@
                 android:layout_height="wrap_content"
                 android:text="@string/app_name"
                 android:textAlignment="center"
-                android:textAppearance="@style/TextAppearance.Material3.HeadlineMedium"
-                android:textColor="?attr/colorOnSurface"
-                android:textStyle="bold" />
+                android:textAppearance="@style/TextAppearance.ChildWatch.Headline" />
 
             <TextView
                 android:id="@+id/versionText"
@@ -43,18 +41,16 @@
                 android:layout_marginTop="8dp"
                 android:text=""
                 android:textAlignment="center"
-                android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
-                android:textColor="?attr/colorOnSurfaceVariant" />
+                android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
 
         </LinearLayout>
 
         <!-- App Info Card -->
         <com.google.android.material.card.MaterialCardView
+            style="@style/Widget.ChildWatch.Card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardElevation="4dp"
-            app:cardCornerRadius="12dp">
+            android:layout_marginBottom="16dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -67,17 +63,14 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="12dp"
                     android:text="@string/app_info_title"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="8dp"
                     android:text="@string/app_description"
-                    android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                    android:textColor="?attr/colorOnSurface"
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Body"
                     android:lineSpacingExtra="4dp" />
 
                 <TextView
@@ -86,16 +79,14 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="8dp"
                     android:text="@string/device_id"
-                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant" />
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Diagnostics" />
 
                 <TextView
                     android:id="@+id/serverVersionText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/server_version"
-                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant" />
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Diagnostics" />
 
             </LinearLayout>
 
@@ -103,11 +94,10 @@
 
         <!-- Changelog Card -->
         <com.google.android.material.card.MaterialCardView
+            style="@style/Widget.ChildWatch.Card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardElevation="4dp"
-            app:cardCornerRadius="12dp">
+            android:layout_marginBottom="16dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -120,16 +110,13 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="12dp"
                     android:text="@string/changelog_title"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/changelog_content"
-                    android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                    android:textColor="?attr/colorOnSurface"
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Body"
                     android:lineSpacingExtra="2dp" />
 
             </LinearLayout>
@@ -138,11 +125,10 @@
 
         <!-- Roadmap Card -->
         <com.google.android.material.card.MaterialCardView
+            style="@style/Widget.ChildWatch.Card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardElevation="4dp"
-            app:cardCornerRadius="12dp">
+            android:layout_marginBottom="16dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -155,16 +141,13 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="12dp"
                     android:text="@string/roadmap_title"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/roadmap_content"
-                    android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                    android:textColor="?attr/colorOnSurface"
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Body"
                     android:lineSpacingExtra="2dp" />
 
             </LinearLayout>
@@ -173,11 +156,10 @@
 
         <!-- Instructions Card -->
         <com.google.android.material.card.MaterialCardView
+            style="@style/Widget.ChildWatch.Card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardElevation="4dp"
-            app:cardCornerRadius="12dp">
+            android:layout_marginBottom="16dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -190,16 +172,13 @@
                     android:layout_height="wrap_content"
                     android:layout_marginBottom="12dp"
                     android:text="@string/instructions_title"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/instructions_content"
-                    android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                    android:textColor="?attr/colorOnSurface"
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Body"
                     android:lineSpacingExtra="2dp" />
 
             </LinearLayout>
@@ -213,6 +192,7 @@
             android:orientation="vertical">
 
             <com.google.android.material.button.MaterialButton
+                style="@style/Widget.ChildWatch.Button.Secondary"
                 android:id="@+id/openGitHubBtn"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -220,10 +200,10 @@
                 android:text="@string/open_github"
                 android:textSize="16sp"
                 app:icon="@android:drawable/ic_menu_upload"
-                app:iconGravity="textStart"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                app:iconGravity="textStart" />
 
             <com.google.android.material.button.MaterialButton
+                style="@style/Widget.ChildWatch.Button.Secondary"
                 android:id="@+id/sendFeedbackBtn"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -231,18 +211,17 @@
                 android:text="@string/send_feedback"
                 android:textSize="16sp"
                 app:icon="@android:drawable/ic_dialog_email"
-                app:iconGravity="textStart"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                app:iconGravity="textStart" />
 
             <com.google.android.material.button.MaterialButton
+                style="@style/Widget.ChildWatch.Button.Secondary"
                 android:id="@+id/copyInfoBtn"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:text="@string/copy_app_info"
                 android:textSize="16sp"
                 app:icon="@android:drawable/ic_dialog_info"
-                app:iconGravity="textStart"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
+                app:iconGravity="textStart" />
 
         </LinearLayout>
 

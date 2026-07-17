@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <dimen name="cw_space_1">4dp</dimen>
+    <dimen name="cw_space_2">8dp</dimen>
+    <dimen name="cw_space_3">12dp</dimen>
+    <dimen name="cw_space_4">16dp</dimen>
+    <dimen name="cw_space_5">20dp</dimen>
+    <dimen name="cw_space_6">24dp</dimen>
+    <dimen name="cw_space_8">32dp</dimen>
+    <dimen name="cw_corner_small">10dp</dimen>
+    <dimen name="cw_corner_medium">16dp</dimen>
+    <dimen name="cw_corner_large">24dp</dimen>
+    <dimen name="cw_card_elevation">2dp</dimen>
+    <dimen name="cw_touch_target">48dp</dimen>
+    <dimen name="cw_content_max_width">720dp</dimen>
+</resources>

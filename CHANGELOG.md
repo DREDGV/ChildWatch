@@ -12,6 +12,8 @@ See [CHANGELOG-v7.2.0.md](CHANGELOG-v7.2.0.md) for the verified release summary 
 
 ### Added
 
+- Added the shared Android `design-system` library used by both applications: day/night color tokens, typography, spacing, cards, buttons, semantic statuses, and a visually separate diagnostics treatment.
+
 - Для функции «Сигнал внимания» добавлены короткие варианты длительности 2 и 3 секунды; единый диапазон 2–60 секунд проверяется Android-клиентами и сервером.
 
 ### Changed

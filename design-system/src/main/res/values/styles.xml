@@ -1,0 +1,131 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.ChildWatch.DesignSystem" parent="Theme.MaterialComponents.DayNight">
+        <item name="colorPrimary">@color/cw_color_primary</item>
+        <item name="colorPrimaryVariant">@color/cw_color_primary_container</item>
+        <item name="colorOnPrimary">@color/cw_color_on_primary</item>
+        <item name="colorPrimaryContainer">@color/cw_color_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/cw_color_on_primary_container</item>
+        <item name="colorSecondary">@color/cw_color_secondary</item>
+        <item name="colorSecondaryVariant">@color/cw_color_secondary_container</item>
+        <item name="colorOnSecondary">@color/cw_color_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/cw_color_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/cw_color_on_secondary_container</item>
+        <item name="colorSurface">@color/cw_color_surface</item>
+        <item name="colorOnSurface">@color/cw_color_on_surface</item>
+        <item name="colorSurfaceVariant">@color/cw_color_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/cw_color_on_surface_variant</item>
+        <item name="colorOutline">@color/cw_color_outline</item>
+        <item name="colorError">@color/cw_color_error</item>
+        <item name="colorOnError">@color/cw_color_on_error</item>
+        <item name="colorErrorContainer">@color/cw_color_error_container</item>
+        <item name="colorOnErrorContainer">@color/cw_color_on_error_container</item>
+        <item name="android:colorBackground">@color/cw_color_background</item>
+        <item name="android:navigationBarColor">@color/cw_color_surface</item>
+        <item name="android:statusBarColor">@color/cw_color_surface</item>
+        <item name="android:windowLightNavigationBar">@bool/cw_is_light_system_bar</item>
+        <item name="android:windowLightStatusBar">@bool/cw_is_light_system_bar</item>
+        <item name="android:fontFamily">sans</item>
+        <item name="materialCardViewStyle">@style/Widget.ChildWatch.Card</item>
+        <item name="materialButtonStyle">@style/Widget.ChildWatch.Button.Primary</item>
+    </style>
+
+    <style name="Theme.ChildWatch.DesignSystem.NoActionBar" parent="Theme.ChildWatch.DesignSystem">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Display" parent="TextAppearance.MaterialComponents.Headline3">
+        <item name="android:textColor">@color/cw_color_on_surface</item>
+        <item name="android:textSize">32sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Headline" parent="TextAppearance.MaterialComponents.Headline5">
+        <item name="android:textColor">@color/cw_color_on_surface</item>
+        <item name="android:textSize">24sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Title" parent="TextAppearance.MaterialComponents.Subtitle1">
+        <item name="android:textColor">@color/cw_color_on_surface</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Body" parent="TextAppearance.MaterialComponents.Body1">
+        <item name="android:textColor">@color/cw_color_on_surface_variant</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Label" parent="TextAppearance.MaterialComponents.Caption">
+        <item name="android:textColor">@color/cw_color_on_surface_variant</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Card" parent="Widget.MaterialComponents.CardView">
+        <item name="cardBackgroundColor">@color/cw_color_surface</item>
+        <item name="cardCornerRadius">@dimen/cw_corner_medium</item>
+        <item name="cardElevation">@dimen/cw_card_elevation</item>
+        <item name="cardUseCompatPadding">false</item>
+        <item name="strokeColor">@color/cw_color_outline_variant</item>
+        <item name="strokeWidth">1dp</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Card.Interactive" parent="Widget.ChildWatch.Card">
+        <item name="rippleColor">@color/cw_color_primary_container</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Card.Diagnostics" parent="Widget.ChildWatch.Card">
+        <item name="cardBackgroundColor">@color/cw_color_diagnostics_surface</item>
+        <item name="strokeColor">@color/cw_color_diagnostics_outline</item>
+        <item name="cardElevation">0dp</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Button.Primary" parent="Widget.MaterialComponents.Button">
+        <item name="android:minHeight">@dimen/cw_touch_target</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textStyle">bold</item>
+        <item name="backgroundTint">@color/cw_color_primary</item>
+        <item name="android:textColor">@color/cw_color_on_primary</item>
+        <item name="cornerRadius">@dimen/cw_corner_medium</item>
+        <item name="rippleColor">@color/cw_color_primary_container</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Button.Secondary" parent="Widget.MaterialComponents.Button.OutlinedButton">
+        <item name="android:minHeight">@dimen/cw_touch_target</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">@color/cw_color_primary</item>
+        <item name="strokeColor">@color/cw_color_primary</item>
+        <item name="cornerRadius">@dimen/cw_corner_medium</item>
+        <item name="rippleColor">@color/cw_color_primary_container</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Button.Danger" parent="Widget.ChildWatch.Button.Primary">
+        <item name="backgroundTint">@color/cw_color_error</item>
+        <item name="android:textColor">@color/cw_color_on_error</item>
+        <item name="rippleColor">@color/cw_color_error_container</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Status.Success" parent="TextAppearance.ChildWatch.Label">
+        <item name="android:textColor">@color/cw_color_success</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Status.Warning" parent="TextAppearance.ChildWatch.Label">
+        <item name="android:textColor">@color/cw_color_warning</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Status.Error" parent="TextAppearance.ChildWatch.Label">
+        <item name="android:textColor">@color/cw_color_error</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Diagnostics" parent="TextAppearance.MaterialComponents.Caption">
+        <item name="android:textColor">@color/cw_color_diagnostics_text</item>
+        <item name="android:fontFamily">monospace</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+</resources>

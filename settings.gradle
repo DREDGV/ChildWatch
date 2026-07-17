@@ -17,5 +17,6 @@ dependencyResolutionManagement {
 rootProject.name = "ChildWatch"
 include ':shared-core'
 include ':attention-android'
+include ':design-system'
 include ':app'          // ParentMonitor - родительское приложение (v6.4.0)
 include ':parentwatch'  // ChildDevice - детское устройство (v5.4.0)

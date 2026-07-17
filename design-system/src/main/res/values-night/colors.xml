@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cw_color_primary">#91D5CF</color>
+    <color name="cw_color_on_primary">#003734</color>
+    <color name="cw_color_primary_container">#00504C</color>
+    <color name="cw_color_on_primary_container">#ADEFEA</color>
+    <color name="cw_color_secondary">#A5CCDA</color>
+    <color name="cw_color_on_secondary">#073541</color>
+    <color name="cw_color_secondary_container">#264C58</color>
+    <color name="cw_color_on_secondary_container">#C1E8F7</color>
+    <color name="cw_color_accent">#A9C7FF</color>
+    <color name="cw_color_on_accent">#003062</color>
+
+    <color name="cw_color_background">#101514</color>
+    <color name="cw_color_on_background">#DEE4E2</color>
+    <color name="cw_color_surface">#171C1B</color>
+    <color name="cw_color_on_surface">#DEE4E2</color>
+    <color name="cw_color_surface_variant">#3F4947</color>
+    <color name="cw_color_on_surface_variant">#BEC9C6</color>
+    <color name="cw_color_surface_container">#1D2322</color>
+    <color name="cw_color_surface_container_high">#272E2C</color>
+    <color name="cw_color_outline">#899390</color>
+    <color name="cw_color_outline_variant">#3F4947</color>
+    <color name="cw_color_scrim">#99000000</color>
+
+    <color name="cw_color_success">#78D7A6</color>
+    <color name="cw_color_on_success">#003921</color>
+    <color name="cw_color_success_container">#005231</color>
+    <color name="cw_color_on_success_container">#96F4C1</color>
+    <color name="cw_color_warning">#F4BF55</color>
+    <color name="cw_color_on_warning">#412D00</color>
+    <color name="cw_color_warning_container">#5D4300</color>
+    <color name="cw_color_on_warning_container">#FFE3A3</color>
+    <color name="cw_color_error">#FFB4AB</color>
+    <color name="cw_color_on_error">#690005</color>
+    <color name="cw_color_error_container">#93000A</color>
+    <color name="cw_color_on_error_container">#FFDAD6</color>
+    <color name="cw_color_info">#A9C7FF</color>
+    <color name="cw_color_on_info">#003062</color>
+    <color name="cw_color_info_container">#16477E</color>
+    <color name="cw_color_on_info_container">#D8E2FF</color>
+
+    <color name="cw_color_diagnostics_surface">#20272B</color>
+    <color name="cw_color_diagnostics_text">#C0C8CD</color>
+    <color name="cw_color_diagnostics_outline">#424A4F</color>
+</resources>

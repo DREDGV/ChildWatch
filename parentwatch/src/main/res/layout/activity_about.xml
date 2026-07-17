@@ -4,13 +4,13 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:fillViewport="true"
-    android:background="?attr/colorSurface">
+    android:background="@color/cw_color_background">
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="24dp">
+        android:padding="@dimen/cw_space_6">
 
         <!-- App Icon and Title -->
         <LinearLayout
@@ -31,9 +31,7 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text="ParentWatch"
-                android:textSize="28sp"
-                android:textStyle="bold"
-                android:textColor="?attr/colorOnSurface"
+                android:textAppearance="@style/TextAppearance.ChildWatch.Headline"
                 android:layout_marginBottom="4dp" />
 
             <TextView
@@ -41,18 +39,16 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:text=""
-                android:textSize="14sp"
-                android:textColor="?android:attr/textColorSecondary" />
+                android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
 
         </LinearLayout>
 
         <!-- Description Card -->
         <com.google.android.material.card.MaterialCardView
+            style="@style/Widget.ChildWatch.Card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp">
+            android:layout_marginBottom="16dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -84,11 +80,10 @@
 
         <!-- Features Card -->
         <com.google.android.material.card.MaterialCardView
+            style="@style/Widget.ChildWatch.Card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp">
+            android:layout_marginBottom="16dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -120,11 +115,10 @@
 
         <!-- Developer Info Card -->
         <com.google.android.material.card.MaterialCardView
+            style="@style/Widget.ChildWatch.Card.Diagnostics"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="12dp"
-            app:cardElevation="2dp">
+            android:layout_marginBottom="16dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -175,7 +169,7 @@
                 android:layout_marginEnd="8dp"
                 android:text="GitHub"
                 android:textSize="14sp"
-                style="@style/Widget.Material3.Button.OutlinedButton"
+                style="@style/Widget.ChildWatch.Button.Secondary"
                 app:icon="@android:drawable/ic_menu_info_details"
                 app:cornerRadius="12dp" />
 
@@ -186,7 +180,7 @@
                 android:layout_weight="1"
                 android:text="Закрыть"
                 android:textSize="14sp"
-                style="@style/Widget.Material3.Button"
+                style="@style/Widget.ChildWatch.Button.Primary"
                 app:cornerRadius="12dp" />
 
         </LinearLayout>
@@ -197,8 +191,7 @@
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
             android:text="© 2025 ChildWatch Team\nВсе права защищены"
-            android:textSize="12sp"
-            android:textColor="?android:attr/textColorTertiary"
+            android:textAppearance="@style/TextAppearance.ChildWatch.Diagnostics"
             android:gravity="center"
             android:lineSpacingExtra="2dp" />
 
