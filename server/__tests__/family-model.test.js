@@ -82,6 +82,38 @@ describe("family model bootstrap", () => {
     }).toEqual(before);
   });
 
+  test("keeps canonical family member names in sync with an existing link", async () => {
+    const pair = await registerPair(db, "rename");
+    const before = await db.getSharedFamilyMembership(
+      pair.parentDeviceId,
+      pair.childDeviceId
+    );
+    expect(before).toMatchObject({
+      actorDisplayName: "Parent rename",
+      targetDisplayName: "Child rename",
+    });
+
+    await db.run(
+      "UPDATE family_members SET display_name = 'Old phone label' WHERE id IN (?, ?)",
+      [before.actorMemberId, before.targetMemberId]
+    );
+
+    await db.upsertDeviceLink({
+      parentDeviceId: pair.parentDeviceId,
+      childDeviceId: pair.childDeviceId,
+      parentDisplayName: "Марина",
+      childDisplayName: "Лёва",
+      createdBy: "rename-test",
+    });
+
+    await expect(
+      db.getSharedFamilyMembership(pair.parentDeviceId, pair.childDeviceId)
+    ).resolves.toMatchObject({
+      actorDisplayName: "Марина",
+      targetDisplayName: "Лёва",
+    });
+  });
+
   test("keeps people and their physical devices as separate records", async () => {
     const pair = await registerPair(db, "separate");
     const [family] = await db.getFamiliesForDevice(pair.parentDeviceId);

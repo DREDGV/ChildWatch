@@ -23,6 +23,7 @@ See [CHANGELOG-v7.2.0.md](CHANGELOG-v7.2.0.md) for the verified release summary 
 
 ### Fixed
 
+- Family-member display names now stay synchronized when an existing parent/child link is renamed, so attention notifications identify the person instead of retaining an old phone-model label.
 - Attention signal senders no longer submit legacy local family/member identifiers; the authenticated device pair is now resolved and verified by the server, preventing false `FAMILY_ID_MISMATCH` rejections.
 - Removed the UTF-8 BOM that hid `org.gradle.jvmargs` from Gradle and limited clean Android builds to the default 512 MB heap.
 - Added a serialized, isolated Android APK build script so automated builds do not contend with Android Studio module outputs on Windows.

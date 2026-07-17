@@ -579,6 +579,39 @@ class DatabaseManager {
     return role === "CHILD" ? "Ребенок" : "Родитель";
   }
 
+  async syncFamilyMemberDisplayName(deviceId, displayName) {
+    const normalizedDeviceId = String(deviceId || "").trim();
+    const normalizedDisplayName = String(displayName || "").trim().slice(0, 100);
+    if (!normalizedDeviceId || !normalizedDisplayName) {
+      return { memberChanges: 0, deviceChanges: 0 };
+    }
+
+    const memberResult = await this.run(
+      `UPDATE family_members
+       SET display_name = ?, updated_at = strftime('%s', 'now')
+       WHERE display_name <> ?
+         AND id IN (
+           SELECT member_id
+           FROM family_devices
+           WHERE device_id = ? AND is_active = 1
+         )`,
+      [normalizedDisplayName, normalizedDisplayName, normalizedDeviceId]
+    );
+    const deviceResult = await this.run(
+      `UPDATE family_devices
+       SET display_name = ?, updated_at = strftime('%s', 'now')
+       WHERE device_id = ?
+         AND is_active = 1
+         AND display_name <> ?`,
+      [normalizedDisplayName, normalizedDeviceId, normalizedDisplayName]
+    );
+
+    return {
+      memberChanges: memberResult?.changes || 0,
+      deviceChanges: deviceResult?.changes || 0,
+    };
+  }
+
   async upsertFamilyPermission({
     familyId,
     actorMemberId,
@@ -1455,6 +1488,14 @@ class DatabaseManager {
     createdBy = null,
     isActive = true,
   }) {
+    const normalizeOptionalDisplayName = (value) => {
+      const normalized = String(value || "").trim().slice(0, 100);
+      return normalized || null;
+    };
+    displayName = normalizeOptionalDisplayName(displayName);
+    parentDisplayName = normalizeOptionalDisplayName(parentDisplayName);
+    childDisplayName = normalizeOptionalDisplayName(childDisplayName);
+
     const existingLink = await this.get(
       `SELECT is_active AS isActive
        FROM device_links
@@ -1505,6 +1546,31 @@ class DatabaseManager {
     // compatibility family only for a new or reactivated legacy relation.
     if (!existingLink || (existingLink.isActive !== 1 && isActive)) {
       await this.bootstrapFamiliesFromDeviceLinks();
+    }
+
+    // The relation can be renamed after its compatibility family was created.
+    // Keep canonical family-member labels synchronized so notifications identify
+    // a person, not an old phone-model label. Re-reading also repairs stale rows
+    // on the next ordinary registration when the submitted label is unchanged.
+    const refreshedLink = await this.get(
+      `SELECT
+         parent_display_name AS parentDisplayName,
+         child_display_name AS childDisplayName,
+         display_name AS displayName
+       FROM device_links
+       WHERE parent_device_id = ? AND child_device_id = ?
+       LIMIT 1`,
+      [parentDeviceId, childDeviceId]
+    );
+    if (refreshedLink) {
+      await this.syncFamilyMemberDisplayName(
+        parentDeviceId,
+        refreshedLink.parentDisplayName
+      );
+      await this.syncFamilyMemberDisplayName(
+        childDeviceId,
+        refreshedLink.childDisplayName || refreshedLink.displayName
+      );
     }
     return result;
   }
