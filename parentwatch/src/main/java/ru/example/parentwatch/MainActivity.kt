@@ -202,7 +202,7 @@ class MainActivity : AppCompatActivity() {
         lastUpdateText = findViewById(R.id.lastUpdateText)
 
     // Set header title: name only (no version)
-    titleText.text = "ChildDevice"
+    titleText.text = getString(R.string.home_child_brand)
 
         findViewById<MaterialButton>(R.id.switchProfileQuickButton)?.setOnClickListener {
             showQuickProfilePicker()
@@ -596,9 +596,6 @@ class MainActivity : AppCompatActivity() {
     private fun updateQuickProfileSummary() {
         val activeProfile = profileManager.getActiveProfile()
         val effectiveContext = sessionStore.resolveEffectiveContext()
-        val profileName = activeProfile?.name?.takeIf { it.isNotBlank() }
-            ?: sessionStore.getActiveSession()?.name?.takeIf { it.isNotBlank() }
-            ?: getString(R.string.profile_switch_current_name)
         val ownChildId = activeProfile?.ownChildDeviceId?.takeIf { it.isNotBlank() }
             ?: effectiveContext?.ownChildDeviceId?.takeIf { it.isNotBlank() }
         val parentId = activeProfile?.linkedParentDeviceId?.takeIf { it.isNotBlank() }
@@ -612,50 +609,12 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        activeProfileName.text = profileName
-        val isSavedProfile = activeProfile?.id?.let { activeId ->
-            profileManager.getSavedProfiles().any { it.id == activeId }
-        } == true
-        val summary = getString(
-            R.string.profile_switch_summary_format,
-            profileName,
-            formatProfileServer(serverUrl),
-            formatProfileId(ownChildId),
-            formatProfileId(parentId ?: getString(R.string.profile_switch_unknown_link))
-        )
-        val sourceLine = getString(
-            R.string.profile_switch_source_line,
-            describeProfileContextSource(effectiveContext?.source)
-        )
-        val statusLine = getString(
-            R.string.profile_switch_status_line,
-            getString(
-                if (isSavedProfile) {
-                    R.string.profile_switch_status_saved
-                } else {
-                    R.string.profile_switch_status_runtime_only
-                }
-            )
-        )
-        val selfNameLine = getString(
-            R.string.participant_self_name_summary_line,
-            participantNameResolver.resolveChildDisplayName()
-        )
-        val selfMarkerLine = getString(
-            R.string.participant_self_marker_summary_line,
-            ContactIcons.labelFor(participantNameResolver.resolveChildMarkerIconId())
-        )
-        val linkedParentsLine = buildCachedLinkedParentsLine()
-        val activeParentLine = buildCachedActiveParentLine(parentId)
-        val mismatchLine = if (isProfileContextMismatched(activeProfile, effectiveContext)) {
-            "\n" + getString(R.string.profile_switch_warning_mismatch)
+        activeProfileName.text = participantNameResolver.resolveChildDisplayName()
+        activeProfileMeta.text = if (parentId.isNullOrBlank()) {
+            getString(R.string.home_child_profile_not_connected)
         } else {
-            ""
+            getString(R.string.home_child_profile_connected)
         }
-        activeProfileMeta.text = summary + "\n" + selfNameLine + "\n" + selfMarkerLine + "\n" + sourceLine + "\n" + statusLine +
-            (linkedParentsLine?.let { "\n$it" } ?: "") +
-            (activeParentLine?.let { "\n$it" } ?: "") +
-            mismatchLine
     }
 
     private fun formatProfileServer(serverUrl: String): String {

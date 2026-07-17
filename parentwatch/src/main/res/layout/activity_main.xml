@@ -3,73 +3,79 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:fillViewport="true"
-    android:background="@drawable/bg_main_gradient">
+    android:background="@color/cw_color_background"
+    android:fillViewport="true">
 
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="wrap_content"
         android:orientation="vertical"
-        android:padding="20dp">
+        android:paddingHorizontal="@dimen/cw_space_5"
+        android:paddingTop="@dimen/cw_space_6"
+        android:paddingBottom="@dimen/cw_space_5">
 
-        <!-- Header Section -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="horizontal"
-            android:gravity="center"
-            android:layout_marginBottom="32dp">
-
-            <ImageView
-                android:layout_width="56dp"
-                android:layout_height="56dp"
-                android:src="@drawable/ic_logo_childdevice"
-                android:contentDescription="App Icon"
-                android:layout_marginEnd="16dp"
-                android:tint="@android:color/white"
-                android:background="@drawable/bg_header_icon"
-                android:padding="10dp" />
-
-            <TextView
-                android:id="@+id/titleText"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="ChildDevice"
-                android:textSize="22sp"
-                android:textStyle="bold"
-                android:textColor="?attr/colorPrimary" />
-
-        </LinearLayout>
-
-        <!-- Menu Title -->
         <TextView
+            android:id="@+id/titleText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="Главное меню"
-            android:textSize="20sp"
-            android:textStyle="bold"
-            android:layout_marginBottom="20dp"
-            android:textColor="@color/emerald_primary"
-            android:shadowColor="@color/neon_glow"
-            android:shadowDx="0"
-            android:shadowDy="1"
-            android:shadowRadius="2"
-            android:gravity="center_horizontal" />
+            android:gravity="center"
+            android:text="@string/home_child_brand"
+            android:textAppearance="@style/TextAppearance.ChildWatch.Display" />
 
         <com.google.android.material.card.MaterialCardView
-            android:id="@+id/activeProfileCard"
+            style="@style/Widget.ChildWatch.Card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="20dp"
-            app:cardElevation="6dp">
+            android:layout_marginTop="@dimen/cw_space_5"
+            app:cardBackgroundColor="@color/cw_color_primary_container"
+            app:strokeWidth="0dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="horizontal"
+                android:gravity="center"
+                android:orientation="vertical"
+                android:padding="@dimen/cw_space_6">
+
+                <ImageView
+                    android:layout_width="88dp"
+                    android:layout_height="88dp"
+                    android:contentDescription="@string/home_child_protection_active"
+                    android:padding="@dimen/cw_space_4"
+                    android:src="@drawable/ic_logo_childdevice"
+                    app:tint="@color/cw_color_primary" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/cw_space_3"
+                    android:text="@string/home_child_protection_active"
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Headline"
+                    android:textColor="@color/cw_color_success" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/cw_space_2"
+                    android:gravity="center"
+                    android:text="@string/home_child_protection_subtitle"
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/activeProfileCard"
+            style="@style/Widget.ChildWatch.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/cw_space_4">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
                 android:gravity="center_vertical"
-                android:padding="16dp">
+                android:orientation="horizontal"
+                android:padding="@dimen/cw_space_4">
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -82,206 +88,219 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/profile_switch_title"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        android:textColor="?attr/colorOnSurface" />
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
 
                     <TextView
                         android:id="@+id/activeProfileMeta"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:text="@string/profile_switch_no_active"
-                        android:textSize="12sp"
-                        android:textColor="?android:attr/textColorSecondary" />
-
+                        android:layout_marginTop="@dimen/cw_space_1"
+                        android:maxLines="2"
+                        android:text="@string/home_child_profile_connected"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/switchProfileQuickButton"
+                    style="@style/Widget.ChildWatch.Button.Secondary"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/profile_switch_manage"
-                    style="@style/Widget.ParentWatch.Button.Outlined" />
-
+                    android:layout_marginStart="@dimen/cw_space_3"
+                    android:text="@string/profile_switch_manage" />
             </LinearLayout>
-
         </com.google.android.material.card.MaterialCardView>
 
-        <!-- Menu Cards -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/chatCard"
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="20dp"
-            app:cardElevation="6dp"
-            app:strokeColor="@android:color/transparent"
-            app:strokeWidth="0dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:foreground="?attr/selectableItemBackground">
+            android:layout_marginTop="@dimen/cw_space_4"
+            android:orientation="horizontal">
 
-            <FrameLayout
-                android:layout_width="match_parent"
-                android:layout_height="88dp"
-                android:background="@drawable/bg_menu_card_cyan">
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/chatCard"
+                style="@style/Widget.ChildWatch.Card.Interactive"
+                android:layout_width="0dp"
+                android:layout_height="150dp"
+                android:layout_marginEnd="@dimen/cw_space_2"
+                android:layout_weight="1">
+
+                <FrameLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:padding="@dimen/cw_space_4">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:gravity="center"
+                        android:orientation="vertical">
+
+                        <ImageView
+                            android:layout_width="40dp"
+                            android:layout_height="40dp"
+                            android:contentDescription="@string/home_child_chat"
+                            android:src="@android:drawable/ic_dialog_email"
+                            app:tint="@color/cw_color_primary" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/cw_space_2"
+                            android:text="@string/home_child_chat"
+                            android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:gravity="center"
+                            android:text="@string/home_child_chat_hint"
+                            android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/chatBadge"
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:layout_gravity="end|top"
+                        android:background="@drawable/badge_background"
+                        android:gravity="center"
+                        android:textColor="@android:color/white"
+                        android:textSize="10sp"
+                        android:textStyle="bold"
+                        android:visibility="gone" />
+                </FrameLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/parentLocationCard"
+                style="@style/Widget.ChildWatch.Card.Interactive"
+                android:layout_width="0dp"
+                android:layout_height="150dp"
+                android:layout_marginStart="@dimen/cw_space_2"
+                android:layout_weight="1">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="match_parent"
+                    android:gravity="center"
                     android:orientation="vertical"
-                    android:padding="16dp"
-                    android:gravity="center">
+                    android:padding="@dimen/cw_space_4">
 
                     <ImageView
-                        android:layout_width="36dp"
-                        android:layout_height="36dp"
-                        android:src="@android:drawable/ic_dialog_email"
-                        android:tint="@android:color/white"
-                        android:contentDescription="Open chat" />
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:contentDescription="@string/home_child_map"
+                        android:src="@android:drawable/ic_dialog_map"
+                        app:tint="@color/cw_color_primary" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/cw_space_2"
+                        android:gravity="center"
+                        android:text="@string/home_child_map"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text="@string/home_child_map_hint"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
                 </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
 
-                <TextView
-                    android:id="@+id/chatBadge"
-                    android:layout_width="22dp"
-                    android:layout_height="22dp"
-                    android:layout_gravity="end|top"
-                    android:layout_marginTop="10dp"
-                    android:layout_marginEnd="10dp"
-                    android:background="@drawable/badge_background"
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/cw_space_4"
+            android:orientation="horizontal">
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/attentionSignalCard"
+                style="@style/Widget.ChildWatch.Card.Interactive"
+                android:layout_width="0dp"
+                android:layout_height="150dp"
+                android:layout_marginEnd="@dimen/cw_space_2"
+                android:layout_weight="1">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
                     android:gravity="center"
-                    android:includeFontPadding="false"
-                    android:padding="2dp"
-                    android:textColor="@android:color/white"
-                    android:textSize="10sp"
-                    android:textStyle="bold"
-                    android:visibility="gone" />
+                    android:orientation="vertical"
+                    android:padding="@dimen/cw_space_4">
 
-            </FrameLayout>
-        </com.google.android.material.card.MaterialCardView>
+                    <ImageView
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:contentDescription="@string/home_child_signal"
+                        android:src="@android:drawable/ic_dialog_alert"
+                        app:tint="@color/cw_color_warning" />
 
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/attentionSignalCard"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:foreground="?attr/selectableItemBackground"
-            app:cardCornerRadius="20dp"
-            app:cardElevation="6dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/cw_space_2"
+                        android:gravity="center"
+                        android:text="@string/home_child_signal"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="88dp"
-                android:background="@drawable/bg_menu_card_teal"
-                android:gravity="center"
-                android:orientation="horizontal"
-                android:padding="16dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text="@string/home_child_signal_hint"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
-                <ImageView
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:contentDescription="Сигнал внимания"
-                    android:src="@android:drawable/ic_dialog_alert"
-                    android:tint="@android:color/white" />
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/settingsCard"
+                style="@style/Widget.ChildWatch.Card.Interactive"
+                android:layout_width="0dp"
+                android:layout_height="150dp"
+                android:layout_marginStart="@dimen/cw_space_2"
+                android:layout_weight="1">
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp"
-                    android:text="Позвать родителя"
-                    android:textColor="@android:color/white"
-                    android:textSize="17sp"
-                    android:textStyle="bold" />
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:gravity="center"
+                    android:orientation="vertical"
+                    android:padding="@dimen/cw_space_4">
 
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+                    <ImageView
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:contentDescription="@string/home_child_settings"
+                        android:src="@android:drawable/ic_menu_preferences"
+                        app:tint="@color/cw_color_secondary" />
 
-        <!-- Parent Location Map Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/parentLocationCard"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="20dp"
-            app:cardElevation="6dp"
-            app:strokeColor="@android:color/transparent"
-            app:strokeWidth="0dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:foreground="?attr/selectableItemBackground">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/cw_space_2"
+                        android:text="@string/home_child_settings"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="88dp"
-                android:orientation="vertical"
-                android:padding="16dp"
-                android:gravity="center"
-                android:background="@drawable/bg_menu_card_teal">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text="@string/home_child_settings_hint"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
 
-                <ImageView
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:src="@android:drawable/ic_dialog_map"
-                    android:tint="@android:color/white"
-                    android:contentDescription="Открыть карту" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Remote Camera card removed for ChildDevice (not needed on child's phone) -->
-
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/settingsCard"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="20dp"
-            app:cardElevation="6dp"
-            app:strokeColor="@android:color/transparent"
-            app:strokeWidth="0dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:foreground="?attr/selectableItemBackground">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="88dp"
-                android:orientation="vertical"
-                android:padding="16dp"
-                android:gravity="center"
-                android:background="@drawable/bg_menu_card_purple">
-
-                <ImageView
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:src="@android:drawable/ic_menu_preferences"
-                    android:tint="@android:color/white"
-                    android:contentDescription="Открыть настройки" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        
-        <!-- Spacer to push footer to the very bottom when viewport is taller than content -->
-        <Space
-            android:layout_width="match_parent"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
-
-        <!-- Removed extra entries (About, Stats, Service controls) to keep main menu minimal -->
-
-        <!-- Info Footer -->
         <TextView
             android:id="@+id/lastUpdateText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="20dp"
-            android:text=""
-            android:textSize="12sp"
+            android:layout_marginTop="@dimen/cw_space_5"
             android:gravity="center"
-            android:textColor="?android:attr/textColorSecondary" />
-
+            android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
     </LinearLayout>
-
 </ScrollView>

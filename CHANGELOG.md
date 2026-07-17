@@ -18,6 +18,8 @@ See [CHANGELOG-v7.2.0.md](CHANGELOG-v7.2.0.md) for the verified release summary 
 
 ### Changed
 
+- Redesigned both Android home screens around family-facing status and quick actions; raw device identifiers and server details are no longer shown on the main dashboard.
+
 - Включена единая авто-нумерация сборок для `app` и `parentwatch` через `rootProject.ext.cwVersionCode/cwVersionName`.
 - `versionCode` по умолчанию теперь берется из Unix time (секунды), чтобы каждая новая сборка получала свежий номер.
 - `versionName` по умолчанию формируется как `7.1.yyDDD.HHmmss` (можно переопределить через `-PcwVersionName`).

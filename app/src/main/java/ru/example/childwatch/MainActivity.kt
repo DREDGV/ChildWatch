@@ -625,9 +625,6 @@ class MainActivity : AppCompatActivity() {
     private fun updateQuickProfileSummary() {
         val activeProfile = profileManager.getActiveProfile()
         val effectiveContext = effectiveContextResolver.resolve()
-        val profileName = activeProfile?.name?.takeIf { it.isNotBlank() }
-            ?: activeSessionStore.getSession()?.profileName?.takeIf { it.isNotBlank() }
-            ?: getString(R.string.profile_switch_current_name)
         val ownParentId = activeProfile?.ownParentDeviceId?.takeIf { it.isNotBlank() }
             ?: effectiveContext.ownParentDeviceId.takeIf { it.isNotBlank() }
         val childId = activeProfile?.linkedChildDeviceId?.takeIf { it.isNotBlank() }
@@ -641,56 +638,23 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        binding.activeProfileName.text = profileName
-        val isSavedProfile = activeProfile?.id?.let { activeId ->
-            profileManager.getSavedProfiles().any { it.id == activeId }
-        } == true
-        val childLabel = formatChildReference(
-            rawChildId = childId ?: getString(R.string.profile_switch_unknown_link),
-            childDisplayName = activeProfile?.linkedChildDisplayName?.ifBlank { null }
-                ?: profileManager.resolveLinkedChildDisplayName(
-                    childDeviceId = childId.orEmpty(),
-                    serverUrl = serverUrl,
-                    ownParentDeviceId = ownParentId
-                )
-        )
-        val summary = getString(
-            R.string.profile_switch_summary_format,
-            profileName,
-            formatProfileServer(serverUrl),
-            formatProfileId(ownParentId),
-            childLabel
-        )
-        val sourceLine = getString(
-            R.string.profile_switch_source_line,
-            describeProfileContextSource(effectiveContext.source)
-        )
-        val statusLine = getString(
-            R.string.profile_switch_status_line,
-            getString(
-                if (isSavedProfile) {
-                    R.string.profile_switch_status_saved
-                } else {
-                    R.string.profile_switch_status_runtime_only
-                }
-            )
-        )
-        val selfNameLine = getString(
-            R.string.participant_self_name_summary_line,
-            participantNameResolver.resolveOwnParentDisplayName()
-        )
-        val selfMarkerLine = getString(
-            R.string.participant_self_marker_summary_line,
-            ContactIcons.labelFor(participantNameResolver.resolveOwnParentMarkerIconId())
-        )
-        val linkedParentsLine = buildCachedLinkedParentsLine()
-        val mismatchLine = if (isProfileContextMismatched(activeProfile, effectiveContext)) {
-            "\n" + getString(R.string.profile_switch_warning_mismatch)
+        binding.activeProfileName.text = participantNameResolver.resolveOwnParentDisplayName()
+        val childLabel = activeProfile?.linkedChildDisplayName?.takeIf { it.isNotBlank() }
+            ?: profileManager.resolveLinkedChildDisplayName(
+                childDeviceId = childId.orEmpty(),
+                serverUrl = serverUrl,
+                ownParentDeviceId = ownParentId
+            )?.takeIf { name ->
+                name.isNotBlank() &&
+                    !name.startsWith("child-", ignoreCase = true) &&
+                    !name.startsWith("device_", ignoreCase = true)
+            }
+            ?: getString(R.string.home_family_child_default)
+        binding.activeProfileMeta.text = if (childId.isNullOrBlank()) {
+            getString(R.string.home_family_child_missing)
         } else {
-            ""
+            getString(R.string.home_family_child_format, childLabel)
         }
-        binding.activeProfileMeta.text = summary + "\n" + selfNameLine + "\n" + selfMarkerLine + "\n" + sourceLine + "\n" + statusLine +
-            (linkedParentsLine?.let { "\n$it" } ?: "") + mismatchLine
     }
 
     private fun describeProfileContextSource(source: String): String {
@@ -1741,10 +1705,7 @@ class MainActivity : AppCompatActivity() {
 
                     if (child != null) {
                         binding.selectedChildName.text = child.name
-                        binding.selectedChildDeviceId.text = getString(
-                            R.string.main_selected_child_id_and_edit_hint,
-                            child.deviceId.take(12)
-                        )
+                        binding.selectedChildDeviceId.text = getString(R.string.home_selected_child_hint)
 
                         // Load avatar if the stored URI is still accessible.
                         if (child.avatarUrl != null) {
@@ -1871,10 +1832,7 @@ class MainActivity : AppCompatActivity() {
                 if (child != null) {
                     // Update the visible child card.
                     binding.selectedChildName.text = child.name
-                    binding.selectedChildDeviceId.text = getString(
-                        R.string.main_selected_child_id_and_edit_hint,
-                        child.deviceId.take(12)
-                    )
+                    binding.selectedChildDeviceId.text = getString(R.string.home_selected_child_hint)
 
                     // Refresh avatar from URI when available.
                     if (child.avatarUrl != null) {

@@ -131,6 +131,7 @@ nul
 # Local Android Studio / Codex state
 .android/
 .android-user/
+.android-agent-home/
 .codex-logs/
 backup-childwatch/
 .idea/

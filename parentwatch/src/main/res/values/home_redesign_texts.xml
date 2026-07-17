@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_child_brand">ChildWatch</string>
+    <string name="home_child_protection_active">Защита активна</string>
+    <string name="home_child_protection_subtitle">Связь с семьёй установлена</string>
+    <string name="home_child_profile_connected">Связь с родителем установлена</string>
+    <string name="home_child_profile_not_connected">Связь с семьёй пока не настроена</string>
+    <string name="home_child_chat">Чат</string>
+    <string name="home_child_chat_hint">Написать семье</string>
+    <string name="home_child_map">Семья на карте</string>
+    <string name="home_child_map_hint">Посмотреть местоположение</string>
+    <string name="home_child_signal">Позвать родителя</string>
+    <string name="home_child_signal_hint">Отправить сигнал внимания</string>
+    <string name="home_child_settings">Настройки</string>
+    <string name="home_child_settings_hint">Доступ по PIN-коду</string>
+</resources>
