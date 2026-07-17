@@ -13,6 +13,7 @@ const DataValidator = require("./validators/DataValidator");
 const DatabaseManager = require("./database/DatabaseManager");
 const CommandManager = require("./managers/CommandManager");
 const WebSocketManager = require("./managers/WebSocketManager");
+const FamilyPermissionService = require("./services/FamilyPermissionService");
 
 // Import route modules
 const chatRoutes = require("./routes/chat");
@@ -21,6 +22,7 @@ const mediaRoutes = require("./routes/media");
 const streamingRoutes = require("./routes/streaming");
 const alertsRoutes = require("./routes/alerts");
 const debugRoutes = require("./routes/debug");
+const createFamilyRoutes = require("./routes/families");
 
 const app = express();
 const server = http.createServer(app);
@@ -48,6 +50,8 @@ const validator = new DataValidator();
 const dbManager = new DatabaseManager();
 const commandManager = new CommandManager();
 const wsManager = new WebSocketManager(io, commandManager, dbManager);
+const familyPermissionService = new FamilyPermissionService(dbManager);
+const familyRoutes = createFamilyRoutes(dbManager, familyPermissionService);
 wsManager.dbManager = dbManager;
 
 // Initialize database
@@ -218,6 +222,12 @@ app.use("/api/media", mediaRoutes);
 app.use("/api/streaming", streamingRoutes);
 app.use("/api/debug", debugRoutes);
 app.use("/api/alerts", authMiddleware.authenticate(), alertsRoutes);
+app.use(
+  "/api/families",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60_000, 120),
+  familyRoutes
+);
 
 // Routes
 

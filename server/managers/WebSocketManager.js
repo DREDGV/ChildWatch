@@ -18,6 +18,11 @@ class WebSocketManager {
     // Map: deviceId (child) -> socket.id
     this.childSockets = new Map();
 
+    // Neutral exact-device registry. A device may have multiple live sockets
+    // during reconnect overlap; exact routing never falls back to another ID.
+    // Legacy childSockets/parentSockets remain in place for verified audio paths.
+    this.deviceSockets = new Map();
+
     // Map: deviceId (child) -> parentSocketId
     this.activeStreams = new Map();
 
@@ -36,6 +41,70 @@ class WebSocketManager {
   normalizeDeviceId(value) {
     if (value === null || value === undefined) return "";
     return String(value).trim();
+  }
+
+  registerDeviceSocket(socket, deviceId) {
+    const normalizedDeviceId = this.normalizeDeviceId(deviceId);
+    if (!socket?.id || !normalizedDeviceId) return false;
+
+    this.unregisterDeviceSocket(socket);
+    let socketIds = this.deviceSockets.get(normalizedDeviceId);
+    if (!socketIds) {
+      socketIds = new Set();
+      this.deviceSockets.set(normalizedDeviceId, socketIds);
+    }
+    socketIds.add(socket.id);
+    socket.exactDeviceId = normalizedDeviceId;
+    return true;
+  }
+
+  unregisterDeviceSocket(socket) {
+    const normalizedDeviceId = this.normalizeDeviceId(socket?.exactDeviceId);
+    if (!socket?.id || !normalizedDeviceId) return false;
+    const socketIds = this.deviceSockets.get(normalizedDeviceId);
+    if (!socketIds) {
+      delete socket.exactDeviceId;
+      return false;
+    }
+    const removed = socketIds.delete(socket.id);
+    if (socketIds.size === 0) {
+      this.deviceSockets.delete(normalizedDeviceId);
+    }
+    delete socket.exactDeviceId;
+    return removed;
+  }
+
+  getConnectedSocketIdsForDevice(deviceId) {
+    const normalizedDeviceId = this.normalizeDeviceId(deviceId);
+    if (!normalizedDeviceId) return [];
+    const socketIds = this.deviceSockets.get(normalizedDeviceId);
+    if (!socketIds) return [];
+
+    const connected = [];
+    for (const socketId of Array.from(socketIds)) {
+      const socket = this.io.sockets.sockets.get(socketId);
+      if (!socket || !socket.connected) {
+        socketIds.delete(socketId);
+        continue;
+      }
+      connected.push(socketId);
+    }
+    if (socketIds.size === 0) {
+      this.deviceSockets.delete(normalizedDeviceId);
+    }
+    return connected;
+  }
+
+  emitToExactDevice(deviceId, eventName, payload) {
+    const socketIds = this.getConnectedSocketIdsForDevice(deviceId);
+    let delivered = 0;
+    for (const socketId of socketIds) {
+      const socket = this.io.sockets.sockets.get(socketId);
+      if (!socket || !socket.connected) continue;
+      socket.emit(eventName, payload);
+      delivered += 1;
+    }
+    return delivered;
   }
 
   looksLikeSyntheticParentDeviceId(value) {
@@ -1108,6 +1177,7 @@ class WebSocketManager {
     socket.deviceId = deviceId;
     socket.deviceType = "child";
     socket.childDisplayName = childDisplayName;
+    this.registerDeviceSocket(socket, deviceId);
     this.syncPendingPhotoRequestsForChild(deviceId, socket.id);
 
     console.log(
@@ -1226,6 +1296,14 @@ class WebSocketManager {
     socket.parentDeviceId = parentDeviceId;
     socket.parentDisplayName = parentDisplayName;
     socket.parentRegistrationKey = `${deviceId}|${parentDeviceId}`;
+    const exactParentDeviceId =
+      authenticatedParentDeviceId ||
+      (!this.looksLikeSyntheticParentDeviceId(explicitParentDeviceId)
+        ? explicitParentDeviceId
+        : "");
+    if (exactParentDeviceId) {
+      this.registerDeviceSocket(socket, exactParentDeviceId);
+    }
     const isRepeatRegistration =
       previousRegistrationKey === socket.parentRegistrationKey;
 
@@ -1752,6 +1830,7 @@ class WebSocketManager {
    * Handle client disconnection
    */
   handleDisconnect(socket) {
+    this.unregisterDeviceSocket(socket);
     console.log(
       `[ws] Client disconnected: ${socket.id} (${socket.deviceType || "unknown"})`
     );
@@ -1875,6 +1954,7 @@ class WebSocketManager {
       totalConnections: this.io.engine.clientsCount,
       activeChildDevices: this.childSockets.size,
       activeParentDevices: this.parentSockets.size,
+      exactDeviceRegistrations: this.deviceSockets.size,
       activeStreams: this.activeStreams.size,
     };
   }

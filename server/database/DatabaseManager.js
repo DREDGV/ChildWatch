@@ -1,6 +1,24 @@
 const sqlite3 = require("sqlite3").verbose();
 const path = require("path");
 const fs = require("fs");
+const crypto = require("crypto");
+
+const DEFAULT_PARENT_TO_CHILD_FEATURES = Object.freeze([
+  "CHAT",
+  "LOCATION",
+  "LOCATION_HISTORY",
+  "AUDIO_LISTENING",
+  "REMOTE_PHOTO",
+  "APP_USAGE",
+  "SEND_ATTENTION_SIGNAL",
+]);
+
+const DEFAULT_CHILD_TO_PARENT_FEATURES = Object.freeze([
+  "CHAT",
+  "LOCATION",
+  "SEND_ATTENTION_SIGNAL",
+  "RECEIVE_ATTENTION_SIGNAL",
+]);
 
 /**
  * Database Manager for ChildWatch Server
@@ -33,6 +51,7 @@ class DatabaseManager {
     this.dbPath = dbPath;
     this.db = null;
     this.isInitialized = false;
+    this.familyBootstrapQueue = Promise.resolve();
   }
 
   /**
@@ -173,6 +192,59 @@ class DatabaseManager {
                 UNIQUE(parent_device_id, child_device_id)
             )`,
 
+      // Family model. Legacy device_links remains the compatibility source
+      // while installed clients migrate to member- and device-aware APIs.
+      `CREATE TABLE IF NOT EXISTS families (
+                id TEXT PRIMARY KEY,
+                name TEXT NOT NULL,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER DEFAULT (strftime('%s', 'now'))
+            )`,
+
+      `CREATE TABLE IF NOT EXISTS family_members (
+                id TEXT PRIMARY KEY,
+                family_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                role TEXT NOT NULL CHECK (role IN ('PARENT', 'CHILD', 'GUARDIAN')),
+                avatar_key TEXT,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+                FOREIGN KEY (family_id) REFERENCES families (id)
+            )`,
+
+      `CREATE TABLE IF NOT EXISTS family_devices (
+                id TEXT PRIMARY KEY,
+                family_id TEXT NOT NULL,
+                member_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                display_name TEXT NOT NULL,
+                platform TEXT,
+                last_seen_at INTEGER,
+                is_active INTEGER NOT NULL DEFAULT 1,
+                created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+                UNIQUE(family_id, device_id),
+                FOREIGN KEY (family_id) REFERENCES families (id),
+                FOREIGN KEY (member_id) REFERENCES family_members (id)
+            )`,
+
+      `CREATE TABLE IF NOT EXISTS family_permissions (
+                id TEXT PRIMARY KEY,
+                family_id TEXT NOT NULL,
+                actor_member_id TEXT NOT NULL,
+                target_member_id TEXT NOT NULL,
+                feature TEXT NOT NULL,
+                allowed INTEGER NOT NULL DEFAULT 0,
+                created_at INTEGER DEFAULT (strftime('%s', 'now')),
+                updated_at INTEGER DEFAULT (strftime('%s', 'now')),
+                UNIQUE(family_id, actor_member_id, target_member_id, feature),
+                FOREIGN KEY (family_id) REFERENCES families (id),
+                FOREIGN KEY (actor_member_id) REFERENCES family_members (id),
+                FOREIGN KEY (target_member_id) REFERENCES family_members (id)
+            )`,
+
       // Activity logs
       `CREATE TABLE IF NOT EXISTS activity_logs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -288,6 +360,10 @@ class DatabaseManager {
       "CREATE INDEX IF NOT EXISTS idx_device_status_device_timestamp ON device_status (device_id, timestamp)",
       "CREATE INDEX IF NOT EXISTS idx_device_links_parent ON device_links (parent_device_id)",
       "CREATE INDEX IF NOT EXISTS idx_device_links_child ON device_links (child_device_id)",
+      "CREATE INDEX IF NOT EXISTS idx_family_members_family ON family_members (family_id)",
+      "CREATE INDEX IF NOT EXISTS idx_family_devices_family ON family_devices (family_id)",
+      "CREATE INDEX IF NOT EXISTS idx_family_devices_device ON family_devices (device_id)",
+      "CREATE INDEX IF NOT EXISTS idx_family_permissions_lookup ON family_permissions (family_id, actor_member_id, target_member_id, feature)",
       "CREATE INDEX IF NOT EXISTS idx_activity_device_timestamp ON activity_logs (device_id, timestamp)",
       "CREATE INDEX IF NOT EXISTS idx_alerts_device_created ON critical_alerts (device_id, created_at)",
       "CREATE INDEX IF NOT EXISTS idx_devices_auth_token ON devices (auth_token)",
@@ -299,6 +375,10 @@ class DatabaseManager {
 
     // Run migrations
     await this.runMigrations();
+
+    // Safe to run on every start: deterministic IDs and UPSERTs make this
+    // bootstrap idempotent and preserve the legacy device_links table.
+    await this.bootstrapFamiliesFromDeviceLinks();
 
     console.log("✅ Database tables created successfully");
   }
@@ -335,6 +415,444 @@ class DatabaseManager {
       "chat_messages",
       "sender_display_name",
       "TEXT"
+    );
+  }
+
+  createStableFamilyId(parts) {
+    const normalized = Array.from(new Set(parts.map((part) => String(part).trim())))
+      .filter(Boolean)
+      .sort();
+    const digest = crypto
+      .createHash("sha256")
+      .update(normalized.join("\u0000"))
+      .digest("hex")
+      .slice(0, 24);
+    return `family_${digest}`;
+  }
+
+  createStableScopedId(prefix, ...parts) {
+    const digest = crypto
+      .createHash("sha256")
+      .update(parts.map((part) => String(part).trim()).join("\u0000"))
+      .digest("hex")
+      .slice(0, 24);
+    return `${prefix}_${digest}`;
+  }
+
+  async withTransaction(work) {
+    await this.run("BEGIN IMMEDIATE TRANSACTION");
+    try {
+      const result = await work();
+      await this.run("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        await this.run("ROLLBACK");
+      } catch (rollbackError) {
+        console.error("Family migration rollback failed:", rollbackError);
+      }
+      throw error;
+    }
+  }
+
+  buildLegacyLinkComponents(links) {
+    const adjacency = new Map();
+    const ensureDevice = (deviceId) => {
+      if (!adjacency.has(deviceId)) adjacency.set(deviceId, new Set());
+    };
+
+    for (const link of links) {
+      const parentDeviceId = String(link.parent_device_id || "").trim();
+      const childDeviceId = String(link.child_device_id || "").trim();
+      if (!parentDeviceId || !childDeviceId) continue;
+      ensureDevice(parentDeviceId);
+      ensureDevice(childDeviceId);
+      adjacency.get(parentDeviceId).add(childDeviceId);
+      adjacency.get(childDeviceId).add(parentDeviceId);
+    }
+
+    const visited = new Set();
+    const components = [];
+    for (const deviceId of Array.from(adjacency.keys()).sort()) {
+      if (visited.has(deviceId)) continue;
+      const stack = [deviceId];
+      const devices = [];
+      visited.add(deviceId);
+      while (stack.length > 0) {
+        const current = stack.pop();
+        devices.push(current);
+        for (const neighbour of adjacency.get(current) || []) {
+          if (visited.has(neighbour)) continue;
+          visited.add(neighbour);
+          stack.push(neighbour);
+        }
+      }
+      const deviceSet = new Set(devices);
+      components.push({
+        devices: devices.sort(),
+        links: links.filter(
+          (link) =>
+            deviceSet.has(String(link.parent_device_id || "").trim()) &&
+            deviceSet.has(String(link.child_device_id || "").trim())
+        ),
+      });
+    }
+    return components;
+  }
+
+  async resolveFamilyIdForDevices(deviceIds) {
+    if (!deviceIds.length) {
+      return { familyId: "", supersededFamilyIds: [] };
+    }
+    const placeholders = deviceIds.map(() => "?").join(",");
+    const existing = await this.all(
+      `SELECT family_id AS familyId, COUNT(*) AS overlapCount
+       FROM family_devices
+       WHERE is_active = 1 AND device_id IN (${placeholders})
+       GROUP BY family_id
+       ORDER BY overlapCount DESC, family_id ASC`,
+      deviceIds
+    );
+    const familyId = existing[0]?.familyId || this.createStableFamilyId(deviceIds);
+    return {
+      familyId,
+      supersededFamilyIds: existing
+        .slice(1)
+        .map((row) => row.familyId)
+        .filter(Boolean),
+    };
+  }
+
+  resolveLegacyDeviceRole(deviceId, links) {
+    const isParent = links.some(
+      (link) => String(link.parent_device_id || "").trim() === deviceId
+    );
+    const isChild = links.some(
+      (link) => String(link.child_device_id || "").trim() === deviceId
+    );
+    if (isParent && isChild) return "GUARDIAN";
+    return isParent ? "PARENT" : "CHILD";
+  }
+
+  resolveLegacyDisplayName(deviceId, role, links, device) {
+    for (const link of links) {
+      if (role !== "CHILD" && link.parent_device_id === deviceId) {
+        const value = String(link.parent_display_name || "").trim();
+        if (value) return value;
+      }
+      if (role !== "PARENT" && link.child_device_id === deviceId) {
+        const value = String(link.child_display_name || link.display_name || "").trim();
+        if (value) return value;
+      }
+    }
+    const deviceName = String(device?.device_name || "").trim();
+    if (deviceName) return deviceName;
+    return role === "CHILD" ? "Ребенок" : "Родитель";
+  }
+
+  async upsertFamilyPermission({
+    familyId,
+    actorMemberId,
+    targetMemberId,
+    feature,
+    allowed = true,
+    preserveExisting = false,
+  }) {
+    const normalizedFeature = String(feature || "").trim().toUpperCase();
+    const id = this.createStableScopedId(
+      "permission",
+      familyId,
+      actorMemberId,
+      targetMemberId,
+      normalizedFeature
+    );
+    const conflictAction = preserveExisting
+      ? "DO NOTHING"
+      : "DO UPDATE SET allowed = excluded.allowed, updated_at = strftime('%s', 'now')";
+    return this.run(
+      `INSERT INTO family_permissions (
+         id, family_id, actor_member_id, target_member_id, feature, allowed
+       ) VALUES (?, ?, ?, ?, ?, ?)
+       ON CONFLICT(family_id, actor_member_id, target_member_id, feature)
+       ${conflictAction}`,
+      [
+        id,
+        familyId,
+        actorMemberId,
+        targetMemberId,
+        normalizedFeature,
+        allowed ? 1 : 0,
+      ]
+    );
+  }
+
+  bootstrapFamiliesFromDeviceLinks() {
+    const execute = () => this.performFamilyBootstrap();
+    const queued = this.familyBootstrapQueue.then(execute, execute);
+    this.familyBootstrapQueue = queued.catch(() => undefined);
+    return queued;
+  }
+
+  async performFamilyBootstrap() {
+    const links = await this.all(
+      `SELECT * FROM device_links
+       WHERE is_active = 1
+       ORDER BY parent_device_id, child_device_id`
+    );
+    if (!links.length) return { families: 0, devices: 0 };
+
+    return this.withTransaction(async () => {
+      const components = this.buildLegacyLinkComponents(links);
+      let deviceCount = 0;
+
+      for (const component of components) {
+        const { familyId, supersededFamilyIds } =
+          await this.resolveFamilyIdForDevices(component.devices);
+        if (supersededFamilyIds.length > 0) {
+          const placeholders = supersededFamilyIds.map(() => "?").join(",");
+          await this.run(
+            `UPDATE families
+             SET is_active = 0, updated_at = strftime('%s', 'now')
+             WHERE id IN (${placeholders})`,
+            supersededFamilyIds
+          );
+          await this.run(
+            `UPDATE family_members
+             SET is_active = 0, updated_at = strftime('%s', 'now')
+             WHERE family_id IN (${placeholders})`,
+            supersededFamilyIds
+          );
+          await this.run(
+            `UPDATE family_devices
+             SET is_active = 0, updated_at = strftime('%s', 'now')
+             WHERE family_id IN (${placeholders})`,
+            supersededFamilyIds
+          );
+        }
+        await this.run(
+          `INSERT INTO families (id, name, is_active)
+           VALUES (?, ?, 1)
+           ON CONFLICT(id) DO UPDATE SET is_active = 1, updated_at = strftime('%s', 'now')`,
+          [familyId, "Семья"]
+        );
+
+        const memberByDevice = new Map();
+        for (const deviceId of component.devices) {
+          const role = this.resolveLegacyDeviceRole(deviceId, component.links);
+          const device = await this.get(
+            "SELECT device_name, device_type FROM devices WHERE device_id = ?",
+            [deviceId]
+          );
+          const displayName = this.resolveLegacyDisplayName(
+            deviceId,
+            role,
+            component.links,
+            device
+          );
+          const memberId = this.createStableScopedId("member", familyId, deviceId);
+          const familyDeviceId = this.createStableScopedId(
+            "family_device",
+            familyId,
+            deviceId
+          );
+          memberByDevice.set(deviceId, memberId);
+
+          await this.run(
+            `INSERT INTO family_members (
+               id, family_id, display_name, role, is_active
+             ) VALUES (?, ?, ?, ?, 1)
+             ON CONFLICT(id) DO UPDATE SET
+               display_name = excluded.display_name,
+               role = excluded.role,
+               is_active = 1,
+               updated_at = strftime('%s', 'now')`,
+            [memberId, familyId, displayName, role]
+          );
+          await this.run(
+            `INSERT INTO family_devices (
+               id, family_id, member_id, device_id, display_name, platform, is_active
+             ) VALUES (?, ?, ?, ?, ?, ?, 1)
+             ON CONFLICT(family_id, device_id) DO UPDATE SET
+               member_id = excluded.member_id,
+               display_name = excluded.display_name,
+               platform = COALESCE(excluded.platform, family_devices.platform),
+               is_active = 1,
+               updated_at = strftime('%s', 'now')`,
+            [
+              familyDeviceId,
+              familyId,
+              memberId,
+              deviceId,
+              displayName,
+              device?.device_type || null,
+            ]
+          );
+          deviceCount += 1;
+        }
+
+        for (const link of component.links) {
+          const parentMemberId = memberByDevice.get(link.parent_device_id);
+          const childMemberId = memberByDevice.get(link.child_device_id);
+          if (!parentMemberId || !childMemberId) continue;
+          for (const feature of DEFAULT_PARENT_TO_CHILD_FEATURES) {
+            await this.upsertFamilyPermission({
+              familyId,
+              actorMemberId: parentMemberId,
+              targetMemberId: childMemberId,
+              feature,
+              allowed: true,
+              preserveExisting: true,
+            });
+          }
+          for (const feature of DEFAULT_CHILD_TO_PARENT_FEATURES) {
+            await this.upsertFamilyPermission({
+              familyId,
+              actorMemberId: childMemberId,
+              targetMemberId: parentMemberId,
+              feature,
+              allowed: true,
+              preserveExisting: true,
+            });
+          }
+        }
+      }
+
+      return { families: components.length, devices: deviceCount };
+    });
+  }
+
+  async getFamiliesForDevice(deviceId) {
+    return this.all(
+      `SELECT DISTINCT
+         f.id,
+         f.name,
+         f.is_active AS isActive,
+         f.created_at AS createdAt,
+         f.updated_at AS updatedAt
+       FROM families f
+       JOIN family_devices fd ON fd.family_id = f.id
+       WHERE fd.device_id = ?
+         AND fd.is_active = 1
+         AND f.is_active = 1
+       ORDER BY f.created_at, f.id`,
+      [deviceId]
+    );
+  }
+
+  async getFamilyById(familyId) {
+    return this.get(
+      `SELECT
+         id,
+         name,
+         is_active AS isActive,
+         created_at AS createdAt,
+         updated_at AS updatedAt
+       FROM families
+       WHERE id = ? AND is_active = 1`,
+      [familyId]
+    );
+  }
+
+  async getFamilyMembers(familyId) {
+    return this.all(
+      `SELECT
+         id,
+         family_id AS familyId,
+         display_name AS displayName,
+         role,
+         avatar_key AS avatarKey,
+         is_active AS isActive,
+         created_at AS createdAt,
+         updated_at AS updatedAt
+       FROM family_members
+       WHERE family_id = ? AND is_active = 1
+       ORDER BY CASE role WHEN 'PARENT' THEN 0 WHEN 'GUARDIAN' THEN 1 ELSE 2 END,
+                display_name,
+                id`,
+      [familyId]
+    );
+  }
+
+  async getFamilyDevices(familyId) {
+    return this.all(
+      `SELECT
+         fd.id,
+         fd.family_id AS familyId,
+         fd.member_id AS memberId,
+         fd.device_id AS deviceId,
+         fd.display_name AS displayName,
+         fd.platform,
+         fd.last_seen_at AS lastSeenAt,
+         fd.is_active AS isActive,
+         fd.created_at AS createdAt,
+         fd.updated_at AS updatedAt
+       FROM family_devices fd
+       WHERE fd.family_id = ? AND fd.is_active = 1
+       ORDER BY fd.display_name, fd.device_id`,
+      [familyId]
+    );
+  }
+
+  async getFamilyDeviceMembership(familyId, deviceId) {
+    return this.get(
+      `SELECT
+         fd.family_id AS familyId,
+         fd.member_id AS memberId,
+         fd.device_id AS deviceId,
+         fm.role AS memberRole
+       FROM family_devices fd
+       JOIN family_members fm ON fm.id = fd.member_id
+       JOIN families f ON f.id = fd.family_id
+       WHERE fd.family_id = ?
+         AND fd.device_id = ?
+         AND fd.is_active = 1
+         AND fm.is_active = 1
+         AND f.is_active = 1
+       LIMIT 1`,
+      [familyId, deviceId]
+    );
+  }
+
+  async getSharedFamilyMembership(actorDeviceId, targetDeviceId) {
+    return this.get(
+      `SELECT
+         actor.family_id AS familyId,
+         actor.member_id AS actorMemberId,
+         target.member_id AS targetMemberId
+       FROM family_devices actor
+       JOIN family_devices target ON target.family_id = actor.family_id
+       JOIN families f ON f.id = actor.family_id
+       WHERE actor.device_id = ?
+         AND target.device_id = ?
+         AND actor.is_active = 1
+         AND target.is_active = 1
+         AND f.is_active = 1
+       ORDER BY actor.family_id
+       LIMIT 1`,
+      [actorDeviceId, targetDeviceId]
+    );
+  }
+
+  async getFamilyPermission({
+    familyId,
+    actorMemberId,
+    targetMemberId,
+    feature,
+  }) {
+    return this.get(
+      `SELECT allowed
+       FROM family_permissions
+       WHERE family_id = ?
+         AND actor_member_id = ?
+         AND target_member_id = ?
+         AND feature = ?
+       LIMIT 1`,
+      [
+        familyId,
+        actorMemberId,
+        targetMemberId,
+        String(feature || "").trim().toUpperCase(),
+      ]
     );
   }
 
@@ -806,6 +1324,13 @@ class DatabaseManager {
     createdBy = null,
     isActive = true,
   }) {
+    const existingLink = await this.get(
+      `SELECT is_active AS isActive
+       FROM device_links
+       WHERE parent_device_id = ? AND child_device_id = ?
+       LIMIT 1`,
+      [parentDeviceId, childDeviceId]
+    );
     const sql = `
             INSERT INTO device_links (
                 parent_device_id,
@@ -832,7 +1357,7 @@ class DatabaseManager {
                 updated_at = strftime('%s', 'now')
         `;
 
-    return this.run(sql, [
+    const result = await this.run(sql, [
       parentDeviceId,
       childDeviceId,
       relationRole,
@@ -844,6 +1369,13 @@ class DatabaseManager {
       createdBy,
       isActive ? 1 : 0,
     ]);
+
+    // WebSocket clients may repeat registration frequently. Rebuild the
+    // compatibility family only for a new or reactivated legacy relation.
+    if (!existingLink || (existingLink.isActive !== 1 && isActive)) {
+      await this.bootstrapFamiliesFromDeviceLinks();
+    }
+    return result;
   }
 
   async getLinkedChildren(parentDeviceId) {
