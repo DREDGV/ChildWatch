@@ -52,7 +52,8 @@ class RemoteCameraActivity : AppCompatActivity() {
         const val EXTRA_CHILD_NAME = "childName"
         private const val WEBSOCKET_READY_TIMEOUT_MS = 12_000L
         private const val PHOTO_RESPONSE_TIMEOUT_MS = 30_000L
-}
+    }
+
     private lateinit var toolbar: MaterialToolbar
     private lateinit var statusText: TextView
     private lateinit var childNameText: TextView
@@ -847,3 +848,4 @@ class RemoteCameraActivity : AppCompatActivity() {
         return listOfNotNull(formattedDate, resolution, sizeLabel).joinToString(" | ")
     }
 }
+
