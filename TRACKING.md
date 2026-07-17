@@ -30,6 +30,16 @@ The key practical rule for anyone entering the repo now:
 
 ## Latest Verified Work
 
+### 2026-07-17: Server family foundation (stage 2)
+
+- Added `families`, `family_members`, `family_devices`, and `family_permissions` while preserving `device_links` as the compatibility source.
+- Added a deterministic, transactional, idempotent bootstrap from active legacy links; repeated WebSocket registration does not rerun the full migration, explicit permission denials are preserved, and merged family history is retained as inactive records.
+- Added authenticated family/member/device read endpoints and a closed-by-default permission service with cross-family denial.
+- Added neutral `deviceSockets: Map<deviceId, Set<socketId>>` plus exact-device emission with no fallback to another connected phone. Existing audio routing remains unchanged.
+- Verification passed: 9 server suites/39 tests, shared-core tests, both 7.2 debug APK builds, `node --check`, `git diff --check`, and non-strict `utf8Guard` with only the previously documented warnings.
+- The stage has not been deployed to the VDS and has not touched the production database; real-server migration and token checks remain deployment gates.
+- Full report: `docs/modernization/STAGE_2_SERVER_FAMILY.md`.
+
 ### 2026-07-17: ActiveContext foundation (stage 1)
 
 - Added a shared `ActiveContext` model and resolver used by both Android applications.
