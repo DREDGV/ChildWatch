@@ -4,7 +4,7 @@ const ATTENTION = Object.freeze({
   STOP_REQUEST: "attention_signal_stop_request",
   STOP: "attention_signal_stop",
   STATUS: "attention_signal_status",
-  MIN_DURATION_MS: 5_000,
+  MIN_DURATION_MS: 2_000,
   MAX_DURATION_MS: 60_000,
   DEFAULT_TTL_MS: 30_000,
   MAX_TTL_MS: 120_000,

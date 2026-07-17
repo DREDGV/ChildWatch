@@ -9,14 +9,14 @@ object AttentionSignalContract {
     const val EVENT_STOP = "attention_signal_stop"
     const val EVENT_STATUS = "attention_signal_status"
 
-    const val MIN_DURATION_MS = 5_000L
+    const val MIN_DURATION_MS = 2_000L
     const val MAX_DURATION_MS = 60_000L
     const val DEFAULT_DURATION_MS = 15_000L
     const val DEFAULT_TTL_MS = 30_000L
     const val MAX_TTL_MS = 120_000L
     const val MAX_CLOCK_SKEW_MS = 5_000L
 
-    val selectableDurationsMs = listOf(5_000L, 10_000L, 15_000L, 30_000L, 60_000L)
+    val selectableDurationsMs = listOf(2_000L, 3_000L, 5_000L, 10_000L, 15_000L, 30_000L, 60_000L)
 
     fun clampDuration(value: Long): Long = value.coerceIn(MIN_DURATION_MS, MAX_DURATION_MS)
 

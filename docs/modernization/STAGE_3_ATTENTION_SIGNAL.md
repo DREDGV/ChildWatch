@@ -10,7 +10,7 @@ Android receiver SHA: `d1e7dd2`
 
 Реализован отдельный защищённый канал для краткого сигнала конкретному устройству семьи. Отправитель выбирает:
 
-- длительность 5/10/15/30/60 секунд;
+- длительность 2/3/5/10/15/30/60 секунд;
 - громкость 0–100%;
 - встроенный звук ATTENTION/RINGTONE/ALARM/SIREN;
 - вибрацию и ритм PULSE/URGENT/SOS.
@@ -78,7 +78,7 @@ Generic `command` для функции не используется. Пере�
 Команда: `npm test -- --runInBand`
 
 - 10 test suites passed;
-- 50 tests passed;
+- 51 tests passed;
 - 0 failed.
 
 Attention-тесты проверяют exact target, чужой статус, offline, expiry, stop, duplicate request ID, cross-family, authentication, cooldown, строгие границы schema, лимит 10/мин и запрет Stop не владельцем.
@@ -93,11 +93,11 @@ gradlew.bat :shared-core:test :app:testDebugUnitTest :parentwatch:testDebugUnitT
 
 Результат: `BUILD SUCCESSFUL`.
 
-- shared-core: 4 suites, 18 tests, 0 ошибок;
-- `ParentMonitor-v7.2.26198.233514-debug.apk`
-  SHA-256: `6B88E3480908B73350F9F41FA81256C44BD87F0595268027DDFB992A0C2BD0CD`;
-- `ChildDevice-v7.2.26198.233514-debug.apk`
-  SHA-256: `2BCDBD0E734E51B51E3757E23CD9D3898B7397B3C3388100116F7D660C9EF99D`.
+- shared-core: 4 suites, 19 tests, 0 ошибок;
+- `ParentMonitor-v7.2.26199.021043-debug.apk`
+  SHA-256: `898BDF6A9A04BEF1C0CC72352EA4BF0DBF8B6D76A6785D5E19FB46F69D6A6DC6`;
+- `ChildDevice-v7.2.26199.021613-debug.apk`
+  SHA-256: `C5959199D8C07E745EE0DEB57652B29FB5D8BE355E479686D32E6686918B8CA5`.
 
 `utf8Guard` завершился в штатном режиме. Он по-прежнему показывает старый повреждённый комментарий в `app/MainActivity.kt` и совпадения внутри локального `server/node_modules`; новые файлы этапа 3 в список не попали.
 

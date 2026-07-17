@@ -10,6 +10,10 @@ See [CHANGELOG-v7.2.0.md](CHANGELOG-v7.2.0.md) for the verified release summary 
 
 ## [Unreleased]
 
+### Added
+
+- Для функции «Сигнал внимания» добавлены короткие варианты длительности 2 и 3 секунды; единый диапазон 2–60 секунд проверяется Android-клиентами и сервером.
+
 ### Changed
 
 - Включена единая авто-нумерация сборок для `app` и `parentwatch` через `rootProject.ext.cwVersionCode/cwVersionName`.

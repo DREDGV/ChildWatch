@@ -31,6 +31,21 @@ class AttentionSignalModelsTest {
     }
 
     @Test
+    fun `normalization keeps short signals and clamps values below two seconds`() {
+        val now = 1_500_000L
+
+        val shortSignal = validRequest(now).copy(durationMs = 3_000L).normalized(now)
+        val tooShortSignal = validRequest(now).copy(durationMs = 1_000L).normalized(now)
+
+        assertEquals(3_000L, shortSignal.durationMs)
+        assertEquals(2_000L, tooShortSignal.durationMs)
+        assertEquals(
+            listOf(2_000L, 3_000L, 5_000L, 10_000L, 15_000L, 30_000L, 60_000L),
+            AttentionSignalContract.selectableDurationsMs
+        )
+    }
+
+    @Test
     fun `validation rejects self target and expired requests`() {
         val now = 2_000_000L
         val selfTarget = validRequest(now).copy(targetDeviceId = "device-1")

@@ -269,7 +269,7 @@ describe("attention signal protocol", () => {
 
   test("enforces strict request bounds and rejects unknown schema fields", async () => {
     const invalidRequests = [
-      request({ requestId: "request-schema-duration", durationMs: 4_999 }),
+      request({ requestId: "request-schema-duration", durationMs: 1_999 }),
       request({ requestId: "request-schema-volume", volumePercent: 101 }),
       request({
         requestId: "request-schema-ttl",
@@ -292,6 +292,19 @@ describe("attention signal protocol", () => {
     expect(target.emit).not.toHaveBeenCalledWith(
       "attention_signal_start",
       expect.anything()
+    );
+  });
+
+  test("accepts a two-second attention signal", async () => {
+    const result = await attentionManager.handleRequest(
+      requester,
+      request({ requestId: "request-duration-2000", durationMs: 2_000 })
+    );
+
+    expect(result).toMatchObject({ status: "QUEUED" });
+    expect(target.emit).toHaveBeenCalledWith(
+      "attention_signal_start",
+      expect.objectContaining({ durationMs: 2_000 })
     );
   });
 
