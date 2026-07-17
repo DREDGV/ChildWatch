@@ -30,6 +30,16 @@ The key practical rule for anyone entering the repo now:
 
 ## Latest Verified Work
 
+### 2026-07-17: Baseline 7.2 protection
+
+- Created `chore/baseline-7-2-protection` from `main` at `6c67319f45811196da862ab02845da5696d81016`; no product behavior or UI was changed.
+- Added the approved modernization material package under `docs/` and recorded the reproducible baseline in `docs/modernization/BASELINE_7_2.md`.
+- Server verification passed: 6 Jest suites and 26 tests.
+- ParentMonitor and ChildDevice debug APKs built successfully with version base 7.2.
+- Default `utf8Guard` completed with warnings; strict mode failed on one damaged comment in `app/MainActivity.kt` and false positives under `server/node_modules`.
+- `printVersionInfo` is currently broken, although Android output metadata confirms the correct 7.2 version.
+- No phones were connected during this baseline run, so real-device smoke scenarios were documented but not marked as newly passed.
+
 ### 2026-07-17: Real-device recovery pass
 
 - Both applications and the server were rebuilt and tested after a real VPS interruption and phone reconnect.
