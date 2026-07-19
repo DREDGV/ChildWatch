@@ -25,6 +25,7 @@ import ru.example.parentwatch.chat.ChatManager
 import ru.example.parentwatch.chat.ChatMessage
 import ru.example.parentwatch.chat.ChatMessageRuntimeRegistry
 import ru.example.parentwatch.chat.withStatus
+import ru.example.parentwatch.chat.v2.ChatV2BackgroundCoordinator
 import ru.example.parentwatch.network.WebSocketManager
 import ru.example.parentwatch.session.ChildActiveSessionStore
 import ru.example.parentwatch.session.ChildEffectiveContextResolver
@@ -93,6 +94,7 @@ class ChatBackgroundService : LifecycleService() {
     private var lastNotificationText: String? = null
     private var stopRequested = false
     private lateinit var attentionSignalRuntime: AttentionSignalRuntime
+    private lateinit var chatV2Coordinator: ChatV2BackgroundCoordinator
     private val attentionStartListener: (JSONObject) -> Unit = { attentionSignalRuntime.handleStart(it) }
     private val attentionStopListener: (JSONObject) -> Unit = { attentionSignalRuntime.handleStop(it) }
     @Volatile private var lastStartStreamAtMs: Long = 0L
@@ -209,6 +211,7 @@ class ChatBackgroundService : LifecycleService() {
             notificationIcon = R.mipmap.ic_launcher,
             appName = getString(R.string.app_name)
         )
+        chatV2Coordinator = ChatV2BackgroundCoordinator(this, lifecycleScope)
         WebSocketManager.addAttentionStartListener(attentionStartListener)
         WebSocketManager.addAttentionStopListener(attentionStopListener)
         // Initialize ChatManagerAdapter - will be fully initialized in onStartCommand with deviceId
@@ -330,7 +333,10 @@ class ChatBackgroundService : LifecycleService() {
             WebSocketManager.isReady()
         ) {
             WebSocketManager.ensureConnected(
-                onReady = { updateNotification(getString(R.string.chat_service_active)) },
+                onReady = {
+                    updateNotification(getString(R.string.chat_service_active))
+                    chatV2Coordinator.start(serverUrl, deviceId)
+                },
                 onError = { updateNotification(getString(R.string.chat_service_error)) }
             )
             startConnectionHealthLoop(serverUrl, deviceId)
@@ -346,7 +352,7 @@ class ChatBackgroundService : LifecycleService() {
         }
 
         // Cleanup and reinitialize WebSocket
-        WebSocketManager.cleanup()
+        WebSocketManager.cleanup(preserveChatV2 = true)
         backgroundListenerRegistered = false
 
         // Use coroutine for delayed connection with retry logic
@@ -453,6 +459,7 @@ class ChatBackgroundService : LifecycleService() {
                                 Log.d(TAG, "WebSocket connected successfully on attempt $attempt")
                                 updateNotification(getString(R.string.chat_service_active))
                                 try { WebSocketManager.getClient()?.startHeartbeat() } catch (_: Exception) {}
+                                chatV2Coordinator.start(serverUrl, deviceId)
                                 connected = true
                             },
                             onError = { error ->
@@ -498,6 +505,7 @@ class ChatBackgroundService : LifecycleService() {
         WebSocketManager.removeChatMessageListener(backgroundListener)
         backgroundMessageSentListener?.let { WebSocketManager.removeChatMessageSentListener(it) }
         backgroundMessageSentListener = null
+        if (::chatV2Coordinator.isInitialized) chatV2Coordinator.stop()
         WebSocketManager.removeCommandListener(commandListener)
         photoRequestListener?.let { WebSocketManager.removePhotoRequestListener(it) }
         photoRequestListener = null
@@ -700,6 +708,7 @@ class ChatBackgroundService : LifecycleService() {
         WebSocketManager.removeChatMessageListener(backgroundListener)
         backgroundMessageSentListener?.let { WebSocketManager.removeChatMessageSentListener(it) }
         backgroundMessageSentListener = null
+        if (::chatV2Coordinator.isInitialized) chatV2Coordinator.stop()
         WebSocketManager.removeCommandListener(commandListener)
         WebSocketManager.removeAttentionStartListener(attentionStartListener)
         WebSocketManager.removeAttentionStopListener(attentionStopListener)

@@ -1,6 +1,11 @@
 param(
     [ValidateSet("All", "Parent", "Child")]
-    [string]$Target = "All"
+    [string]$Target = "All",
+    [ValidateSet("Debug", "Release")]
+    [string]$BuildType = "Debug",
+    [string]$VersionName,
+    [long]$VersionCode = 0,
+    [switch]$AllowDependencyDownload
 )
 
 $ErrorActionPreference = "Stop"
@@ -9,8 +14,16 @@ $buildMoment = Get-Date
 $runId = $buildMoment.ToString("yyyyMMdd-HHmmss")
 $shortYear = $buildMoment.ToString("yy")
 $dayOfYear = $buildMoment.DayOfYear.ToString("000")
-$versionName = "7.2.$shortYear$dayOfYear.$($buildMoment.ToString('HHmmss'))"
-$versionCode = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+$resolvedVersionName = if ($VersionName) {
+    $VersionName.Trim()
+} else {
+    "7.3.$shortYear$dayOfYear.$($buildMoment.ToString('HHmmss'))"
+}
+$resolvedVersionCode = if ($VersionCode -gt 0) {
+    $VersionCode
+} else {
+    [DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+}
 $isolatedBuildRoot = ".codex-build/$runId"
 $automationTemp = Join-Path $projectRoot ".gradle-agent-home/tmp-$runId"
 $artifactDirectory = Join-Path $projectRoot "artifacts/android"
@@ -32,6 +45,11 @@ try {
 
 try {
     $env:JAVA_TOOL_OPTIONS = "-Djava.io.tmpdir=$automationTemp"
+    $env:GRADLE_USER_HOME = Join-Path $projectRoot ".gradle-agent-home"
+    # Keep the Android debug signing identity stable across automated and
+    # Android Studio builds. A separate agent home creates a new debug key and
+    # makes otherwise valid APK updates incompatible with installed devices.
+    $env:ANDROID_USER_HOME = Join-Path $projectRoot ".android-signing"
 
     $wrapperProperties = Get-Content (Join-Path $projectRoot "gradle/wrapper/gradle-wrapper.properties") -Raw
     $versionMatch = [regex]::Match($wrapperProperties, "gradle-([0-9.]+)-bin\.zip")
@@ -40,22 +58,29 @@ try {
     }
 
     $gradleVersion = $versionMatch.Groups[1].Value
-    $gradlePattern = Join-Path $env:USERPROFILE ".gradle/wrapper/dists/gradle-$gradleVersion-bin/*/gradle-$gradleVersion/bin/gradle.bat"
-    $gradleExecutable = Get-ChildItem -Path $gradlePattern -File -ErrorAction SilentlyContinue |
+    $gradlePatterns = @(
+        (Join-Path $env:GRADLE_USER_HOME "wrapper/dists/gradle-$gradleVersion-bin/*/gradle-$gradleVersion/bin/gradle.bat"),
+        (Join-Path $env:USERPROFILE ".gradle/wrapper/dists/gradle-$gradleVersion-bin/*/gradle-$gradleVersion/bin/gradle.bat")
+    )
+    $gradleExecutable = $gradlePatterns |
+        ForEach-Object { Get-ChildItem -Path $_ -File -ErrorAction SilentlyContinue } |
         Select-Object -First 1 -ExpandProperty FullName
     if (-not $gradleExecutable) {
         throw "Gradle $gradleVersion is not installed in the local wrapper cache."
     }
 
+    $assembleTask = if ($BuildType -eq "Release") { "assembleRelease" } else { "assembleDebug" }
     $tasks = switch ($Target) {
-        "Parent" { @(':app:assembleDebug') }
-        "Child" { @(':parentwatch:assembleDebug') }
-        default { @(':app:assembleDebug', ':parentwatch:assembleDebug') }
+        "Parent" { @((":app:{0}" -f $assembleTask)) }
+        "Child" { @((":parentwatch:{0}" -f $assembleTask)) }
+        default { @((":app:{0}" -f $assembleTask), (":parentwatch:{0}" -f $assembleTask)) }
     }
 
-    $arguments = @(
-        $tasks
-        '--offline'
+    $arguments = @($tasks)
+    if (-not $AllowDependencyDownload) {
+        $arguments += '--offline'
+    }
+    $arguments += @(
         '--no-daemon'
         '--no-parallel'
         '--max-workers=1'
@@ -65,8 +90,8 @@ try {
         '-Dorg.gradle.vfs.watch=false'
         '-Pkotlin.compiler.execution.strategy=in-process'
         "-PcwIsolatedBuildRoot=$isolatedBuildRoot"
-        "-PcwVersionName=$versionName"
-        "-PcwVersionCode=$versionCode"
+        "-PcwVersionName=$resolvedVersionName"
+        "-PcwVersionCode=$resolvedVersionCode"
     )
 
     Push-Location $projectRoot
@@ -86,7 +111,7 @@ try {
     }
 
     $artifacts = foreach ($moduleName in $moduleNames) {
-        $apkDirectory = Join-Path $projectRoot "$isolatedBuildRoot/$moduleName/outputs/apk/debug"
+        $apkDirectory = Join-Path $projectRoot "$isolatedBuildRoot/$moduleName/outputs/apk/$($BuildType.ToLowerInvariant())"
         $apk = Get-ChildItem -LiteralPath $apkDirectory -Filter '*.apk' -File |
             Sort-Object LastWriteTime -Descending |
             Select-Object -First 1

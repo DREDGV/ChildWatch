@@ -15,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.vanniktech.emoji.EmojiPopup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -100,6 +101,7 @@ class ChatActivity : AppCompatActivity() {
     private var isChatUiActive = false
     private var chatUiListenersRegistered = false
     private var currentConnectionStatus = ConnectionStatus.CONNECTING
+    private var emojiPopup: EmojiPopup? = null
     // Typing indicator
     private val typingHandler = Handler(Looper.getMainLooper())
     private var typingRunnable: Runnable? = null
@@ -219,45 +221,19 @@ class ChatActivity : AppCompatActivity() {
 
         // Clear chat removed from UI
 
-        // Emoji button
-        binding.emojiButton.setOnClickListener {
-            showEmojiPicker()
-        }
-
-        setupQuickEmojiStrip()
+        setupEmojiPicker()
         
         // Setup typing indicator
         setupTypingIndicator()
         updateComposerState()
     }
 
-    private fun setupQuickEmojiStrip() {
-        binding.quickEmojiHeartButton.setOnClickListener { insertEmojiIntoInput(cp(0x2764, 0xFE0F)) }
-        binding.quickEmojiThumbButton.setOnClickListener { insertEmojiIntoInput(cp(0x1F44D)) }
-        binding.quickEmojiSmileButton.setOnClickListener { insertEmojiIntoInput(cp(0x1F60A)) }
-        binding.quickEmojiClapButton.setOnClickListener { insertEmojiIntoInput(cp(0x1F44F)) }
-        binding.quickEmojiCelebrateButton.setOnClickListener { insertEmojiIntoInput(cp(0x1F389)) }
-        binding.quickEmojiLaughButton.setOnClickListener { insertEmojiIntoInput(cp(0x1F602)) }
-        binding.quickEmojiSadButton.setOnClickListener { insertEmojiIntoInput(cp(0x1F622)) }
-        binding.quickEmojiSurprisedButton.setOnClickListener { insertEmojiIntoInput(cp(0x1F62E)) }
-        binding.quickEmojiPrayerButton.setOnClickListener { insertEmojiIntoInput(cp(0x1F64F)) }
-        binding.quickEmojiThinkingButton.setOnClickListener { insertEmojiIntoInput(cp(0x1F914)) }
-        binding.quickEmojiFireButton.setOnClickListener { insertEmojiIntoInput(cp(0x1F525)) }
-        binding.quickEmojiLoveButton.setOnClickListener { insertEmojiIntoInput(cp(0x1F60D)) }
-    }
-
-    private fun insertEmojiIntoInput(emoji: String) {
-        val currentText = binding.messageInput.text?.toString().orEmpty()
-        val cursorPosition = binding.messageInput.selectionStart
-            .coerceAtLeast(0)
-            .coerceAtMost(currentText.length)
-        val newText = currentText.substring(0, cursorPosition) +
-            emoji +
-            currentText.substring(cursorPosition)
-
-        binding.messageInput.setText(newText)
-        binding.messageInput.setSelection((cursorPosition + emoji.length).coerceAtMost(newText.length))
-        binding.messageInput.requestFocus()
+    private fun setupEmojiPicker() {
+        emojiPopup = EmojiPopup(binding.root, binding.messageInput)
+        binding.emojiButton.setOnClickListener {
+            binding.messageInput.requestFocus()
+            emojiPopup?.toggle()
+        }
     }
 
     /**
@@ -908,72 +884,6 @@ class ChatActivity : AppCompatActivity() {
     }
 
     /**
-     * Show emoji picker dialog
-     */
-    private fun showEmojiPicker() {
-        val emojis = listOf(
-            cp(0x1F60A), cp(0x1F602), cp(0x2764, 0xFE0F), cp(0x1F44D), cp(0x1F44B),
-            cp(0x1F64F), cp(0x1F60D), cp(0x1F622), cp(0x1F62D), cp(0x1F621),
-            cp(0x1F389), cp(0x1F38A), cp(0x1F380), cp(0x1F381), cp(0x2B50),
-            cp(0x2728), cp(0x1F525), cp(0x1F4AF), cp(0x2705), cp(0x274C),
-            cp(0x1F476), cp(0x1F466), cp(0x1F467), cp(0x1F468), cp(0x1F469),
-            cp(0x1F46A), cp(0x1F3E0), cp(0x1F3EB), cp(0x1F4DA), cp(0x270F, 0xFE0F),
-            cp(0x1F34E), cp(0x1F355), cp(0x1F370), cp(0x1F3AE), cp(0x26BD),
-            cp(0x1F3C0), cp(0x1F3B5), cp(0x1F4F1), cp(0x1F4BB), cp(0x1F697)
-        )
-
-        val builder = androidx.appcompat.app.AlertDialog.Builder(this)
-        builder.setTitle(getString(R.string.chat_emoji_picker_title))
-
-        // Create grid layout for emojis
-        val gridLayout = android.widget.GridLayout(this).apply {
-            columnCount = 5
-            setPadding(16, 16, 16, 16)
-        }
-
-        var dialogInstance: androidx.appcompat.app.AlertDialog? = null
-
-        emojis.forEach { emoji ->
-            val button = com.google.android.material.button.MaterialButton(
-                this,
-                null,
-                com.google.android.material.R.attr.materialButtonOutlinedStyle
-            ).apply {
-                text = emoji
-                textSize = 28f
-                minWidth = 0
-                minHeight = 0
-                minimumWidth = 0
-                minimumHeight = 0
-                setPadding(0, 0, 0, 0)
-                insetTop = 0
-                insetBottom = 0
-                iconPadding = 0
-
-                val size = (64 * resources.displayMetrics.density).toInt()
-                layoutParams = android.widget.GridLayout.LayoutParams().apply {
-                    width = size
-                    height = size
-                    setMargins(4, 4, 4, 4)
-                }
-                setOnClickListener {
-                    insertEmojiIntoInput(emoji)
-                    dialogInstance?.dismiss()
-                }
-            }
-            gridLayout.addView(button)
-        }
-
-        builder.setView(gridLayout)
-        builder.setNegativeButton(getString(R.string.chat_close), null)
-        dialogInstance = builder.show()
-    }
-
-    private fun cp(vararg codePoints: Int): String = buildString {
-        codePoints.forEach { append(String(Character.toChars(it))) }
-    }
-
-    /**
      * Load parent name from SharedPreferences and set chat title
      */
     private fun loadParentName() {
@@ -1179,6 +1089,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        emojiPopup?.dismiss()
         isChatUiActive = false
         isChatUiVisible = false  // Сбрасываем глобальный флаг
         unregisterChatUiListeners()
@@ -1192,6 +1103,8 @@ class ChatActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        emojiPopup?.dismiss()
+        emojiPopup = null
         super.onDestroy()
         
         // Stop typing indicator

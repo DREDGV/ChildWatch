@@ -1,7 +1,5 @@
 ﻿package ru.example.childwatch
 
-import android.content.Context
-import android.content.SharedPreferences
 import android.content.Intent
 import android.graphics.Color
 import android.os.Bundle
@@ -12,19 +10,13 @@ import android.text.TextWatcher
 import android.util.Log
 import android.view.View
 import android.widget.Toast
-import android.widget.GridLayout
-import android.widget.LinearLayout
-import android.widget.TextView
-import androidx.annotation.StringRes
 import androidx.activity.viewModels
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.setPadding
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.android.material.bottomsheet.BottomSheetDialog
-import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.vanniktech.emoji.EmojiPopup
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -61,9 +53,6 @@ class ChatActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "ChatActivity"
         const val EXTRA_TARGET_DEVICE_ID = "TARGET_DEVICE_ID"
-        private const val KEY_RECENT_EMOJIS = "recent_emojis"
-        private const val MAX_RECENT_EMOJIS = 18
-        private const val EMOJI_DELIMITER = "|:|"
         
         /**
          * Глобальный флаг активности UI чата для использования в ChatBackgroundService
@@ -104,13 +93,10 @@ class ChatActivity : AppCompatActivity() {
     private var isChatUiActive = false
     private var chatUiListenersRegistered = false
     private var currentConnectionStatus = ConnectionStatus.CONNECTING
-    private val emojiPrefs: SharedPreferences by lazy {
-        getSharedPreferences("chat_emoji_prefs", MODE_PRIVATE)
-    }
+    private var emojiPopup: EmojiPopup? = null
     private val chatNamespace: String by lazy {
         contextProvider.featureContext("chat")?.storageNamespace ?: "legacy"
     }
-    private val recentEmojisKey: String by lazy { "$chatNamespace::$KEY_RECENT_EMOJIS" }
     private val chatOpenKey: String by lazy { "$chatNamespace::chat_open" }
 
     private val typingHandler = Handler(Looper.getMainLooper())
@@ -119,66 +105,6 @@ class ChatActivity : AppCompatActivity() {
     private val TYPING_TIMEOUT = 5000L
     private val READ_RECEIPT_RETRY_MS = 4000L
     private val MAX_READ_RECEIPT_RETRIES = 3
-    private val defaultQuickEmojis by lazy {
-        listOf(
-            cp(0x2764, 0xFE0F), cp(0x1F44D), cp(0x1F60A), cp(0x1F602),
-            cp(0x1F44F), cp(0x1F389), cp(0x1F60D), cp(0x1F64F),
-            cp(0x1F970), cp(0x1F618), cp(0x1F525), cp(0x1F44C)
-        )
-    }
-    private val emojiCategories by lazy {
-        listOf(
-            EmojiCategory(
-                R.string.chat_emoji_category_smileys,
-                listOf(
-                    cp(0x1F60A), cp(0x1F603), cp(0x1F604), cp(0x1F601), cp(0x1F606), cp(0x1F609),
-                    cp(0x1F60D), cp(0x1F970), cp(0x1F618), cp(0x1F60E), cp(0x1F917), cp(0x1F914),
-                    cp(0x1F923), cp(0x1F602), cp(0x1F929), cp(0x1F60C), cp(0x1F61B), cp(0x1F61C)
-                )
-            ),
-            EmojiCategory(
-                R.string.chat_emoji_category_support,
-                listOf(
-                    cp(0x2764, 0xFE0F), cp(0x1F9E1), cp(0x1F49B), cp(0x1F49A), cp(0x1F499), cp(0x1F49C),
-                    cp(0x1F496), cp(0x2728), cp(0x1F44D), cp(0x1F44C), cp(0x1F44F), cp(0x1F64F),
-                    cp(0x1F90D), cp(0x1F90E), cp(0x1F495), cp(0x1F49E), cp(0x1F525), cp(0x1F4AF)
-                )
-            ),
-            EmojiCategory(
-                R.string.chat_emoji_category_family,
-                listOf(
-                    cp(0x1F476), cp(0x1F466), cp(0x1F467), cp(0x1F468), cp(0x1F469), cp(0x1F9D1),
-                    cp(0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F467), cp(0x1F468, 0x200D, 0x1F469, 0x200D, 0x1F466),
-                    cp(0x1F46A), cp(0x1F48F), cp(0x1F491), cp(0x1F3E0), cp(0x1F6CF, 0xFE0F), cp(0x1F6B8),
-                    cp(0x1F392), cp(0x1F4DA), cp(0x1F4D6), cp(0x1F381)
-                )
-            ),
-            EmojiCategory(
-                R.string.chat_emoji_category_activities,
-                listOf(
-                    cp(0x1F389), cp(0x1F38A), cp(0x1F381), cp(0x1F380), cp(0x1F3AE), cp(0x1F3B2),
-                    cp(0x26BD), cp(0x1F3C0), cp(0x1F3D0), cp(0x1F3A7), cp(0x1F3B5), cp(0x1F3B6),
-                    cp(0x1F3A4), cp(0x1F3A8), cp(0x1F4F7), cp(0x1F4F9), cp(0x2B50), cp(0x1F31F)
-                )
-            ),
-            EmojiCategory(
-                R.string.chat_emoji_category_food,
-                listOf(
-                    cp(0x1F34E), cp(0x1F34A), cp(0x1F353), cp(0x1F951), cp(0x1F355), cp(0x1F354),
-                    cp(0x1F35F), cp(0x1F32D), cp(0x1F36A), cp(0x1F370), cp(0x1F382), cp(0x1F369),
-                    cp(0x1F95B), cp(0x2615), cp(0x1F37F), cp(0x1F964), cp(0x1F36D), cp(0x1F36B)
-                )
-            ),
-            EmojiCategory(
-                R.string.chat_emoji_category_places,
-                listOf(
-                    cp(0x1F697), cp(0x1F699), cp(0x1F68C), cp(0x2708, 0xFE0F), cp(0x1F6B2), cp(0x1F6F4),
-                    cp(0x1F5FA, 0xFE0F), cp(0x1F3D5, 0xFE0F), cp(0x1F3D6, 0xFE0F), cp(0x1F30D), cp(0x1F30E), cp(0x1F30F),
-                    cp(0x1F4F1), cp(0x1F4BB), cp(0x1F4CD), cp(0x1F4A1), cp(0x23F0), cp(0x1F4E2)
-                )
-            )
-        )
-    }
 
     /**
      * Данные для повторной отправки read receipt
@@ -188,7 +114,6 @@ class ChatActivity : AppCompatActivity() {
         val attempts: Int = 0,
         val lastAttemptTime: Long = System.currentTimeMillis()
     )
-    private data class EmojiCategory(@StringRes val titleRes: Int, val emojis: List<String>)
     private val readReceiptRetries = Collections.synchronizedMap(mutableMapOf<String, ReadReceiptRetry>())
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -320,54 +245,19 @@ class ChatActivity : AppCompatActivity() {
         // Hide clear chat button (removed feature)
         binding.clearButton.visibility = View.GONE
 
-        // Emoji button
-        binding.emojiButton.setOnClickListener {
-            showEmojiPicker()
-        }
-
-        setupQuickEmojiStrip()
+        setupEmojiPicker()
         
         // Setup typing indicator
         setupTypingIndicator()
         updateComposerState()
     }
 
-    private fun setupQuickEmojiStrip() {
-        val buttons = listOf(
-            binding.quickEmojiHeartButton,
-            binding.quickEmojiThumbButton,
-            binding.quickEmojiSmileButton,
-            binding.quickEmojiClapButton,
-            binding.quickEmojiCelebrateButton,
-            binding.quickEmojiLaughButton,
-            binding.quickEmojiSadButton,
-            binding.quickEmojiSurprisedButton,
-            binding.quickEmojiPrayerButton,
-            binding.quickEmojiThinkingButton,
-            binding.quickEmojiFireButton,
-            binding.quickEmojiLoveButton
-        )
-        val emojis = (getRecentEmojis() + defaultQuickEmojis).distinct().take(buttons.size)
-        buttons.zip(emojis).forEach { (button, emoji) ->
-            button.text = emoji
-            button.setOnClickListener { insertEmojiIntoInput(emoji) }
+    private fun setupEmojiPicker() {
+        emojiPopup = EmojiPopup(binding.root, binding.messageInput)
+        binding.emojiButton.setOnClickListener {
+            binding.messageInput.requestFocus()
+            emojiPopup?.toggle()
         }
-    }
-
-    private fun insertEmojiIntoInput(emoji: String) {
-        val currentText = binding.messageInput.text?.toString().orEmpty()
-        val cursorPosition = binding.messageInput.selectionStart
-            .coerceAtLeast(0)
-            .coerceAtMost(currentText.length)
-        val newText = currentText.substring(0, cursorPosition) +
-            emoji +
-            currentText.substring(cursorPosition)
-
-        binding.messageInput.setText(newText)
-        binding.messageInput.setSelection((cursorPosition + emoji.length).coerceAtMost(newText.length))
-        binding.messageInput.requestFocus()
-        recordRecentEmoji(emoji)
-        setupQuickEmojiStrip()
     }
 
     /**
@@ -1089,134 +979,6 @@ class ChatActivity : AppCompatActivity() {
     }
 
     /**
-     * Show emoji picker dialog
-     */
-    private fun showEmojiPicker() {
-        val dialog = BottomSheetDialog(this)
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            setPadding(dp(20))
-        }
-
-        val titleView = TextView(this).apply {
-            text = getString(R.string.chat_emoji_picker_title)
-            setTextColor(Color.parseColor("#1F1F1F"))
-            textSize = 20f
-            setTypeface(typeface, android.graphics.Typeface.BOLD)
-        }
-        container.addView(titleView)
-
-        val subtitleView = TextView(this).apply {
-            text = getString(R.string.chat_emoji_picker_subtitle)
-            setTextColor(Color.parseColor("#6B7280"))
-            textSize = 13f
-            setPadding(0, dp(6), 0, dp(10))
-        }
-        container.addView(subtitleView)
-
-        val scrollView = android.widget.ScrollView(this).apply {
-            isFillViewport = true
-        }
-        val content = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-        }
-
-        val sections = buildList {
-            val recent = getRecentEmojis()
-            if (recent.isNotEmpty()) {
-                add(EmojiCategory(R.string.chat_emoji_category_recent, recent))
-            }
-            addAll(emojiCategories)
-        }
-
-        sections.forEachIndexed { index, category ->
-            val sectionTitle = TextView(this).apply {
-                text = getString(category.titleRes)
-                setTextColor(Color.parseColor("#374151"))
-                textSize = 13f
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
-                setPadding(0, if (index == 0) 0 else dp(14), 0, dp(8))
-            }
-            content.addView(sectionTitle)
-
-            val grid = GridLayout(this).apply {
-                columnCount = 6
-            }
-            category.emojis.forEach { emoji ->
-                grid.addView(createEmojiButton(emoji) {
-                    insertEmojiIntoInput(emoji)
-                    dialog.dismiss()
-                })
-            }
-            content.addView(grid)
-        }
-
-        scrollView.addView(content)
-        container.addView(
-            scrollView,
-            LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.MATCH_PARENT,
-                dp(460)
-            )
-        )
-
-        dialog.setContentView(container)
-        dialog.show()
-    }
-
-    private fun createEmojiButton(emoji: String, onClick: () -> Unit): MaterialButton {
-        return MaterialButton(
-            this,
-            null,
-            com.google.android.material.R.attr.materialButtonOutlinedStyle
-        ).apply {
-            text = emoji
-            textSize = 24f
-            minWidth = 0
-            minHeight = 0
-            minimumWidth = 0
-            minimumHeight = 0
-            setPadding(0, 0, 0, 0)
-            insetTop = 0
-            insetBottom = 0
-            iconPadding = 0
-            layoutParams = GridLayout.LayoutParams().apply {
-                width = dp(52)
-                height = dp(52)
-                setMargins(dp(4), dp(4), dp(4), dp(4))
-            }
-            setOnClickListener { onClick() }
-        }
-    }
-
-    private fun getRecentEmojis(): List<String> {
-        val scoped = emojiPrefs.getString(recentEmojisKey, null)
-        val stored = scoped ?: emojiPrefs.getString(KEY_RECENT_EMOJIS, null)?.also { legacy ->
-            emojiPrefs.edit().putString(recentEmojisKey, legacy).apply()
-        }
-        return stored
-            ?.split(EMOJI_DELIMITER)
-            ?.map { it.trim() }
-            ?.filter { it.isNotBlank() }
-            .orEmpty()
-    }
-
-    private fun recordRecentEmoji(emoji: String) {
-        val updated = (listOf(emoji) + getRecentEmojis())
-            .distinct()
-            .take(MAX_RECENT_EMOJIS)
-        emojiPrefs.edit()
-            .putString(recentEmojisKey, updated.joinToString(EMOJI_DELIMITER))
-            .apply()
-    }
-
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
-
-    private fun cp(vararg codePoints: Int): String = buildString {
-        codePoints.forEach { append(String(Character.toChars(it))) }
-    }
-
-    /**
      * Загрузить имя ребенка из БД и установить в заголовок
      */
     private fun loadChildName() {
@@ -1401,6 +1163,7 @@ class ChatActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        emojiPopup?.dismiss()
         isChatUiActive = false
         isChatUiVisible = false  // Сбрасываем глобальный флаг
         unregisterChatUiListeners()
@@ -1414,6 +1177,8 @@ class ChatActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        emojiPopup?.dismiss()
+        emojiPopup = null
         super.onDestroy()
         
         // Stop typing indicator

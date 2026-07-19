@@ -16,6 +16,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.app.RemoteInput
 import ru.example.parentwatch.MainActivity
+import ru.example.parentwatch.ChatConversationV2Activity
 import ru.example.parentwatch.R
 import ru.example.parentwatch.receiver.NotificationReplyReceiver
 import java.util.Calendar
@@ -37,9 +38,10 @@ object NotificationManager {
     private const val DEFAULT_QUIET_HOURS_END = "07:00"
     private const val STATE_PREFS_NAME = "chat_notification_state"
     private const val KEY_NOTIFIED_MESSAGE_IDS = "notified_message_ids"
+    private const val LEGACY_CONVERSATION_KEY = "legacy"
 
     private var unreadMessageCount = 0
-    private val messageHistory = mutableListOf<NotificationMessage>()
+    private val messageHistoryByConversation = mutableMapOf<String, MutableList<NotificationMessage>>()
 
     data class NotificationMessage(
         val senderName: String,
@@ -74,12 +76,15 @@ object NotificationManager {
         )
     }
 
+    @Synchronized
     fun showChatNotification(
         context: Context,
         senderName: String = context.getString(R.string.notification_preview_sender),
         messageText: String,
         timestamp: Long = System.currentTimeMillis(),
-        messageId: String? = null
+        messageId: String? = null,
+        conversationId: String? = null,
+        conversationTitle: String? = null
     ) {
         if (shouldSuppressMessageNotification(context, messageId)) {
             Log.d(TAG, "Skipping duplicate chat notification for messageId=$messageId")
@@ -88,6 +93,8 @@ object NotificationManager {
         rememberNotifiedMessageId(context, messageId)
         unreadMessageCount++
 
+        val historyKey = conversationId?.takeIf { it.isNotBlank() } ?: LEGACY_CONVERSATION_KEY
+        val messageHistory = messageHistoryByConversation.getOrPut(historyKey) { mutableListOf() }
         messageHistory.add(NotificationMessage(senderName, messageText, timestamp))
         if (messageHistory.size > MAX_HISTORY_SIZE) {
             messageHistory.removeAt(0)
@@ -102,7 +109,9 @@ object NotificationManager {
             settings = settings,
             unreadCount = unreadMessageCount,
             displayHistory = messageHistory.toList(),
-            includeReplyAction = true
+            includeReplyAction = conversationId == null,
+            conversationId = conversationId,
+            conversationTitle = conversationTitle
         )
 
         notifySafely(context, CHAT_NOTIFICATION_ID, builder.build())
@@ -135,18 +144,20 @@ object NotificationManager {
         notifySafely(context, CHAT_PREVIEW_NOTIFICATION_ID, builder.build())
     }
 
+    @Synchronized
     fun cancelChatNotification(context: Context) {
         with(NotificationManagerCompat.from(context)) {
             cancel(CHAT_NOTIFICATION_ID)
             cancel(CHAT_PREVIEW_NOTIFICATION_ID)
         }
         unreadMessageCount = 0
-        messageHistory.clear()
+        messageHistoryByConversation.clear()
     }
 
+    @Synchronized
     fun resetUnreadCount() {
         unreadMessageCount = 0
-        messageHistory.clear()
+        messageHistoryByConversation.clear()
     }
 
     fun getUnreadCount(): Int = unreadMessageCount
@@ -327,13 +338,15 @@ object NotificationManager {
         settings: ChatNotificationSettings,
         unreadCount: Int,
         displayHistory: List<NotificationMessage>,
-        includeReplyAction: Boolean
+        includeReplyAction: Boolean,
+        conversationId: String? = null,
+        conversationTitle: String? = null
     ): NotificationCompat.Builder {
         val channelId = ensureChatChannel(context, settings)
-        val pendingIntent = buildOpenChatPendingIntent(context)
+        val pendingIntent = buildOpenChatPendingIntent(context, conversationId, conversationTitle)
         val builder = NotificationCompat.Builder(context, channelId)
             .setSmallIcon(R.mipmap.ic_launcher)
-            .setContentTitle(context.getString(R.string.notification_content_title))
+            .setContentTitle(conversationTitle ?: context.getString(R.string.notification_content_title))
             .setContentText(messageText)
             .setPriority(mapCompatPriority(settings.priority))
             .setAutoCancel(true)
@@ -356,7 +369,7 @@ object NotificationManager {
         if (settings.size == "expanded") {
             val messagingStyle =
                 NotificationCompat.MessagingStyle(context.getString(R.string.notification_user_self))
-                    .setConversationTitle(context.getString(R.string.notification_conversation_title))
+                    .setConversationTitle(conversationTitle ?: context.getString(R.string.notification_conversation_title))
             displayHistory.forEach { msg ->
                 messagingStyle.addMessage(
                     NotificationCompat.MessagingStyle.Message(
@@ -443,15 +456,27 @@ object NotificationManager {
             .build()
     }
 
-    private fun buildOpenChatPendingIntent(context: Context): PendingIntent {
-        val intent = Intent(context, MainActivity::class.java).apply {
+    private fun buildOpenChatPendingIntent(
+        context: Context,
+        conversationId: String? = null,
+        conversationTitle: String? = null
+    ): PendingIntent {
+        val intent = Intent(
+            context,
+            if (conversationId.isNullOrBlank()) MainActivity::class.java else ChatConversationV2Activity::class.java
+        ).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
-            putExtra("open_chat", true)
+            if (conversationId.isNullOrBlank()) {
+                putExtra("open_chat", true)
+            } else {
+                putExtra(ChatConversationV2Activity.EXTRA_CONVERSATION_ID, conversationId)
+                putExtra(ChatConversationV2Activity.EXTRA_CONVERSATION_TITLE, conversationTitle)
+            }
         }
 
         return PendingIntent.getActivity(
             context,
-            0,
+            conversationId?.hashCode() ?: 0,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )

@@ -18,6 +18,7 @@ import java.io.IOException
 import java.security.cert.CertificateException
 import java.security.cert.X509Certificate
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.ConcurrentHashMap
 import javax.net.ssl.*
 
 /**
@@ -73,6 +74,20 @@ class NetworkClient(private val context: Context) {
         .addInterceptor(createLoggingInterceptor())
         .certificatePinner(createCertificatePinner())
         .build()
+    private val chatV2Apis = ConcurrentHashMap<String, ChildWatchApi>()
+
+    /** Authenticated chat API backed by the token-refreshing primary client. */
+    fun getChatV2Api(serverUrl: String): ChildWatchApi {
+        val baseUrl = ensureHttpsUrl(serverUrl.trim()).trimEnd('/') + "/"
+        return chatV2Apis.getOrPut(baseUrl) {
+            retrofit2.Retrofit.Builder()
+                .baseUrl(baseUrl)
+                .client(client)
+                .addConverterFactory(retrofit2.converter.gson.GsonConverterFactory.create())
+                .build()
+                .create(ChildWatchApi::class.java)
+        }
+    }
     
     /**
      * Set authentication token
@@ -1810,5 +1825,4 @@ private fun JSONObject.toParentLocationData(fallbackId: String, idKey: String): 
         bearing = if (has("bearing") && !isNull("bearing")) optDouble("bearing", 0.0).toFloat() else null
     )
 }
-
 

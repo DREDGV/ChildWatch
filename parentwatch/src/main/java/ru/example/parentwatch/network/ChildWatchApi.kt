@@ -2,6 +2,14 @@ package ru.example.parentwatch.network
 
 import retrofit2.Response
 import retrofit2.http.*
+import ru.childwatch.shared.chat.ChatV2ConversationsResponse
+import ru.childwatch.shared.chat.ChatV2DirectConversationRequest
+import ru.childwatch.shared.chat.ChatV2DirectConversationResponse
+import ru.childwatch.shared.chat.ChatV2MessagesResponse
+import ru.childwatch.shared.chat.ChatV2ReceiptRequest
+import ru.childwatch.shared.chat.ChatV2ReceiptResponse
+import ru.childwatch.shared.chat.ChatV2SendMessageRequest
+import ru.childwatch.shared.chat.ChatV2SendMessageResponse
 
 /**
  * Retrofit API interface for ChildWatch server communication
@@ -73,6 +81,33 @@ interface ChildWatchApi {
         @Path("deviceId") deviceId: String,
         @Query("limit") limit: Int = 100
     ): Response<ChatHistoryResponse>
+
+    @GET("api/chat/v2/conversations")
+    suspend fun getChatV2Conversations(): Response<ChatV2ConversationsResponse>
+
+    @POST("api/chat/v2/conversations/direct")
+    suspend fun createChatV2DirectConversation(
+        @Body request: ChatV2DirectConversationRequest
+    ): Response<ChatV2DirectConversationResponse>
+
+    @GET("api/chat/v2/conversations/{conversationId}/messages")
+    suspend fun getChatV2Messages(
+        @Path("conversationId") conversationId: String,
+        @Query("beforeSequence") beforeSequence: Long? = null,
+        @Query("limit") limit: Int = 50
+    ): Response<ChatV2MessagesResponse>
+
+    @POST("api/chat/v2/conversations/{conversationId}/messages")
+    suspend fun sendChatV2Message(
+        @Path("conversationId") conversationId: String,
+        @Body request: ChatV2SendMessageRequest
+    ): Response<ChatV2SendMessageResponse>
+
+    @POST("api/chat/v2/conversations/{conversationId}/receipts")
+    suspend fun sendChatV2Receipt(
+        @Path("conversationId") conversationId: String,
+        @Body request: ChatV2ReceiptRequest
+    ): Response<ChatV2ReceiptResponse>
 
     /**
      * Mark chat messages as read
@@ -222,4 +257,3 @@ data class GenericResponse(
     val message: String? = null,
     val deviceId: String? = null
 )
-

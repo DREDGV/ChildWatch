@@ -8,6 +8,7 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import ru.example.childwatch.database.dao.*
 import ru.example.childwatch.database.entity.*
+import ru.example.childwatch.database.migration.ChatV2Migration
 
 /**
  * ChildWatch Room Database
@@ -33,18 +34,24 @@ import ru.example.childwatch.database.entity.*
  *
  * Version 5: Normalize children defaults for contact fields
  * Version 6: Rebuild children table to align schema hash on upgraded installs
+ * Version 7: Add stable chat author metadata
+ * Version 8: Add conversation/member/message/outbox v2 chat projection
  */
 @Database(
     entities = [
         Child::class,
         Parent::class,
         ChatMessageEntity::class,
+        ChatConversationV2Entity::class,
+        ChatConversationMemberV2Entity::class,
+        ChatMessageV2Entity::class,
+        ChatOutboxV2Entity::class,
         AudioRecording::class,
         LocationPoint::class,
         ParentLocation::class,
         Geofence::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = true
 )
 abstract class ChildWatchDatabase : RoomDatabase() {
@@ -63,6 +70,15 @@ abstract class ChildWatchDatabase : RoomDatabase() {
      * Get ChatMessageDao instance
      */
     abstract fun chatMessageDao(): ChatMessageDao
+
+    /** Conversation-based chat storage introduced in schema v8. */
+    abstract fun chatConversationV2Dao(): ChatConversationV2Dao
+
+    abstract fun chatConversationMemberV2Dao(): ChatConversationMemberV2Dao
+
+    abstract fun chatMessageV2Dao(): ChatMessageV2Dao
+
+    abstract fun chatOutboxV2Dao(): ChatOutboxV2Dao
 
     /**
      * Get AudioRecordingDao instance
@@ -350,6 +366,8 @@ abstract class ChildWatchDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8: Migration = ChatV2Migration.MIGRATION_7_8
+
         /**
          * Get database instance (Singleton pattern)
          *
@@ -369,7 +387,8 @@ abstract class ChildWatchDatabase : RoomDatabase() {
                         MIGRATION_3_4,
                         MIGRATION_4_5,
                         MIGRATION_5_6,
-                        MIGRATION_6_7
+                        MIGRATION_6_7,
+                        MIGRATION_7_8
                     )
                     // Only allow destructive migration on DOWNGRADE (not upgrade)
                     // This preserves data on upgrades while allowing clean reinstalls

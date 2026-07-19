@@ -261,9 +261,7 @@ class MainActivity : AppCompatActivity() {
                 Log.e(TAG, "Failed to mark chat messages as read before opening chat", e)
             }
             updateChatBadge()
-            val intent = Intent(this@MainActivity, ChatActivity::class.java).apply {
-                putExtra(ChatActivity.EXTRA_TARGET_DEVICE_ID, targetDeviceId)
-            }
+            val intent = Intent(this@MainActivity, ChatConversationsActivity::class.java)
             startActivity(intent)
         }
 
@@ -271,7 +269,7 @@ class MainActivity : AppCompatActivity() {
             ParentAttentionSignalLauncher.show(this)
         }
         
-        // Р•РґРёРЅСЃС‚РІРµРЅРЅР°СЏ РєРЅРѕРїРєР° РєР°РјРµСЂС‹ - СѓРґР°Р»С‘РЅРЅР°СЏ СЃСЉС‘РјРєР°
+        // Единственная кнопка камеры — удалённая съёмка.
         binding.remoteCameraCard.setOnClickListener {
             openRemoteCamera()
         }

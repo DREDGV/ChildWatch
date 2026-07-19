@@ -47,6 +47,18 @@ object WebSocketManager {
         mutableSetOf<(JSONObject) -> Unit>()
     )
     private val pendingAttentionStatuses = mutableListOf<JSONObject>()
+    private val chatV2MessageListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(JSONObject) -> Unit>()
+    )
+    private val chatV2ReceiptListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(JSONObject) -> Unit>()
+    )
+    private val chatV2ErrorListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(JSONObject) -> Unit>()
+    )
+    private val chatV2Subscriptions = java.util.Collections.synchronizedMap(
+        mutableMapOf<String, Int>()
+    )
 
     /**
      * Initialize WebSocket client
@@ -90,6 +102,7 @@ object WebSocketManager {
         childConnectedCallback?.let { webSocketClient?.setChildConnectedCallback(it) }
         childDisconnectedCallback?.let { webSocketClient?.setChildDisconnectedCallback(it) }
         configureAttentionCallbacks()
+        configureChatV2Callbacks()
         isInitialized = true
         currentServerUrl = serverUrl
         currentDeviceId = childDeviceId
@@ -123,6 +136,7 @@ object WebSocketManager {
             childDisconnectedCallback?.let { setChildDisconnectedCallback(it) }
             streamTakeoverRequestedCallback?.let { setStreamTakeoverRequestedCallback(it) }
             configureAttentionCallbacks()
+            configureChatV2Callbacks()
             connect(onConnected, onError)
         }
     }
@@ -652,7 +666,7 @@ object WebSocketManager {
     /**
      * Cleanup resources
      */
-    fun cleanup() {
+    fun cleanup(preserveChatV2: Boolean = false) {
         webSocketClient?.cleanup()
         webSocketClient = null
         isInitialized = false
@@ -674,6 +688,111 @@ object WebSocketManager {
         photoErrorListeners.clear()
         photoQueuedListeners.clear()
         photoBusyListeners.clear()
+        if (!preserveChatV2) {
+            chatV2MessageListeners.clear()
+            chatV2ReceiptListeners.clear()
+            chatV2ErrorListeners.clear()
+            chatV2Subscriptions.clear()
+        }
+    }
+
+    private fun configureChatV2Callbacks() {
+        webSocketClient?.setChatV2Callbacks(
+            onMessage = { dispatchChatV2(chatV2MessageListeners, it, "message") },
+            onReceiptUpdated = { dispatchChatV2(chatV2ReceiptListeners, it, "receipt") },
+            onError = { dispatchChatV2(chatV2ErrorListeners, it, "error") },
+            onTransportReady = ::restoreChatV2Subscriptions
+        )
+    }
+
+    private fun dispatchChatV2(
+        listeners: MutableSet<(JSONObject) -> Unit>,
+        payload: JSONObject,
+        event: String
+    ) {
+        val snapshot = synchronized(listeners) { listeners.toList() }
+        snapshot.forEach { listener ->
+            runCatching { listener(payload) }
+                .onFailure { Log.e(TAG, "Chat v2 $event listener failed", it) }
+        }
+    }
+
+    fun addChatV2MessageListener(listener: (JSONObject) -> Unit) {
+        chatV2MessageListeners.add(listener)
+        configureChatV2Callbacks()
+    }
+
+    fun removeChatV2MessageListener(listener: (JSONObject) -> Unit) {
+        chatV2MessageListeners.remove(listener)
+    }
+
+    fun addChatV2ReceiptListener(listener: (JSONObject) -> Unit) {
+        chatV2ReceiptListeners.add(listener)
+        configureChatV2Callbacks()
+    }
+
+    fun removeChatV2ReceiptListener(listener: (JSONObject) -> Unit) {
+        chatV2ReceiptListeners.remove(listener)
+    }
+
+    fun addChatV2ErrorListener(listener: (JSONObject) -> Unit) {
+        chatV2ErrorListeners.add(listener)
+        configureChatV2Callbacks()
+    }
+
+    fun removeChatV2ErrorListener(listener: (JSONObject) -> Unit) {
+        chatV2ErrorListeners.remove(listener)
+    }
+
+    fun subscribeChatV2(conversationId: String): Boolean {
+        val normalized = conversationId.trim()
+        if (normalized.isEmpty()) return false
+        val shouldEmit = synchronized(chatV2Subscriptions) {
+            val count = chatV2Subscriptions[normalized] ?: 0
+            chatV2Subscriptions[normalized] = count + 1
+            count == 0
+        }
+        return !shouldEmit || emitChatV2("chat_v2:subscribe", normalized)
+    }
+
+    fun unsubscribeChatV2(conversationId: String): Boolean {
+        val normalized = conversationId.trim()
+        if (normalized.isEmpty()) return false
+        val shouldEmit = synchronized(chatV2Subscriptions) {
+            val count = chatV2Subscriptions[normalized] ?: return@synchronized false
+            if (count <= 1) chatV2Subscriptions.remove(normalized)
+            else chatV2Subscriptions[normalized] = count - 1
+            count <= 1
+        }
+        return !shouldEmit || emitChatV2("chat_v2:unsubscribe", normalized)
+    }
+
+    private fun restoreChatV2Subscriptions() {
+        val snapshot = synchronized(chatV2Subscriptions) { chatV2Subscriptions.keys.toList() }
+        snapshot.forEach { emitChatV2("chat_v2:subscribe", it) }
+    }
+
+    private fun emitChatV2(event: String, conversationId: String): Boolean {
+        val client = webSocketClient?.takeIf { it.isReady() } ?: return false
+        client.emit(event, JSONObject().put("conversationId", conversationId))
+        return true
+    }
+
+    fun sendChatV2Message(
+        conversationId: String,
+        clientMessageId: String,
+        text: String,
+        clientSentAt: Long,
+        callback: (JSONObject) -> Unit
+    ): Boolean {
+        val client = webSocketClient?.takeIf { it.isReady() } ?: return false
+        val payload = JSONObject().apply {
+            put("conversationId", conversationId)
+            put("clientMessageId", clientMessageId)
+            put("text", text)
+            put("clientSentAt", clientSentAt)
+        }
+        return client.emitWithAck("chat_v2:send", payload, callback)
     }
 
     private fun configureAttentionCallbacks() {

@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import android.util.Base64
 import io.socket.client.IO
+import io.socket.client.Ack
 import io.socket.client.Socket
 import io.socket.emitter.Emitter
 import kotlinx.coroutines.*
@@ -78,6 +79,10 @@ class WebSocketClient(
     private var onAttentionStopCallback: ((JSONObject) -> Unit)? = null
     private var onAttentionStatusCallback: ((JSONObject) -> Unit)? = null
     private var onAttentionTransportReadyCallback: (() -> Unit)? = null
+    private var onChatV2MessageCallback: ((JSONObject) -> Unit)? = null
+    private var onChatV2ReceiptCallback: ((JSONObject) -> Unit)? = null
+    private var onChatV2ErrorCallback: ((JSONObject) -> Unit)? = null
+    private var onChatV2TransportReadyCallback: (() -> Unit)? = null
     
     // Track last processed sequence to prevent duplicates
     private var lastProcessedSequence = -1
@@ -270,6 +275,7 @@ class WebSocketClient(
             isRegistered = true
             audioDeviceMismatchLogged = false
             onAttentionTransportReadyCallback?.invoke()
+            onChatV2TransportReadyCallback?.invoke()
             onRegisteredCallback?.invoke()
             if (shouldRequestMissedMessagesAfterRegistration) {
                 shouldRequestMissedMessagesAfterRegistration = false
@@ -795,6 +801,27 @@ class WebSocketClient(
         }
     }
 
+    private val onChatV2Message = Emitter.Listener { args ->
+        (args.getOrNull(0) as? JSONObject)?.let { payload ->
+            runCatching { onChatV2MessageCallback?.invoke(payload) }
+                .onFailure { Log.e(TAG, "Error handling chat_v2:message", it) }
+        }
+    }
+
+    private val onChatV2ReceiptUpdated = Emitter.Listener { args ->
+        (args.getOrNull(0) as? JSONObject)?.let { payload ->
+            runCatching { onChatV2ReceiptCallback?.invoke(payload) }
+                .onFailure { Log.e(TAG, "Error handling chat_v2:receipt_updated", it) }
+        }
+    }
+
+    private val onChatV2Error = Emitter.Listener { args ->
+        (args.getOrNull(0) as? JSONObject)?.let { payload ->
+            runCatching { onChatV2ErrorCallback?.invoke(payload) }
+                .onFailure { Log.e(TAG, "Error handling chat_v2:error", it) }
+        }
+    }
+
     /**
      * Connect to WebSocket server
      */
@@ -877,6 +904,9 @@ class WebSocketClient(
             socket?.on(AttentionSignalContract.EVENT_START, onAttentionStart)
             socket?.on(AttentionSignalContract.EVENT_STOP, onAttentionStop)
             socket?.on(AttentionSignalContract.EVENT_STATUS, onAttentionStatus)
+            socket?.on("chat_v2:message", onChatV2Message)
+            socket?.on("chat_v2:receipt_updated", onChatV2ReceiptUpdated)
+            socket?.on("chat_v2:error", onChatV2Error)
 
             socket?.connect()
 
@@ -1276,6 +1306,20 @@ class WebSocketClient(
         socket?.emit(event, data)
     }
 
+    fun emitWithAck(event: String, data: JSONObject, callback: (JSONObject) -> Unit): Boolean {
+        if (!isReady()) return false
+        val activeSocket = socket ?: return false
+        activeSocket.emit(event, data, Ack { args ->
+            val payload = when (val raw = args.getOrNull(0)) {
+                is JSONObject -> raw
+                is String -> runCatching { JSONObject(raw) }.getOrNull()
+                else -> null
+            } ?: JSONObject().put("success", false).put("code", "INVALID_ACK")
+            callback(payload)
+        })
+        return true
+    }
+
     fun setAttentionCallbacks(
         onStart: ((JSONObject) -> Unit)?,
         onStop: ((JSONObject) -> Unit)?,
@@ -1286,6 +1330,18 @@ class WebSocketClient(
         onAttentionStopCallback = onStop
         onAttentionStatusCallback = onStatus
         onAttentionTransportReadyCallback = onTransportReady
+    }
+
+    fun setChatV2Callbacks(
+        onMessage: ((JSONObject) -> Unit)?,
+        onReceiptUpdated: ((JSONObject) -> Unit)?,
+        onError: ((JSONObject) -> Unit)?,
+        onTransportReady: (() -> Unit)? = null
+    ) {
+        onChatV2MessageCallback = onMessage
+        onChatV2ReceiptCallback = onReceiptUpdated
+        onChatV2ErrorCallback = onError
+        onChatV2TransportReadyCallback = onTransportReady
     }
 
     /**
@@ -1316,6 +1372,10 @@ class WebSocketClient(
         onAttentionStopCallback = null
         onAttentionStatusCallback = null
         onAttentionTransportReadyCallback = null
+        onChatV2MessageCallback = null
+        onChatV2ReceiptCallback = null
+        onChatV2ErrorCallback = null
+        onChatV2TransportReadyCallback = null
     }
 
     private fun failPendingChat(reason: String) {

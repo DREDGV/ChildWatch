@@ -48,6 +48,7 @@
 
     <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
     <application
+        android:name=".ChildWatchApplication"
         android:allowBackup="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
         android:fullBackupContent="@xml/backup_rules"
@@ -131,6 +132,16 @@
         <activity
             android:name=".ChatActivity"
             android:exported="false"
+            android:theme="@style/Theme.ChildWatch" />
+        <activity
+            android:name=".ChatConversationsActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity"
+            android:theme="@style/Theme.ChildWatch" />
+        <activity
+            android:name=".ChatConversationV2Activity"
+            android:exported="false"
+            android:parentActivityName=".ChatConversationsActivity"
             android:theme="@style/Theme.ChildWatch" />
             
         <!-- FileProvider for camera -->

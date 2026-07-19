@@ -19,6 +19,7 @@ import ru.example.childwatch.R
 import ru.example.childwatch.chat.ChatManager
 import ru.example.childwatch.chat.ChatMessage
 import ru.example.childwatch.chat.ChatMessageRuntimeRegistry
+import ru.example.childwatch.chat.v2.ChatV2BackgroundCoordinator
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.remote.RemotePhotoErrorMessages
 import ru.example.childwatch.profile.ParentActiveSession
@@ -80,6 +81,7 @@ class ChatBackgroundService : LifecycleService() {
     private var photoErrorListener: ((String, String) -> Unit)? = null
     private var lastNotificationText: String? = null
     private lateinit var attentionSignalRuntime: AttentionSignalRuntime
+    private lateinit var chatV2Coordinator: ChatV2BackgroundCoordinator
     private val attentionStartListener: (org.json.JSONObject) -> Unit = { attentionSignalRuntime.handleStart(it) }
     private val attentionStopListener: (org.json.JSONObject) -> Unit = { attentionSignalRuntime.handleStop(it) }
 
@@ -100,6 +102,7 @@ class ChatBackgroundService : LifecycleService() {
             notificationIcon = R.drawable.ic_notification,
             appName = getString(R.string.app_name)
         )
+        chatV2Coordinator = ChatV2BackgroundCoordinator(this, lifecycleScope)
         WebSocketManager.addAttentionStartListener(attentionStartListener)
         WebSocketManager.addAttentionStopListener(attentionStopListener)
         createNotificationChannel()
@@ -194,7 +197,10 @@ class ChatBackgroundService : LifecycleService() {
         ) {
             val wasAlreadyConnected = WebSocketManager.isConnected()
             WebSocketManager.ensureConnected(
-                onReady = { updateNotification("Фоновая связь активна") },
+                onReady = {
+                    updateNotification("Фоновая связь активна")
+                    chatV2Coordinator.start(serverUrl, childDeviceId)
+                },
                 onError = { updateNotification("Ошибка подключения") }
             )
             return
@@ -209,7 +215,7 @@ class ChatBackgroundService : LifecycleService() {
         }
 
         // Cleanup and reinitialize WebSocket
-        WebSocketManager.cleanup()
+        WebSocketManager.cleanup(preserveChatV2 = true)
 
         // Prepare modern chat adapter (Room-based) bound to current child
         chatManagerAdapter = ru.example.childwatch.chat.ChatManagerAdapter(this, childDeviceId)
@@ -337,6 +343,7 @@ class ChatBackgroundService : LifecycleService() {
                             maybeStartParentLocationService()
                             // Запускаем heartbeat для стабильности
                             try { WebSocketManager.getClient()?.startHeartbeat() } catch (_: Exception) {}
+                            chatV2Coordinator.start(serverUrl, childDeviceId)
                             connected = true
                         },
                         onError = { error ->
@@ -380,6 +387,7 @@ class ChatBackgroundService : LifecycleService() {
         serviceChatListener = null
         chatMessageSentListener?.let { WebSocketManager.removeChatMessageSentListener(it) }
         chatMessageSentListener = null
+        if (::chatV2Coordinator.isInitialized) chatV2Coordinator.stop()
 
         // Stop foreground
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -620,6 +628,7 @@ class ChatBackgroundService : LifecycleService() {
         photoReceivedListener = null
         photoErrorListener?.let { WebSocketManager.removePhotoErrorListener(it) }
         photoErrorListener = null
+        if (::chatV2Coordinator.isInitialized) chatV2Coordinator.stop()
         WebSocketManager.removeAttentionStartListener(attentionStartListener)
         WebSocketManager.removeAttentionStopListener(attentionStopListener)
         if (::attentionSignalRuntime.isInitialized) attentionSignalRuntime.shutdown()

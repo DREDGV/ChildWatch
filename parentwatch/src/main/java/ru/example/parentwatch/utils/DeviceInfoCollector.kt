@@ -12,8 +12,8 @@ import ru.example.parentwatch.service.AppUsageTracker
  * Collects device battery and hardware information for ParentWatch uploads.
  */
 object DeviceInfoCollector {
-    private const val APP_USAGE_CACHE_TTL_MS = 2 * 60 * 1000L
-    private const val APP_USAGE_UPLOAD_TTL_MS = 5 * 60 * 1000L
+    private const val APP_USAGE_CACHE_TTL_MS = 60 * 1000L
+    private const val APP_USAGE_UPLOAD_TTL_MS = 2 * 60 * 1000L
 
     @Volatile
     private var cachedAppUsageJson: String? = null
@@ -80,7 +80,7 @@ object DeviceInfoCollector {
 
         val result = if (appUsageTracker.hasUsageStatsPermission()) {
             val currentApp = appUsageTracker.getCurrentApp()
-            val recentApps = appUsageTracker.getRecentApps(limit = 8)
+            val recentApps = appUsageTracker.getRecentApps(limit = 30)
             JSONObject().apply {
                 put(
                     "currentApp",

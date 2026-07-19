@@ -24,6 +24,7 @@ out/
 .gradle-agent-home-*/
 .codex-build/
 artifacts/android/
+artifacts/server/
 .gradle-cache-quarantine/
 build/
 
@@ -144,3 +145,4 @@ childwatch.db
 parent_repro_logcat.txt
 server/*.zip
 server/deploy/
+.android-signing/

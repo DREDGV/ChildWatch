@@ -12,11 +12,21 @@ See [CHANGELOG-v7.2.0.md](CHANGELOG-v7.2.0.md) for the verified release summary 
 
 ### Added
 
+- Added conversation-based chat v2 with one permanent family chat and private one-to-one chats between members of the same family.
+- Added stable family-member identities, per-conversation membership checks, delivery/read receipts, durable offline outbox, reconnect recovery, and cursor-based history pagination.
+- Added matching conversation lists in ParentMonitor and ChildDevice with participant names, last-message previews, timestamps, and unread counters.
+- Added a modern shared Google emoji renderer and picker in both applications.
+- Added realtime chat subscriptions and background notifications that open the exact conversation and suppress duplicates while that conversation is visible.
+
 - Added the shared Android `design-system` library used by both applications: day/night color tokens, typography, spacing, cards, buttons, semantic statuses, and a visually separate diagnostics treatment.
 
 - Для функции «Сигнал внимания» добавлены короткие варианты длительности 2 и 3 секунды; единый диапазон 2–60 секунд проверяется Android-клиентами и сервером.
 
 ### Changed
+
+- Android release line advanced to `7.3`; the server reports version `2.1.0` consistently from `package.json` in health and diagnostics output.
+- Chat opens at the newest messages, preserves the reading position when older history is viewed, and offers a new-message shortcut instead of forcing the list to jump.
+- Existing legacy family chat remains available during the transition and is migrated additively without destructive database fallback.
 
 - Redesigned both Android home screens around family-facing status and quick actions; raw device identifiers and server details are no longer shown on the main dashboard.
 
@@ -26,6 +36,18 @@ See [CHANGELOG-v7.2.0.md](CHANGELOG-v7.2.0.md) for the verified release summary 
 - Имена APK продолжают формироваться автоматически как `ParentMonitor-v<version>-debug.apk` и `ChildDevice-v<version>-debug.apk`.
 
 ### Fixed
+
+- Chat conversation lists and message history now render from the local cache first instead of waiting for a network round trip.
+- Chat v2 sends messages over the active WebSocket with an idempotent three-second HTTP fallback, and incoming WebSocket messages are cached immediately.
+- Audio playback drops stale buffered frames after a network burst so monitoring can recover latency instead of replaying delayed sound.
+- ChildDevice activity collection now keeps up to 30 user-facing apps from the last 24 hours; launcher apps are filtered before applying the limit so games and preinstalled user apps are not accidentally hidden.
+- Fixed long conversations stopping at 200 visible messages even after older pages had been downloaded; the network page remains bounded while the local window can display up to 10,000 cached messages.
+- Fixed notification history from different family and personal conversations being mixed in one expanded notification.
+- Fixed chat v2 subscriptions and listeners being lost during ordinary WebSocket self-recovery.
+- Fixed Gradle/Kotlin cache instability after interrupted Windows sessions by keeping compilation in-process and excluding project-local agent caches from version control.
+- Fixed the UTF-8 source guard so dependency files under `node_modules` no longer produce false failures while project sources remain checked strictly.
+- Fixed chat v2 startup migration blocking the HTTP port on long-lived databases with thousands of legacy device links; an already complete family projection is now detected and skipped, family-chat membership is inserted in bulk, and legacy-message import reports bounded progress.
+- Fixed legacy chat migration creating hundreds of thousands of meaningless delivery receipts for stale provisional device identities; live family chat now uses recent or explicitly bound members and removes only clearly pathological legacy receipt fan-out once.
 
 - Family-member display names now stay synchronized when an existing parent/child link is renamed, so attention notifications identify the person instead of retaining an old phone-model label.
 - Attention signal senders no longer submit legacy local family/member identifiers; the authenticated device pair is now resolved and verified by the server, preventing false `FAMILY_ID_MISMATCH` rejections.

@@ -202,6 +202,16 @@
         android:padding="8dp"
         android:scrollbars="vertical" />
 
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/newMessagesButton"
+        style="@style/Widget.Material3.Button.TonalButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginBottom="6dp"
+        android:text="@string/chat_v2_new_messages"
+        android:visibility="gone" />
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -210,6 +220,22 @@
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:padding="12dp">
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/emojiButton"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:layout_marginEnd="8dp"
+            android:contentDescription="@string/chat_emoji_button_content_description"
+            android:insetTop="0dp"
+            android:insetBottom="0dp"
+            android:minWidth="48dp"
+            android:tooltipText="@string/chat_emoji_button_label"
+            app:icon="@drawable/ic_emoji"
+            app:iconGravity="textStart"
+            app:iconPadding="0dp"
+            app:iconTint="@color/emerald_primary" />
 
         <com.google.android.material.textfield.TextInputLayout
             android:layout_width="0dp"
@@ -222,7 +248,7 @@
             app:boxCornerRadiusTopEnd="24dp"
             app:boxCornerRadiusTopStart="24dp">
 
-            <com.google.android.material.textfield.TextInputEditText
+            <com.vanniktech.emoji.EmojiEditText
                 android:id="@+id/messageInput"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -267,188 +293,5 @@
         android:textColor="#6B7280"
         android:textSize="12sp" />
 
-    <HorizontalScrollView
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="8dp"
-        android:layout_marginEnd="8dp"
-        android:layout_marginBottom="8dp"
-        android:fadeScrollbars="false"
-        android:scrollbars="none">
-
-        <LinearLayout
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:gravity="center_vertical"
-            android:orientation="horizontal"
-            android:paddingStart="4dp"
-            android:paddingEnd="4dp">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/quickEmojiHeartButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginEnd="8dp"
-                android:contentDescription="@string/chat_quick_emoji_desc"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minWidth="48dp"
-                android:text="&#x2764;&#xFE0F;"
-                android:textSize="18sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/quickEmojiThumbButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginEnd="8dp"
-                android:contentDescription="@string/chat_quick_emoji_desc"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minWidth="48dp"
-                android:text="&#x1F44D;"
-                android:textSize="18sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/quickEmojiSmileButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginEnd="8dp"
-                android:contentDescription="@string/chat_quick_emoji_desc"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minWidth="48dp"
-                android:text="&#x1F60A;"
-                android:textSize="18sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/quickEmojiClapButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginEnd="8dp"
-                android:contentDescription="@string/chat_quick_emoji_desc"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minWidth="48dp"
-                android:text="&#x1F44F;"
-                android:textSize="18sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/quickEmojiCelebrateButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginEnd="8dp"
-                android:contentDescription="@string/chat_quick_emoji_desc"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minWidth="48dp"
-                android:text="&#x1F389;"
-                android:textSize="18sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/quickEmojiLaughButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginEnd="8dp"
-                android:contentDescription="@string/chat_quick_emoji_desc"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minWidth="48dp"
-                android:text="&#x1F602;"
-                android:textSize="18sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/quickEmojiSadButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginEnd="8dp"
-                android:contentDescription="@string/chat_quick_emoji_desc"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minWidth="48dp"
-                android:text="&#x1F622;"
-                android:textSize="18sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/quickEmojiSurprisedButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginEnd="8dp"
-                android:contentDescription="@string/chat_quick_emoji_desc"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minWidth="48dp"
-                android:text="&#x1F62E;"
-                android:textSize="18sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/quickEmojiPrayerButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginEnd="8dp"
-                android:contentDescription="@string/chat_quick_emoji_desc"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minWidth="48dp"
-                android:text="&#x1F64F;"
-                android:textSize="18sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/quickEmojiThinkingButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginEnd="8dp"
-                android:contentDescription="@string/chat_quick_emoji_desc"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minWidth="48dp"
-                android:text="&#x1F914;"
-                android:textSize="18sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/quickEmojiFireButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginEnd="8dp"
-                android:contentDescription="@string/chat_quick_emoji_desc"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minWidth="48dp"
-                android:text="&#x1F525;"
-                android:textSize="18sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/quickEmojiLoveButton"
-                style="@style/Widget.Material3.Button.OutlinedButton"
-                android:layout_width="wrap_content"
-                android:layout_height="40dp"
-                android:layout_marginEnd="8dp"
-                android:contentDescription="@string/chat_quick_emoji_desc"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minWidth="48dp"
-                android:text="&#x1F60D;"
-                android:textSize="18sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/emojiButton"
-                style="@style/Widget.Material3.Button.TextButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/chat_more_emoji_button" />
-
-        </LinearLayout>
-
-    </HorizontalScrollView>
 
 </LinearLayout>

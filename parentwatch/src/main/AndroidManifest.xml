@@ -39,6 +39,16 @@
     <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
 
+    <!-- Android 11+ package visibility: usage statistics may mention packages that
+         are not otherwise visible to ChildDevice. Limit discovery to ordinary
+         launcher applications instead of requesting QUERY_ALL_PACKAGES. -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:name=".ChildWatchApplication"
         android:allowBackup="true"
@@ -72,6 +82,16 @@
             android:name=".ChatActivity"
             android:exported="false"
             android:parentActivityName=".MainActivity"
+            android:screenOrientation="portrait" />
+        <activity
+            android:name=".ChatConversationsActivity"
+            android:exported="false"
+            android:parentActivityName=".MainActivity"
+            android:screenOrientation="portrait" />
+        <activity
+            android:name=".ChatConversationV2Activity"
+            android:exported="false"
+            android:parentActivityName=".ChatConversationsActivity"
             android:screenOrientation="portrait" />
 
         <!-- Dual Location Map Activity -->

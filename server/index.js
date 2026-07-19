@@ -4,6 +4,7 @@ const { Server } = require("socket.io");
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const { version: SERVER_VERSION } = require("./package.json");
 
 // Import our custom modules
 const AuthManager = require("./auth/AuthManager");
@@ -17,7 +18,8 @@ const AttentionSignalManager = require("./managers/AttentionSignalManager");
 const FamilyPermissionService = require("./services/FamilyPermissionService");
 
 // Import route modules
-const chatRoutes = require("./routes/chat");
+const createChatRoutes = require("./routes/chat");
+const createChatV2Routes = require("./routes/chat-v2");
 const locationRoutes = require("./routes/location");
 const mediaRoutes = require("./routes/media");
 const streamingRoutes = require("./routes/streaming");
@@ -59,6 +61,8 @@ const attentionSignalManager = new AttentionSignalManager({
 });
 wsManager.setAttentionSignalManager(attentionSignalManager);
 const familyRoutes = createFamilyRoutes(dbManager, familyPermissionService);
+const chatRoutes = createChatRoutes(dbManager, familyPermissionService);
+const chatV2Routes = createChatV2Routes(dbManager);
 wsManager.dbManager = dbManager;
 
 // Initialize database
@@ -70,12 +74,9 @@ async function initializeDatabase() {
     console.log("✅ Database initialized successfully");
   } catch (error) {
     console.error("❌ Database initialization failed:", error);
-    process.exit(1);
+    throw error;
   }
 }
-
-// Initialize database on startup
-initializeDatabase();
 
 // Authenticate the Socket.IO handshake before feature handlers see the socket.
 // Compatibility mode is the default until all installed Android clients send tokens.
@@ -222,8 +223,21 @@ function resolveChatSenderDisplayName(message) {
 streamingRoutes.init(commandManager, dbManager, wsManager);
 alertsRoutes.init(dbManager, wsManager);
 
-// API Routes
-app.use("/api/chat", chatRoutes);
+// API Routes. Chat v2 is mounted before the legacy compatibility router so
+// every modern request uses authenticated member identity and conversation
+// access checks.
+app.use(
+  "/api/chat/v2",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60_000, 180),
+  chatV2Routes
+);
+app.use(
+  "/api/chat",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60_000, 120),
+  chatRoutes
+);
 app.use("/api/location", locationRoutes);
 app.use("/api/media", mediaRoutes);
 app.use("/api/streaming", streamingRoutes);
@@ -243,7 +257,7 @@ app.get("/api/health", (req, res) => {
   res.json({
     status: "OK",
     timestamp: new Date().toISOString(),
-    version: "1.0.0",
+    version: SERVER_VERSION,
   });
 });
 
@@ -1399,6 +1413,18 @@ app.get(
         });
       }
 
+      const permission = await familyPermissionService.authorizeFeature(
+        req.deviceId,
+        targetDeviceId,
+        "CHAT"
+      );
+      if (!permission.allowed) {
+        return res.status(403).json({
+          error: "Chat access denied",
+          code: permission.code || "CHAT_ACCESS_DENIED",
+        });
+      }
+
       // Get chat messages from database
       const messages = await dbManager.getChatMessages(targetDeviceId, limit);
 
@@ -1442,6 +1468,18 @@ app.post(
         return res.status(400).json({
           error: "Invalid device ID format",
           code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      const permission = await familyPermissionService.authorizeFeature(
+        req.deviceId,
+        targetDeviceId,
+        "CHAT"
+      );
+      if (!permission.allowed) {
+        return res.status(403).json({
+          error: "Chat access denied",
+          code: permission.code || "CHAT_ACCESS_DENIED",
         });
       }
 
@@ -1495,7 +1533,7 @@ app.get(
           server: {
             uptime: process.uptime(),
             memory: process.memoryUsage(),
-            version: "1.0.0",
+            version: SERVER_VERSION,
           },
         },
       });
@@ -1569,19 +1607,39 @@ setInterval(() => {
   commandManager.cleanup();
 }, 60000); // Every minute
 
-// Start server (use server.listen instead of app.listen for Socket.IO)
-server.listen(PORT, "0.0.0.0", () => {
-  console.log(`ChildWatch Server running on port ${PORT}`);
-  console.log(`Health check: http://localhost:${PORT}/api/health`);
-  console.log(
-    `Register device: POST http://localhost:${PORT}/api/auth/register`
-  );
-  console.log(
-    `Audio streaming: POST http://localhost:${PORT}/api/streaming/start`
-  );
-  console.log(`WebSocket: ws://localhost:${PORT}`);
-  console.log(`Server version: 1.2.0 (WebSocket enabled)`);
-  console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
-});
+// Do not accept HTTP or WebSocket traffic before additive migrations and the
+// legacy-to-v2 chat projection have completed. Previously listen() raced the
+// asynchronous database initialization after every server restart.
+async function startServer() {
+  await initializeDatabase();
+  return new Promise((resolve, reject) => {
+    const onError = (error) => reject(error);
+    server.once("error", onError);
+    server.listen(PORT, "0.0.0.0", () => {
+      server.off("error", onError);
+      console.log(`ChildWatch Server running on port ${PORT}`);
+      console.log(`Health check: http://localhost:${PORT}/api/health`);
+      console.log(
+        `Register device: POST http://localhost:${PORT}/api/auth/register`
+      );
+      console.log(
+        `Audio streaming: POST http://localhost:${PORT}/api/streaming/start`
+      );
+      console.log(`WebSocket: ws://localhost:${PORT}`);
+      console.log(`Server version: ${SERVER_VERSION} (WebSocket enabled)`);
+      console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
+      resolve(server);
+    });
+  });
+}
+
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error("ChildWatch Server failed to start:", error);
+    process.exitCode = 1;
+  });
+}
 
 module.exports = app;
+module.exports.startServer = startServer;
+module.exports.server = server;

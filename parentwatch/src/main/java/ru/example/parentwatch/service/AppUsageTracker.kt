@@ -22,6 +22,7 @@ class AppUsageTracker(private val context: Context) {
     companion object {
         private const val TAG = "AppUsageTracker"
         private const val TIME_WINDOW_MS = 60000L // 1 minute
+        private const val RECENT_WINDOW_MS = 24 * 60 * 60 * 1000L // Last 24 hours
     }
 
     private val usageStatsManager: UsageStatsManager? by lazy {
@@ -133,7 +134,7 @@ class AppUsageTracker(private val context: Context) {
 
         return try {
             val endTime = System.currentTimeMillis()
-            val startTime = endTime - (60 * 60 * 1000L) // Last 1 hour
+            val startTime = endTime - RECENT_WINDOW_MS
 
             val usageStatsList = usageStatsManager?.queryUsageStats(
                 UsageStatsManager.INTERVAL_DAILY,
@@ -148,11 +149,19 @@ class AppUsageTracker(private val context: Context) {
             usageStatsList
                 .filter { it.lastTimeUsed > 0 && it.totalTimeInForeground > 0 }
                 .sortedByDescending { it.lastTimeUsed }
-                .take(limit)
                 .mapNotNull { stats ->
                     createAppUsageInfo(stats)
                 }
-                .filter { !it.isSystemApp } // Filter out system apps
+                // A preinstalled browser, video app or game is marked as a system
+                // package too. Keep it when it has a normal launcher entry, while
+                // still hiding SystemUI, launchers and other background components.
+                .filter { app ->
+                    app.packageName != context.packageName &&
+                        (!app.isSystemApp || packageManager.getLaunchIntentForPackage(app.packageName) != null)
+                }
+                // Apply the limit after filtering. Previously system packages took
+                // slots in the first eight results and left only a few visible apps.
+                .take(limit.coerceAtLeast(1))
         } catch (e: Exception) {
             Log.e(TAG, "Error getting recent apps", e)
             emptyList()

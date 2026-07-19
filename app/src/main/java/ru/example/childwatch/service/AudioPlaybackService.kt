@@ -977,6 +977,19 @@ class AudioPlaybackService : LifecycleService() {
                 Log.w(TAG, "AUDIO queue full, dropped head")
             }
         }
+        if (chunkQueue.size > JITTER_BUFFER_AGGRESSIVE_THRESHOLD) {
+            var dropped = 0
+            while (chunkQueue.size > JITTER_BUFFER_MIN_FRAMES) {
+                if (chunkQueue.poll() == null) break
+                dropped++
+            }
+            if (dropped > 0) {
+                Log.w(
+                    TAG,
+                    "AUDIO latency recovery dropped $dropped stale frame(s), queueDepth=${chunkQueue.size}"
+                )
+            }
+        }
     }
 
     private fun startLocalRecording() {

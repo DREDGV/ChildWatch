@@ -7,12 +7,18 @@
  * - Server routes chunks from child -> parent in real time
  */
 
+const ChatConversationService = require("../services/ChatConversationService");
+const ChatV2SocketService = require("../services/ChatV2SocketService");
+
 class WebSocketManager {
   constructor(io, commandManager = null, dbManager = null) {
     this.io = io;
     this.commandManager = commandManager;
     this.dbManager = dbManager;
     this.attentionSignalManager = null;
+    this.chatV2SocketService = dbManager
+      ? new ChatV2SocketService(io, new ChatConversationService(dbManager))
+      : null;
     this.verboseWsLogs = process.env.CW_VERBOSE_WS_LOGS === "1";
     this.verboseAudioLogs = process.env.CW_VERBOSE_AUDIO_LOGS === "1";
 
@@ -41,6 +47,10 @@ class WebSocketManager {
 
   setAttentionSignalManager(attentionSignalManager) {
     this.attentionSignalManager = attentionSignalManager;
+  }
+
+  setChatV2SocketService(chatV2SocketService) {
+    this.chatV2SocketService = chatV2SocketService;
   }
 
   normalizeDeviceId(value) {
@@ -430,6 +440,7 @@ class WebSocketManager {
     });
     this.io.on("connection", (socket) => {
       console.log(`[ws] Client connected: ${socket.id}`);
+      this.chatV2SocketService?.registerSocket(socket);
 
       // Debug: log any incoming WS events to verify routing
       if (this.verboseWsLogs) {

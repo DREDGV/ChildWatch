@@ -82,6 +82,19 @@ describe("family model bootstrap", () => {
     }).toEqual(before);
   });
 
+  test("skips a full legacy rebuild when every active link is already projected", async () => {
+    await registerPair(db, "projection-current");
+    const rebuildSpy = jest.spyOn(db, "performFamilyBootstrap");
+
+    await expect(db.bootstrapFamiliesFromDeviceLinks()).resolves.toMatchObject({
+      skipped: true,
+      activeLinks: 1,
+    });
+    expect(rebuildSpy).not.toHaveBeenCalled();
+
+    rebuildSpy.mockRestore();
+  });
+
   test("keeps canonical family member names in sync with an existing link", async () => {
     const pair = await registerPair(db, "rename");
     const before = await db.getSharedFamilyMembership(
@@ -91,6 +104,17 @@ describe("family model bootstrap", () => {
     expect(before).toMatchObject({
       actorDisplayName: "Parent rename",
       targetDisplayName: "Child rename",
+    });
+    const conversation = await db.ensureFamilyConversation(before.familyId);
+    const legacyLabelMessage = await db.insertChatMessageV2({
+      conversationId: conversation.id,
+      senderMemberId: before.targetMemberId,
+      senderDeviceId: pair.childDeviceId,
+      senderRoleSnapshot: "CHILD",
+      senderDisplayName: "Old phone label",
+      clientMessageId: "rename-message",
+      text: "Проверка имени",
+      clientSentAt: Date.now(),
     });
 
     await db.run(
@@ -112,6 +136,9 @@ describe("family model bootstrap", () => {
       actorDisplayName: "Марина",
       targetDisplayName: "Лёва",
     });
+    await expect(
+      db.getChatMessageV2ById(legacyLabelMessage.message.id)
+    ).resolves.toMatchObject({ senderDisplayName: "Лёва" });
   });
 
   test("keeps people and their physical devices as separate records", async () => {

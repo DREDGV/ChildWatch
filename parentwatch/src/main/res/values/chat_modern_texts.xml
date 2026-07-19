@@ -1,5 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="chat_quick_emoji_desc">Быстрые эмодзи</string>
-    <string name="chat_more_emoji_button">Еще</string>
+    <string name="chat_v2_list_title">Сообщения</string>
+    <string name="chat_v2_syncing">Обновляем семейные чаты…</string>
+    <string name="chat_v2_ready">Все сообщения синхронизированы</string>
+    <string name="chat_v2_offline">Нет связи — сообщения сохранятся и отправятся позже</string>
+    <string name="chat_v2_new_direct">+ Личный чат</string>
+    <string name="chat_v2_empty">Семейный чат появится после синхронизации с сервером</string>
+    <string name="chat_v2_choose_member">Кому написать?</string>
+    <string name="chat_v2_no_members">Нет доступных участников семьи</string>
+    <string name="chat_v2_no_messages">Пока нет сообщений</string>
+    <string name="chat_v2_new_messages">Новые сообщения: %1$d</string>
+    <string name="chat_emoji_button_label">Эмодзи</string>
+    <string name="chat_emoji_button_content_description">Открыть или закрыть панель эмодзи</string>
 </resources>

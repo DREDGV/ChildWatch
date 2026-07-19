@@ -163,11 +163,7 @@ class MainActivity : AppCompatActivity() {
         if (intent.getBooleanExtra("open_chat", false)) {
             NotificationManager.resetUnreadCount()
             updateChatBadge()
-            val chatIntent = Intent(this, ChatActivity::class.java).apply {
-                contextProvider.current()?.targetDeviceId?.let {
-                    putExtra(ChatActivity.EXTRA_TARGET_DEVICE_ID, it)
-                }
-            }
+            val chatIntent = Intent(this, ChatConversationsActivity::class.java)
             startActivity(chatIntent)
         }
     }
@@ -217,11 +213,7 @@ class MainActivity : AppCompatActivity() {
                 Log.e("MainActivity", "Failed to mark child chat as read", e)
             }
             updateChatBadge()
-            val intent = Intent(this, ChatActivity::class.java).apply {
-                contextProvider.current()?.targetDeviceId?.let {
-                    putExtra(ChatActivity.EXTRA_TARGET_DEVICE_ID, it)
-                }
-            }
+            val intent = Intent(this, ChatConversationsActivity::class.java)
             startActivity(intent)
         }
 
