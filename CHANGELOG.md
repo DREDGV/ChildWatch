@@ -6,7 +6,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
-## [7.3.0-rc2] - 2026-07-19
+## [7.3.0-rc3] - 2026-07-19
 
 ### Added
 
@@ -42,6 +42,7 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ### Fixed
 
+- Fixed an Android 11 startup crash in both applications caused by the Material 3 card elevation animator resolving a theme duration attribute as an integer.
 - Fixed profile renames drifting between feature cards, chat snapshots and legacy parent/child links.
 - Fixed map accuracy being shown only as text without a visual radius around the location marker.
 - Chat conversation lists and message history now render from the local cache first instead of waiting for a network round trip.
