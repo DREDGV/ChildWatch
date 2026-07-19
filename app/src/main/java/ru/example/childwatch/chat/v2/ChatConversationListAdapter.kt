@@ -9,6 +9,8 @@ import androidx.recyclerview.widget.RecyclerView
 import ru.childwatch.shared.chat.Conversation
 import ru.childwatch.shared.chat.ConversationType
 import ru.example.childwatch.databinding.ItemChatConversationBinding
+import ru.example.childwatch.profile.FamilyAvatarRenderer
+import ru.example.childwatch.R
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -38,11 +40,16 @@ class ChatConversationListAdapter(
                 } else {
                     "Личный диалог"
                 }
-            avatarText.text = if (item.type == ConversationType.FAMILY) {
-                "С"
-            } else {
-                item.title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "Л"
-            }
+            val peerAvatar = item.members.firstOrNull { !it.isLocalUser }?.avatarKey
+            FamilyAvatarRenderer.bind(
+                avatarImage,
+                peerAvatar,
+                if (item.type == ConversationType.FAMILY) {
+                    R.drawable.avatar_family_ocean
+                } else {
+                    R.drawable.avatar_family_mint
+                }
+            )
             timeText.text = item.updatedAt.takeIf { it > 0 }?.let {
                 SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(it))
             }.orEmpty()

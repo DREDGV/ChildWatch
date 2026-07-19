@@ -27,13 +27,28 @@ class ParentProfileRuntimeCoordinator(context: Context) {
 
     fun switchFocusedChild(
         childDeviceId: String,
+        focusedMemberId: String? = null,
+        familyId: String? = null,
         shareParentLocation: Boolean
     ): ParentEffectiveContext {
         val normalized = childDeviceId.trim()
         if (normalized.isNotBlank()) {
             sessionStore.updateFocusedChildId(normalized)
         }
-        return refreshRuntime(shareParentLocation)
+        val effective = refreshRuntime(shareParentLocation)
+        val contextProvider = ParentEffectiveContextProvider.get(appContext)
+        contextProvider.updateSelection(
+            focusedMemberId = focusedMemberId,
+            targetDeviceId = normalized.takeIf(String::isNotBlank)
+        )
+        if (!familyId.isNullOrBlank()) {
+            contextProvider.updateFamilyIdentity(
+                familyId = familyId,
+                selfMemberId = contextProvider.current()?.selfMemberId,
+                focusedMemberId = focusedMemberId
+            )
+        }
+        return effective
     }
 
     fun clearFocusedChild(shareParentLocation: Boolean): ParentEffectiveContext {

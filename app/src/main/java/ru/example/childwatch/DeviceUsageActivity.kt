@@ -10,6 +10,7 @@ import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import ru.example.childwatch.databinding.ActivityDeviceUsageBinding
@@ -17,8 +18,9 @@ import ru.example.childwatch.network.DeviceRecentApp
 import ru.example.childwatch.network.DeviceStatus
 import ru.example.childwatch.network.DeviceStatusHistoryItem
 import ru.example.childwatch.network.NetworkClient
-import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
+import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
+import ru.example.childwatch.profile.FamilyAvatarRenderer
 import java.util.Locale
 
 class DeviceUsageActivity : AppCompatActivity() {
@@ -30,7 +32,8 @@ class DeviceUsageActivity : AppCompatActivity() {
     private lateinit var binding: ActivityDeviceUsageBinding
     private lateinit var networkClient: NetworkClient
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
-    private lateinit var activeSessionStore: ParentActiveSessionStore
+    private lateinit var linkedChildOptionsProvider: ParentLinkedChildOptionsProvider
+    private var personLabelJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -39,18 +42,13 @@ class DeviceUsageActivity : AppCompatActivity() {
 
         networkClient = NetworkClient(this)
         effectiveContextResolver = ParentEffectiveContextResolver(this)
-        activeSessionStore = ParentActiveSessionStore(this)
+        linkedChildOptionsProvider = ParentLinkedChildOptionsProvider(this)
 
         binding.toolbar.navigationIcon = AppCompatResources.getDrawable(
             this,
             androidx.appcompat.R.drawable.abc_ic_ab_back_material
         )
         binding.toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
-
-        val explicitTarget = intent.getStringExtra(EXTRA_DEVICE_ID)?.trim().orEmpty()
-        if (explicitTarget.isNotBlank()) {
-            activeSessionStore.updateFocusedChildId(explicitTarget)
-        }
 
         binding.refreshButton.setOnClickListener { loadUsage(force = true) }
         loadUsage(force = true)
@@ -63,7 +61,7 @@ class DeviceUsageActivity : AppCompatActivity() {
             return
         }
 
-        binding.deviceIdText.text = getString(R.string.device_usage_device_id, childDeviceId)
+        updatePersonLabel(childDeviceId)
         if (force) {
             showLoading(true)
         }
@@ -229,6 +227,36 @@ class DeviceUsageActivity : AppCompatActivity() {
             ?: effectiveContextResolver.resolveFocusedChildId().takeIf { it.isNotBlank() }
     }
 
+    private fun updatePersonLabel(childDeviceId: String) {
+        binding.deviceIdText.setText(R.string.device_usage_person_loading)
+        FamilyAvatarRenderer.bind(binding.personAvatar, null)
+        personLabelJob?.cancel()
+        personLabelJob = lifecycleScope.launch {
+            val localName = runCatching {
+                ru.example.childwatch.database.ChildWatchDatabase.getInstance(this@DeviceUsageActivity)
+                    .childDao()
+                    .getByDeviceId(childDeviceId)
+                    ?.name
+                    ?.trim()
+                    ?.takeIf { it.isNotBlank() }
+            }.getOrNull()
+            if (localName != null) {
+                binding.deviceIdText.text = getString(R.string.device_usage_person, localName)
+            }
+
+            val canonicalOption = runCatching {
+                linkedChildOptionsProvider.getOptions()
+                    .firstOrNull { it.deviceId == childDeviceId }
+            }.getOrNull()
+            if (canonicalOption != null && resolveChildDeviceId() == childDeviceId) {
+                val canonicalName = canonicalOption.displayName.trim()
+                    .ifBlank { localName ?: getString(R.string.chat_partner_child) }
+                binding.deviceIdText.text = getString(R.string.device_usage_person, canonicalName)
+                FamilyAvatarRenderer.bind(binding.personAvatar, canonicalOption.avatarKey)
+            }
+        }
+    }
+
     private fun showLoading(isLoading: Boolean) {
         binding.progressBar.isVisible = isLoading
         binding.statusMessageText.isVisible = isLoading
@@ -266,5 +294,10 @@ class DeviceUsageActivity : AppCompatActivity() {
             minutes > 0 -> String.format(Locale.getDefault(), "%d мин", minutes)
             else -> String.format(Locale.getDefault(), "%d сек", seconds)
         }
+    }
+
+    override fun onDestroy() {
+        personLabelJob?.cancel()
+        super.onDestroy()
     }
 }

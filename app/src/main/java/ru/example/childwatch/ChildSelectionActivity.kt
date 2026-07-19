@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ClipboardManager
 import android.content.Context
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.content.pm.PackageManager
 import android.database.Cursor
 import android.net.Uri
@@ -20,7 +21,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
-import com.google.android.material.floatingactionbutton.FloatingActionButton
+import com.google.android.material.imageview.ShapeableImageView
 import com.google.android.material.textfield.TextInputEditText
 import com.google.android.material.textfield.TextInputLayout
 import com.google.android.material.textfield.MaterialAutoCompleteTextView
@@ -41,7 +42,11 @@ import ru.example.childwatch.network.LinkedChildLink
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
+import ru.example.childwatch.profile.ParentFamilyDirectoryRepository
+import ru.example.childwatch.profile.ParentLinkedChildOption
+import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
 import ru.example.childwatch.profile.ParentProfileRuntimeCoordinator
+import ru.example.childwatch.profile.FamilyAvatarRenderer
 import android.util.Log
 
 /**
@@ -60,12 +65,16 @@ class ChildSelectionActivity : AppCompatActivity() {
     private lateinit var profileRuntimeCoordinator: ParentProfileRuntimeCoordinator
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
     private lateinit var networkClient: NetworkClient
+    private lateinit var linkedChildOptionsProvider: ParentLinkedChildOptionsProvider
+    private lateinit var familyDirectoryRepository: ParentFamilyDirectoryRepository
+    private var familyOptionsByDevice: Map<String, ParentLinkedChildOption> = emptyMap()
     private var pendingEditChildId: String? = null
-    private var selectedAvatarUri: Uri? = null
+    private var selectedAvatarValue: String? = null
+    private var currentAvatarPresetViews: List<ShapeableImageView> = emptyList()
 
     // Launcher for avatar selection
     private val pickImageLauncher = registerForActivityResult(
-        ActivityResultContracts.GetContent()
+        ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
             try {
@@ -73,14 +82,20 @@ class ChildSelectionActivity : AppCompatActivity() {
                 val takeFlags = Intent.FLAG_GRANT_READ_URI_PERMISSION
                 contentResolver.takePersistableUriPermission(uri, takeFlags)
 
-                selectedAvatarUri = it
-                currentAvatarImageView?.setImageURI(it)
+                selectedAvatarValue = it.toString()
+                currentAvatarImageView?.let { view ->
+                    FamilyAvatarRenderer.bind(view, selectedAvatarValue)
+                }
+                refreshAvatarPresetSelection()
                 Log.d(TAG, "Avatar selected with persistent permission: $it")
             } catch (e: Exception) {
                 // Если не получилось получить постоянный доступ, все равно используем URI
                 Log.w(TAG, "Could not take persistable URI permission, using temporary: ${e.message}")
-                selectedAvatarUri = it
-                currentAvatarImageView?.setImageURI(it)
+                selectedAvatarValue = it.toString()
+                currentAvatarImageView?.let { view ->
+                    FamilyAvatarRenderer.bind(view, selectedAvatarValue)
+                }
+                refreshAvatarPresetSelection()
             }
         }
     }
@@ -141,6 +156,8 @@ class ChildSelectionActivity : AppCompatActivity() {
             profileRuntimeCoordinator = ParentProfileRuntimeCoordinator(this)
             effectiveContextResolver = ParentEffectiveContextResolver(this)
             networkClient = NetworkClient(this)
+            linkedChildOptionsProvider = ParentLinkedChildOptionsProvider(this)
+            familyDirectoryRepository = ParentFamilyDirectoryRepository(this)
             database = ChildWatchDatabase.getInstance(this)
             childRepository = ChildRepository(database.childDao())
             pendingEditChildId = intent?.getStringExtra(EXTRA_EDIT_CHILD_ID)?.trim()?.takeIf { it.isNotBlank() }
@@ -178,10 +195,14 @@ class ChildSelectionActivity : AppCompatActivity() {
             onChildClick = { child -> onChildSelected(child) },
             onChildEdit = { child -> showEditChildDialog(child) },
             onChildAttention = { child ->
+                val option = familyOptionsByDevice[child.deviceId]
                 ParentAttentionSignalLauncher.show(
                     activity = this,
                     explicitTargetDeviceId = child.deviceId,
-                    explicitTargetName = child.name
+                    explicitTargetName = option?.displayName ?: child.name,
+                    explicitTargetAvatarValue = option?.avatarKey ?: child.avatarUrl,
+                    explicitTargetMemberId = option?.memberId,
+                    explicitFamilyId = option?.familyId
                 )
             }
         )
@@ -190,6 +211,10 @@ class ChildSelectionActivity : AppCompatActivity() {
             layoutManager = LinearLayoutManager(this@ChildSelectionActivity)
             adapter = childrenAdapter
         }
+        childrenAdapter.updatePresentation(
+            options = emptyList(),
+            selectedDeviceId = effectiveContextResolver.resolveTargetDeviceId()
+        )
     }
 
     /**
@@ -233,6 +258,10 @@ class ChildSelectionActivity : AppCompatActivity() {
         binding.childrenRecyclerView.visibility = View.VISIBLE
         binding.emptyStateLayout.visibility = View.GONE
         childrenAdapter.submitList(children)
+        childrenAdapter.updatePresentation(
+            options = familyOptionsByDevice.values.toList(),
+            selectedDeviceId = effectiveContextResolver.resolveTargetDeviceId()
+        )
     }
 
     /**
@@ -269,15 +298,18 @@ class ChildSelectionActivity : AppCompatActivity() {
         }
 
         runCatching {
-            val response = networkClient.getLinkedChildren(parentDeviceId)
-            if (!response.isSuccessful) {
-                Log.w(TAG, "Linked child sync failed with code=${response.code()}")
-                return
-            }
-
-            val importedCount = mergeLinkedChildren(response.body()?.children.orEmpty())
+            val beforeIds = childRepository.getAllChildren().mapTo(mutableSetOf(), Child::deviceId)
+            val options = linkedChildOptionsProvider.getOptions()
+            familyOptionsByDevice = options.associateBy { it.deviceId }
+            linkedChildOptionsProvider.syncLocalChildren(options)
+            val refreshedChildren = childRepository.getAllChildren()
+            val importedCount = refreshedChildren.count { it.deviceId !in beforeIds }
+            renderChildren(refreshedChildren)
+            childrenAdapter.updatePresentation(
+                options = options,
+                selectedDeviceId = effectiveContextResolver.resolveTargetDeviceId()
+            )
             if (importedCount > 0) {
-                renderChildren(childRepository.getAllChildren())
                 Toast.makeText(
                     this@ChildSelectionActivity,
                     getString(R.string.relationship_sync_imported, importedCount),
@@ -383,17 +415,22 @@ class ChildSelectionActivity : AppCompatActivity() {
      */
     private fun onChildSelected(child: Child) {
         Log.d(TAG, "Выбран ребенок: ${child.name} (${child.deviceId})")
+        val familyOption = familyOptionsByDevice[child.deviceId]
 
         // Сохранить выбранное устройство
         val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         profileRuntimeCoordinator.switchFocusedChild(
             childDeviceId = child.deviceId,
+            focusedMemberId = familyOption?.memberId,
+            familyId = familyOption?.familyId,
             shareParentLocation = prefs.getBoolean("share_parent_location", true)
         )
 
         // Вернуть результат
         val resultIntent = Intent().apply {
             putExtra(EXTRA_SELECTED_DEVICE_ID, child.deviceId)
+            putExtra(EXTRA_SELECTED_MEMBER_ID, familyOption?.memberId)
+            putExtra(EXTRA_SELECTED_FAMILY_ID, familyOption?.familyId)
         }
         setResult(RESULT_OK, resultIntent)
         finish()
@@ -402,8 +439,49 @@ class ChildSelectionActivity : AppCompatActivity() {
     /**
      * Показать диалог добавления нового устройства
      */
+    private fun setupAvatarPresetChoices(dialogView: View, preview: ImageView) {
+        val viewIds = intArrayOf(
+            R.id.avatarPreset1,
+            R.id.avatarPreset2,
+            R.id.avatarPreset3,
+            R.id.avatarPreset4,
+            R.id.avatarPreset5,
+            R.id.avatarPreset6
+        )
+        currentAvatarPresetViews = viewIds.map { dialogView.findViewById<ShapeableImageView>(it) }
+        FamilyAvatarRenderer.presets.zip(currentAvatarPresetViews).forEachIndexed { index, (preset, view) ->
+            view.apply {
+                contentDescription = getString(
+                    R.string.family_profile_avatar_preset_description,
+                    index + 1
+                )
+                setOnClickListener {
+                    selectedAvatarValue = preset.storageValue
+                    FamilyAvatarRenderer.bind(preview, preset.storageValue)
+                    refreshAvatarPresetSelection()
+                }
+            }
+        }
+        refreshAvatarPresetSelection()
+    }
+
+    private fun refreshAvatarPresetSelection() {
+        if (currentAvatarPresetViews.isEmpty()) return
+        val primary = ContextCompat.getColor(this, R.color.cw_color_primary)
+        val outline = ContextCompat.getColor(this, R.color.cw_color_outline_variant)
+        val density = resources.displayMetrics.density
+        FamilyAvatarRenderer.presets.zip(currentAvatarPresetViews).forEach { (preset, view) ->
+            val selected = preset.storageValue == selectedAvatarValue
+            view.strokeColor = ColorStateList.valueOf(if (selected) primary else outline)
+            view.strokeWidth = if (selected) 3f * density else density
+            view.alpha = if (selected) 1f else 0.72f
+            view.scaleX = if (selected) 1f else 0.92f
+            view.scaleY = if (selected) 1f else 0.92f
+        }
+    }
+
     private fun showAddChildDialog() {
-        selectedAvatarUri = null  // Reset avatar selection
+        selectedAvatarValue = FamilyAvatarRenderer.presets[1].storageValue
         val dialogView = layoutInflater.inflate(R.layout.dialog_edit_child, null)
 
         // Find views
@@ -413,6 +491,7 @@ class ChildSelectionActivity : AppCompatActivity() {
         val scanQrButton = dialogView.findViewById<MaterialButton>(R.id.scanQrButton)
         val deviceIdInputLayout = dialogView.findViewById<TextInputLayout>(R.id.deviceIdInputLayout)
         val deviceIdInput = dialogView.findViewById<TextInputEditText>(R.id.deviceIdInput)
+        val childNameInputLayout = dialogView.findViewById<TextInputLayout>(R.id.childNameInputLayout)
         val childNameInput = dialogView.findViewById<TextInputEditText>(R.id.childNameInput)
         val childAgeInput = dialogView.findViewById<TextInputEditText>(R.id.childAgeInput)
         val childPhoneInputLayout = dialogView.findViewById<TextInputLayout>(R.id.childPhoneInputLayout)
@@ -423,11 +502,14 @@ class ChildSelectionActivity : AppCompatActivity() {
         val featureMapCheck = dialogView.findViewById<MaterialCheckBox>(R.id.featureMapCheck)
         val featureAudioCheck = dialogView.findViewById<MaterialCheckBox>(R.id.featureAudioCheck)
         val featurePhotoCheck = dialogView.findViewById<MaterialCheckBox>(R.id.featurePhotoCheck)
+        setupAdvancedOptions(dialogView)
 
         // Set up avatar selection
         currentAvatarImageView = avatarImage
+        setupAvatarPresetChoices(dialogView, avatarImage)
+        FamilyAvatarRenderer.bind(avatarImage, selectedAvatarValue)
         changeAvatarButton.setOnClickListener {
-            pickImageLauncher.launch("image/*")
+            pickImageLauncher.launch(arrayOf("image/*"))
         }
 
         // Set up contact picker
@@ -490,40 +572,11 @@ class ChildSelectionActivity : AppCompatActivity() {
         featureAudioCheck.isChecked = true
         featurePhotoCheck.isChecked = true
 
-        MaterialAlertDialogBuilder(this)
-            .setTitle("Добавить устройство")
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.family_profile_add_title)
             .setView(dialogView)
-            .setPositiveButton("Добавить") { _, _ ->
-                val deviceId = deviceIdInput.text.toString().trim()
-                val childName = childNameInput.text.toString().trim()
-                val ageText = childAgeInput.text.toString().trim()
-                val phoneNumber = childPhoneInput.text.toString().trim()
-                val roleValue = ContactRoles.fromLabel(roleInput.text?.toString().orEmpty())
-                val iconId = resolveIconId(iconInput.text?.toString().orEmpty())
-                val allowed = buildAllowedFeatures(
-                    featureChatCheck.isChecked,
-                    featureMapCheck.isChecked,
-                    featureAudioCheck.isChecked,
-                    featurePhotoCheck.isChecked
-                )
-
-                if (deviceId.isNotEmpty() && childName.isNotEmpty()) {
-                    val age = ageText.toIntOrNull()
-                    addChild(
-                        deviceId = deviceId,
-                        name = childName,
-                        role = roleValue,
-                        iconId = iconId,
-                        allowedFeatures = allowed,
-                        age = age,
-                        phoneNumber = phoneNumber.ifEmpty { null },
-                        avatarUrl = selectedAvatarUri?.toString()
-                    )
-                } else {
-                    showError("Заполните обязательные поля (Device ID и имя)")
-                }
-            }
-            .setNegativeButton("Отмена") { _, _ ->
+            .setPositiveButton(R.string.family_profile_add_action, null)
+            .setNegativeButton(android.R.string.cancel) { _, _ ->
                 currentAvatarImageView = null
                 currentNameInput = null
                 currentPhoneInput = null
@@ -545,7 +598,52 @@ class ChildSelectionActivity : AppCompatActivity() {
                 currentAudioCheck = null
                 currentPhotoCheck = null
             }
-            .show()
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener {
+                val deviceId = deviceIdInput.text.toString().trim()
+                val childName = childNameInput.text.toString().trim()
+                val ageText = childAgeInput.text.toString().trim()
+                val phoneNumber = childPhoneInput.text.toString().trim()
+                val roleValue = ContactRoles.fromLabel(roleInput.text?.toString().orEmpty())
+                val iconId = resolveIconId(iconInput.text?.toString().orEmpty())
+                val allowed = buildAllowedFeatures(
+                    featureChatCheck.isChecked,
+                    featureMapCheck.isChecked,
+                    featureAudioCheck.isChecked,
+                    featurePhotoCheck.isChecked
+                )
+
+                childNameInputLayout.error = if (childName.isEmpty()) {
+                    getString(R.string.family_profile_name_required)
+                } else null
+                deviceIdInputLayout.error = if (deviceId.isEmpty()) {
+                    getString(R.string.family_profile_device_code_required)
+                } else null
+                val age = ageText.toIntOrNull()
+                val ageValid = ageText.isEmpty() || age?.let { it in 0..120 } == true
+                dialogView.findViewById<TextInputLayout>(R.id.childAgeInputLayout).error =
+                    if (ageValid) null else getString(R.string.family_profile_age_invalid)
+
+                if (deviceId.isEmpty() || childName.isEmpty() || !ageValid) {
+                    return@setOnClickListener
+                }
+
+                addChild(
+                    deviceId = deviceId,
+                    name = childName,
+                    role = roleValue,
+                    iconId = iconId,
+                    allowedFeatures = allowed,
+                    age = age,
+                    phoneNumber = phoneNumber.ifEmpty { null },
+                    avatarUrl = selectedAvatarValue
+                )
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
     }
 
     /**
@@ -587,6 +685,11 @@ class ChildSelectionActivity : AppCompatActivity() {
 
                 childRepository.insertOrUpdateChild(child)
                 linkChildOnServer(deviceId, name, iconId)
+                familyDirectoryRepository.updateProfileForDevice(
+                    deviceId = deviceId,
+                    displayName = name,
+                    avatarValue = avatarUrl
+                )
                 Log.d(TAG, "Устройство добавлено: $name ($deviceId)")
 
                 // Обновить список
@@ -603,7 +706,7 @@ class ChildSelectionActivity : AppCompatActivity() {
      * Показать диалог редактирования устройства
      */
     private fun showEditChildDialog(child: Child) {
-        selectedAvatarUri = child.avatarUrl?.let { Uri.parse(it) }  // Load existing avatar
+        selectedAvatarValue = child.avatarUrl ?: FamilyAvatarRenderer.presets[1].storageValue
         val dialogView = layoutInflater.inflate(R.layout.dialog_edit_child, null)
 
         // Find views
@@ -613,6 +716,7 @@ class ChildSelectionActivity : AppCompatActivity() {
         val scanQrButton = dialogView.findViewById<MaterialButton>(R.id.scanQrButton)
         val deviceIdInputLayout = dialogView.findViewById<TextInputLayout>(R.id.deviceIdInputLayout)
         val deviceIdInput = dialogView.findViewById<TextInputEditText>(R.id.deviceIdInput)
+        val childNameInputLayout = dialogView.findViewById<TextInputLayout>(R.id.childNameInputLayout)
         val childNameInput = dialogView.findViewById<TextInputEditText>(R.id.childNameInput)
         val childAgeInput = dialogView.findViewById<TextInputEditText>(R.id.childAgeInput)
         val childPhoneInputLayout = dialogView.findViewById<TextInputLayout>(R.id.childPhoneInputLayout)
@@ -623,6 +727,7 @@ class ChildSelectionActivity : AppCompatActivity() {
         val featureMapCheck = dialogView.findViewById<MaterialCheckBox>(R.id.featureMapCheck)
         val featureAudioCheck = dialogView.findViewById<MaterialCheckBox>(R.id.featureAudioCheck)
         val featurePhotoCheck = dialogView.findViewById<MaterialCheckBox>(R.id.featurePhotoCheck)
+        setupAdvancedOptions(dialogView)
 
         // Заполнить текущие данные
         deviceIdInput.setText(child.deviceId)
@@ -651,32 +756,11 @@ class ChildSelectionActivity : AppCompatActivity() {
         featureAudioCheck.isChecked = ContactFeatures.isAllowed(child.allowedFeatures, ContactFeatures.AUDIO)
         featurePhotoCheck.isChecked = ContactFeatures.isAllowed(child.allowedFeatures, ContactFeatures.PHOTO)
 
-        // Set current avatar if exists
-        if (child.avatarUrl != null) {
-            try {
-                val uri = Uri.parse(child.avatarUrl)
-                // Проверяем доступность URI
-                contentResolver.openInputStream(uri)?.use {
-                    // URI доступен, загружаем аватар
-                    avatarImage.setImageURI(uri)
-                }
-            } catch (e: SecurityException) {
-                // URI больше недоступен - сбрасываем аватар
-                Log.w(TAG, "Avatar URI no longer accessible, will use default icon", e)
-                avatarImage.setImageResource(android.R.drawable.ic_menu_myplaces)
-                // Очищаем недоступный URI в базе
-                lifecycleScope.launch {
-                    val updatedChild = child.copy(avatarUrl = null)
-                    childRepository.insertOrUpdateChild(updatedChild)
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading avatar", e)
-                avatarImage.setImageResource(android.R.drawable.ic_menu_myplaces)
-            }
-        }
+        FamilyAvatarRenderer.bind(avatarImage, selectedAvatarValue)
 
         // Set up avatar selection
         currentAvatarImageView = avatarImage
+        setupAvatarPresetChoices(dialogView, avatarImage)
         currentRoleInput = roleInput
         currentIconInput = iconInput
         currentChatCheck = featureChatCheck
@@ -684,7 +768,7 @@ class ChildSelectionActivity : AppCompatActivity() {
         currentAudioCheck = featureAudioCheck
         currentPhotoCheck = featurePhotoCheck
         changeAvatarButton.setOnClickListener {
-            pickImageLauncher.launch("image/*")
+            pickImageLauncher.launch(arrayOf("image/*"))
         }
 
         // Set up contact picker
@@ -706,39 +790,11 @@ class ChildSelectionActivity : AppCompatActivity() {
             }
         }
 
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.child_card_edit_title)
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.family_profile_edit_title)
             .setView(dialogView)
-            .setPositiveButton("Сохранить") { _, _ ->
-                val newName = childNameInput.text.toString().trim()
-                val ageText = childAgeInput.text.toString().trim()
-                val phoneNumber = childPhoneInput.text.toString().trim()
-                val roleValue = ContactRoles.fromLabel(roleInput.text?.toString().orEmpty())
-                val iconId = resolveIconId(iconInput.text?.toString().orEmpty())
-                val allowed = buildAllowedFeatures(
-                    featureChatCheck.isChecked,
-                    featureMapCheck.isChecked,
-                    featureAudioCheck.isChecked,
-                    featurePhotoCheck.isChecked
-                )
-
-                if (newName.isNotEmpty()) {
-                    val age = ageText.toIntOrNull()
-                    updateChild(
-                        child = child,
-                        newName = newName,
-                        newRole = roleValue,
-                        newIconId = iconId,
-                        newAllowedFeatures = allowed,
-                        newAge = age,
-                        newPhoneNumber = phoneNumber.ifEmpty { null },
-                        newAvatarUrl = selectedAvatarUri?.toString()
-                    )
-                } else {
-                    showError("Имя не может быть пустым")
-                }
-            }
-            .setNegativeButton("Отмена") { _, _ ->
+            .setPositiveButton(R.string.family_profile_save_action, null)
+            .setNegativeButton(android.R.string.cancel) { _, _ ->
                 currentAvatarImageView = null
                 currentNameInput = null
                 currentPhoneInput = null
@@ -749,7 +805,7 @@ class ChildSelectionActivity : AppCompatActivity() {
                 currentAudioCheck = null
                 currentPhotoCheck = null
             }
-            .setNeutralButton("Удалить") { _, _ ->
+            .setNeutralButton(R.string.family_profile_delete_action) { _, _ ->
                 currentAvatarImageView = null
                 currentNameInput = null
                 currentPhoneInput = null
@@ -772,7 +828,47 @@ class ChildSelectionActivity : AppCompatActivity() {
                 currentAudioCheck = null
                 currentPhotoCheck = null
             }
-            .show()
+            .create()
+
+        dialog.setOnShowListener {
+            dialog.getButton(android.content.DialogInterface.BUTTON_POSITIVE).setOnClickListener {
+                val newName = childNameInput.text.toString().trim()
+                val ageText = childAgeInput.text.toString().trim()
+                val phoneNumber = childPhoneInput.text.toString().trim()
+                val roleValue = ContactRoles.fromLabel(roleInput.text?.toString().orEmpty())
+                val iconId = resolveIconId(iconInput.text?.toString().orEmpty())
+                val allowed = buildAllowedFeatures(
+                    featureChatCheck.isChecked,
+                    featureMapCheck.isChecked,
+                    featureAudioCheck.isChecked,
+                    featurePhotoCheck.isChecked
+                )
+
+                childNameInputLayout.error = if (newName.isEmpty()) {
+                    getString(R.string.family_profile_name_required)
+                } else null
+                val age = ageText.toIntOrNull()
+                val ageValid = ageText.isEmpty() || age?.let { it in 0..120 } == true
+                dialogView.findViewById<TextInputLayout>(R.id.childAgeInputLayout).error =
+                    if (ageValid) null else getString(R.string.family_profile_age_invalid)
+                if (newName.isEmpty() || !ageValid) {
+                    return@setOnClickListener
+                }
+
+                updateChild(
+                    child = child,
+                    newName = newName,
+                    newRole = roleValue,
+                    newIconId = iconId,
+                    newAllowedFeatures = allowed,
+                    newAge = age,
+                    newPhoneNumber = phoneNumber.ifEmpty { null },
+                    newAvatarUrl = selectedAvatarValue
+                )
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
     }
 
     /**
@@ -802,7 +898,15 @@ class ChildSelectionActivity : AppCompatActivity() {
                 )
                 childRepository.insertOrUpdateChild(updatedChild)
                 linkChildOnServer(child.deviceId, newName, newIconId)
+                val profileSynced = familyDirectoryRepository.updateProfileForDevice(
+                    deviceId = child.deviceId,
+                    displayName = newName,
+                    avatarValue = updatedChild.avatarUrl
+                )
                 Log.d(TAG, "Устройство обновлено: $newName (${child.deviceId})")
+                if (!profileSynced) {
+                    Log.w(TAG, "Canonical profile sync postponed for ${child.deviceId}")
+                }
 
                 // Обновить список
                 loadChildren()
@@ -828,6 +932,23 @@ class ChildSelectionActivity : AppCompatActivity() {
         if (audio) mask = mask or ContactFeatures.AUDIO
         if (photo) mask = mask or ContactFeatures.PHOTO
         return mask
+    }
+
+    private fun setupAdvancedOptions(dialogView: View) {
+        val button = dialogView.findViewById<MaterialButton>(R.id.advancedOptionsButton)
+        val container = dialogView.findViewById<View>(R.id.advancedOptionsContainer)
+        button.setOnClickListener {
+            val expanded = container.visibility != View.VISIBLE
+            container.visibility = if (expanded) View.VISIBLE else View.GONE
+            button.setText(
+                if (expanded) R.string.family_profile_hide_settings
+                else R.string.family_profile_more_settings
+            )
+            button.setIconResource(
+                if (expanded) android.R.drawable.arrow_up_float
+                else android.R.drawable.arrow_down_float
+            )
+        }
     }
 
     private fun resolveIconId(label: String): Int {
@@ -1165,6 +1286,8 @@ class ChildSelectionActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "ChildSelectionActivity"
         const val EXTRA_SELECTED_DEVICE_ID = "selected_device_id"
+        const val EXTRA_SELECTED_MEMBER_ID = "selected_member_id"
+        const val EXTRA_SELECTED_FAMILY_ID = "selected_family_id"
         const val EXTRA_EDIT_CHILD_ID = "edit_child_device_id"
         private const val REQUEST_CONTACTS_PERMISSION = 100
         private const val REQUEST_CAMERA_PERMISSION = 101

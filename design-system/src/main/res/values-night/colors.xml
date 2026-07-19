@@ -19,9 +19,17 @@
     <color name="cw_color_on_surface_variant">#BEC9C6</color>
     <color name="cw_color_surface_container">#1D2322</color>
     <color name="cw_color_surface_container_high">#272E2C</color>
+    <color name="cw_color_surface_dim">#101514</color>
+    <color name="cw_color_surface_bright">#363C3A</color>
+    <color name="cw_color_surface_container_lowest">#0B0F0E</color>
+    <color name="cw_color_surface_container_low">#171C1B</color>
+    <color name="cw_color_surface_container_highest">#323936</color>
     <color name="cw_color_outline">#899390</color>
     <color name="cw_color_outline_variant">#3F4947</color>
     <color name="cw_color_scrim">#99000000</color>
+    <color name="cw_color_inverse_surface">#DEE4E2</color>
+    <color name="cw_color_inverse_on_surface">#2B3230</color>
+    <color name="cw_color_inverse_primary">#126C67</color>
 
     <color name="cw_color_success">#78D7A6</color>
     <color name="cw_color_on_success">#003921</color>
@@ -39,6 +47,14 @@
     <color name="cw_color_on_info">#003062</color>
     <color name="cw_color_info_container">#16477E</color>
     <color name="cw_color_on_info_container">#D8E2FF</color>
+
+    <color name="cw_color_selected_surface">@color/cw_color_primary_container</color>
+    <color name="cw_color_on_selected_surface">@color/cw_color_on_primary_container</color>
+    <color name="cw_color_avatar_surface">@color/cw_color_primary_container</color>
+    <color name="cw_color_avatar_content">@color/cw_color_on_primary_container</color>
+    <color name="cw_color_status_neutral">@color/cw_color_on_surface_variant</color>
+    <color name="cw_color_status_neutral_container">@color/cw_color_surface_variant</color>
+    <color name="cw_color_on_status_neutral_container">@color/cw_color_on_surface_variant</color>
 
     <color name="cw_color_diagnostics_surface">#20272B</color>
     <color name="cw_color_diagnostics_text">#C0C8CD</color>

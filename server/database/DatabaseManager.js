@@ -1035,6 +1035,49 @@ class DatabaseManager {
     );
   }
 
+  /**
+   * Resolve the active family identities represented by one physical device.
+   *
+   * Authentication intentionally remains device-scoped. This projection is
+   * the single read model that translates that device principal into the
+   * family member profile(s) it currently represents without exposing any
+   * credential columns from the devices table.
+   */
+  async getFamilyIdentityMembershipsForDevice(deviceId) {
+    return this.all(
+      `SELECT
+         f.id AS familyId,
+         f.name AS familyName,
+         f.created_at AS familyCreatedAt,
+         f.updated_at AS familyUpdatedAt,
+         fm.id AS memberId,
+         fm.display_name AS memberDisplayName,
+         fm.role AS memberRole,
+         fm.avatar_key AS memberAvatarKey,
+         fm.created_at AS memberCreatedAt,
+         fm.updated_at AS memberUpdatedAt,
+         fd.id AS bindingId,
+         fd.device_id AS deviceId,
+         fd.display_name AS bindingDisplayName,
+         fd.platform AS bindingPlatform,
+         fd.last_seen_at AS bindingLastSeenAt,
+         fd.member_binding_source AS bindingSource,
+         fd.created_at AS bindingCreatedAt,
+         fd.updated_at AS bindingUpdatedAt
+       FROM family_devices fd
+       JOIN families f
+         ON f.id = fd.family_id AND f.is_active = 1
+       JOIN family_members fm
+         ON fm.id = fd.member_id
+        AND fm.family_id = fd.family_id
+        AND fm.is_active = 1
+       WHERE fd.device_id = ?
+         AND fd.is_active = 1
+       ORDER BY f.created_at, f.id, fm.id`,
+      [deviceId]
+    );
+  }
+
   async getFamilyById(familyId) {
     return this.get(
       `SELECT
@@ -1067,6 +1110,120 @@ class DatabaseManager {
                 id`,
       [familyId]
     );
+  }
+
+  async updateFamilyMemberProfile({
+    familyId,
+    memberId,
+    displayName,
+    avatarKey,
+  }) {
+    const normalizedFamilyId = String(familyId || "").trim();
+    const normalizedMemberId = String(memberId || "").trim();
+    const normalizedDisplayName =
+      displayName === undefined
+        ? undefined
+        : String(displayName || "").trim().slice(0, 100);
+    const normalizedAvatarKey =
+      avatarKey === undefined
+        ? undefined
+        : avatarKey === null
+          ? null
+          : String(avatarKey).trim().slice(0, 200) || null;
+
+    if (!normalizedFamilyId || !normalizedMemberId) {
+      return null;
+    }
+
+    return this.withTransaction(async () => {
+      const current = await this.get(
+        `SELECT id, family_id AS familyId
+         FROM family_members
+         WHERE id = ? AND family_id = ? AND is_active = 1
+         LIMIT 1`,
+        [normalizedMemberId, normalizedFamilyId]
+      );
+      if (!current) return null;
+
+      const assignments = [];
+      const params = [];
+      if (normalizedDisplayName !== undefined) {
+        assignments.push("display_name = ?");
+        params.push(normalizedDisplayName);
+      }
+      if (normalizedAvatarKey !== undefined) {
+        assignments.push("avatar_key = ?");
+        params.push(normalizedAvatarKey);
+      }
+
+      if (assignments.length > 0) {
+        assignments.push("updated_at = strftime('%s', 'now')");
+        await this.run(
+          `UPDATE family_members
+           SET ${assignments.join(", ")}
+           WHERE id = ? AND family_id = ? AND is_active = 1`,
+          [...params, normalizedMemberId, normalizedFamilyId]
+        );
+        await this.run(
+          `UPDATE family_devices
+           SET member_binding_source = 'EXPLICIT',
+               updated_at = strftime('%s', 'now')
+           WHERE family_id = ? AND member_id = ? AND is_active = 1`,
+          [normalizedFamilyId, normalizedMemberId]
+        );
+      }
+
+      // Keep compatibility readers and existing chat snapshots human-friendly
+      // while all installed clients migrate to canonical family members.
+      if (normalizedDisplayName !== undefined) {
+        await this.run(
+          `UPDATE device_links
+           SET parent_display_name = ?, updated_at = strftime('%s', 'now')
+           WHERE parent_device_id IN (
+             SELECT device_id FROM family_devices
+             WHERE family_id = ? AND member_id = ? AND is_active = 1
+           )`,
+          [normalizedDisplayName, normalizedFamilyId, normalizedMemberId]
+        );
+        await this.run(
+          `UPDATE device_links
+           SET child_display_name = ?, display_name = ?,
+               updated_at = strftime('%s', 'now')
+           WHERE child_device_id IN (
+             SELECT device_id FROM family_devices
+             WHERE family_id = ? AND member_id = ? AND is_active = 1
+           )`,
+          [
+            normalizedDisplayName,
+            normalizedDisplayName,
+            normalizedFamilyId,
+            normalizedMemberId,
+          ]
+        );
+        await this.run(
+          `UPDATE chat_messages_v2
+           SET sender_display_name_snapshot = ?
+           WHERE sender_member_id = ?`,
+          [normalizedDisplayName, normalizedMemberId]
+        );
+      }
+
+      return this.get(
+        `SELECT
+           id,
+           family_id AS familyId,
+           display_name AS displayName,
+           role,
+           avatar_key AS avatarKey,
+           is_active AS isActive,
+           created_at AS createdAt,
+           updated_at AS updatedAt
+         FROM family_members
+         WHERE id = ? AND family_id = ? AND is_active = 1
+         LIMIT 1`,
+        [normalizedMemberId, normalizedFamilyId]
+      );
+    });
   }
 
   async getChatFamilyMembers(familyId) {

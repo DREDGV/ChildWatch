@@ -20,6 +20,7 @@ import ru.childwatch.shared.chat.ChatV2UiRegistry
 import ru.childwatch.shared.chat.ChatV2MessageDto
 import ru.childwatch.shared.chat.Conversation
 import ru.childwatch.shared.chat.ConversationMemberRole
+import ru.childwatch.shared.chat.ConversationType
 import ru.childwatch.shared.chat.ConversationMessage
 import ru.example.childwatch.chat.ChatAdapter
 import ru.example.childwatch.chat.ChatMessage
@@ -27,6 +28,7 @@ import ru.example.childwatch.chat.v2.ChatV2Repository
 import ru.example.childwatch.databinding.ActivityChatBinding
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.profile.ParentEffectiveContextProvider
+import ru.example.childwatch.profile.FamilyAvatarRenderer
 import ru.example.childwatch.utils.SecureSettingsManager
 
 class ChatConversationV2Activity : AppCompatActivity() {
@@ -159,6 +161,27 @@ class ChatConversationV2Activity : AppCompatActivity() {
         }
 
         val localMember = current.members.firstOrNull { it.isLocalUser }
+        val otherMember = current.members.firstOrNull { !it.isLocalUser }
+        if (current.type == ConversationType.DIRECT && otherMember != null) {
+            binding.chatPartnerName.text = otherMember.displayName
+            binding.chatPartnerMeta.text = getString(
+                R.string.chat_v2_direct_meta,
+                roleLabel(otherMember.role)
+            )
+            FamilyAvatarRenderer.bind(binding.chatAvatar, otherMember.avatarKey)
+        } else {
+            binding.chatPartnerName.text = current.title
+            binding.chatPartnerMeta.text = resources.getQuantityString(
+                R.plurals.chat_v2_family_member_count,
+                current.members.size,
+                current.members.size
+            )
+            FamilyAvatarRenderer.bind(
+                binding.chatAvatar,
+                null,
+                R.drawable.avatar_family_ocean
+            )
+        }
         val currentRole = if (localMember?.role == ConversationMemberRole.CHILD) "child" else "parent"
         adapter = ChatAdapter(
             currentUser = currentRole,
@@ -173,7 +196,6 @@ class ChatConversationV2Activity : AppCompatActivity() {
             binding.messagesRecyclerView.layoutManager = LinearLayoutManager(this)
             binding.messagesRecyclerView.adapter = chatAdapter
         }
-        binding.chatPartnerName.text = current.title
         binding.loadingIndicator.visibility = View.GONE
 
         observeMessages(localMember?.memberId)
@@ -183,6 +205,12 @@ class ChatConversationV2Activity : AppCompatActivity() {
                 .firstOrNull { it.conversationId == conversationId } ?: conversation
         }
         syncOnce()
+    }
+
+    private fun roleLabel(role: ConversationMemberRole): String = when (role) {
+        ConversationMemberRole.PARENT -> getString(R.string.family_role_parent)
+        ConversationMemberRole.CHILD -> getString(R.string.family_role_child)
+        ConversationMemberRole.GUARDIAN -> getString(R.string.family_role_relative)
     }
 
     private fun observeMessages(localMemberId: String?) {

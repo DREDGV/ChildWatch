@@ -18,4 +18,13 @@
     <string name="map_timeline_stop">&#x041E;&#x0441;&#x0442;&#x0430;&#x043D;&#x043E;&#x0432;&#x043A;&#x0430; %1$s | %2$s</string>
     <string name="map_timeline_arrive_place">&#x041F;&#x0440;&#x0438;&#x0431;&#x044B;&#x043B;: %1$s | %2$s</string>
     <string name="map_timeline_leave_place">&#x0412;&#x044B;&#x0448;&#x0435;&#x043B;: %1$s | %2$s</string>
+    <string name="map_person_summary_waiting">Заряд и точность появятся после получения геолокации</string>
+    <string name="map_person_coordinates_waiting">Координаты пока недоступны</string>
+    <string name="map_person_summary">Заряд: %1$s · Точность: %2$s · Обновлено: %3$s</string>
+    <string name="map_person_battery_unknown">нет данных</string>
+    <string name="map_person_accuracy_unknown">нет данных</string>
+    <string name="map_person_accuracy_meters">± %1$d м</string>
+    <string name="map_person_coordinates">Координаты: %1$.5f, %2$.5f</string>
+    <string name="map_person_address_waiting">Определяем место…</string>
+    <string name="map_person_address_unavailable">Адрес пока не определён</string>
 </resources>

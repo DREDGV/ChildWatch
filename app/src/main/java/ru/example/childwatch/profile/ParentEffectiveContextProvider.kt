@@ -10,6 +10,8 @@ import ru.childwatch.shared.family.ActiveContextResolver
 import ru.childwatch.shared.family.ContextSource
 import ru.childwatch.shared.family.EffectiveContextProvider
 import ru.childwatch.shared.family.FeatureContext
+import ru.childwatch.shared.family.FeatureTargetResolver
+import ru.childwatch.shared.family.FeatureTargetResult
 import ru.childwatch.shared.family.forFeature
 
 class ParentEffectiveContextProvider private constructor(context: Context) : EffectiveContextProvider {
@@ -17,6 +19,7 @@ class ParentEffectiveContextProvider private constructor(context: Context) : Eff
     private val store = ParentContextStore(appContext)
     private val migration = ParentLegacyContextMigration(appContext)
     private val resolver = ActiveContextResolver()
+    private val featureTargetResolver = FeatureTargetResolver()
     private val state = MutableStateFlow(store.read() ?: migration.migrateIfNeeded())
 
     override fun current(): ActiveContext? = state.value ?: refresh()
@@ -79,12 +82,53 @@ class ParentEffectiveContextProvider private constructor(context: Context) : Eff
         return updated
     }
 
+    /**
+     * Enrich the current device selection with canonical server identity.
+     * This method deliberately cannot change targetDeviceId.
+     */
+    @Synchronized
+    fun updateFamilyIdentity(
+        familyId: String?,
+        selfMemberId: String?,
+        focusedMemberId: String?
+    ): ActiveContext? {
+        val existing = current() ?: return null
+        val normalizedFamilyId = familyId?.trim()?.takeIf(String::isNotBlank)
+        val normalizedSelfMemberId = selfMemberId?.trim()?.takeIf(String::isNotBlank)
+        val normalizedFocusedMemberId = focusedMemberId?.trim()?.takeIf(String::isNotBlank)
+            ?.takeIf { existing.targetDeviceId != null }
+        val updated = existing.copy(
+            familyId = normalizedFamilyId ?: existing.familyId,
+            selfMemberId = normalizedSelfMemberId ?: existing.selfMemberId,
+            focusedMemberId = normalizedFocusedMemberId ?: existing.focusedMemberId,
+            source = ContextSource.CANONICAL,
+            updatedAt = System.currentTimeMillis()
+        )
+        persist(updated)
+        return updated
+    }
+
     fun storageNamespace(feature: String): String? {
         return current()?.storageNamespace(OWNER_SCOPE, feature)
     }
 
     fun featureContext(feature: String): FeatureContext? {
         return current()?.forFeature(OWNER_SCOPE, feature)
+    }
+
+    /** Resolve one immutable feature target without changing global selection. */
+    fun resolveFeatureTarget(
+        feature: String,
+        explicitTargetDeviceId: String? = null,
+        explicitFocusedMemberId: String? = null
+    ): FeatureTargetResult {
+        return featureTargetResolver.resolve(
+            activeContext = current(),
+            ownerScope = OWNER_SCOPE,
+            feature = feature,
+            explicitTargetDeviceId = explicitTargetDeviceId,
+            explicitFocusedMemberId = explicitFocusedMemberId
+        )
     }
 
     private fun persist(context: ActiveContext) {

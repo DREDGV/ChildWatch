@@ -1315,6 +1315,131 @@ class NetworkClient(private val context: Context) {
         }
     }
 
+    suspend fun getFamilies(): retrofit2.Response<FamiliesResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot get families")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                createRetrofitClient(serverUrl)
+                    .create(ChildWatchApi::class.java)
+                    .getFamilies()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting families", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    suspend fun getAuthenticatedIdentity(): retrofit2.Response<AuthenticatedIdentityResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                createRetrofitClient(serverUrl)
+                    .create(ChildWatchApi::class.java)
+                    .getAuthenticatedIdentity()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting authenticated family identity", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    suspend fun getFamilyMembers(
+        familyId: String
+    ): retrofit2.Response<FamilyMembersResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                createRetrofitClient(serverUrl)
+                    .create(ChildWatchApi::class.java)
+                    .getFamilyMembers(familyId.trim())
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting family members", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
+    suspend fun updateFamilyMemberProfile(
+        familyId: String,
+        memberId: String,
+        displayName: String? = null,
+        avatarKey: String? = null
+    ): retrofit2.Response<UpdateFamilyMemberProfileResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                createRetrofitClient(serverUrl)
+                    .create(ChildWatchApi::class.java)
+                    .updateFamilyMemberProfile(
+                        familyId = familyId.trim(),
+                        memberId = memberId.trim(),
+                        request = UpdateFamilyMemberProfileRequest(
+                            displayName = displayName?.trim(),
+                            avatarKey = avatarKey?.trim()
+                        )
+                    )
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating family member profile", e)
+                retrofit2.Response.error(
+                    404,
+                    okhttp3.ResponseBody.create(null, "Error: ${e.message}")
+                )
+            }
+        }
+    }
+
+    suspend fun getFamilyDevices(
+        familyId: String
+    ): retrofit2.Response<FamilyDevicesResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                createRetrofitClient(serverUrl)
+                    .create(ChildWatchApi::class.java)
+                    .getFamilyDevices(familyId.trim())
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting family devices", e)
+                retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
+            }
+        }
+    }
+
     suspend fun getLinkedParents(
         childDeviceId: String
     ): retrofit2.Response<LinkedParentsResponse> {

@@ -39,8 +39,9 @@ import ru.example.childwatch.network.DeviceStatus
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
-import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentParticipantNameResolver
+import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
+import ru.example.childwatch.profile.FamilyAvatarRenderer
 import ru.example.childwatch.recordings.RecordingsLibraryActivity
 import ru.example.childwatch.service.AudioPlaybackService
 import ru.example.childwatch.ui.AdvancedAudioVisualizer
@@ -83,7 +84,6 @@ class AudioStreamingActivity : AppCompatActivity() {
     private lateinit var audioPrefs: SharedPreferences
     private lateinit var secureSettings: SecureSettingsManager
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
-    private lateinit var activeSessionStore: ParentActiveSessionStore
     private lateinit var participantNameResolver: ParentParticipantNameResolver
     private val networkClient by lazy { NetworkClient(this) }
     private val gson by lazy { Gson() }
@@ -96,6 +96,7 @@ class AudioStreamingActivity : AppCompatActivity() {
     private val availableSampleRates = listOf(DEFAULT_SAMPLE_RATE)
     private var selectedSampleRate = DEFAULT_SAMPLE_RATE
     private var qualitySwitchInProgress = false
+    private var technicalDetailsVisible = false
 
     // Child device status cache
     private var childBatteryLevel: Int? = null
@@ -188,7 +189,6 @@ class AudioStreamingActivity : AppCompatActivity() {
 
         secureSettings = SecureSettingsManager(this)
         effectiveContextResolver = ParentEffectiveContextResolver(this)
-        activeSessionStore = ParentActiveSessionStore(this)
         participantNameResolver = ParentParticipantNameResolver(this)
         audioPrefs = getSharedPreferences("audio_streaming", MODE_PRIVATE)
 
@@ -202,8 +202,6 @@ class AudioStreamingActivity : AppCompatActivity() {
                 finish()
                 return
             }
-        activeSessionStore.updateFocusedChildId(deviceId)
-
         val resolvedServerUrl = intent.getStringExtra(EXTRA_SERVER_URL)
             ?: effectiveContextResolver.resolveServerUrl().takeIf { it.isNotBlank() }
             ?: secureSettings.getServerUrl().trim()
@@ -288,11 +286,10 @@ class AudioStreamingActivity : AppCompatActivity() {
 
     private fun setupUI() {
         val childLabel = participantNameResolver.resolveFocusedChildDisplayName(deviceId)
-        binding.deviceIdText.text = if (childLabel == deviceId) {
-            getString(R.string.listen_device_id, deviceId)
-        } else {
-            childLabel
-        }
+        binding.deviceIdText.text = childLabel.takeUnless { it == deviceId }
+            ?: getString(R.string.chat_partner_child)
+        FamilyAvatarRenderer.bind(binding.audioPersonAvatar, null)
+        loadPersonPresentation()
         binding.topAppBar.setNavigationOnClickListener { finish() }
 
         binding.filterCard.isVisible = false
@@ -300,6 +297,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         setupVolumeModeControls()
         setupHudModeControls()
         setupAudioQualitySelector()
+        setupTechnicalDetails()
 
         binding.toggleStreamingBtn.setOnClickListener {
             if (streamingActionInProgress) return@setOnClickListener
@@ -338,6 +336,44 @@ class AudioStreamingActivity : AppCompatActivity() {
         syncRecordingSwitch(desiredRecordingEnabled)
         updateBatteryHud()
         updateDiagnosticsSummary(AudioStreamMetrics())
+    }
+
+    private fun loadPersonPresentation() {
+        lifecycleScope.launch {
+            val option = runCatching {
+                ParentLinkedChildOptionsProvider(this@AudioStreamingActivity)
+                    .getOptions()
+                    .firstOrNull { it.deviceId == deviceId }
+            }.getOrNull() ?: return@launch
+
+            binding.deviceIdText.text = option.displayName.trim()
+                .ifBlank { getString(R.string.chat_partner_child) }
+            FamilyAvatarRenderer.bind(binding.audioPersonAvatar, option.avatarKey)
+        }
+    }
+
+    private fun setupTechnicalDetails() {
+        binding.technicalDetailsButton.setOnClickListener {
+            technicalDetailsVisible = !technicalDetailsVisible
+            renderTechnicalDetails()
+        }
+        renderTechnicalDetails()
+    }
+
+    private fun renderTechnicalDetails() {
+        binding.sessionMetricsContainer.isVisible = technicalDetailsVisible
+        binding.gainTitleText.isVisible = technicalDetailsVisible
+        binding.gainModeGroup.isVisible = technicalDetailsVisible
+        binding.volumeModeCaptionText.isVisible = technicalDetailsVisible
+        binding.visualizerCard.isVisible = technicalDetailsVisible
+        binding.diagnosticsCard.isVisible = technicalDetailsVisible
+        binding.technicalDetailsButton.setText(
+            if (technicalDetailsVisible) {
+                R.string.listen_technical_hide
+            } else {
+                R.string.listen_technical_show
+            }
+        )
     }
 
     private fun registerTakeoverRequestListener() {

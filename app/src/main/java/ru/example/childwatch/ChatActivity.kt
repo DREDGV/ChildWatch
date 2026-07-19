@@ -202,10 +202,6 @@ class ChatActivity : AppCompatActivity() {
             activeSessionStore.getSession()?.linkedChildDeviceId.orEmpty(),
             SecureSettingsManager(this).getChildDeviceId().orEmpty()
         ).firstOrNull { it.isNotBlank() }.orEmpty()
-        if (resolved.isNotBlank()) {
-            contextProvider.updateSelection(focusedMemberId = null, targetDeviceId = resolved)
-            activeSessionStore.updateFocusedChildId(resolved)
-        }
         return resolved
     }
 

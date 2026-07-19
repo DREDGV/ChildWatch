@@ -4,6 +4,7 @@ import android.os.Bundle
 import android.content.Intent
 import android.util.Log
 import android.widget.TextView
+import android.widget.ImageView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.GridLayoutManager
@@ -32,8 +33,9 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
-import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentParticipantNameResolver
+import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
+import ru.example.childwatch.profile.FamilyAvatarRenderer
 import ru.example.childwatch.service.AudioPlaybackService
 
 /**
@@ -57,6 +59,7 @@ class RemoteCameraActivity : AppCompatActivity() {
     private lateinit var toolbar: MaterialToolbar
     private lateinit var statusText: TextView
     private lateinit var childNameText: TextView
+    private lateinit var childAvatarImage: ImageView
     private lateinit var takePhotoButton: MaterialButton
     private lateinit var cameraToggleGroup: MaterialButtonToggleGroup
     private lateinit var cameraBackButton: MaterialButton
@@ -83,14 +86,12 @@ class RemoteCameraActivity : AppCompatActivity() {
     private var selectedCameraFacing: String = "back"
     private var resolvedGalleryDeviceId: String? = null
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
-    private lateinit var activeSessionStore: ParentActiveSessionStore
     private lateinit var participantNameResolver: ParentParticipantNameResolver
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_remote_camera)
         effectiveContextResolver = ParentEffectiveContextResolver(this)
-        activeSessionStore = ParentActiveSessionStore(this)
         participantNameResolver = ParentParticipantNameResolver(this)
 
         // Get child device info from intent
@@ -103,8 +104,6 @@ class RemoteCameraActivity : AppCompatActivity() {
             finish()
             return
         }
-        activeSessionStore.updateFocusedChildId(childId!!)
-
         initViews()
         setupToolbar()
         setupButtons()
@@ -117,6 +116,7 @@ class RemoteCameraActivity : AppCompatActivity() {
             toolbar = findViewById(R.id.toolbar)
             statusText = findViewById(R.id.statusText)
             childNameText = findViewById(R.id.childNameText)
+            childAvatarImage = findViewById(R.id.remotePhotoPersonAvatar)
             takePhotoButton = findViewById(R.id.takePhotoButton)
             cameraToggleGroup = findViewById(R.id.cameraToggleGroup)
             cameraBackButton = findViewById(R.id.cameraBackButton)
@@ -141,11 +141,10 @@ class RemoteCameraActivity : AppCompatActivity() {
         val resolvedChildName = childName?.takeIf { it.isNotBlank() }
             ?: childId?.let { participantNameResolver.resolveFocusedChildDisplayName(it) }
 
-        childNameText.text = if (!resolvedChildName.isNullOrBlank() && resolvedChildName != childId) {
-            getString(R.string.remote_camera_device_label, resolvedChildName)
-        } else {
-            getString(R.string.remote_camera_device_id, childId)
-        }
+        childNameText.text = resolvedChildName?.takeIf { it.isNotBlank() && it != childId }
+            ?: getString(R.string.chat_partner_child)
+            FamilyAvatarRenderer.bind(childAvatarImage, null)
+            loadPersonPresentation()
             cameraToggleGroup.check(cameraBackButton.id)
             selectedCameraFacing = "back"
         } catch (e: Exception) {
@@ -156,6 +155,20 @@ class RemoteCameraActivity : AppCompatActivity() {
                 Toast.LENGTH_SHORT
             ).show()
             finish()
+        }
+    }
+
+    private fun loadPersonPresentation() {
+        val targetId = childId ?: return
+        lifecycleScope.launch {
+            val option = runCatching {
+                ParentLinkedChildOptionsProvider(this@RemoteCameraActivity)
+                    .getOptions()
+                    .firstOrNull { it.deviceId == targetId }
+            }.getOrNull() ?: return@launch
+            childNameText.text = option.displayName.trim()
+                .ifBlank { getString(R.string.chat_partner_child) }
+            FamilyAvatarRenderer.bind(childAvatarImage, option.avatarKey)
         }
     }
 
@@ -429,7 +442,8 @@ class RemoteCameraActivity : AppCompatActivity() {
                     RemotePhotoCache.saveBase64PhotoToCache(
                         this@RemoteCameraActivity,
                         photoBase64,
-                        timestamp
+                        timestamp,
+                        targetDeviceId = childId.orEmpty()
                     )
                 }
 
@@ -573,7 +587,8 @@ class RemoteCameraActivity : AppCompatActivity() {
                         this@RemoteCameraActivity,
                         bytes,
                         System.currentTimeMillis(),
-                        prefix = "remote_gallery"
+                        prefix = "remote_gallery",
+                        targetDeviceId = childId.orEmpty()
                     )
                 }
 
@@ -643,10 +658,7 @@ class RemoteCameraActivity : AppCompatActivity() {
     }
 
     private fun resolveGalleryDeviceIds(): List<String> {
-        return effectiveContextResolver.resolveTargetDeviceCandidates(
-            resolvedGalleryDeviceId,
-            childId
-        )
+        return listOfNotNull(childId?.trim()?.takeIf(String::isNotBlank))
     }
 
     override fun onDestroy() {
@@ -848,4 +860,3 @@ class RemoteCameraActivity : AppCompatActivity() {
         return listOfNotNull(formattedDate, resolution, sizeLabel).joinToString(" | ")
     }
 }
-

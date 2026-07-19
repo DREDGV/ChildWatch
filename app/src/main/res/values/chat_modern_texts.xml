@@ -10,6 +10,13 @@
     <string name="chat_v2_no_members">Нет доступных участников семьи</string>
     <string name="chat_v2_no_messages">Пока нет сообщений</string>
     <string name="chat_v2_new_messages">Новые сообщения: %1$d</string>
+    <plurals name="chat_v2_family_member_count">
+        <item quantity="one">Семейный чат · %1$d участник</item>
+        <item quantity="few">Семейный чат · %1$d участника</item>
+        <item quantity="many">Семейный чат · %1$d участников</item>
+        <item quantity="other">Семейный чат · %1$d участника</item>
+    </plurals>
+    <string name="chat_v2_direct_meta">Личный чат · %1$s</string>
     <string name="chat_emoji_button_label">Эмодзи</string>
     <string name="chat_emoji_button_content_description">Открыть или закрыть панель эмодзи</string>
 </resources>

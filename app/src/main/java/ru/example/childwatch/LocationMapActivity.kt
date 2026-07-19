@@ -96,8 +96,6 @@ class LocationMapActivity : AppCompatActivity() {
             ?: prefs.getString("parent_device_id", null)
             ?: prefs.getString("linked_parent_device_id", null)
 
-        childDeviceId?.takeIf { it.isNotBlank() }?.let(activeSessionStore::updateFocusedChildId)
-
         // Setup UI
         setupUI()
 

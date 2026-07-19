@@ -4,44 +4,51 @@ import android.app.Activity
 import android.widget.Toast
 import ru.childwatch.shared.attention.android.AttentionSignalSheet
 import ru.childwatch.shared.attention.android.AttentionSignalTarget
+import ru.childwatch.shared.family.FeatureTargetResult
 import ru.example.childwatch.network.WebSocketManager
-import ru.example.childwatch.profile.ParentActiveSessionStore
-import ru.example.childwatch.profile.ParentEffectiveContextResolver
+import ru.example.childwatch.profile.ParentEffectiveContextProvider
+import ru.example.childwatch.profile.FamilyAvatarRenderer
 import ru.example.childwatch.profile.ParentParticipantNameResolver
-import ru.example.childwatch.service.ChatBackgroundService
 
 object ParentAttentionSignalLauncher {
     fun show(
         activity: Activity,
         explicitTargetDeviceId: String? = null,
-        explicitTargetName: String? = null
+        explicitTargetName: String? = null,
+        explicitTargetAvatarValue: String? = null,
+        explicitTargetMemberId: String? = null,
+        explicitFamilyId: String? = null
     ) {
-        val resolver = ParentEffectiveContextResolver(activity)
-        val context = resolver.resolve()
-        val targetDeviceId = explicitTargetDeviceId?.trim().orEmpty()
-            .ifBlank { resolver.resolveTargetDeviceId() }
-        val requesterDeviceId = context.ownParentDeviceId.trim()
-        if (targetDeviceId.isBlank() || requesterDeviceId.isBlank() || context.serverUrl.isBlank()) {
-            Toast.makeText(activity, "Сначала выберите участника и восстановите связь", Toast.LENGTH_LONG).show()
+        val contextProvider = ParentEffectiveContextProvider.get(activity)
+        val result = contextProvider.resolveFeatureTarget(
+            feature = "attention-signal",
+            explicitTargetDeviceId = explicitTargetDeviceId,
+            explicitFocusedMemberId = explicitTargetMemberId
+        )
+        val resolved = result as? FeatureTargetResult.Resolved
+        val context = resolved?.context
+        val targetDeviceId = resolved?.targetDeviceId.orEmpty()
+        val requesterDeviceId = context?.selfDeviceId.orEmpty().trim()
+
+        if (context == null || targetDeviceId.isBlank() || requesterDeviceId.isBlank() || context.serverUrl.isBlank()) {
+            Toast.makeText(
+                activity,
+                "Сначала выберите участника и восстановите связь",
+                Toast.LENGTH_LONG
+            ).show()
             return
         }
 
-        ParentActiveSessionStore(activity).updateFocusedChildId(targetDeviceId)
-        ChatBackgroundService.start(activity, context.serverUrl, targetDeviceId)
         val names = ParentParticipantNameResolver(activity)
         AttentionSignalSheet(
             context = activity,
             target = AttentionSignalTarget(
-                // Local profile identifiers predate the server family model and are
-                // not guaranteed to match its canonical IDs. The authenticated
-                // device pair is authoritative; the server resolves and verifies
-                // the family/member context before routing the signal.
-                familyId = null,
-                targetMemberId = null,
+                familyId = explicitFamilyId ?: context.familyId,
+                targetMemberId = explicitTargetMemberId ?: context.focusedMemberId,
                 targetDeviceId = targetDeviceId,
                 targetDisplayName = explicitTargetName?.trim().orEmpty()
                     .ifBlank { names.resolveFocusedChildDisplayName(targetDeviceId) },
-                requesterMemberId = null,
+                requesterMemberId = context.selfMemberId,
                 requesterDeviceId = requesterDeviceId,
                 requesterDisplayName = names.resolveOwnParentDisplayName()
             ),
@@ -49,7 +56,10 @@ object ParentAttentionSignalLauncher {
             sendRequest = WebSocketManager::sendAttentionRequest,
             sendStopRequest = WebSocketManager::sendAttentionStopRequest,
             addStatusListener = WebSocketManager::addAttentionStatusListener,
-            removeStatusListener = WebSocketManager::removeAttentionStatusListener
+            removeStatusListener = WebSocketManager::removeAttentionStatusListener,
+            bindTargetAvatar = { view ->
+                FamilyAvatarRenderer.bind(view, explicitTargetAvatarValue)
+            }
         ).show()
     }
 }

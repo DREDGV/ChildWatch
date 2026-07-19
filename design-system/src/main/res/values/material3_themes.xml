@@ -1,0 +1,95 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+      Opt-in Material 3 foundation. Existing applications continue to use
+      Theme.ChildWatch.DesignSystem until they explicitly select this theme.
+    -->
+    <style name="Theme.ChildWatch.DesignSystem.Material3" parent="Theme.Material3.DayNight">
+        <item name="colorPrimary">@color/cw_color_primary</item>
+        <item name="colorOnPrimary">@color/cw_color_on_primary</item>
+        <item name="colorPrimaryContainer">@color/cw_color_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/cw_color_on_primary_container</item>
+        <item name="colorSecondary">@color/cw_color_secondary</item>
+        <item name="colorOnSecondary">@color/cw_color_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/cw_color_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/cw_color_on_secondary_container</item>
+        <item name="colorTertiary">@color/cw_color_info</item>
+        <item name="colorOnTertiary">@color/cw_color_on_info</item>
+        <item name="colorTertiaryContainer">@color/cw_color_info_container</item>
+        <item name="colorOnTertiaryContainer">@color/cw_color_on_info_container</item>
+
+        <item name="android:colorBackground">@color/cw_color_background</item>
+        <item name="colorOnBackground">@color/cw_color_on_background</item>
+        <item name="colorSurface">@color/cw_color_surface</item>
+        <item name="colorOnSurface">@color/cw_color_on_surface</item>
+        <item name="colorSurfaceVariant">@color/cw_color_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/cw_color_on_surface_variant</item>
+        <item name="colorSurfaceDim">@color/cw_color_surface_dim</item>
+        <item name="colorSurfaceBright">@color/cw_color_surface_bright</item>
+        <item name="colorSurfaceContainerLowest">@color/cw_color_surface_container_lowest</item>
+        <item name="colorSurfaceContainerLow">@color/cw_color_surface_container_low</item>
+        <item name="colorSurfaceContainer">@color/cw_color_surface_container</item>
+        <item name="colorSurfaceContainerHigh">@color/cw_color_surface_container_high</item>
+        <item name="colorSurfaceContainerHighest">@color/cw_color_surface_container_highest</item>
+        <item name="colorSurfaceInverse">@color/cw_color_inverse_surface</item>
+        <item name="colorOnSurfaceInverse">@color/cw_color_inverse_on_surface</item>
+        <item name="colorPrimaryInverse">@color/cw_color_inverse_primary</item>
+        <item name="colorOutline">@color/cw_color_outline</item>
+        <item name="colorOutlineVariant">@color/cw_color_outline_variant</item>
+        <item name="colorError">@color/cw_color_error</item>
+        <item name="colorOnError">@color/cw_color_on_error</item>
+        <item name="colorErrorContainer">@color/cw_color_error_container</item>
+        <item name="colorOnErrorContainer">@color/cw_color_on_error_container</item>
+
+        <item name="android:navigationBarColor">@color/cw_color_surface</item>
+        <item name="android:statusBarColor">@color/cw_color_surface</item>
+        <item name="android:windowLightNavigationBar">@bool/cw_is_light_system_bar</item>
+        <item name="android:windowLightStatusBar">@bool/cw_is_light_system_bar</item>
+        <item name="android:fontFamily">sans</item>
+
+        <item name="materialIconButtonStyle">@style/Widget.ChildWatch.Button.Icon</item>
+        <item name="extendedFloatingActionButtonStyle">@style/Widget.ChildWatch.ExtendedFloatingActionButton</item>
+        <item name="toolbarStyle">@style/Widget.ChildWatch.Toolbar</item>
+        <item name="textInputStyle">@style/Widget.ChildWatch.TextInputLayout</item>
+    </style>
+
+    <style name="Theme.ChildWatch.DesignSystem.Material3.NoActionBar" parent="Theme.ChildWatch.DesignSystem.Material3">
+        <item name="windowActionBar">false</item>
+        <item name="windowNoTitle">true</item>
+    </style>
+
+    <!-- Apply to a single activity root or subtree during incremental migration. -->
+    <style name="ThemeOverlay.ChildWatch.Material3" parent="ThemeOverlay.Material3">
+        <item name="colorPrimary">@color/cw_color_primary</item>
+        <item name="colorOnPrimary">@color/cw_color_on_primary</item>
+        <item name="colorPrimaryContainer">@color/cw_color_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/cw_color_on_primary_container</item>
+        <item name="colorSecondary">@color/cw_color_secondary</item>
+        <item name="colorOnSecondary">@color/cw_color_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/cw_color_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/cw_color_on_secondary_container</item>
+        <item name="colorTertiary">@color/cw_color_info</item>
+        <item name="colorOnTertiary">@color/cw_color_on_info</item>
+        <item name="colorTertiaryContainer">@color/cw_color_info_container</item>
+        <item name="colorOnTertiaryContainer">@color/cw_color_on_info_container</item>
+        <item name="colorSurface">@color/cw_color_surface</item>
+        <item name="colorOnSurface">@color/cw_color_on_surface</item>
+        <item name="colorSurfaceVariant">@color/cw_color_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/cw_color_on_surface_variant</item>
+        <item name="colorSurfaceContainerLowest">@color/cw_color_surface_container_lowest</item>
+        <item name="colorSurfaceContainerLow">@color/cw_color_surface_container_low</item>
+        <item name="colorSurfaceContainer">@color/cw_color_surface_container</item>
+        <item name="colorSurfaceContainerHigh">@color/cw_color_surface_container_high</item>
+        <item name="colorSurfaceContainerHighest">@color/cw_color_surface_container_highest</item>
+        <item name="colorOutline">@color/cw_color_outline</item>
+        <item name="colorOutlineVariant">@color/cw_color_outline_variant</item>
+        <item name="colorError">@color/cw_color_error</item>
+        <item name="colorOnError">@color/cw_color_on_error</item>
+        <item name="colorErrorContainer">@color/cw_color_error_container</item>
+        <item name="colorOnErrorContainer">@color/cw_color_on_error_container</item>
+        <item name="materialIconButtonStyle">@style/Widget.ChildWatch.Button.Icon</item>
+        <item name="extendedFloatingActionButtonStyle">@style/Widget.ChildWatch.ExtendedFloatingActionButton</item>
+        <item name="toolbarStyle">@style/Widget.ChildWatch.Toolbar</item>
+        <item name="textInputStyle">@style/Widget.ChildWatch.TextInputLayout</item>
+    </style>
+</resources>

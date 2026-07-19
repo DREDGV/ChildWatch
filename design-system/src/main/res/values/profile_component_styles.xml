@@ -1,0 +1,142 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Business-neutral typography for a person/member presentation. -->
+    <style name="TextAppearance.ChildWatch.Person.Name" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">@color/cw_color_on_surface</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">normal</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Person.Supporting" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textColor">@color/cw_color_on_surface_variant</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Person.Meta" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">@color/cw_color_on_surface_variant</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Status" parent="TextAppearance.Material3.LabelMedium">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">@color/cw_color_status_neutral</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">normal</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Status.Success" parent="TextAppearance.ChildWatch.Status">
+        <item name="android:textColor">@color/cw_color_success</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Status.Warning" parent="TextAppearance.ChildWatch.Status">
+        <item name="android:textColor">@color/cw_color_warning</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Status.Error" parent="TextAppearance.ChildWatch.Status">
+        <item name="android:textColor">@color/cw_color_error</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Status.Info" parent="TextAppearance.ChildWatch.Status">
+        <item name="android:textColor">@color/cw_color_info</item>
+    </style>
+
+    <!-- Card styles intentionally contain no domain fields or model assumptions. -->
+    <style name="Widget.ChildWatch.PersonCard" parent="Widget.Material3.CardView.Outlined">
+        <item name="android:minHeight">@dimen/cw_person_card_min_height</item>
+        <item name="cardBackgroundColor">@color/cw_color_surface</item>
+        <item name="cardCornerRadius">@dimen/cw_corner_medium</item>
+        <item name="cardElevation">0dp</item>
+        <item name="cardUseCompatPadding">false</item>
+        <item name="strokeColor">@color/cw_color_outline_variant</item>
+        <item name="strokeWidth">@dimen/cw_stroke_thin</item>
+    </style>
+
+    <style name="Widget.ChildWatch.PersonCard.Interactive" parent="Widget.ChildWatch.PersonCard">
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="rippleColor">@color/cw_color_primary_container</item>
+    </style>
+
+    <style name="Widget.ChildWatch.PersonCard.Selected" parent="Widget.ChildWatch.PersonCard.Interactive">
+        <item name="cardBackgroundColor">@color/cw_color_selected_surface</item>
+        <item name="strokeColor">@color/cw_color_primary</item>
+        <item name="strokeWidth">@dimen/cw_stroke_selected</item>
+        <item name="rippleColor">@color/cw_color_surface_variant</item>
+    </style>
+
+    <!-- Circular ShapeableImageView foundation; image loading stays in the host app. -->
+    <style name="ShapeAppearanceOverlay.ChildWatch.Avatar" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Avatar" parent="">
+        <item name="android:background">@color/cw_color_avatar_surface</item>
+        <item name="android:scaleType">centerCrop</item>
+        <item name="shapeAppearanceOverlay">@style/ShapeAppearanceOverlay.ChildWatch.Avatar</item>
+        <item name="strokeColor">@color/cw_color_outline_variant</item>
+        <item name="strokeWidth">@dimen/cw_stroke_thin</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Avatar.Small" parent="Widget.ChildWatch.Avatar">
+        <item name="android:layout_width">@dimen/cw_avatar_small</item>
+        <item name="android:layout_height">@dimen/cw_avatar_small</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Avatar.Medium" parent="Widget.ChildWatch.Avatar">
+        <item name="android:layout_width">@dimen/cw_avatar_medium</item>
+        <item name="android:layout_height">@dimen/cw_avatar_medium</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Avatar.Large" parent="Widget.ChildWatch.Avatar">
+        <item name="android:layout_width">@dimen/cw_avatar_large</item>
+        <item name="android:layout_height">@dimen/cw_avatar_large</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Avatar.Hero" parent="Widget.ChildWatch.Avatar">
+        <item name="android:layout_width">@dimen/cw_avatar_hero</item>
+        <item name="android:layout_height">@dimen/cw_avatar_hero</item>
+    </style>
+
+    <!-- Chips remain visually compact while enforcing a 48dp accessibility target. -->
+    <style name="Widget.ChildWatch.StatusChip" parent="Widget.Material3.Chip.Assist">
+        <item name="android:textAppearance">@style/TextAppearance.ChildWatch.Status</item>
+        <item name="chipCornerRadius">@dimen/cw_corner_full</item>
+        <item name="chipMinHeight">@dimen/cw_status_chip_height</item>
+        <item name="chipMinTouchTargetSize">@dimen/cw_touch_target</item>
+        <item name="ensureMinTouchTargetSize">true</item>
+        <item name="chipStrokeWidth">0dp</item>
+        <item name="chipIconSize">@dimen/cw_icon_size_small</item>
+    </style>
+
+    <style name="Widget.ChildWatch.StatusChip.Neutral" parent="Widget.ChildWatch.StatusChip">
+        <item name="android:textColor">@color/cw_color_on_status_neutral_container</item>
+        <item name="chipBackgroundColor">@color/cw_color_status_neutral_container</item>
+        <item name="chipIconTint">@color/cw_color_status_neutral</item>
+    </style>
+
+    <style name="Widget.ChildWatch.StatusChip.Success" parent="Widget.ChildWatch.StatusChip">
+        <item name="android:textColor">@color/cw_color_on_success_container</item>
+        <item name="chipBackgroundColor">@color/cw_color_success_container</item>
+        <item name="chipIconTint">@color/cw_color_success</item>
+    </style>
+
+    <style name="Widget.ChildWatch.StatusChip.Warning" parent="Widget.ChildWatch.StatusChip">
+        <item name="android:textColor">@color/cw_color_on_warning_container</item>
+        <item name="chipBackgroundColor">@color/cw_color_warning_container</item>
+        <item name="chipIconTint">@color/cw_color_warning</item>
+    </style>
+
+    <style name="Widget.ChildWatch.StatusChip.Error" parent="Widget.ChildWatch.StatusChip">
+        <item name="android:textColor">@color/cw_color_on_error_container</item>
+        <item name="chipBackgroundColor">@color/cw_color_error_container</item>
+        <item name="chipIconTint">@color/cw_color_error</item>
+    </style>
+
+    <style name="Widget.ChildWatch.StatusChip.Info" parent="Widget.ChildWatch.StatusChip">
+        <item name="android:textColor">@color/cw_color_on_info_container</item>
+        <item name="chipBackgroundColor">@color/cw_color_info_container</item>
+        <item name="chipIconTint">@color/cw_color_info</item>
+    </style>
+</resources>

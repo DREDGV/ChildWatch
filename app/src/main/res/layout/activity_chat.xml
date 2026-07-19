@@ -4,7 +4,7 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#ECF0F1">
+    android:background="@color/cw_color_background">
 
     <com.google.android.material.card.MaterialCardView
         android:id="@+id/connectionStatusCard"
@@ -12,8 +12,11 @@
         android:layout_height="wrap_content"
         android:layout_margin="12dp"
         android:visibility="visible"
-        app:cardCornerRadius="20dp"
-        app:cardElevation="3dp">
+        app:cardBackgroundColor="@color/cw_color_surface"
+        app:cardCornerRadius="22dp"
+        app:cardElevation="0dp"
+        app:strokeColor="@color/cw_color_outline_variant"
+        app:strokeWidth="1dp">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -22,13 +25,11 @@
             android:orientation="horizontal"
             android:padding="12dp">
 
-            <ImageView
+            <com.google.android.material.imageview.ShapeableImageView
                 android:id="@+id/chatAvatar"
-                android:layout_width="48dp"
-                android:layout_height="48dp"
-                android:background="@android:color/transparent"
-                android:padding="10dp"
-                android:src="@drawable/ic_launcher_foreground" />
+                style="@style/Widget.ChildWatch.Avatar.Medium"
+                android:contentDescription="@string/family_profile_avatar_description"
+                android:src="@drawable/avatar_family_ocean" />
 
             <LinearLayout
                 android:layout_width="0dp"
@@ -43,7 +44,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/chat_partner_child"
-                    android:textColor="#212121"
+                    android:textColor="@color/cw_color_on_surface"
                     android:textSize="18sp"
                     android:textStyle="bold" />
 
@@ -68,7 +69,7 @@
                         android:ellipsize="end"
                         android:maxLines="1"
                         android:text="@string/chat_presence_connecting"
-                        android:textColor="@android:color/darker_gray"
+                        android:textColor="@color/cw_color_on_surface_variant"
                         android:textSize="13sp" />
 
                     <TextView
@@ -80,7 +81,7 @@
                         android:ellipsize="end"
                         android:maxLines="1"
                         android:text="@string/chat_partner_unknown_id"
-                        android:textColor="@android:color/darker_gray"
+                        android:textColor="@color/cw_color_on_surface_variant"
                         android:textSize="12sp" />
                 </LinearLayout>
             </LinearLayout>

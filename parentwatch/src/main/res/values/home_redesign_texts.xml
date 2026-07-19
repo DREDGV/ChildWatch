@@ -4,6 +4,8 @@
     <string name="home_child_protection_active">Защита активна</string>
     <string name="home_child_protection_subtitle">Связь с семьёй установлена</string>
     <string name="home_child_profile_connected">Связь с родителем установлена</string>
+    <string name="home_child_profile_action">Профиль</string>
+    <string name="home_child_profile_avatar_description">Профиль ребёнка</string>
     <string name="home_child_profile_not_connected">Связь с семьёй пока не настроена</string>
     <string name="home_child_chat">Чат</string>
     <string name="home_child_chat_hint">Написать семье</string>

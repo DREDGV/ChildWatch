@@ -9,9 +9,11 @@ import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
+import android.graphics.Path
 import android.graphics.Typeface
 import android.graphics.drawable.BitmapDrawable
 import android.graphics.drawable.Drawable
+import android.location.Geocoder
 import android.os.Bundle
 import android.text.InputType
 import android.text.format.DateUtils
@@ -36,10 +38,11 @@ import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polygon
 import org.osmdroid.views.overlay.Polyline
 import ru.example.childwatch.attention.ParentAttentionSignalLauncher
-import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentEffectiveContextProvider
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.profile.ParentParticipantNameResolver
+import ru.example.childwatch.profile.ParentFamilyDirectoryRepository
+import ru.example.childwatch.profile.FamilyAvatarRenderer
 import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.database.entity.ParentLocation
 import ru.example.childwatch.database.entity.Geofence
@@ -54,6 +57,7 @@ import ru.example.childwatch.contacts.ContactIcons
 import ru.example.childwatch.contacts.ContactRoles
 import ru.example.childwatch.utils.SecureSettingsManager
 import java.io.File
+import java.util.Locale
 import kotlin.math.*
 
 /**
@@ -129,9 +133,13 @@ class DualLocationMapActivity : AppCompatActivity() {
     
     private var myMarker: Marker? = null
     private var otherMarker: Marker? = null
+    private var myAccuracyOverlay: Polygon? = null
+    private var otherAccuracyOverlay: Polygon? = null
     private var connectionLine: Polyline? = null
     private val contactMarkers = mutableMapOf<String, Marker>()
+    private val contactAccuracyOverlays = mutableMapOf<String, Polygon>()
     private val familyMarkers = mutableMapOf<String, Marker>()
+    private val familyAccuracyOverlays = mutableMapOf<String, Polygon>()
     private var historyLine: Polyline? = null
     private var historyStartMarker: Marker? = null
     private var historyEndMarker: Marker? = null
@@ -142,6 +150,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     
     private var myLatitude: Double? = null
     private var myLongitude: Double? = null
+    private var myLocationAccuracy: Float? = null
     
     private var isMapReady = false
     private var autoRefreshJob: Job? = null
@@ -156,12 +165,20 @@ class DualLocationMapActivity : AppCompatActivity() {
     private val contextProvider by lazy { ParentEffectiveContextProvider.get(this) }
     private val mapNamespace by lazy { contextProvider.featureContext("map")?.storageNamespace ?: "legacy" }
     private val participantNameResolver by lazy { ParentParticipantNameResolver(this) }
+    private val familyDirectoryRepository by lazy { ParentFamilyDirectoryRepository(this) }
+    private var familyPresentationByDevice: Map<String, MapPersonPresentation> = emptyMap()
+
+    private data class MapPersonPresentation(
+        val displayName: String,
+        val avatarValue: String?
+    )
 
     private data class CachedLocation(
         val latitude: Double,
         val longitude: Double,
         val timestamp: Long,
-        val speed: Float?
+        val speed: Float?,
+        val accuracy: Float?
     )
 
     private data class MovementStop(
@@ -195,7 +212,10 @@ class DualLocationMapActivity : AppCompatActivity() {
         val latitude: Double,
         val longitude: Double,
         val timestamp: Long?,
-        val iconId: Int
+        val iconId: Int,
+        val accuracy: Float,
+        val battery: Int?,
+        val avatarValue: String?
     )
     
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -214,11 +234,14 @@ class DualLocationMapActivity : AppCompatActivity() {
 
             val canonicalContext = contextProvider.featureContext("map")
             if (myRole == ROLE_PARENT) {
-                canonicalContext?.selfDeviceId?.takeIf(String::isNotBlank)?.let { myId = it }
-                canonicalContext?.targetDeviceId?.takeIf(String::isNotBlank)?.let { otherId = it }
+                if (myId.isBlank()) {
+                    canonicalContext?.selfDeviceId?.takeIf(String::isNotBlank)?.let { myId = it }
+                }
+                if (otherId.isBlank()) {
+                    canonicalContext?.targetDeviceId?.takeIf(String::isNotBlank)?.let { otherId = it }
+                }
             }
             val effectiveContext = ParentEffectiveContextResolver(this).resolve()
-            val activeSessionStore = ParentActiveSessionStore(this)
             val localPrefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
             val legacyPrefs = getSharedPreferences("app_prefs", MODE_PRIVATE)
             val secureSettings = SecureSettingsManager(this)
@@ -273,10 +296,6 @@ class DualLocationMapActivity : AppCompatActivity() {
                 }
             }
 
-            if (myRole == ROLE_PARENT && otherId.isNotBlank()) {
-                activeSessionStore.updateFocusedChildId(otherId)
-            }
-
             limitedMode = !showAllContacts && otherId.isBlank()
             resolvedParentId = if (myRole == ROLE_PARENT) myId else otherId
             resolvedOtherId = otherId
@@ -297,6 +316,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             setupHistoryButton()
             setupTimelineButton()
             setupAttentionSignalButton()
+            loadFamilyPresentation()
             binding.root.post {
                 if (!isFinishing && !isDestroyed) {
                     initializeDependenciesAndLoad()
@@ -324,6 +344,42 @@ class DualLocationMapActivity : AppCompatActivity() {
             handleStartupFailure(t)
         }
     }
+
+    private fun loadFamilyPresentation() {
+        lifecycleScope.launch {
+            val directory = runCatching { familyDirectoryRepository.load().directory }.getOrNull()
+                ?: return@launch
+            familyPresentationByDevice = buildMap {
+                directory.people.forEach { person ->
+                    person.activeDevices.forEach { device ->
+                        put(
+                            device.deviceId,
+                            MapPersonPresentation(
+                                displayName = person.member.displayName,
+                                avatarValue = person.member.avatarKey
+                            )
+                        )
+                    }
+                }
+            }
+            bindSelectedPersonIdentity()
+            if (otherMarker != null && dependenciesReady) loadLocations()
+        }
+    }
+
+    private fun bindSelectedPersonIdentity(deviceId: String = linkedPersonDeviceId()) {
+        val presentation = familyPresentationByDevice[deviceId]
+        val fallbackName = if (myRole == ROLE_PARENT) {
+            participantNameResolver.resolveFocusedChildDisplayName(deviceId)
+        } else {
+            otherMarkerTitle()
+        }
+        binding.mapPersonName.text = presentation?.displayName?.trim().takeUnless { it.isNullOrBlank() }
+            ?: fallbackName
+        FamilyAvatarRenderer.bind(binding.mapPersonAvatar, presentation?.avatarValue)
+    }
+
+    private fun linkedPersonDeviceId(): String = resolvedOtherId.trim().ifBlank { otherId.trim() }
 
     private fun handleStartupFailure(error: Throwable) {
         Log.e(TAG, "Map startup failed", error)
@@ -432,7 +488,8 @@ class DualLocationMapActivity : AppCompatActivity() {
             ParentAttentionSignalLauncher.show(
                 activity = this,
                 explicitTargetDeviceId = targetDeviceId,
-                explicitTargetName = participantNameResolver.resolveFocusedChildDisplayName(targetDeviceId)
+                explicitTargetName = participantNameResolver.resolveFocusedChildDisplayName(targetDeviceId),
+                explicitTargetAvatarValue = familyPresentationByDevice[targetDeviceId]?.avatarValue
             )
         }
     }
@@ -974,7 +1031,8 @@ class DualLocationMapActivity : AppCompatActivity() {
     private fun createParticipantMarkerDrawable(
         @DrawableRes iconRes: Int,
         accentColor: Int,
-        title: String
+        title: String,
+        avatarValue: String? = null
     ): Drawable? {
         val density = resources.displayMetrics.density
         val label = shortMarkerLabel(title)
@@ -1033,10 +1091,16 @@ class DualLocationMapActivity : AppCompatActivity() {
         canvas.drawCircle(circleCx, circleCy, outerCircle, circleFill)
         canvas.drawCircle(circleCx, circleCy, outerCircle, circleStroke)
 
-        val iconDrawable = ContextCompat.getDrawable(this, iconRes)?.mutate()
+        val iconDrawable = FamilyAvatarRenderer.drawable(this, avatarValue, iconRes)?.mutate()
             ?: return BitmapDrawable(resources, bitmap)
-        DrawableCompat.setTint(iconDrawable, accentColor)
+        if (avatarValue.isNullOrBlank()) {
+            DrawableCompat.setTint(iconDrawable, accentColor)
+        }
         val halfIcon = iconSize / 2f
+        val saveCount = canvas.save()
+        canvas.clipPath(Path().apply {
+            addCircle(circleCx, circleCy, halfIcon, Path.Direction.CW)
+        })
         iconDrawable.setBounds(
             (circleCx - halfIcon).toInt(),
             (circleCy - halfIcon).toInt(),
@@ -1044,6 +1108,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             (circleCy + halfIcon).toInt()
         )
         iconDrawable.draw(canvas)
+        canvas.restoreToCount(saveCount)
         return BitmapDrawable(resources, bitmap)
     }
 
@@ -1404,10 +1469,18 @@ class DualLocationMapActivity : AppCompatActivity() {
 
     private fun cacheKeyOther(): String = "$mapNamespace::${MAP_CACHE_OTHER}_${resolvedOtherId.ifBlank { otherId }}"
 
-    private fun saveCachedLocation(key: String, lat: Double, lon: Double, timestamp: Long, speed: Float?) {
+    private fun saveCachedLocation(
+        key: String,
+        lat: Double,
+        lon: Double,
+        timestamp: Long,
+        speed: Float?,
+        accuracy: Float? = null
+    ) {
         val normalizedTimestamp = normalizeTimestampMillis(timestamp) ?: System.currentTimeMillis()
         val speedValue = speed?.toString() ?: ""
-        prefs.edit().putString(key, "$lat|$lon|$normalizedTimestamp|$speedValue").apply()
+        val accuracyValue = accuracy?.takeIf { it.isFinite() && it > 0f }?.toString() ?: ""
+        prefs.edit().putString(key, "$lat|$lon|$normalizedTimestamp|$speedValue|$accuracyValue").apply()
     }
 
     private fun loadCachedLocation(key: String): CachedLocation? {
@@ -1419,7 +1492,8 @@ class DualLocationMapActivity : AppCompatActivity() {
             val lon = parts[1].toDouble()
             val ts = normalizeTimestampMillis(parts[2].toLong()) ?: return null
             val speed = parts.getOrNull(3)?.toFloatOrNull()
-            CachedLocation(lat, lon, ts, speed)
+            val accuracy = parts.getOrNull(4)?.toFloatOrNull()
+            CachedLocation(lat, lon, ts, speed, accuracy)
         } catch (e: Exception) {
             null
         }
@@ -1430,7 +1504,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             parentId = deviceId,
             latitude = latitude,
             longitude = longitude,
-            accuracy = 0f,
+            accuracy = accuracy ?: 0f,
             timestamp = timestamp,
             battery = null,
             speed = speed,
@@ -1521,12 +1595,14 @@ class DualLocationMapActivity : AppCompatActivity() {
                     if (myLocation != null && isValidCoordinate(myLocation.latitude, myLocation.longitude)) {
                         myLatitude = myLocation.latitude
                         myLongitude = myLocation.longitude
+                        myLocationAccuracy = myLocation.accuracy
                         saveCachedLocation(
                             cacheKeyMy(),
                             myLocation.latitude,
                             myLocation.longitude,
                             myLocation.time,
-                            if (myLocation.hasSpeed()) myLocation.speed else null
+                            if (myLocation.hasSpeed()) myLocation.speed else null,
+                            myLocation.accuracy
                         )
                     }
 
@@ -1542,7 +1618,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                             title = selfMarkerTitle(),
                             iconRes = myIcon,
                             timestamp = myTs,
-                            snippetLabel = getString(R.string.map_my_location)
+                            snippetLabel = getString(R.string.map_my_location),
+                            accuracy = myLocation?.accuracy ?: cachedMy?.accuracy
                         )
                     }
 
@@ -1582,7 +1659,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                         myLat = cachedMy?.latitude,
                         myLon = cachedMy?.longitude,
                         myTimestamp = cachedMy?.timestamp,
-                        otherLocation = cachedOther?.toParentLocationData(resolvedOtherId.ifBlank { otherId })
+                        otherLocation = cachedOther?.toParentLocationData(resolvedOtherId.ifBlank { otherId }),
+                        myAccuracy = cachedMy?.accuracy
                     )
                     binding.loadingIndicator.visibility = View.GONE
                 }
@@ -1596,12 +1674,14 @@ class DualLocationMapActivity : AppCompatActivity() {
                 if (myLocation != null && isValidCoordinate(myLocation.latitude, myLocation.longitude)) {
                     myLatitude = myLocation.latitude
                     myLongitude = myLocation.longitude
+                    myLocationAccuracy = myLocation.accuracy
                     saveCachedLocation(
                         cacheKeyMy(),
                         myLocation.latitude,
                         myLocation.longitude,
                         myLocation.time,
-                        if (myLocation.hasSpeed()) myLocation.speed else null
+                        if (myLocation.hasSpeed()) myLocation.speed else null,
+                        myLocation.accuracy
                     )
                 } else {
                     Log.w(TAG, "My location not available")
@@ -1664,7 +1744,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                         otherLocation.latitude,
                         otherLocation.longitude,
                         otherLocation.timestamp,
-                        otherLocation.speed
+                        otherLocation.speed,
+                        otherLocation.accuracy
                     )
                 }
 
@@ -1674,13 +1755,16 @@ class DualLocationMapActivity : AppCompatActivity() {
                         serverSelfLocation.latitude,
                         serverSelfLocation.longitude,
                         serverSelfLocation.timestamp,
-                        serverSelfLocation.speed
+                        serverSelfLocation.speed,
+                        serverSelfLocation.accuracy
                     )
                 }
 
                 val myLatFinal = myLatitude ?: serverSelfLocation?.latitude ?: cachedMy?.latitude
                 val myLonFinal = myLongitude ?: serverSelfLocation?.longitude ?: cachedMy?.longitude
                 val myTsFinal = myLocation?.time ?: serverSelfLocation?.timestamp ?: cachedMy?.timestamp
+                val myAccuracyFinal = myLocation?.accuracy ?: serverSelfLocation?.accuracy ?: cachedMy?.accuracy
+                myLocationAccuracy = myAccuracyFinal
                 val otherFinal = otherLocation ?: cachedOther?.toParentLocationData(resolvedOtherId.ifBlank { otherId.ifBlank { "paired-device" } })
                 val usingCachedOther = otherLocation == null && otherFinal != null
                 val selfAvailable = myLatFinal != null && myLonFinal != null
@@ -1695,7 +1779,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                         myLat = myLatFinal,
                         myLon = myLonFinal,
                         myTimestamp = myTsFinal,
-                        otherLocation = otherFinal
+                        otherLocation = otherFinal,
+                        myAccuracy = myAccuracyFinal
                     )
                     renderFamilyMarkers(loadFamilyMarkersForCurrentChild())
                     binding.loadingIndicator.visibility = View.GONE
@@ -1746,7 +1831,8 @@ class DualLocationMapActivity : AppCompatActivity() {
         otherSpeed: Float?,
         myTimestamp: Long?,
         otherTimestamp: Long?,
-        linkedLocation: ParentLocationData
+        linkedLocation: ParentLocationData,
+        myAccuracy: Float?
     ) {
         if (!isMapReady || !::mapView.isInitialized || isFinishing || isDestroyed) return
         if (!isValidCoordinate(myLat, myLon) || !isValidCoordinate(otherLat, otherLon)) {
@@ -1760,6 +1846,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         myMarker?.let { mapView.overlays.remove(it) }
         otherMarker?.let { mapView.overlays.remove(it) }
         connectionLine?.let { mapView.overlays.remove(it) }
+        clearLiveAccuracyOverlays()
         clearFamilyMarkers()
         
         // Use role-specific icons for the current device.
@@ -1775,10 +1862,16 @@ class DualLocationMapActivity : AppCompatActivity() {
             icon = createParticipantMarkerDrawable(
                 iconRes = myMarkerIcon,
                 accentColor = if (myRole == ROLE_PARENT) selfParentAccentColor() else childAccentColor(),
-                title = myMarkerTitle
+                title = myMarkerTitle,
+                avatarValue = familyPresentationByDevice[myId]?.avatarValue
             )
         }
         mapView.overlays.add(myMarker)
+        myAccuracyOverlay = addAccuracyOverlay(
+            center = GeoPoint(myLat, myLon),
+            accuracy = myAccuracy,
+            accentColor = if (myRole == ROLE_PARENT) selfParentAccentColor() else childAccentColor()
+        )
         
         // Use the opposite role icon for the linked device.
         val otherMarkerIcon = resolveOtherMarkerIconRes()
@@ -1793,10 +1886,22 @@ class DualLocationMapActivity : AppCompatActivity() {
             icon = createParticipantMarkerDrawable(
                 iconRes = otherMarkerIcon,
                 accentColor = if (myRole == ROLE_PARENT) childAccentColor() else participantAccentColor(otherId, ROLE_PARENT),
-                title = otherMarkerTitle
+                title = otherMarkerTitle,
+                avatarValue = familyPresentationByDevice[linkedPersonDeviceId()]?.avatarValue
             )
+            setOnMarkerClickListener { marker, _ ->
+                bindSelectedPersonIdentity()
+                binding.statsCard.visibility = View.VISIBLE
+                mapView.controller.animateTo(marker.position)
+                true
+            }
         }
         mapView.overlays.add(otherMarker)
+        otherAccuracyOverlay = addAccuracyOverlay(
+            center = GeoPoint(otherLat, otherLon),
+            accuracy = linkedLocation.accuracy,
+            accentColor = if (myRole == ROLE_PARENT) childAccentColor() else participantAccentColor(otherId, ROLE_PARENT)
+        )
         
         // Draw a line between both live markers.
         connectionLine = Polyline().apply {
@@ -1835,7 +1940,8 @@ class DualLocationMapActivity : AppCompatActivity() {
         title: String,
         iconRes: Int,
         timestamp: Long?,
-        snippetLabel: String
+        snippetLabel: String,
+        accuracy: Float? = null
     ) {
         if (!isMapReady || !::mapView.isInitialized || isFinishing || isDestroyed) return
         if (!isValidCoordinate(lat, lon)) {
@@ -1849,6 +1955,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         myMarker?.let { mapView.overlays.remove(it) }
         otherMarker?.let { mapView.overlays.remove(it) }
         connectionLine?.let { mapView.overlays.remove(it) }
+        clearLiveAccuracyOverlays()
         clearFamilyMarkers()
         
         myMarker = Marker(mapView).apply {
@@ -1867,6 +1974,12 @@ class DualLocationMapActivity : AppCompatActivity() {
             )
         }
         mapView.overlays.add(myMarker)
+        myAccuracyOverlay = addAccuracyOverlay(
+            center = GeoPoint(lat, lon),
+            accuracy = accuracy,
+            accentColor = if (iconRes == R.drawable.ic_child_marker) childAccentColor()
+            else participantAccentColor(title, ROLE_PARENT, emphasizeSelf = myRole == ROLE_PARENT)
+        )
         
         // Center on the only available point.
         if (autoFitEnabled) {
@@ -1888,7 +2001,8 @@ class DualLocationMapActivity : AppCompatActivity() {
         myLat: Double?,
         myLon: Double?,
         myTimestamp: Long?,
-        otherLocation: ParentLocationData?
+        otherLocation: ParentLocationData?,
+        myAccuracy: Float? = null
     ) {
         val sanitizedMy = sanitizePoint(myLat, myLon, myTimestamp)
         val sanitizedOther = otherLocation?.takeIfUsable()
@@ -1929,7 +2043,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                 otherSpeed = sanitizedOther.speed,
                 myTimestamp = sanitizedMy.timestamp,
                 otherTimestamp = sanitizedOther.timestamp,
-                linkedLocation = sanitizedOther
+                linkedLocation = sanitizedOther,
+                myAccuracy = myAccuracy
             )
         } else if (sanitizedMy != null) {
             displaySingleLocation(
@@ -1938,7 +2053,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                 title = myTitle,
                 iconRes = myIcon,
                 timestamp = sanitizedMy.timestamp,
-                snippetLabel = getString(R.string.map_my_location)
+                snippetLabel = getString(R.string.map_my_location),
+                accuracy = myAccuracy
             )
         } else if (otherLat != null && otherLon != null) {
             displaySingleLocation(
@@ -1947,7 +2063,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                 title = otherTitle,
                 iconRes = otherIcon,
                 timestamp = sanitizedOther.timestamp,
-                snippetLabel = getString(R.string.map_other_location)
+                snippetLabel = getString(R.string.map_other_location),
+                accuracy = sanitizedOther.accuracy
             )
             bindLinkedStats(linkedLocation = sanitizedOther)
         }
@@ -1961,9 +2078,52 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun clearFamilyMarkers() {
-        if (familyMarkers.isEmpty()) return
         familyMarkers.values.forEach { mapView.overlays.remove(it) }
         familyMarkers.clear()
+        familyAccuracyOverlays.values.forEach { mapView.overlays.remove(it) }
+        familyAccuracyOverlays.clear()
+    }
+
+    private fun clearLiveAccuracyOverlays() {
+        myAccuracyOverlay?.let { mapView.overlays.remove(it) }
+        otherAccuracyOverlay?.let { mapView.overlays.remove(it) }
+        myAccuracyOverlay = null
+        otherAccuracyOverlay = null
+    }
+
+    private fun clearContactAccuracyOverlays() {
+        contactAccuracyOverlays.values.forEach { mapView.overlays.remove(it) }
+        contactAccuracyOverlays.clear()
+    }
+
+    /** Draw the actual GPS uncertainty radius in map metres, not screen dp. */
+    private fun addAccuracyOverlay(
+        center: GeoPoint,
+        accuracy: Float?,
+        accentColor: Int
+    ): Polygon? {
+        val radiusMeters = accuracy
+            ?.takeIf { it.isFinite() && it > 0f && it <= 50_000f }
+            ?.toDouble()
+            ?: return null
+        val overlay = Polygon(mapView).apply {
+            points = Polygon.pointsAsCircle(center, radiusMeters)
+            outlinePaint.color = Color.argb(
+                170,
+                Color.red(accentColor),
+                Color.green(accentColor),
+                Color.blue(accentColor)
+            )
+            outlinePaint.strokeWidth = 3f * resources.displayMetrics.density
+            fillPaint.color = Color.argb(
+                38,
+                Color.red(accentColor),
+                Color.green(accentColor),
+                Color.blue(accentColor)
+            )
+        }
+        mapView.overlays.add(0, overlay)
+        return overlay
     }
 
     private fun buildFamilyMarkerTitle(link: ru.example.childwatch.network.LinkedParentLink): String {
@@ -2053,7 +2213,10 @@ class DualLocationMapActivity : AppCompatActivity() {
                     latitude = location.latitude,
                     longitude = location.longitude,
                     timestamp = location.timestamp,
-                    iconId = link.parentMarkerIconId?.takeIf(ContactIcons::isKnown) ?: ContactIcons.PARENT
+                    iconId = link.parentMarkerIconId?.takeIf(ContactIcons::isKnown) ?: ContactIcons.PARENT,
+                    accuracy = location.accuracy,
+                    battery = location.battery,
+                    avatarValue = familyPresentationByDevice[link.parentDeviceId]?.avatarValue
                 )
             }
         markers
@@ -2078,11 +2241,22 @@ class DualLocationMapActivity : AppCompatActivity() {
                 icon = createParticipantMarkerDrawable(
                     iconRes = ContactIcons.resolve(candidate.iconId, ContactRoles.PARENT),
                     accentColor = participantAccentColor(candidate.deviceId, ROLE_PARENT, emphasizeSelf = candidate.deviceId == myId),
-                    title = title
+                    title = title,
+                    avatarValue = candidate.avatarValue
                 )
+                setOnMarkerClickListener { marker, _ ->
+                    bindFamilyMarkerCard(candidate)
+                    mapView.controller.animateTo(marker.position)
+                    true
+                }
             }
             familyMarkers[candidate.deviceId] = marker
             mapView.overlays.add(marker)
+            addAccuracyOverlay(
+                center = marker.position,
+                accuracy = candidate.accuracy,
+                accentColor = participantAccentColor(candidate.deviceId, ROLE_PARENT, emphasizeSelf = candidate.deviceId == myId)
+            )?.let { familyAccuracyOverlays[candidate.deviceId] = it }
             points += marker.position
         }
 
@@ -2097,6 +2271,30 @@ class DualLocationMapActivity : AppCompatActivity() {
         mapView.invalidate()
     }
 
+    private fun bindFamilyMarkerCard(candidate: FamilyMarkerCandidate) {
+        val presentation = familyPresentationByDevice[candidate.deviceId]
+        val location = ParentLocationData(
+            parentId = candidate.deviceId,
+            latitude = candidate.latitude,
+            longitude = candidate.longitude,
+            accuracy = candidate.accuracy,
+            timestamp = candidate.timestamp ?: 0L,
+            battery = candidate.battery,
+            speed = null,
+            bearing = null
+        )
+        binding.distanceText.text = "—"
+        binding.etaText.text = "—"
+        bindPersonLocationCard(
+            displayName = presentation?.displayName ?: candidate.title,
+            avatarValue = presentation?.avatarValue ?: candidate.avatarValue,
+            location = location
+        )
+        binding.movementStatusText.text = getString(resolveMovementStatusText(location))
+        binding.pointMetaText.text = buildPointMetaText(location)
+        binding.statsCard.visibility = View.VISIBLE
+    }
+
     private fun bindLinkedStats(
         linkedLocation: ParentLocationData,
         distanceMeters: Float? = null,
@@ -2106,7 +2304,90 @@ class DualLocationMapActivity : AppCompatActivity() {
         binding.etaText.text = etaText ?: "--"
         binding.movementStatusText.text = getString(resolveMovementStatusText(linkedLocation))
         binding.pointMetaText.text = buildPointMetaText(linkedLocation)
+        val presentation = familyPresentationByDevice[linkedPersonDeviceId()]
+        bindPersonLocationCard(
+            displayName = presentation?.displayName ?: otherMarkerTitle(),
+            avatarValue = presentation?.avatarValue,
+            location = linkedLocation
+        )
         binding.statsCard.visibility = View.VISIBLE
+    }
+
+    private fun bindPersonLocationCard(
+        displayName: String,
+        avatarValue: String?,
+        location: ParentLocationData
+    ) {
+        binding.mapPersonName.text = displayName.trim().ifBlank { otherMarkerTitle() }
+        FamilyAvatarRenderer.bind(binding.mapPersonAvatar, avatarValue)
+        binding.mapPersonStatus.text = getString(resolveMovementStatusText(location))
+
+        val battery = location.battery?.takeIf { it in 0..100 }?.let { "$it%" }
+            ?: getString(R.string.map_person_battery_unknown)
+        val accuracy = location.accuracy.takeIf { it.isFinite() && it > 0f }?.let {
+            getString(R.string.map_person_accuracy_meters, it.toInt().coerceAtLeast(1))
+        } ?: getString(R.string.map_person_accuracy_unknown)
+        val updated = normalizeTimestampMillis(location.timestamp)?.let(::formatRelativeTimestamp)
+            ?: getString(R.string.map_location_unavailable)
+
+        binding.mapPersonSummaryText.text = getString(
+            R.string.map_person_summary,
+            battery,
+            accuracy,
+            updated
+        )
+        binding.mapPersonCoordinatesText.text = if (
+            isValidCoordinate(location.latitude, location.longitude)
+        ) {
+            getString(
+                R.string.map_person_coordinates,
+                location.latitude,
+                location.longitude
+            )
+        } else {
+            getString(R.string.map_person_coordinates_waiting)
+        }
+        loadPersonAddress(location)
+    }
+
+    private var personAddressJob: Job? = null
+    private var personAddressLocationKey: String? = null
+
+    private fun loadPersonAddress(location: ParentLocationData) {
+        if (!isValidCoordinate(location.latitude, location.longitude)) {
+            personAddressJob?.cancel()
+            personAddressLocationKey = null
+            binding.mapPersonAddressText.text = getString(R.string.map_person_address_unavailable)
+            return
+        }
+
+        val key = String.format(
+            Locale.US,
+            "%.5f,%.5f",
+            location.latitude,
+            location.longitude
+        )
+        if (personAddressLocationKey == key && personAddressJob?.isActive == true) return
+        personAddressLocationKey = key
+        personAddressJob?.cancel()
+        binding.mapPersonAddressText.text = getString(R.string.map_person_address_waiting)
+        personAddressJob = lifecycleScope.launch {
+            val address = withContext(Dispatchers.IO) {
+                runCatching {
+                    if (!Geocoder.isPresent()) return@runCatching null
+                    Geocoder(this@DualLocationMapActivity, Locale.getDefault())
+                        .getFromLocation(location.latitude, location.longitude, 1)
+                        ?.firstOrNull()
+                        ?.getAddressLine(0)
+                        ?.trim()
+                        ?.takeIf(String::isNotBlank)
+                }.getOrNull()
+            }
+            if (personAddressLocationKey == key) {
+                binding.mapPersonAddressText.text = address
+                    ?: getString(R.string.map_person_address_unavailable)
+            }
+        }
     }
 
     private fun resolveMovementStatusText(linkedLocation: ParentLocationData): Int {
@@ -2266,12 +2547,14 @@ class DualLocationMapActivity : AppCompatActivity() {
                 if (myLocation != null) {
                     myLatitude = myLocation.latitude
                     myLongitude = myLocation.longitude
+                    myLocationAccuracy = myLocation.accuracy
                     saveCachedLocation(
                         cacheKeyMy(),
                         myLocation.latitude,
                         myLocation.longitude,
                         myLocation.time,
-                        if (myLocation.hasSpeed()) myLocation.speed else null
+                        if (myLocation.hasSpeed()) myLocation.speed else null,
+                        myLocation.accuracy
                     )
                 }
 
@@ -2298,7 +2581,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                             resolved.latitude,
                             resolved.longitude,
                             resolved.timestamp,
-                            resolved.speed
+                            resolved.speed,
+                            resolved.accuracy
                         )
                         finalPoints.add(ContactPoint(contact, resolved))
                     }
@@ -2333,9 +2617,11 @@ class DualLocationMapActivity : AppCompatActivity() {
             myMarker?.let { mapView.overlays.remove(it) }
             otherMarker?.let { mapView.overlays.remove(it) }
             connectionLine?.let { mapView.overlays.remove(it) }
+            clearLiveAccuracyOverlays()
             clearFamilyMarkers()
             contactMarkers.values.forEach { mapView.overlays.remove(it) }
             contactMarkers.clear()
+            clearContactAccuracyOverlays()
 
             val geoPoints = mutableListOf<GeoPoint>()
 
@@ -2357,6 +2643,11 @@ class DualLocationMapActivity : AppCompatActivity() {
                     )
                 }
                 mapView.overlays.add(myMarker)
+                myAccuracyOverlay = addAccuracyOverlay(
+                    center = myPoint,
+                    accuracy = myLocationAccuracy,
+                    accentColor = if (myRole == ROLE_PARENT) selfParentAccentColor() else childAccentColor()
+                )
             }
 
             for (point in points) {
@@ -2382,6 +2673,15 @@ class DualLocationMapActivity : AppCompatActivity() {
                 }
                 mapView.overlays.add(marker)
                 contactMarkers[contact.deviceId] = marker
+                addAccuracyOverlay(
+                    center = geo,
+                    accuracy = location.accuracy,
+                    accentColor = participantAccentColor(
+                        contact.deviceId,
+                        contact.role,
+                        emphasizeSelf = contact.deviceId == myId
+                    )
+                )?.let { contactAccuracyOverlays[contact.deviceId] = it }
             }
 
             binding.statsCard.visibility = View.GONE

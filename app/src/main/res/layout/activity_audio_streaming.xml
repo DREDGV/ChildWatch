@@ -57,14 +57,50 @@
                     android:textColor="#E6FFFFFF"
                     android:textSize="14sp" />
 
-                <TextView
-                    android:id="@+id/deviceIdText"
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:text="@string/listen_device_unknown"
-                    android:textColor="#CCFFFFFF"
-                    android:textSize="13sp" />
+                    android:layout_marginTop="16dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <com.google.android.material.imageview.ShapeableImageView
+                        android:id="@+id/audioPersonAvatar"
+                        android:layout_width="64dp"
+                        android:layout_height="64dp"
+                        android:contentDescription="@string/family_profile_avatar_description"
+                        android:scaleType="centerCrop"
+                        android:src="@drawable/avatar_family_mint"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.ChildWatch.Avatar"
+                        app:strokeColor="#99FFFFFF"
+                        app:strokeWidth="2dp" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="14dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="@string/listen_person_label"
+                            android:textColor="#CCFFFFFF"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/deviceIdText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="2dp"
+                            android:maxLines="1"
+                            android:text="@string/listen_device_unknown"
+                            android:textColor="@android:color/white"
+                            android:textSize="19sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+                </LinearLayout>
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -200,10 +236,12 @@
                 </LinearLayout>
 
                 <LinearLayout
+                    android:id="@+id/sessionMetricsContainer"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="16dp"
                     android:orientation="horizontal"
+                    android:visibility="gone"
                     android:weightSum="3">
 
                     <LinearLayout
@@ -458,20 +496,23 @@
                         android:valueTo="100" />
 
                     <TextView
+                        android:id="@+id/gainTitleText"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="14dp"
                         android:text="@string/listen_gain_title"
                         android:textColor="?attr/colorOnSurface"
                         android:textSize="14sp"
-                        android:textStyle="bold" />
+                        android:textStyle="bold"
+                        android:visibility="gone" />
 
                     <LinearLayout
                         android:id="@+id/gainModeGroup"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:layout_marginTop="10dp"
-                        android:orientation="vertical">
+                        android:orientation="vertical"
+                        android:visibility="gone">
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -585,7 +626,8 @@
                         android:layout_marginTop="8dp"
                         android:text="@string/listen_gain_mode_quiet"
                         android:textColor="?attr/colorOnSurfaceVariant"
-                        android:textSize="12sp" />
+                        android:textSize="12sp"
+                        android:visibility="gone" />
 
                 </LinearLayout>
 
@@ -644,12 +686,24 @@
 
         </com.google.android.material.card.MaterialCardView>
 
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/technicalDetailsButton"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="12dp"
+            android:gravity="start|center_vertical"
+            android:text="@string/listen_technical_show"
+            app:icon="@android:drawable/ic_menu_info_details" />
+
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/visualizerCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
             app:cardCornerRadius="22dp"
             app:cardElevation="0dp"
+            android:visibility="gone"
             app:cardBackgroundColor="?attr/colorSurface">
 
             <LinearLayout
@@ -700,11 +754,13 @@
 
         </com.google.android.material.card.MaterialCardView>
         <com.google.android.material.card.MaterialCardView
+            android:id="@+id/diagnosticsCard"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="16dp"
             app:cardCornerRadius="22dp"
             app:cardElevation="0dp"
+            android:visibility="gone"
             app:cardBackgroundColor="?attr/colorSurface">
 
             <LinearLayout

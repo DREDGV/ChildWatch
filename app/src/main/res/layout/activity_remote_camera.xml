@@ -57,9 +57,22 @@
                     android:orientation="vertical"
                     android:padding="22dp">
 
+                    <com.google.android.material.imageview.ShapeableImageView
+                        android:id="@+id/remotePhotoPersonAvatar"
+                        android:layout_width="72dp"
+                        android:layout_height="72dp"
+                        android:layout_gravity="center_horizontal"
+                        android:contentDescription="@string/family_profile_avatar_description"
+                        android:scaleType="centerCrop"
+                        android:src="@drawable/avatar_family_mint"
+                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.ChildWatch.Avatar"
+                        app:strokeColor="@color/cw_color_outline_variant"
+                        app:strokeWidth="1dp" />
+
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
                         android:alpha="0.78"
                         android:letterSpacing="0.08"
                         android:text="@string/remote_camera_header_eyebrow"
@@ -72,7 +85,7 @@
                         android:id="@+id/childNameText"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="10dp"
+                        android:layout_marginTop="6dp"
                         android:textColor="#10292B"
                         android:textSize="24sp"
                         android:textStyle="bold"

@@ -1,119 +1,103 @@
 <?xml version="1.0" encoding="utf-8"?>
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
+    xmlns:tools="http://schemas.android.com/tools"
+    android:id="@+id/personCard"
+    style="@style/Widget.ChildWatch.PersonCard.Interactive"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
-    android:layout_margin="8dp"
-    app:cardCornerRadius="12dp"
-    app:cardElevation="2dp"
-    app:strokeWidth="2dp"
-    app:strokeColor="@android:color/transparent">
+    android:layout_marginStart="@dimen/cw_space_4"
+    android:layout_marginTop="@dimen/cw_space_1"
+    android:layout_marginEnd="@dimen/cw_space_4"
+    android:layout_marginBottom="@dimen/cw_space_2">
 
     <androidx.constraintlayout.widget.ConstraintLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:padding="16dp">
+        android:minHeight="112dp"
+        android:paddingStart="@dimen/cw_space_4"
+        android:paddingTop="@dimen/cw_space_4"
+        android:paddingEnd="@dimen/cw_space_2"
+        android:paddingBottom="@dimen/cw_space_4">
 
-        <!-- Аватар -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/avatarCard"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
-            app:cardCornerRadius="28dp"
-            app:cardElevation="0dp"
+        <com.google.android.material.imageview.ShapeableImageView
+            android:id="@+id/childAvatar"
+            style="@style/Widget.ChildWatch.Avatar.Medium"
+            android:contentDescription="@string/family_profile_avatar_description"
+            android:padding="@dimen/cw_space_2"
+            android:src="@drawable/ic_child_marker"
+            app:layout_constraintBottom_toBottomOf="parent"
             app:layout_constraintStart_toStartOf="parent"
             app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintBottom_toBottomOf="parent">
+            app:tint="@color/cw_color_avatar_content" />
 
-            <ImageView
-                android:id="@+id/childAvatar"
-                android:layout_width="match_parent"
-                android:layout_height="match_parent"
-                android:scaleType="centerCrop"
-                android:src="@android:drawable/ic_menu_myplaces"
-                android:contentDescription="Аватар ребенка" />
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Информация о ребенке -->
         <TextView
             android:id="@+id/childName"
+            style="@style/TextAppearance.ChildWatch.Person.Name"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="Имя ребенка"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="?android:attr/textColorPrimary"
-            android:layout_marginStart="16dp"
-            app:layout_constraintStart_toEndOf="@id/avatarCard"
-            app:layout_constraintTop_toTopOf="@id/avatarCard"
-            app:layout_constraintEnd_toStartOf="@id/activeIndicator" />
+            android:layout_marginStart="@dimen/cw_space_4"
+            android:ellipsize="end"
+            android:maxLines="1"
+            app:layout_constraintEnd_toStartOf="@id/selectedIndicator"
+            app:layout_constraintStart_toEndOf="@id/childAvatar"
+            app:layout_constraintTop_toTopOf="parent"
+            tools:text="Лёва" />
+
+        <ImageView
+            android:id="@+id/selectedIndicator"
+            android:layout_width="24dp"
+            android:layout_height="24dp"
+            android:contentDescription="@string/family_profile_selected"
+            android:src="@android:drawable/checkbox_on_background"
+            android:visibility="gone"
+            app:layout_constraintEnd_toEndOf="parent"
+            app:layout_constraintTop_toTopOf="parent"
+            app:tint="@color/cw_color_primary"
+            tools:visibility="visible" />
 
         <TextView
             android:id="@+id/childDeviceId"
+            style="@style/TextAppearance.ChildWatch.Person.Supporting"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="Device ID"
-            android:textSize="12sp"
-            android:textColor="@android:color/darker_gray"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="4dp"
-            app:layout_constraintStart_toEndOf="@id/avatarCard"
+            android:layout_marginStart="@dimen/cw_space_4"
+            android:layout_marginTop="@dimen/cw_space_1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            app:layout_constraintEnd_toStartOf="@id/selectedIndicator"
+            app:layout_constraintStart_toEndOf="@id/childAvatar"
             app:layout_constraintTop_toBottomOf="@id/childName"
-            app:layout_constraintEnd_toStartOf="@id/activeIndicator" />
+            tools:text="Ребёнок · moto g 5G plus" />
 
         <TextView
             android:id="@+id/lastSeenText"
+            style="@style/TextAppearance.ChildWatch.Status"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:text="Последняя активность: сегодня"
-            android:textSize="12sp"
-            android:textColor="@android:color/darker_gray"
-            android:layout_marginStart="16dp"
-            android:layout_marginTop="4dp"
-            app:layout_constraintStart_toEndOf="@id/avatarCard"
-            app:layout_constraintTop_toBottomOf="@id/childDeviceId"
-            app:layout_constraintBottom_toBottomOf="@id/avatarCard"
-            app:layout_constraintEnd_toStartOf="@id/activeIndicator" />
-
-        <!-- Кнопка редактирования -->
-        <ImageView
-            android:id="@+id/editButton"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:src="@android:drawable/ic_menu_edit"
-            android:padding="4dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:tint="?attr/colorPrimary"
-            android:contentDescription="Редактировать"
-            app:layout_constraintEnd_toEndOf="parent"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintBottom_toBottomOf="parent" />
-
-        <ImageView
-            android:id="@+id/attentionButton"
-            android:layout_width="32dp"
-            android:layout_height="32dp"
-            android:layout_marginEnd="8dp"
-            android:background="?android:attr/selectableItemBackgroundBorderless"
-            android:contentDescription="Позвать"
-            android:padding="4dp"
-            android:src="@android:drawable/ic_lock_idle_alarm"
-            android:tint="?attr/colorPrimary"
+            android:layout_marginStart="@dimen/cw_space_4"
+            android:layout_marginTop="@dimen/cw_space_1"
             app:layout_constraintBottom_toBottomOf="parent"
-            app:layout_constraintEnd_toStartOf="@id/editButton"
-            app:layout_constraintTop_toTopOf="parent" />
-
-        <!-- Индикатор активности -->
-        <View
-            android:id="@+id/activeIndicator"
-            android:layout_width="12dp"
-            android:layout_height="12dp"
-            android:background="@android:drawable/presence_online"
-            android:layout_marginEnd="8dp"
             app:layout_constraintEnd_toStartOf="@id/attentionButton"
-            app:layout_constraintTop_toTopOf="parent"
-            app:layout_constraintBottom_toBottomOf="parent" />
+            app:layout_constraintStart_toEndOf="@id/childAvatar"
+            app:layout_constraintTop_toBottomOf="@id/childDeviceId"
+            tools:text="В сети" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/attentionButton"
+            style="@style/Widget.ChildWatch.Button.Icon.Tonal"
+            android:contentDescription="@string/family_profile_attention"
+            app:icon="@android:drawable/ic_lock_idle_alarm"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toStartOf="@id/editButton" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/editButton"
+            style="@style/Widget.ChildWatch.Button.Icon"
+            android:contentDescription="@string/family_profile_edit"
+            app:icon="@android:drawable/ic_menu_edit"
+            app:layout_constraintBottom_toBottomOf="parent"
+            app:layout_constraintEnd_toEndOf="parent" />
 
     </androidx.constraintlayout.widget.ConstraintLayout>
 

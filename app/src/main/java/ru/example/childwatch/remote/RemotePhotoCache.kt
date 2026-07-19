@@ -13,7 +13,12 @@ object RemotePhotoCache {
     private const val MAX_CACHE_FILES = 20
     private const val BUFFER_SIZE = 8 * 1024
 
-    fun saveBase64PhotoToCache(context: Context, base64: String, timestamp: Long): File? {
+    fun saveBase64PhotoToCache(
+        context: Context,
+        base64: String,
+        timestamp: Long,
+        targetDeviceId: String
+    ): File? {
         return try {
             val payload = sanitizeBase64Payload(base64)
             if (payload.isEmpty()) {
@@ -21,7 +26,7 @@ object RemotePhotoCache {
                 return null
             }
 
-            val cacheDir = File(context.cacheDir, "remote_photo_preview")
+            val cacheDir = targetCacheDir(context, targetDeviceId)
             if (!cacheDir.exists()) {
                 cacheDir.mkdirs()
             }
@@ -62,7 +67,8 @@ object RemotePhotoCache {
         context: Context,
         bytes: ByteArray,
         timestamp: Long,
-        prefix: String = "remote_photo"
+        prefix: String = "remote_photo",
+        targetDeviceId: String
     ): File? {
         return try {
             if (bytes.isEmpty()) {
@@ -70,7 +76,7 @@ object RemotePhotoCache {
                 return null
             }
 
-            val cacheDir = File(context.cacheDir, "remote_photo_preview")
+            val cacheDir = targetCacheDir(context, targetDeviceId)
             if (!cacheDir.exists()) {
                 cacheDir.mkdirs()
             }
@@ -99,6 +105,14 @@ object RemotePhotoCache {
         val trimmed = base64.trim()
         if (trimmed.isEmpty()) return ""
         return trimmed.substringAfter(',', trimmed)
+    }
+
+    private fun targetCacheDir(context: Context, targetDeviceId: String): File {
+        val safeTarget = targetDeviceId.trim()
+            .ifBlank { "missing-target" }
+            .replace(Regex("[^A-Za-z0-9._-]"), "_")
+            .take(96)
+        return File(File(context.cacheDir, "remote_photo_preview"), safeTarget)
     }
 
     private fun pruneOldFiles(cacheDir: File) {

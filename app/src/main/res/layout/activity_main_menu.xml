@@ -78,7 +78,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="@dimen/cw_space_3"
-                    android:text="@string/profile_switch_manage" />
+                    android:text="@string/family_home_open" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
@@ -149,7 +149,7 @@
 
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/childSelectionCard"
-            style="@style/Widget.ChildWatch.Card.Interactive"
+            style="@style/Widget.ChildWatch.PersonCard.Selected"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/cw_space_4">
@@ -162,13 +162,12 @@
                 android:orientation="horizontal"
                 android:padding="@dimen/cw_space_4">
 
-                <ImageView
+                <com.google.android.material.imageview.ShapeableImageView
                     android:id="@+id/selectedChildAvatar"
-                    android:layout_width="56dp"
-                    android:layout_height="56dp"
+                    style="@style/Widget.ChildWatch.Avatar.Medium"
                     android:contentDescription="@string/main_child_card_button_hint"
-                    android:scaleType="centerCrop"
-                    android:src="@android:drawable/ic_menu_myplaces" />
+                    android:src="@android:drawable/ic_menu_myplaces"
+                    app:tint="@null" />
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -182,7 +181,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/main_select_contact_placeholder_title"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Person.Name" />
 
                     <TextView
                         android:id="@+id/selectedChildDeviceId"
@@ -190,16 +189,15 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="@dimen/cw_space_1"
                         android:text="@string/home_selected_child_hint"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Person.Supporting" />
                 </LinearLayout>
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/childSelectionEditIcon"
-                    style="@style/Widget.ChildWatch.Button.Secondary"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
+                    style="@style/Widget.ChildWatch.Button.Icon.Tonal"
                     android:layout_marginStart="@dimen/cw_space_2"
-                    android:text="@string/main_child_card_button" />
+                    android:contentDescription="@string/main_child_card_button_hint"
+                    app:icon="@android:drawable/ic_menu_edit" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 

@@ -1,6 +1,8 @@
 package ru.example.childwatch.profile
 
 import android.content.Context
+import ru.childwatch.shared.family.FamilyPresenceState
+import ru.childwatch.shared.family.FamilyRole
 import ru.example.childwatch.contacts.ContactIcons
 import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.database.entity.Child
@@ -11,7 +13,15 @@ data class ParentLinkedChildOption(
     val deviceId: String,
     val displayName: String,
     val source: String,
-    val markerIconId: Int = ContactIcons.CHILD
+    val markerIconId: Int = ContactIcons.CHILD,
+    val familyId: String? = null,
+    val memberId: String? = null,
+    val role: FamilyRole = FamilyRole.CHILD,
+    val deviceDisplayName: String? = null,
+    val lastSeenAt: Long? = null,
+    val presence: FamilyPresenceState = FamilyPresenceState.UNKNOWN,
+    val avatarKey: String? = null,
+    val deviceCount: Int = 1
 )
 
 class ParentLinkedChildOptionsProvider(context: Context) {
@@ -20,18 +30,57 @@ class ParentLinkedChildOptionsProvider(context: Context) {
     private val database by lazy { ChildWatchDatabase.getInstance(appContext) }
     private val networkClient by lazy { NetworkClient(appContext) }
     private val effectiveContextResolver by lazy { ParentEffectiveContextResolver(appContext) }
+    private val familyDirectoryRepository by lazy { ParentFamilyDirectoryRepository(appContext) }
 
     suspend fun getOptions(): List<ParentLinkedChildOption> {
         val result = linkedMapOf<String, ParentLinkedChildOption>()
 
-        database.childDao().getAll().forEach { child ->
+        val localChildren = database.childDao().getAll()
+        val localByDevice = localChildren.associateBy { it.deviceId.trim() }
+
+        runCatching { familyDirectoryRepository.load() }
+            .getOrNull()
+            ?.directory
+            ?.targetPeople()
+            ?.forEach { person ->
+                val primaryDevice = person.primaryDevice() ?: return@forEach
+                val local = localByDevice[primaryDevice.deviceId]
+                result[primaryDevice.deviceId] = ParentLinkedChildOption(
+                    deviceId = primaryDevice.deviceId,
+                    displayName = person.member.displayName,
+                    source = "family",
+                    markerIconId = local?.iconId?.takeIf(ContactIcons::isKnown) ?: ContactIcons.CHILD,
+                    familyId = person.member.familyId,
+                    memberId = person.member.id,
+                    role = person.member.role,
+                    deviceDisplayName = primaryDevice.displayName,
+                    lastSeenAt = person.activeDevices.mapNotNull { it.lastSeenAt }.maxOrNull(),
+                    presence = person.presence(),
+                    avatarKey = person.member.avatarKey ?: local?.avatarUrl,
+                    deviceCount = person.activeDevices.size.coerceAtLeast(1)
+                )
+            }
+
+        localChildren.forEach { child ->
             val deviceId = child.deviceId.trim()
             if (deviceId.isBlank()) return@forEach
-            result[deviceId] = ParentLinkedChildOption(
-                deviceId = deviceId,
-                displayName = child.name.trim().ifBlank { deviceId },
-                source = "local",
-                markerIconId = child.iconId.takeIf(ContactIcons::isKnown) ?: ContactIcons.CHILD
+            result.putIfAbsent(
+                deviceId,
+                ParentLinkedChildOption(
+                    deviceId = deviceId,
+                    displayName = child.name.trim().ifBlank { "Ребёнок" },
+                    source = "local",
+                    markerIconId = child.iconId.takeIf(ContactIcons::isKnown) ?: ContactIcons.CHILD,
+                    memberId = ru.childwatch.shared.family.StableContextIds.memberId(deviceId),
+                    role = when (child.role) {
+                        ru.example.childwatch.contacts.ContactRoles.PARENT -> FamilyRole.PARENT
+                        ru.example.childwatch.contacts.ContactRoles.RELATIVE -> FamilyRole.GUARDIAN
+                        else -> FamilyRole.CHILD
+                    },
+                    deviceDisplayName = child.alias,
+                    lastSeenAt = child.lastSeenAt,
+                    avatarKey = child.avatarUrl
+                )
             )
         }
 
@@ -50,12 +99,12 @@ class ParentLinkedChildOptionsProvider(context: Context) {
                 merged
             } else {
                 existing.copy(
-                    displayName = if (existing.displayName == existing.deviceId) {
+                    displayName = if (existing.displayName == existing.deviceId || existing.displayName.isBlank()) {
                         merged.displayName
                     } else {
                         existing.displayName
                     },
-                    source = "linked",
+                    source = if (existing.source == "family") existing.source else "linked",
                     markerIconId = merged.markerIconId
                 )
             }
@@ -84,6 +133,8 @@ class ParentLinkedChildOptionsProvider(context: Context) {
                 val updated = existing.copy(
                     name = option.displayName.ifBlank { existing.name },
                     iconId = normalizedIconId,
+                    avatarUrl = option.avatarKey ?: existing.avatarUrl,
+                    lastSeenAt = option.lastSeenAt ?: existing.lastSeenAt,
                     updatedAt = System.currentTimeMillis()
                 )
                 if (updated != existing) {

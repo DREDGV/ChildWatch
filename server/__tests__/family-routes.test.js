@@ -2,9 +2,10 @@ const http = require("http");
 const express = require("express");
 const DatabaseManager = require("../database/DatabaseManager");
 const FamilyPermissionService = require("../services/FamilyPermissionService");
+const FamilyIdentityService = require("../services/FamilyIdentityService");
 const createFamilyRoutes = require("../routes/families");
 
-function requestJson(server, path, deviceId) {
+function requestJson(server, path, deviceId, { method = "GET", body = null } = {}) {
   const address = server.address();
   return new Promise((resolve, reject) => {
     const request = http.request(
@@ -12,8 +13,11 @@ function requestJson(server, path, deviceId) {
         host: "127.0.0.1",
         port: address.port,
         path,
-        method: "GET",
-        headers: { "x-test-device-id": deviceId },
+        method,
+        headers: {
+          "x-test-device-id": deviceId,
+          ...(body ? { "content-type": "application/json" } : {}),
+        },
       },
       (response) => {
         let body = "";
@@ -27,7 +31,7 @@ function requestJson(server, path, deviceId) {
       }
     );
     request.on("error", reject);
-    request.end();
+    request.end(body ? JSON.stringify(body) : undefined);
   });
 }
 
@@ -57,13 +61,18 @@ describe("family read API", () => {
     await db.upsertDeviceLink({ parentDeviceId, childDeviceId });
 
     const app = express();
+    app.use(express.json());
     app.use((req, res, next) => {
       req.deviceId = req.headers["x-test-device-id"];
       next();
     });
     app.use(
       "/api/families",
-      createFamilyRoutes(db, new FamilyPermissionService(db))
+      createFamilyRoutes(
+        db,
+        new FamilyPermissionService(db),
+        new FamilyIdentityService(db)
+      )
     );
     app.use((error, req, res, next) => {
       res.status(500).json({ error: error.message });
@@ -123,6 +132,86 @@ describe("family read API", () => {
         error: "Device is not a member of this family",
         code: "FAMILY_ACCESS_DENIED",
       },
+    });
+  });
+
+  test("lets a parent update a child profile and keeps legacy names synchronized", async () => {
+    const [family] = await db.getFamiliesForDevice(parentDeviceId);
+    const childMembership = await db.getFamilyDeviceMembership(
+      family.id,
+      childDeviceId
+    );
+
+    const response = await requestJson(
+      server,
+      `/api/families/${family.id}/members/${childMembership.memberId}`,
+      parentDeviceId,
+      {
+        method: "PATCH",
+        body: { displayName: "Лёва", avatarKey: "preset:ocean" },
+      }
+    );
+
+    expect(response).toMatchObject({
+      status: 200,
+      body: {
+        success: true,
+        member: {
+          id: childMembership.memberId,
+          displayName: "Лёва",
+          avatarKey: "preset:ocean",
+        },
+      },
+    });
+    const legacy = await db.get(
+      `SELECT child_display_name AS childDisplayName, display_name AS displayName
+       FROM device_links
+       WHERE parent_device_id = ? AND child_device_id = ?`,
+      [parentDeviceId, childDeviceId]
+    );
+    expect(legacy).toEqual({ childDisplayName: "Лёва", displayName: "Лёва" });
+  });
+
+  test("prevents a child from editing another family member", async () => {
+    const [family] = await db.getFamiliesForDevice(parentDeviceId);
+    const parentMembership = await db.getFamilyDeviceMembership(
+      family.id,
+      parentDeviceId
+    );
+
+    const response = await requestJson(
+      server,
+      `/api/families/${family.id}/members/${parentMembership.memberId}`,
+      childDeviceId,
+      { method: "PATCH", body: { displayName: "Not allowed" } }
+    );
+
+    expect(response).toEqual({
+      status: 403,
+      body: {
+        error: "This family member cannot edit the requested profile",
+        code: "PROFILE_EDIT_DENIED",
+      },
+    });
+  });
+
+  test("rejects device-local avatar URIs", async () => {
+    const [family] = await db.getFamiliesForDevice(parentDeviceId);
+    const membership = await db.getFamilyDeviceMembership(
+      family.id,
+      childDeviceId
+    );
+
+    const response = await requestJson(
+      server,
+      `/api/families/${family.id}/members/${membership.memberId}`,
+      parentDeviceId,
+      { method: "PATCH", body: { avatarKey: "content://local/photo" } }
+    );
+
+    expect(response).toMatchObject({
+      status: 400,
+      body: { code: "INVALID_AVATAR_KEY" },
     });
   });
 });

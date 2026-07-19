@@ -21,9 +21,17 @@
     <color name="cw_color_on_surface_variant">#3F4947</color>
     <color name="cw_color_surface_container">#EDF3F1</color>
     <color name="cw_color_surface_container_high">#E7EDEB</color>
+    <color name="cw_color_surface_dim">#D8DEDC</color>
+    <color name="cw_color_surface_bright">#F6FAF9</color>
+    <color name="cw_color_surface_container_lowest">#FFFFFF</color>
+    <color name="cw_color_surface_container_low">#F1F7F5</color>
+    <color name="cw_color_surface_container_highest">#E1E7E5</color>
     <color name="cw_color_outline">#6F7977</color>
     <color name="cw_color_outline_variant">#BEC9C6</color>
     <color name="cw_color_scrim">#52000000</color>
+    <color name="cw_color_inverse_surface">#2B3230</color>
+    <color name="cw_color_inverse_on_surface">#EDF2F0</color>
+    <color name="cw_color_inverse_primary">#91D5CF</color>
 
     <!-- Semantic states -->
     <color name="cw_color_success">#16865A</color>
@@ -42,6 +50,15 @@
     <color name="cw_color_on_info">#FFFFFF</color>
     <color name="cw_color_info_container">#D8E2FF</color>
     <color name="cw_color_on_info_container">#001A41</color>
+
+    <!-- Component aliases keep widgets semantic and automatically night-aware. -->
+    <color name="cw_color_selected_surface">@color/cw_color_primary_container</color>
+    <color name="cw_color_on_selected_surface">@color/cw_color_on_primary_container</color>
+    <color name="cw_color_avatar_surface">@color/cw_color_primary_container</color>
+    <color name="cw_color_avatar_content">@color/cw_color_on_primary_container</color>
+    <color name="cw_color_status_neutral">@color/cw_color_on_surface_variant</color>
+    <color name="cw_color_status_neutral_container">@color/cw_color_surface_variant</color>
+    <color name="cw_color_on_status_neutral_container">@color/cw_color_on_surface_variant</color>
 
     <!-- Diagnostics intentionally stay visually quieter than family actions. -->
     <color name="cw_color_diagnostics_surface">#EEF1F3</color>

@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- MaterialButton used as a 48dp icon button. Text should not be supplied. -->
+    <style name="Widget.ChildWatch.Button.Icon" parent="Widget.Material3.Button.IconButton">
+        <item name="android:layout_width">@dimen/cw_touch_target</item>
+        <item name="android:layout_height">@dimen/cw_touch_target</item>
+        <item name="android:minWidth">@dimen/cw_touch_target</item>
+        <item name="android:minHeight">@dimen/cw_touch_target</item>
+        <item name="android:gravity">center</item>
+        <item name="android:padding">@dimen/cw_space_3</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="backgroundTint">@android:color/transparent</item>
+        <item name="cornerRadius">@dimen/cw_corner_full</item>
+        <item name="iconPadding">0dp</item>
+        <item name="iconSize">@dimen/cw_icon_size</item>
+        <item name="iconTint">@color/cw_icon_button_tint</item>
+        <item name="rippleColor">@color/cw_color_primary_container</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Button.Icon.Tonal" parent="Widget.ChildWatch.Button.Icon">
+        <item name="backgroundTint">@color/cw_color_primary_container</item>
+        <item name="iconTint">@color/cw_color_on_primary_container</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Button.Icon.Danger" parent="Widget.ChildWatch.Button.Icon">
+        <item name="backgroundTint">@color/cw_color_error_container</item>
+        <item name="iconTint">@color/cw_color_on_error_container</item>
+        <item name="rippleColor">@color/cw_color_error_container</item>
+    </style>
+
+    <style name="Widget.ChildWatch.ExtendedFloatingActionButton" parent="Widget.Material3.ExtendedFloatingActionButton.Icon.Primary">
+        <item name="android:minHeight">@dimen/cw_extended_fab_height</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:textAppearance">@style/TextAppearance.Material3.LabelLarge</item>
+        <item name="backgroundTint">@color/cw_color_primary</item>
+        <item name="android:textColor">@color/cw_color_on_primary</item>
+        <item name="iconTint">@color/cw_color_on_primary</item>
+        <item name="rippleColor">@color/cw_color_primary_container</item>
+    </style>
+
+    <!-- Short alias for XML call sites that prefer FAB terminology. -->
+    <style name="Widget.ChildWatch.ExtendedFab" parent="Widget.ChildWatch.ExtendedFloatingActionButton" />
+
+    <style name="Widget.ChildWatch.Toolbar" parent="Widget.Material3.Toolbar.Surface">
+        <item name="android:minHeight">@dimen/cw_toolbar_height</item>
+        <item name="android:background">@color/cw_color_surface</item>
+        <item name="android:elevation">0dp</item>
+        <item name="navigationIconTint">@color/cw_color_on_surface</item>
+        <item name="titleTextAppearance">@style/TextAppearance.ChildWatch.Toolbar.Title</item>
+        <item name="titleTextColor">@color/cw_color_on_surface</item>
+        <item name="subtitleTextAppearance">@style/TextAppearance.ChildWatch.Toolbar.Subtitle</item>
+        <item name="subtitleTextColor">@color/cw_color_on_surface_variant</item>
+        <item name="titleCentered">false</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Toolbar.Centered" parent="Widget.ChildWatch.Toolbar">
+        <item name="titleCentered">true</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Toolbar.Title" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">@color/cw_color_on_surface</item>
+        <item name="android:textStyle">normal</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Toolbar.Subtitle" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textColor">@color/cw_color_on_surface_variant</item>
+    </style>
+
+    <style name="Widget.ChildWatch.TextInputLayout" parent="Widget.Material3.TextInputLayout.OutlinedBox">
+        <item name="android:minHeight">@dimen/cw_text_field_min_height</item>
+        <item name="boxBackgroundColor">@color/cw_color_surface</item>
+        <item name="boxCornerRadiusTopStart">@dimen/cw_corner_small</item>
+        <item name="boxCornerRadiusTopEnd">@dimen/cw_corner_small</item>
+        <item name="boxCornerRadiusBottomStart">@dimen/cw_corner_small</item>
+        <item name="boxCornerRadiusBottomEnd">@dimen/cw_corner_small</item>
+        <item name="boxStrokeColor">@color/cw_text_input_stroke</item>
+        <item name="boxStrokeErrorColor">@color/cw_color_error</item>
+        <item name="boxStrokeWidth">@dimen/cw_stroke_thin</item>
+        <item name="boxStrokeWidthFocused">@dimen/cw_stroke_selected</item>
+        <item name="hintTextColor">@color/cw_text_input_hint</item>
+        <item name="helperTextTextAppearance">@style/TextAppearance.ChildWatch.TextInput.Supporting</item>
+        <item name="errorTextAppearance">@style/TextAppearance.ChildWatch.TextInput.Error</item>
+    </style>
+
+    <style name="Widget.ChildWatch.TextInputLayout.Dense" parent="Widget.Material3.TextInputLayout.OutlinedBox.Dense">
+        <item name="boxBackgroundColor">@color/cw_color_surface</item>
+        <item name="boxCornerRadiusTopStart">@dimen/cw_corner_small</item>
+        <item name="boxCornerRadiusTopEnd">@dimen/cw_corner_small</item>
+        <item name="boxCornerRadiusBottomStart">@dimen/cw_corner_small</item>
+        <item name="boxCornerRadiusBottomEnd">@dimen/cw_corner_small</item>
+        <item name="boxStrokeColor">@color/cw_text_input_stroke</item>
+        <item name="boxStrokeErrorColor">@color/cw_color_error</item>
+        <item name="hintTextColor">@color/cw_text_input_hint</item>
+    </style>
+
+    <style name="Widget.ChildWatch.TextInputLayout.Dropdown" parent="Widget.Material3.TextInputLayout.OutlinedBox.ExposedDropdownMenu">
+        <item name="android:minHeight">@dimen/cw_text_field_min_height</item>
+        <item name="boxBackgroundColor">@color/cw_color_surface</item>
+        <item name="boxCornerRadiusTopStart">@dimen/cw_corner_small</item>
+        <item name="boxCornerRadiusTopEnd">@dimen/cw_corner_small</item>
+        <item name="boxCornerRadiusBottomStart">@dimen/cw_corner_small</item>
+        <item name="boxCornerRadiusBottomEnd">@dimen/cw_corner_small</item>
+        <item name="boxStrokeColor">@color/cw_text_input_stroke</item>
+        <item name="boxStrokeErrorColor">@color/cw_color_error</item>
+        <item name="hintTextColor">@color/cw_text_input_hint</item>
+    </style>
+
+    <style name="Widget.ChildWatch.TextInputEditText" parent="Widget.Material3.TextInputEditText.OutlinedBox">
+        <item name="android:textAppearance">@style/TextAppearance.Material3.BodyLarge</item>
+        <item name="android:textColor">@color/cw_color_on_surface</item>
+        <item name="android:textColorHint">@color/cw_color_on_surface_variant</item>
+    </style>
+
+    <!-- Compatibility alias for call sites that use the shorter TextField name. -->
+    <style name="Widget.ChildWatch.TextField" parent="Widget.ChildWatch.TextInputLayout" />
+
+    <style name="TextAppearance.ChildWatch.TextInput.Supporting" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">@color/cw_color_on_surface_variant</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.TextInput.Error" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">@color/cw_color_error</item>
+    </style>
+</resources>

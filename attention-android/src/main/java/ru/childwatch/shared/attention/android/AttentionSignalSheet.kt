@@ -2,8 +2,10 @@ package ru.childwatch.shared.attention.android
 
 import android.content.Context
 import android.graphics.Typeface
+import android.view.Gravity
 import android.view.View
 import android.widget.ArrayAdapter
+import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.SeekBar
 import android.widget.Spinner
@@ -12,6 +14,10 @@ import android.widget.ScrollView
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
+import com.google.android.material.card.MaterialCardView
+import com.google.android.material.imageview.ShapeableImageView
+import com.google.android.material.shape.CornerFamily
+import com.google.android.material.shape.ShapeAppearanceModel
 import com.google.android.material.switchmaterial.SwitchMaterial
 import org.json.JSONObject
 import ru.childwatch.shared.attention.AttentionSignalContract
@@ -37,7 +43,8 @@ class AttentionSignalSheet(
     private val sendRequest: (JSONObject) -> Boolean,
     private val sendStopRequest: (JSONObject) -> Boolean,
     private val addStatusListener: ((JSONObject) -> Unit) -> Unit,
-    private val removeStatusListener: ((JSONObject) -> Unit) -> Unit
+    private val removeStatusListener: ((JSONObject) -> Unit) -> Unit,
+    private val bindTargetAvatar: ((ImageView) -> Unit)? = null
 ) {
     private val dialog = BottomSheetDialog(context)
     private var activeRequest: AttentionSignalRequest? = null
@@ -72,11 +79,7 @@ class AttentionSignalSheet(
             setPadding(dp(24), dp(16), dp(24), dp(24))
         }
         root.addView(text("Сигнал внимания", 24f, Typeface.BOLD))
-        root.addView(text("Кому: ${target.targetDisplayName}", 17f, Typeface.BOLD).withTopMargin(10))
-        root.addView(
-            text("Устройство: ${target.targetDeviceId.shortId()}", 13f, Typeface.NORMAL)
-                .withBottomMargin(16)
-        )
+        root.addView(targetPersonCard().withTopMargin(12).withBottomMargin(16))
 
         val durationSpinner = spinner(
             AttentionSignalContract.selectableDurationsMs.map { "${it / 1_000} сек" }
@@ -229,6 +232,43 @@ class AttentionSignalSheet(
         AttentionSignalStatus.EXPIRED -> "Время ожидания истекло"
     }
 
+    private fun targetPersonCard(): MaterialCardView {
+        val avatar = ShapeableImageView(context).apply {
+            layoutParams = LinearLayout.LayoutParams(dp(64), dp(64))
+            scaleType = ImageView.ScaleType.CENTER_CROP
+            shapeAppearanceModel = ShapeAppearanceModel.builder()
+                .setAllCorners(CornerFamily.ROUNDED, dp(32).toFloat())
+                .build()
+            contentDescription = "Аватар ${target.targetDisplayName}"
+        }
+        bindTargetAvatar?.invoke(avatar)
+
+        val details = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER_VERTICAL
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+                marginStart = dp(14)
+            }
+            addView(text(target.targetDisplayName, 18f, Typeface.BOLD))
+            addView(
+                text("Сигнал прозвучит на телефоне этого человека", 13f, Typeface.NORMAL)
+                    .withTopMargin(3)
+            )
+        }
+        val row = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+            addView(avatar)
+            addView(details)
+        }
+        return MaterialCardView(context).apply {
+            radius = dp(22).toFloat()
+            cardElevation = 0f
+            addView(row)
+        }
+    }
+
     private fun spinner(values: List<String>) = Spinner(context).apply {
         adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, values)
     }
@@ -252,8 +292,6 @@ class AttentionSignalSheet(
             ?: LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
             .apply { bottomMargin = dp(value) }
     }
-
-    private fun String.shortId(): String = if (length <= 24) this else take(12) + "…" + takeLast(8)
 
     private fun dp(value: Int): Int = (value * context.resources.displayMetrics.density).toInt()
 }

@@ -16,6 +16,29 @@ import ru.childwatch.shared.chat.ChatV2SendMessageResponse
  */
 interface ChildWatchApi {
 
+    @GET("api/me")
+    suspend fun getAuthenticatedIdentity(): Response<AuthenticatedIdentityResponse>
+
+    @GET("api/families")
+    suspend fun getFamilies(): Response<FamiliesResponse>
+
+    @GET("api/families/{familyId}/members")
+    suspend fun getFamilyMembers(
+        @Path("familyId") familyId: String
+    ): Response<FamilyMembersResponse>
+
+    @PATCH("api/families/{familyId}/members/{memberId}")
+    suspend fun updateFamilyMemberProfile(
+        @Path("familyId") familyId: String,
+        @Path("memberId") memberId: String,
+        @Body request: UpdateFamilyMemberProfileRequest
+    ): Response<UpdateFamilyMemberProfileResponse>
+
+    @GET("api/families/{familyId}/devices")
+    suspend fun getFamilyDevices(
+        @Path("familyId") familyId: String
+    ): Response<FamilyDevicesResponse>
+
     /**
      * Get latest location of a child device
      */
@@ -177,6 +200,119 @@ data class DeviceInfo(
     val deviceName: String,
     val deviceType: String,
     val appVersion: String
+)
+
+data class AuthenticatedIdentityResponse(
+    val success: Boolean,
+    val device: AuthenticatedDeviceData,
+    val memberships: List<AuthenticatedMembershipData> = emptyList()
+)
+
+data class AuthenticatedDeviceData(
+    val deviceId: String,
+    val displayName: String,
+    val platform: String? = null,
+    val appVersion: String? = null
+)
+
+data class AuthenticatedMembershipData(
+    val familyId: String,
+    val memberId: String,
+    val family: AuthenticatedFamilyData,
+    val member: AuthenticatedMemberData,
+    val binding: AuthenticatedBindingData
+)
+
+data class AuthenticatedFamilyData(
+    val id: String,
+    val name: String,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
+)
+
+data class AuthenticatedMemberData(
+    val id: String,
+    val familyId: String,
+    val displayName: String,
+    val role: String,
+    val avatarKey: String? = null,
+    val isActive: Boolean = true,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
+)
+
+data class AuthenticatedBindingData(
+    val id: String,
+    val familyId: String,
+    val memberId: String,
+    val deviceId: String,
+    val displayName: String,
+    val platform: String? = null,
+    val lastSeenAt: Long? = null,
+    val memberBindingSource: String? = null,
+    val isActive: Boolean = true,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
+)
+
+data class FamiliesResponse(
+    val success: Boolean,
+    val families: List<FamilySummaryData> = emptyList()
+)
+
+data class FamilySummaryData(
+    val id: String,
+    val name: String,
+    val isActive: Int = 1,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
+)
+
+data class FamilyMembersResponse(
+    val success: Boolean,
+    val familyId: String,
+    val members: List<FamilyMemberData> = emptyList()
+)
+
+data class FamilyMemberData(
+    val id: String,
+    val familyId: String,
+    val displayName: String,
+    val role: String,
+    val avatarKey: String? = null,
+    val isActive: Int = 1,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
+)
+
+data class UpdateFamilyMemberProfileRequest(
+    val displayName: String? = null,
+    val avatarKey: String? = null
+)
+
+data class UpdateFamilyMemberProfileResponse(
+    val success: Boolean,
+    val member: FamilyMemberData
+)
+
+data class FamilyDevicesResponse(
+    val success: Boolean,
+    val familyId: String,
+    val devices: List<FamilyDeviceData> = emptyList()
+)
+
+data class FamilyDeviceData(
+    val id: String,
+    val familyId: String,
+    val memberId: String,
+    val deviceId: String,
+    val displayName: String,
+    val platform: String? = null,
+    val lastSeenAt: Long? = null,
+    val memberBindingSource: String? = null,
+    val isActive: Int = 1,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
 )
 
 data class DeviceStatusResponse(

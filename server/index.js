@@ -16,6 +16,7 @@ const CommandManager = require("./managers/CommandManager");
 const WebSocketManager = require("./managers/WebSocketManager");
 const AttentionSignalManager = require("./managers/AttentionSignalManager");
 const FamilyPermissionService = require("./services/FamilyPermissionService");
+const FamilyIdentityService = require("./services/FamilyIdentityService");
 
 // Import route modules
 const createChatRoutes = require("./routes/chat");
@@ -26,6 +27,7 @@ const streamingRoutes = require("./routes/streaming");
 const alertsRoutes = require("./routes/alerts");
 const debugRoutes = require("./routes/debug");
 const createFamilyRoutes = require("./routes/families");
+const createMeRoutes = require("./routes/me");
 
 const app = express();
 const server = http.createServer(app);
@@ -54,13 +56,19 @@ const dbManager = new DatabaseManager();
 const commandManager = new CommandManager();
 const wsManager = new WebSocketManager(io, commandManager, dbManager);
 const familyPermissionService = new FamilyPermissionService(dbManager);
+const familyIdentityService = new FamilyIdentityService(dbManager);
 const attentionSignalManager = new AttentionSignalManager({
   wsManager,
   dbManager,
   familyPermissionService,
 });
 wsManager.setAttentionSignalManager(attentionSignalManager);
-const familyRoutes = createFamilyRoutes(dbManager, familyPermissionService);
+const familyRoutes = createFamilyRoutes(
+  dbManager,
+  familyPermissionService,
+  familyIdentityService
+);
+const meRoutes = createMeRoutes(familyIdentityService);
 const chatRoutes = createChatRoutes(dbManager, familyPermissionService);
 const chatV2Routes = createChatV2Routes(dbManager);
 wsManager.dbManager = dbManager;
@@ -243,6 +251,12 @@ app.use("/api/media", mediaRoutes);
 app.use("/api/streaming", streamingRoutes);
 app.use("/api/debug", debugRoutes);
 app.use("/api/alerts", authMiddleware.authenticate(), alertsRoutes);
+app.use(
+  "/api/me",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60_000, 120),
+  meRoutes
+);
 app.use(
   "/api/families",
   authMiddleware.authenticate(),

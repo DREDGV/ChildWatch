@@ -4,7 +4,8 @@
     <string name="device_usage_title">Активность устройства</string>
     <string name="device_usage_loading">Загружаю активность приложений…</string>
     <string name="device_usage_refresh">Обновить</string>
-    <string name="device_usage_device_id">Ребенок: %1$s</string>
+    <string name="device_usage_person">Активность: %1$s</string>
+    <string name="device_usage_person_loading">Активность выбранного ребёнка</string>
     <string name="device_usage_current_section">Сейчас открыто</string>
     <string name="device_usage_recent_section">Недавние приложения</string>
     <string name="device_usage_history_section">История переключений</string>

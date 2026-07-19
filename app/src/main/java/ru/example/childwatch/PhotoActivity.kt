@@ -72,8 +72,6 @@ class PhotoActivity : AppCompatActivity() {
             secureSettings.getServerUrl().trim()
         }.ifEmpty { null }
 
-        childDeviceId?.takeIf { it.isNotBlank() }?.let(activeSessionStore::updateFocusedChildId)
-
         // Setup UI
         setupUI()
         updateUI()

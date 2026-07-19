@@ -39,6 +39,8 @@ import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentEffectiveContextProvider
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
+import ru.example.childwatch.profile.ParentFamilyDirectoryRepository
+import ru.example.childwatch.profile.FamilyAvatarRenderer
 import ru.example.childwatch.profile.ParentLinkedChildOption
 import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
 import ru.example.childwatch.profile.ParentLinkedParentOption
@@ -51,6 +53,9 @@ import ru.example.childwatch.contacts.ContactIcons
 import ru.example.childwatch.contacts.ContactFeatures
 import ru.example.childwatch.contacts.ContactRoles
 import ru.example.childwatch.database.entity.Child
+import ru.childwatch.shared.family.FamilyPresenceState
+import ru.childwatch.shared.family.FamilyRole
+import ru.childwatch.shared.family.FeatureTargetResult
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -77,6 +82,7 @@ class MainActivity : AppCompatActivity() {
     private val effectiveContextResolver by lazy { ParentEffectiveContextResolver(this) }
     private val contextProvider by lazy { ParentEffectiveContextProvider.get(this) }
     private val activeSessionStore by lazy { ParentActiveSessionStore(this) }
+    private val familyDirectoryRepository by lazy { ParentFamilyDirectoryRepository(this) }
     private val linkedChildOptionsProvider by lazy { ParentLinkedChildOptionsProvider(this) }
     private val linkedParentsProvider by lazy { ParentLinkedParentsProvider(this) }
     private val participantNameResolver by lazy { ParentParticipantNameResolver(this) }
@@ -90,7 +96,9 @@ class MainActivity : AppCompatActivity() {
     private var deviceStatusJob: Job? = null
     private var deviceStatusRefreshJob: Job? = null
     private var badgeRefreshJob: Job? = null
+    private var familySummaryJob: Job? = null
     private var lastStatusFetchTime = 0L
+    private var selectedPersonAvatarValue: String? = null
     
     // Permission launchers for different permission groups
     private val basicPermissionLauncher = registerForActivityResult(
@@ -112,7 +120,11 @@ class MainActivity : AppCompatActivity() {
         if (result.resultCode == RESULT_OK) {
             val deviceId = result.data?.getStringExtra(ChildSelectionActivity.EXTRA_SELECTED_DEVICE_ID)
             if (deviceId != null) {
-                updateSelectedChild(deviceId)
+                updateSelectedChild(
+                    deviceId = deviceId,
+                    memberId = result.data?.getStringExtra(ChildSelectionActivity.EXTRA_SELECTED_MEMBER_ID),
+                    familyId = result.data?.getStringExtra(ChildSelectionActivity.EXTRA_SELECTED_FAMILY_ID)
+                )
             }
         }
     }
@@ -153,7 +165,7 @@ class MainActivity : AppCompatActivity() {
     private fun initializeWebSocket() {
         try {
             val serverUrl = getConfiguredServerUrl()
-            val targetDeviceId = resolveTargetDeviceId()
+            val targetDeviceId = resolveFeatureTargetDeviceId("audio-listening")
             
             if (!targetDeviceId.isNullOrBlank() && !serverUrl.isNullOrBlank()) {
                 ru.example.childwatch.network.WebSocketManager.initialize(
@@ -185,7 +197,7 @@ class MainActivity : AppCompatActivity() {
         setupBatteryOptimizationUi()
 
         binding.switchProfileQuickButton.setOnClickListener {
-            showQuickProfilePicker()
+            childSelectionLauncher.launch(Intent(this, ChildSelectionActivity::class.java))
         }
 
         // Unified monitoring toggle button with visual feedback
@@ -234,12 +246,11 @@ class MainActivity : AppCompatActivity() {
                 showToast(getString(R.string.server_url_missing))
                 return@setOnClickListener
             }
-            val targetDeviceId = resolveTargetDeviceId()
+            val targetDeviceId = resolveFeatureTargetDeviceId("audio-listening")
             if (targetDeviceId.isNullOrBlank()) {
                 showDeviceIdOptions(serverUrl)
                 return@setOnClickListener
             }
-            activeSessionStore.updateFocusedChildId(targetDeviceId)
             val intent = Intent(this@MainActivity, AudioStreamingActivity::class.java).apply {
                 putExtra(AudioStreamingActivity.EXTRA_DEVICE_ID, targetDeviceId)
                 putExtra(AudioStreamingActivity.EXTRA_SERVER_URL, serverUrl)
@@ -248,12 +259,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.chatCard.setOnClickListener {
-            val targetDeviceId = resolveTargetDeviceId()
+            val targetDeviceId = resolveFeatureTargetDeviceId("chat")
             if (targetDeviceId.isNullOrBlank()) {
                 showToast(getString(R.string.main_toast_set_child_device_id))
                 return@setOnClickListener
             }
-            activeSessionStore.updateFocusedChildId(targetDeviceId)
             ru.example.childwatch.utils.NotificationManager.resetUnreadCount()
             try {
                 chatManager.markAllAsRead()
@@ -266,7 +276,11 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.attentionSignalCard.setOnClickListener {
-            ParentAttentionSignalLauncher.show(this)
+            ParentAttentionSignalLauncher.show(
+                activity = this,
+                explicitTargetName = binding.selectedChildName.text?.toString(),
+                explicitTargetAvatarValue = selectedPersonAvatarValue
+            )
         }
         
         // Единственная кнопка камеры — удалённая съёмка.
@@ -292,12 +306,11 @@ class MainActivity : AppCompatActivity() {
                     .firstOrNull { it.isNotBlank() }
                     .orEmpty()
             }
-            val otherId = resolveTargetDeviceId()
+            val otherId = resolveFeatureTargetDeviceId("map")
             if (otherId.isNullOrBlank()) {
                 showToast(getString(R.string.main_toast_set_child_device_id))
                 return@setOnClickListener
             }
-            activeSessionStore.updateFocusedChildId(otherId)
             val intent = DualLocationMapActivity.createIntent(
                 context = this,
                 myRole = DualLocationMapActivity.ROLE_PARENT,
@@ -630,13 +643,7 @@ class MainActivity : AppCompatActivity() {
         val serverUrl = activeProfile?.serverUrl?.takeIf { it.isNotBlank() }
             ?: effectiveContext.serverUrl.takeIf { it.isNotBlank() }
 
-        if (ownParentId.isNullOrBlank() || serverUrl.isNullOrBlank()) {
-            binding.activeProfileName.text = getString(R.string.profile_switch_title)
-            binding.activeProfileMeta.text = getString(R.string.profile_switch_no_active)
-            return
-        }
-
-        binding.activeProfileName.text = participantNameResolver.resolveOwnParentDisplayName()
+        binding.activeProfileName.text = getString(R.string.family_profiles_title)
         val childLabel = activeProfile?.linkedChildDisplayName?.takeIf { it.isNotBlank() }
             ?: profileManager.resolveLinkedChildDisplayName(
                 childDeviceId = childId.orEmpty(),
@@ -648,10 +655,39 @@ class MainActivity : AppCompatActivity() {
                     !name.startsWith("device_", ignoreCase = true)
             }
             ?: getString(R.string.home_family_child_default)
-        binding.activeProfileMeta.text = if (childId.isNullOrBlank()) {
+        binding.activeProfileMeta.text = if (
+            ownParentId.isNullOrBlank() || serverUrl.isNullOrBlank() || childId.isNullOrBlank()
+        ) {
             getString(R.string.home_family_child_missing)
         } else {
             getString(R.string.home_family_child_format, childLabel)
+        }
+
+        familySummaryJob?.cancel()
+        familySummaryJob = lifecycleScope.launch {
+            val directory = runCatching { familyDirectoryRepository.load().directory }
+                .onFailure { Log.w(TAG, "Unable to refresh family summary", it) }
+                .getOrNull() ?: return@launch
+            val peopleCount = directory.people.size
+            val deviceCount = directory.people.sumOf { it.activeDevices.size }
+            val peopleLabel = resources.getQuantityString(
+                R.plurals.family_home_people_count,
+                peopleCount,
+                peopleCount
+            )
+            val devicesLabel = resources.getQuantityString(
+                R.plurals.family_home_devices_count,
+                deviceCount,
+                deviceCount
+            )
+            binding.activeProfileName.text = directory.family.name.ifBlank {
+                getString(R.string.family_profiles_title)
+            }
+            binding.activeProfileMeta.text = getString(
+                R.string.family_home_summary,
+                peopleLabel,
+                devicesLabel
+            )
         }
     }
 
@@ -1513,25 +1549,16 @@ class MainActivity : AppCompatActivity() {
             ?.let { return it }
         val resolvedFromContext = effectiveContextResolver.resolveTargetDeviceId()
         if (resolvedFromContext.isNotBlank()) {
-            activeSessionStore.updateFocusedChildId(resolvedFromContext)
-            if (secureSettings.getChildDeviceId().isNullOrBlank()) {
-                secureSettings.setChildDeviceId(resolvedFromContext)
-            }
-            contextProvider.updateSelection(focusedMemberId = null, targetDeviceId = resolvedFromContext)
             return resolvedFromContext
         }
-        val resolved = effectiveContextResolver
+        return effectiveContextResolver
             .resolveFocusedChildCandidates()
             .firstOrNull()
-            ?: return null
+    }
 
-        activeSessionStore.updateFocusedChildId(resolved)
-        if (secureSettings.getChildDeviceId().isNullOrBlank()) {
-            secureSettings.setChildDeviceId(resolved)
-        }
-        contextProvider.updateSelection(focusedMemberId = null, targetDeviceId = resolved)
-
-        return resolved
+    private fun resolveFeatureTargetDeviceId(feature: String): String? {
+        return (contextProvider.resolveFeatureTarget(feature) as? FeatureTargetResult.Resolved)
+            ?.targetDeviceId
     }
 
     private fun getConfiguredServerUrl(): String? {
@@ -1608,6 +1635,7 @@ class MainActivity : AppCompatActivity() {
         badgeRefreshJob?.cancel()
         deviceStatusJob?.cancel()
         deviceStatusRefreshJob?.cancel()
+        familySummaryJob?.cancel()
         super.onDestroy()
     }
     
@@ -1623,6 +1651,7 @@ class MainActivity : AppCompatActivity() {
         runStartupTask("ensureChatBackgroundService") { ensureChatBackgroundService() }
         runStartupTask("ensureParentLocationService") { ensureParentLocationService() }
         runStartupTask("initializeWebSocket") { initializeWebSocket() }
+        runStartupTask("loadSelectedChild") { loadSelectedChild() }
         runStartupTask("updateQuickProfileSummary") { updateQuickProfileSummary() }
         lifecycleScope.launch {
             syncLinkedProfilesInBackground()
@@ -1702,24 +1731,14 @@ class MainActivity : AppCompatActivity() {
                     val child = childDao.getByDeviceId(selectedDeviceId)
 
                     if (child != null) {
-                        binding.selectedChildName.text = child.name
-                        binding.selectedChildDeviceId.text = getString(R.string.home_selected_child_hint)
-
-                        // Load avatar if the stored URI is still accessible.
-                        if (child.avatarUrl != null) {
-                            try {
-                                val uri = android.net.Uri.parse(child.avatarUrl)
-                                binding.selectedChildAvatar.setImageURI(uri)
-                            } catch (e: SecurityException) {
-                                Log.w(TAG, "Avatar URI no longer accessible", e)
-                                binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
-                            } catch (e: Exception) {
-                                Log.e(TAG, "Error loading avatar", e)
-                                binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
-                            }
-                        } else {
-                            binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
-                        }
+                        // Render local data immediately, then enrich it from the
+                        // canonical family directory without delaying the screen.
+                        renderSelectedChild(child, null)
+                        val canonical = runCatching {
+                            linkedChildOptionsProvider.getOptions()
+                                .firstOrNull { it.deviceId == selectedDeviceId }
+                        }.getOrNull()
+                        if (canonical != null) renderSelectedChild(child, canonical)
 
                         Log.d(TAG, "Selected child loaded: ${child.name}")
                     } else {
@@ -1743,6 +1762,8 @@ class MainActivity : AppCompatActivity() {
             binding.selectedChildName.text = getString(R.string.main_select_contact_placeholder_title)
             binding.selectedChildDeviceId.text = getString(R.string.main_select_contact_placeholder_subtitle)
             binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(0, "child"))
+            selectedPersonAvatarValue = null
+            binding.childSelectionContainer.contentDescription = getString(R.string.family_profiles_add_description)
         } catch (e: Exception) {
             Log.e(TAG, "Error in showDefaultChildSelection", e)
         }
@@ -1820,7 +1841,11 @@ class MainActivity : AppCompatActivity() {
     /**
      * Apply the selected child to the UI and the active runtime context.
      */
-    private fun updateSelectedChild(deviceId: String) {
+    private fun updateSelectedChild(
+        deviceId: String,
+        memberId: String? = null,
+        familyId: String? = null
+    ) {
         lifecycleScope.launch {
             try {
                 val database = ru.example.childwatch.database.ChildWatchDatabase.getInstance(this@MainActivity)
@@ -1828,30 +1853,18 @@ class MainActivity : AppCompatActivity() {
                 val child = childDao.getByDeviceId(deviceId)
 
                 if (child != null) {
-                    // Update the visible child card.
-                    binding.selectedChildName.text = child.name
-                    binding.selectedChildDeviceId.text = getString(R.string.home_selected_child_hint)
-
-                    // Refresh avatar from URI when available.
-                    if (child.avatarUrl != null) {
-                        try {
-                            val uri = android.net.Uri.parse(child.avatarUrl)
-                            binding.selectedChildAvatar.setImageURI(uri)
-                        } catch (e: SecurityException) {
-                            Log.w(TAG, "Avatar URI no longer accessible", e)
-                            binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
-                        } catch (e: Exception) {
-                            Log.e(TAG, "Error loading avatar", e)
-                            binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
-                        }
-                    } else {
-                        binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(child.iconId, child.role))
-                    }
+                    val canonical = runCatching {
+                        linkedChildOptionsProvider.getOptions()
+                            .firstOrNull { it.deviceId == deviceId }
+                    }.getOrNull()
+                    renderSelectedChild(child, canonical)
 
                     // Persist and activate the selection across runtime entry points.
-                    persistSelectedChildCompat(deviceId)
+                    persistSelectedChildCompat(deviceId, memberId, familyId)
                     profileRuntimeCoordinator.switchFocusedChild(
                         childDeviceId = deviceId,
+                        focusedMemberId = memberId,
+                        familyId = familyId,
                         shareParentLocation = prefs.getBoolean("share_parent_location", true)
                     )
                     initializeWebSocket()
@@ -1859,7 +1872,8 @@ class MainActivity : AppCompatActivity() {
                     updateChatBadge()
                     refreshChildDeviceStatus(force = true)
 
-                    showToast(getString(R.string.main_toast_contact_selected, child.name))
+                    val selectedName = canonical?.displayName?.takeIf { it.isNotBlank() } ?: child.name
+                    showToast(getString(R.string.main_toast_contact_selected, selectedName))
                     Log.d(TAG, "Selected child updated: ${child.name} ($deviceId)")
                 } else {
                     showToast(getString(R.string.main_toast_contact_not_found))
@@ -1891,12 +1905,68 @@ class MainActivity : AppCompatActivity() {
         return null
     }
 
-    private fun persistSelectedChildCompat(deviceId: String) {
+    private fun renderSelectedChild(child: Child, option: ParentLinkedChildOption?) {
+        val displayName = option?.displayName?.trim()?.takeIf { it.isNotBlank() }
+            ?: child.name.trim().ifBlank { getString(R.string.main_default_child_name) }
+        binding.selectedChildName.text = displayName
+        binding.selectedChildDeviceId.text = selectedChildMeta(child, option)
+        binding.childSelectionContainer.contentDescription = getString(
+            R.string.family_profile_edit_named,
+            displayName
+        )
+
+        val avatar = option?.avatarKey?.trim()?.takeIf { it.isNotBlank() }
+            ?: child.avatarUrl?.trim()?.takeIf { it.isNotBlank() }
+        selectedPersonAvatarValue = avatar
+        val fallbackIcon = ContactIcons.resolve(option?.markerIconId ?: child.iconId, child.role)
+        FamilyAvatarRenderer.bind(binding.selectedChildAvatar, avatar, fallbackIcon)
+    }
+
+    private fun selectedChildMeta(child: Child, option: ParentLinkedChildOption?): String {
+        val role = when (option?.role) {
+            FamilyRole.PARENT -> getString(R.string.family_role_parent)
+            FamilyRole.GUARDIAN -> getString(R.string.family_role_relative)
+            FamilyRole.CHILD -> getString(R.string.family_role_child)
+            null -> ContactRoles.label(child.role)
+        }
+        val presence = option?.presence?.takeUnless { it == FamilyPresenceState.UNKNOWN }
+            ?: run {
+                val lastSeenAt = normalizeEpochMillis(option?.lastSeenAt ?: child.lastSeenAt)
+                when {
+                    lastSeenAt == null -> FamilyPresenceState.UNKNOWN
+                    System.currentTimeMillis() - lastSeenAt <= 2 * 60_000L -> FamilyPresenceState.ONLINE
+                    System.currentTimeMillis() - lastSeenAt <= 24 * 60 * 60_000L -> {
+                        FamilyPresenceState.RECENTLY_ACTIVE
+                    }
+                    else -> FamilyPresenceState.OFFLINE
+                }
+            }
+        val status = when (presence) {
+            FamilyPresenceState.ONLINE -> getString(R.string.family_profile_presence_online)
+            FamilyPresenceState.RECENTLY_ACTIVE -> getString(R.string.family_profile_presence_recent)
+            FamilyPresenceState.OFFLINE -> getString(R.string.family_profile_presence_offline)
+            FamilyPresenceState.UNKNOWN -> getString(R.string.family_profile_presence_unknown)
+        }
+        return getString(R.string.family_profile_role_and_status, role, status)
+    }
+
+    private fun persistSelectedChildCompat(
+        deviceId: String,
+        memberId: String? = null,
+        familyId: String? = null
+    ) {
         val normalized = deviceId.trim()
         if (normalized.isBlank()) return
 
         activeSessionStore.updateFocusedChildId(normalized)
-        contextProvider.updateSelection(focusedMemberId = null, targetDeviceId = normalized)
+        contextProvider.updateSelection(focusedMemberId = memberId, targetDeviceId = normalized)
+        if (!familyId.isNullOrBlank()) {
+            contextProvider.updateFamilyIdentity(
+                familyId = familyId,
+                selfMemberId = contextProvider.current()?.selfMemberId,
+                focusedMemberId = memberId
+            )
+        }
         secureSettings.setChildDeviceId(normalized)
         prefs.edit()
             .putString("selected_device_id", normalized)
@@ -1908,7 +1978,7 @@ class MainActivity : AppCompatActivity() {
      * Open remote camera activity
      */
     private fun openRemoteCamera() {
-        val targetDeviceId = resolveTargetDeviceId()
+        val targetDeviceId = resolveFeatureTargetDeviceId("remote-photo")
         if (targetDeviceId.isNullOrBlank()) {
             Toast.makeText(
                 this@MainActivity,
@@ -1917,7 +1987,6 @@ class MainActivity : AppCompatActivity() {
             ).show()
             return
         }
-        activeSessionStore.updateFocusedChildId(targetDeviceId)
         val intent = Intent(this@MainActivity, RemoteCameraActivity::class.java).apply {
             putExtra(RemoteCameraActivity.EXTRA_CHILD_ID, targetDeviceId)
             putExtra(RemoteCameraActivity.EXTRA_CHILD_NAME, binding.selectedChildName.text?.toString().orEmpty())
@@ -1926,12 +1995,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openDeviceUsage() {
-        val targetDeviceId = resolveTargetDeviceId()
+        val targetDeviceId = resolveFeatureTargetDeviceId("activity")
         if (targetDeviceId.isNullOrBlank()) {
             showToast(getString(R.string.device_usage_pairing_required))
             return
         }
-        activeSessionStore.updateFocusedChildId(targetDeviceId)
         runCatching {
             startActivity(
                 Intent(this@MainActivity, DeviceUsageActivity::class.java).apply {
@@ -2034,7 +2102,8 @@ class MainActivity : AppCompatActivity() {
                 RemotePhotoCache.saveBase64PhotoToCache(
                     this@MainActivity,
                     photoBase64,
-                    timestamp
+                    timestamp,
+                    targetDeviceId = deviceId
                 )
             }
 

@@ -214,7 +214,6 @@ class AudioActivity : AppCompatActivity() {
             }
 
             isMonitoring = true
-            activeSessionStore.updateFocusedChildId(childDeviceId)
 
             // Запускаем AudioPlaybackService для получения аудио стрима
             ru.example.childwatch.service.AudioPlaybackService.startPlayback(

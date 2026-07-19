@@ -1,6 +1,7 @@
 package ru.example.childwatch
 
 import android.content.Intent
+import android.content.res.ColorStateList
 import android.os.Bundle
 import android.util.Log
 import android.util.Patterns
@@ -8,12 +9,14 @@ import android.view.View
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.launch
 import ru.example.childwatch.databinding.ActivityParentSetupBinding
 import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.database.entity.Parent
-import ru.example.childwatch.database.repository.ChildRepository
+import ru.example.childwatch.profile.FamilyAvatarRenderer
+import ru.example.childwatch.profile.ParentFamilyDirectoryRepository
 import java.util.UUID
 
 /**
@@ -33,16 +36,23 @@ class ParentSetupActivity : AppCompatActivity() {
 
     private lateinit var binding: ActivityParentSetupBinding
     private val database by lazy { ChildWatchDatabase.getInstance(this) }
-    private var selectedAvatarUri: String? = null
+    private var selectedAvatarValue: String = FamilyAvatarRenderer.presets.first().storageValue
 
-    // Launcher для выбора фото
+    // Launcher для выбора собственного фото с постоянным разрешением на чтение.
     private val pickImageLauncher = registerForActivityResult(
-        ActivityResultContracts.GetContent()
+        ActivityResultContracts.OpenDocument()
     ) { uri ->
         uri?.let {
-            binding.avatarImage.setImageURI(it)
-            selectedAvatarUri = it.toString()
-            Log.d(TAG, "Аватар выбран: $selectedAvatarUri")
+            runCatching {
+                contentResolver.takePersistableUriPermission(
+                    it,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION
+                )
+            }
+            selectedAvatarValue = it.toString()
+            FamilyAvatarRenderer.bind(binding.avatarImage, selectedAvatarValue)
+            refreshAvatarPresetSelection()
+            Log.d(TAG, "Аватар выбран")
         }
     }
 
@@ -68,9 +78,12 @@ class ParentSetupActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
+        FamilyAvatarRenderer.bind(binding.avatarImage, selectedAvatarValue)
+        setupAvatarPresetChoices()
+
         // Кнопка выбора аватара
         binding.changeAvatarButton.setOnClickListener {
-            pickImageLauncher.launch("image/*")
+            pickImageLauncher.launch(arrayOf("image/*"))
         }
 
         // Кнопка продолжить
@@ -81,6 +94,50 @@ class ParentSetupActivity : AppCompatActivity() {
         // Кнопка пропустить
         binding.skipButton.setOnClickListener {
             skipOnboarding()
+        }
+    }
+
+    private fun setupAvatarPresetChoices() {
+        val views = listOf(
+            binding.parentAvatarPreset1,
+            binding.parentAvatarPreset2,
+            binding.parentAvatarPreset3,
+            binding.parentAvatarPreset4,
+            binding.parentAvatarPreset5,
+            binding.parentAvatarPreset6
+        )
+        FamilyAvatarRenderer.presets.zip(views).forEachIndexed { index, (preset, view) ->
+            view.contentDescription = getString(
+                R.string.family_profile_avatar_preset_description,
+                index + 1
+            )
+            view.setOnClickListener {
+                selectedAvatarValue = preset.storageValue
+                FamilyAvatarRenderer.bind(binding.avatarImage, selectedAvatarValue)
+                refreshAvatarPresetSelection()
+            }
+        }
+        refreshAvatarPresetSelection()
+    }
+
+    private fun refreshAvatarPresetSelection() {
+        val views = listOf(
+            binding.parentAvatarPreset1,
+            binding.parentAvatarPreset2,
+            binding.parentAvatarPreset3,
+            binding.parentAvatarPreset4,
+            binding.parentAvatarPreset5,
+            binding.parentAvatarPreset6
+        )
+        val primary = ContextCompat.getColor(this, R.color.cw_color_primary)
+        val outline = ContextCompat.getColor(this, R.color.cw_color_outline_variant)
+        FamilyAvatarRenderer.presets.zip(views).forEach { (preset, view) ->
+            val selected = preset.storageValue == selectedAvatarValue
+            view.strokeColor = ColorStateList.valueOf(if (selected) primary else outline)
+            view.strokeWidth = if (selected) 3f * resources.displayMetrics.density else resources.displayMetrics.density
+            view.alpha = if (selected) 1f else 0.72f
+            view.scaleX = if (selected) 1f else 0.92f
+            view.scaleY = if (selected) 1f else 0.92f
         }
     }
 
@@ -156,12 +213,18 @@ class ParentSetupActivity : AppCompatActivity() {
                     name = name,
                     email = email.ifEmpty { "parent@childwatch.local" },
                     phoneNumber = phone.ifEmpty { null },
-                    avatarUrl = selectedAvatarUri,
+                    avatarUrl = selectedAvatarValue,
                     isVerified = false
                 )
 
                 val parentId = database.parentDao().insert(parent)
                 Log.d(TAG, "Профиль родителя создан: ID=$parentId, имя=$name")
+
+                val profileSynced = ParentFamilyDirectoryRepository(this@ParentSetupActivity)
+                    .updateOwnProfile(name, selectedAvatarValue)
+                if (!profileSynced) {
+                    Log.i(TAG, "Canonical parent profile sync will retry after family connection")
+                }
 
                 // Сохраняем статус завершения онбординга
                 val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)

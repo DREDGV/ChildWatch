@@ -136,4 +136,7 @@
     <string name="listen_notification_channel">Прослушка</string>
     <string name="listen_notification_channel_description">Уведомления для активной прослушки</string>
     <string name="listen_notification_title">Прослушка</string>
+    <string name="listen_person_label">Сейчас выбран</string>
+    <string name="listen_technical_show">Техническая информация</string>
+    <string name="listen_technical_hide">Скрыть техническую информацию</string>
 </resources>

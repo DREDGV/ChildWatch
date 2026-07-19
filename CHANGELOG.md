@@ -4,14 +4,16 @@ All notable changes to ChildWatch will be documented in this file.
 
 This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) and adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [7.2.0] - 2026-07-17
-
-See [CHANGELOG-v7.2.0.md](CHANGELOG-v7.2.0.md) for the verified release summary and the current Android 11 remote-camera limitation.
-
 ## [Unreleased]
+
+## [7.3.0-rc2] - 2026-07-19
 
 ### Added
 
+- Added a canonical family directory from `/api/me`, so profiles, roles, avatars and linked devices are represented consistently across application features.
+- Added six built-in family avatars and reusable person cards for the dashboard, map, listening, remote photo, activity, chat and attention signal flows.
+- Added protected family-member profile editing: adults can update linked profiles, children can only update themselves, and legacy names remain synchronized during the transition.
+- Added a real geolocation-accuracy overlay on the family map: a translucent circle now shows the reported radius in metres for live and compatible cached positions.
 - Added conversation-based chat v2 with one permanent family chat and private one-to-one chats between members of the same family.
 - Added stable family-member identities, per-conversation membership checks, delivery/read receipts, durable offline outbox, reconnect recovery, and cursor-based history pagination.
 - Added matching conversation lists in ParentMonitor and ChildDevice with participant names, last-message previews, timestamps, and unread counters.
@@ -24,7 +26,10 @@ See [CHANGELOG-v7.2.0.md](CHANGELOG-v7.2.0.md) for the verified release summary 
 
 ### Changed
 
-- Android release line advanced to `7.3`; the server reports version `2.1.0` consistently from `package.json` in health and diagnostics output.
+- Unified member selection across family features around the selected person instead of exposing raw device identifiers.
+- Simplified the listening screen and moved technical connection details out of the primary user flow.
+- Personal gallery avatars remain private to the current phone; portable built-in avatars and display names synchronize through the family server profile.
+- Android release line advanced to `7.3`; the server reports version `2.2.0` consistently from `package.json` in health and diagnostics output.
 - Chat opens at the newest messages, preserves the reading position when older history is viewed, and offers a new-message shortcut instead of forcing the list to jump.
 - Existing legacy family chat remains available during the transition and is migrated additively without destructive database fallback.
 
@@ -37,6 +42,8 @@ See [CHANGELOG-v7.2.0.md](CHANGELOG-v7.2.0.md) for the verified release summary 
 
 ### Fixed
 
+- Fixed profile renames drifting between feature cards, chat snapshots and legacy parent/child links.
+- Fixed map accuracy being shown only as text without a visual radius around the location marker.
 - Chat conversation lists and message history now render from the local cache first instead of waiting for a network round trip.
 - Chat v2 sends messages over the active WebSocket with an idempotent three-second HTTP fallback, and incoming WebSocket messages are cached immediately.
 - Audio playback drops stale buffered frames after a network burst so monitoring can recover latency instead of replaying delayed sound.
@@ -77,6 +84,10 @@ See [CHANGELOG-v7.2.0.md](CHANGELOG-v7.2.0.md) for the verified release summary 
   - `-PcwVersionName=<нужная_версия>`
   - `-PcwVersionCode=<нужный_code>`
 - Журнал изменений ведется далее в этом файле, новые записи добавляются сверху.
+
+## [7.2.0] - 2026-07-17
+
+See [CHANGELOG-v7.2.0.md](CHANGELOG-v7.2.0.md) for the verified release summary and the current Android 11 remote-camera limitation.
 
 ## [7.1.1] - 2025-11-11
 
