@@ -23,6 +23,8 @@ class ChatV2SocketService {
     this.chatService = chatService;
     this.conversationSockets = new Map();
     this.socketConversations = new Map();
+    this.deviceSockets = new Map();
+    this.socketDevices = new Map();
     this.registeredSockets = new WeakSet();
   }
 
@@ -87,7 +89,21 @@ class ChatV2SocketService {
     return payload;
   }
 
-  addSubscription(socket, conversationId) {
+  bindCurrentDeviceSocket(socket, deviceId) {
+    const previousSocketId = this.deviceSockets.get(deviceId);
+    if (previousSocketId && previousSocketId !== socket.id) {
+      // Android reconnects can leave the previous Socket.IO transport alive
+      // until its timeout expires. It must not remain a chat subscriber: a
+      // family with many stale transports otherwise performed dozens of
+      // authorization queries before every message broadcast.
+      this.removeSocketId(previousSocketId);
+    }
+    this.deviceSockets.set(deviceId, socket.id);
+    this.socketDevices.set(socket.id, deviceId);
+  }
+
+  addSubscription(socket, conversationId, deviceId = null) {
+    if (deviceId) this.bindCurrentDeviceSocket(socket, deviceId);
     this.removeSubscription(socket, conversationId);
 
     let socketIds = this.conversationSockets.get(conversationId);
@@ -141,19 +157,22 @@ class ChatV2SocketService {
       }
     }
     this.socketConversations.delete(socketId);
+    const deviceId = this.socketDevices.get(socketId);
+    if (deviceId && this.deviceSockets.get(deviceId) === socketId) {
+      this.deviceSockets.delete(deviceId);
+    }
+    this.socketDevices.delete(socketId);
   }
 
   async getAuthorizedSubscribers(conversationId) {
     const socketIds = Array.from(
       this.conversationSockets.get(conversationId) || []
     );
-    const authorized = [];
-
-    for (const socketId of socketIds) {
+    const authorized = await Promise.all(socketIds.map(async (socketId) => {
       const socket = this.io.sockets.sockets.get(socketId);
       if (!socket || socket.connected === false) {
         this.removeSocketId(socketId);
-        continue;
+        return null;
       }
 
       try {
@@ -166,19 +185,20 @@ class ChatV2SocketService {
           this.conversationSockets.get(conversationId)?.has(socket.id) &&
           socket.connected !== false
         ) {
-          authorized.push(socket);
+          return socket;
         }
       } catch (_error) {
         // Membership may be revoked after subscription. Evict silently so a
         // stale socket can never receive FAMILY or DIRECT conversation data.
         this.removeSubscription(socket, conversationId);
       }
-    }
+      return null;
+    }));
 
     if (this.conversationSockets.get(conversationId)?.size === 0) {
       this.conversationSockets.delete(conversationId);
     }
-    return authorized;
+    return authorized.filter(Boolean);
   }
 
   async broadcast(conversationId, eventName, payload) {
@@ -215,7 +235,7 @@ class ChatV2SocketService {
         throw new Error("Resolved chat conversation has no id");
       }
 
-      this.addSubscription(socket, conversationId);
+      this.addSubscription(socket, conversationId, deviceId);
       const payload = {
         success: true,
         conversationId,

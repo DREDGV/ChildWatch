@@ -29,6 +29,11 @@ object RemotePhotoErrorMessages {
                 actionable = true
             )
 
+            normalized.contains("photo_request_timeout") -> RemotePhotoUiError(
+                status = context.getString(R.string.remote_camera_request_timeout),
+                message = context.getString(R.string.remote_camera_no_response)
+            )
+
             else -> {
                 val fallback = context.getString(R.string.remote_camera_error_format, rawError)
                 RemotePhotoUiError(status = fallback, message = fallback)

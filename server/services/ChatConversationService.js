@@ -241,11 +241,34 @@ class ChatConversationService {
       // upgraded from a schema that predates chat v2.
       const expectedFamilyConversationId =
         this.dbManager.createFamilyConversationId(membership.familyId);
-      const familyConversation = await this.dbManager.ensureFamilyConversation(
-        membership.familyId
+      let familyConversation = await this.dbManager.getChatConversationById(
+        expectedFamilyConversationId
       );
+      let scopedFamilyConversation = familyConversation
+        ? await this.dbManager.getChatConversationForMember(
+            expectedFamilyConversationId,
+            membership.memberId
+          )
+        : null;
+      // Normal conversation-list reads must remain read-only. Reconciliation
+      // takes a SQLite write lock and used to delay every screen opening by
+      // several seconds on long-lived databases. Only repair genuinely
+      // missing conversation/membership rows.
+      if (!familyConversation || !scopedFamilyConversation) {
+        familyConversation = await this.dbManager.ensureFamilyConversation(
+          membership.familyId
+        );
+        scopedFamilyConversation =
+          await this.dbManager.getChatConversationForMember(
+            expectedFamilyConversationId,
+            membership.memberId
+          );
+      }
       if (familyConversation?.id !== expectedFamilyConversationId) {
         throw new Error("Family conversation identity mismatch");
+      }
+      if (!scopedFamilyConversation) {
+        throw new Error("Family conversation membership is missing");
       }
       const conversations =
         await this.dbManager.listChatConversationsForMember(

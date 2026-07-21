@@ -47,6 +47,7 @@ class CameraService(private val context: Context) {
         private const val MAX_JPEG_WIDTH = 1920
         private const val MAX_JPEG_HEIGHT = 1080
         private const val PREVIEW_WARMUP_MS = 350L
+        private const val CAMERA_OPEN_TIMEOUT_MS = 4500L
         private const val CAPTURE_TIMEOUT_MS = 5000L
         private const val RETRY_BACKOFF_MS = 300L
         const val ERROR_BACKGROUND_CAMERA_RESTRICTED = "background_camera_restricted"
@@ -196,6 +197,17 @@ class CameraService(private val context: Context) {
             TAG,
             "Opening camera attempt=$attemptToken ${attempt.description} size=${attempt.config.jpegSize.width}x${attempt.config.jpegSize.height}"
         )
+
+        handler.postDelayed({
+            if (!isAttemptActive(attemptToken) || cameraDevice != null) return@postDelayed
+            val restricted = !AppVisibilityTracker.isVisible()
+            handleAttemptFailure(
+                attemptToken,
+                if (restricted) ERROR_BACKGROUND_CAMERA_RESTRICTED
+                else "Camera open timed out for ${attempt.description}",
+                retryable = !restricted
+            )
+        }, CAMERA_OPEN_TIMEOUT_MS)
 
         try {
             cameraManager?.openCamera(

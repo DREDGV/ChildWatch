@@ -287,11 +287,19 @@ describe("chat conversation database foundation", () => {
     const parentMemberId = context.memberByDevice.get(context.parentDeviceId);
     const childMemberId = context.memberByDevice.get(context.childDeviceId);
 
+    // Keep the sender as a confirmed family profile. The stale legacy link
+    // below represents only the obsolete recipient-side device identity.
     await db.run(
-      `UPDATE devices
-       SET created_at = 1, updated_at = 1
-       WHERE device_id = ?`,
-      [context.childDeviceId]
+      `UPDATE family_devices
+       SET member_binding_source = 'EXPLICIT'
+       WHERE family_id = ? AND member_id = ?`,
+      [context.family.id, parentMemberId]
+    );
+    await db.run(
+      `UPDATE device_links
+       SET updated_at = strftime('%s', 'now') - (45 * 24 * 60 * 60)
+       WHERE parent_device_id = ? AND child_device_id = ?`,
+      [context.parentDeviceId, context.childDeviceId]
     );
     await db.ensureFamilyConversation(context.family.id);
 

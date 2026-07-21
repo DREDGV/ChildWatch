@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="family_target_change">Сменить человека</string>
+    <string name="family_target_choose_title">Кого выбрать?</string>
+    <string name="family_target_choose_photo">Выберите, для кого запросить фотографию</string>
+    <string name="family_target_choose_audio">Выберите, кого хотите прослушать</string>
+    <string name="family_target_only_one">Сейчас доступен только один профиль</string>
+    <string name="family_target_switch_busy_photo">Дождитесь завершения текущего запроса фото</string>
+    <string name="family_target_switch_audio_title">Переключить прослушивание?</string>
+    <string name="family_target_switch_audio_message">Текущая прослушка будет остановлена. После переключения её можно запустить для выбранного человека.</string>
+</resources>

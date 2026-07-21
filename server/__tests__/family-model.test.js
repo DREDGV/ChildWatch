@@ -197,6 +197,50 @@ describe("family model bootstrap", () => {
     expect(await db.getFamilyMembers(firstFamilies[0].id)).toHaveLength(3);
   });
 
+  test("hides stale provisional reinstall identities without deleting history", async () => {
+    const pair = await registerPair(db, "visible-current");
+    const staleParentId = "parent-device-stale-reinstall";
+    await db.registerDevice(staleParentId, {
+      device_name: "Old reinstalled phone",
+      device_type: "android",
+      app_version: "6.0.0",
+    });
+    await db.upsertDeviceLink({
+      parentDeviceId: staleParentId,
+      childDeviceId: pair.childDeviceId,
+      parentDisplayName: "Old phone identity",
+      createdBy: "legacy-test",
+    });
+
+    const [family] = await db.getFamiliesForDevice(pair.parentDeviceId);
+    const staleMembership = await db.getFamilyDeviceMembership(
+      family.id,
+      staleParentId
+    );
+    await db.run(
+      `UPDATE device_links
+       SET updated_at = strftime('%s', 'now') - (45 * 24 * 60 * 60)
+       WHERE parent_device_id = ? AND child_device_id = ?`,
+      [staleParentId, pair.childDeviceId]
+    );
+
+    expect(
+      (await db.get("SELECT COUNT(*) AS count FROM family_members")).count
+    ).toBe(3);
+    expect(await db.getFamilyMembers(family.id)).toHaveLength(2);
+    expect(await db.getFamilyDevices(family.id)).toHaveLength(2);
+    expect(await db.getChatFamilyMembers(family.id)).toHaveLength(2);
+
+    await db.updateFamilyMemberProfile({
+      familyId: family.id,
+      memberId: staleMembership.memberId,
+      displayName: "Grandmother",
+    });
+
+    expect(await db.getFamilyMembers(family.id)).toHaveLength(3);
+    expect(await db.getFamilyDevices(family.id)).toHaveLength(3);
+  });
+
   test("bootstrap preserves an explicit permission denial", async () => {
     const pair = await registerPair(db, "denied");
     const membership = await db.getSharedFamilyMembership(

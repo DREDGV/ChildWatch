@@ -22,10 +22,10 @@ const DEFAULT_CHILD_TO_PARENT_FEATURES = Object.freeze([
 ]);
 
 // Legacy installations can retain thousands of provisional device identities
-// after app reinstalls. They remain available for historical reconciliation,
-// but only recently registered (or explicitly bound) people participate in
-// the live family chat.
-const CHAT_LEGACY_MEMBER_ACTIVE_WINDOW_SECONDS = 30 * 24 * 60 * 60;
+// after app reinstalls. Keep those rows for history, but expose a provisional
+// identity only while its parent/child link is still being refreshed. A user
+// confirmed profile is marked EXPLICIT and therefore never expires here.
+const LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS = 30 * 24 * 60 * 60;
 const MAX_SAFE_LEGACY_RECEIPTS_PER_MESSAGE = 50;
 
 /**
@@ -801,10 +801,12 @@ class DatabaseManager {
       `SELECT
          (SELECT COUNT(*)
           FROM device_links
-          WHERE is_active = 1) AS activeLinks,
+          WHERE is_active = 1
+            AND updated_at >= strftime('%s', 'now') - ?) AS activeLinks,
          (SELECT COUNT(*)
           FROM device_links dl
           WHERE dl.is_active = 1
+            AND dl.updated_at >= strftime('%s', 'now') - ?
             AND NOT EXISTS (
               SELECT 1
               FROM family_devices parent_fd
@@ -826,7 +828,11 @@ class DatabaseManager {
               WHERE parent_fd.device_id = dl.parent_device_id
                 AND parent_fd.is_active = 1
               LIMIT 1
-            )) AS missingLinks`
+            )) AS missingLinks`,
+      [
+        LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS,
+        LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS,
+      ]
     );
     const activeLinks = Number(state?.activeLinks) || 0;
     const missingLinks = Number(state?.missingLinks) || 0;
@@ -869,7 +875,9 @@ class DatabaseManager {
     const links = await this.all(
       `SELECT * FROM device_links
        WHERE is_active = 1
-       ORDER BY parent_device_id, child_device_id`
+         AND updated_at >= strftime('%s', 'now') - ?
+       ORDER BY parent_device_id, child_device_id`,
+      [LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS]
     );
     if (!links.length) return { families: 0, devices: 0 };
 
@@ -1095,20 +1103,41 @@ class DatabaseManager {
   async getFamilyMembers(familyId) {
     return this.all(
       `SELECT
-         id,
-         family_id AS familyId,
-         display_name AS displayName,
-         role,
-         avatar_key AS avatarKey,
-         is_active AS isActive,
-         created_at AS createdAt,
-         updated_at AS updatedAt
-       FROM family_members
-       WHERE family_id = ? AND is_active = 1
-       ORDER BY CASE role WHEN 'PARENT' THEN 0 WHEN 'GUARDIAN' THEN 1 ELSE 2 END,
-                display_name,
-                id`,
-      [familyId]
+         fm.id,
+         fm.family_id AS familyId,
+         fm.display_name AS displayName,
+         fm.role,
+         fm.avatar_key AS avatarKey,
+         fm.is_active AS isActive,
+         fm.created_at AS createdAt,
+         fm.updated_at AS updatedAt
+       FROM family_members fm
+       WHERE fm.family_id = ?
+         AND fm.is_active = 1
+         AND EXISTS (
+           SELECT 1
+           FROM family_devices fd
+           WHERE fd.family_id = fm.family_id
+             AND fd.member_id = fm.id
+             AND fd.is_active = 1
+             AND (
+               fd.member_binding_source = 'EXPLICIT'
+               OR EXISTS (
+                 SELECT 1
+                 FROM device_links dl
+                 WHERE dl.is_active = 1
+                   AND dl.updated_at >= strftime('%s', 'now') - ?
+                   AND (
+                     dl.parent_device_id = fd.device_id
+                     OR dl.child_device_id = fd.device_id
+                   )
+               )
+             )
+         )
+       ORDER BY CASE fm.role WHEN 'PARENT' THEN 0 WHEN 'GUARDIAN' THEN 1 ELSE 2 END,
+                fm.display_name,
+                fm.id`,
+      [familyId, LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS]
     );
   }
 
@@ -1243,20 +1272,27 @@ class DatabaseManager {
          AND EXISTS (
            SELECT 1
            FROM family_devices fd
-           LEFT JOIN devices d ON d.device_id = fd.device_id
            WHERE fd.family_id = fm.family_id
              AND fd.member_id = fm.id
              AND fd.is_active = 1
              AND (
                fd.member_binding_source = 'EXPLICIT'
-               OR COALESCE(d.updated_at, d.created_at, 0) >=
-                  strftime('%s', 'now') - ?
+               OR EXISTS (
+                 SELECT 1
+                 FROM device_links dl
+                 WHERE dl.is_active = 1
+                   AND dl.updated_at >= strftime('%s', 'now') - ?
+                   AND (
+                     dl.parent_device_id = fd.device_id
+                     OR dl.child_device_id = fd.device_id
+                   )
+               )
              )
          )
        ORDER BY CASE fm.role WHEN 'PARENT' THEN 0 WHEN 'GUARDIAN' THEN 1 ELSE 2 END,
                 fm.display_name,
                 fm.id`,
-      [familyId, CHAT_LEGACY_MEMBER_ACTIVE_WINDOW_SECONDS]
+      [familyId, LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS]
     );
   }
 
@@ -1275,9 +1311,23 @@ class DatabaseManager {
          fd.created_at AS createdAt,
          fd.updated_at AS updatedAt
        FROM family_devices fd
-       WHERE fd.family_id = ? AND fd.is_active = 1
+       WHERE fd.family_id = ?
+         AND fd.is_active = 1
+         AND (
+           fd.member_binding_source = 'EXPLICIT'
+           OR EXISTS (
+             SELECT 1
+             FROM device_links dl
+             WHERE dl.is_active = 1
+               AND dl.updated_at >= strftime('%s', 'now') - ?
+               AND (
+                 dl.parent_device_id = fd.device_id
+                 OR dl.child_device_id = fd.device_id
+               )
+           )
+         )
        ORDER BY fd.display_name, fd.device_id`,
-      [familyId]
+      [familyId, LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS]
     );
   }
 
@@ -1650,14 +1700,21 @@ class DatabaseManager {
              AND EXISTS (
                SELECT 1
                FROM family_devices fd
-               LEFT JOIN devices d ON d.device_id = fd.device_id
                WHERE fd.family_id = fm.family_id
                  AND fd.member_id = fm.id
                  AND fd.is_active = 1
                  AND (
                    fd.member_binding_source = 'EXPLICIT'
-                   OR COALESCE(d.updated_at, d.created_at, 0) >=
-                      strftime('%s', 'now') - ?
+                   OR EXISTS (
+                     SELECT 1
+                     FROM device_links dl
+                     WHERE dl.is_active = 1
+                       AND dl.updated_at >= strftime('%s', 'now') - ?
+                       AND (
+                         dl.parent_device_id = fd.device_id
+                         OR dl.child_device_id = fd.device_id
+                       )
+                   )
                  )
              )
          )`,
@@ -1666,7 +1723,7 @@ class DatabaseManager {
         now,
         conversationId,
         normalizedFamilyId,
-        CHAT_LEGACY_MEMBER_ACTIVE_WINDOW_SECONDS,
+        LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS,
       ]
     );
 
@@ -1690,14 +1747,21 @@ class DatabaseManager {
          AND EXISTS (
            SELECT 1
            FROM family_devices fd
-           LEFT JOIN devices d ON d.device_id = fd.device_id
            WHERE fd.family_id = fm.family_id
              AND fd.member_id = fm.id
              AND fd.is_active = 1
              AND (
                fd.member_binding_source = 'EXPLICIT'
-               OR COALESCE(d.updated_at, d.created_at, 0) >=
-                  strftime('%s', 'now') - ?
+               OR EXISTS (
+                 SELECT 1
+                 FROM device_links dl
+                 WHERE dl.is_active = 1
+                   AND dl.updated_at >= strftime('%s', 'now') - ?
+                   AND (
+                     dl.parent_device_id = fd.device_id
+                     OR dl.child_device_id = fd.device_id
+                   )
+               )
              )
          )
        ON CONFLICT(conversation_id, member_id) DO UPDATE SET
@@ -1712,7 +1776,7 @@ class DatabaseManager {
         now,
         now,
         normalizedFamilyId,
-        CHAT_LEGACY_MEMBER_ACTIVE_WINDOW_SECONDS,
+        LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS,
       ]
     );
     return this.getChatConversationById(conversationId);
@@ -2095,14 +2159,21 @@ class DatabaseManager {
              OR EXISTS (
                SELECT 1
                FROM family_devices fd
-               LEFT JOIN devices d ON d.device_id = fd.device_id
                WHERE fd.family_id = c.family_id
                  AND fd.member_id = cm.member_id
                  AND fd.is_active = 1
                  AND (
                    fd.member_binding_source = 'EXPLICIT'
-                   OR COALESCE(d.updated_at, d.created_at, 0) >=
-                      strftime('%s', 'now') - ?
+                   OR EXISTS (
+                     SELECT 1
+                     FROM device_links dl
+                     WHERE dl.is_active = 1
+                       AND dl.updated_at >= strftime('%s', 'now') - ?
+                       AND (
+                         dl.parent_device_id = fd.device_id
+                         OR dl.child_device_id = fd.device_id
+                       )
+                   )
                  )
              )
            )`,
@@ -2112,7 +2183,7 @@ class DatabaseManager {
           now,
           normalizedConversationId,
           normalizedSenderMemberId,
-          CHAT_LEGACY_MEMBER_ACTIVE_WINDOW_SECONDS,
+          LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS,
         ]
       );
       await this.run(

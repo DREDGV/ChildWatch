@@ -38,8 +38,8 @@ class ParentLinkedChildOptionsProvider(context: Context) {
         val localChildren = database.childDao().getAll()
         val localByDevice = localChildren.associateBy { it.deviceId.trim() }
 
-        runCatching { familyDirectoryRepository.load() }
-            .getOrNull()
+        val familyDirectoryResult = runCatching { familyDirectoryRepository.load() }.getOrNull()
+        familyDirectoryResult
             ?.directory
             ?.targetPeople()
             ?.forEach { person ->
@@ -61,7 +61,17 @@ class ParentLinkedChildOptionsProvider(context: Context) {
                 )
             }
 
-        localChildren.forEach { child ->
+        // A successful canonical directory response is authoritative. Older
+        // versions appended every Room/legacy device row afterwards, so years
+        // of reinstall identities reappeared as thousands of "people" even
+        // after the server returned the correct family. Local rows remain on
+        // disk for history and offline recovery, but must not expand a live
+        // server-backed family list.
+        if (familyDirectoryResult?.source == ParentFamilyDirectorySource.SERVER) {
+            return result.values.sortedBy { it.displayName.lowercase() }
+        }
+
+        localChildren.filter(Child::isActive).forEach { child ->
             val deviceId = child.deviceId.trim()
             if (deviceId.isBlank()) return@forEach
             result.putIfAbsent(

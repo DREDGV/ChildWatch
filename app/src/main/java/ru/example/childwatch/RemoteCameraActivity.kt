@@ -35,6 +35,8 @@ import kotlinx.coroutines.withContext
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.profile.ParentParticipantNameResolver
 import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
+import ru.example.childwatch.profile.ParentLinkedChildOption
+import ru.example.childwatch.profile.ParentTargetSelector
 import ru.example.childwatch.profile.FamilyAvatarRenderer
 import ru.example.childwatch.service.AudioPlaybackService
 
@@ -60,6 +62,7 @@ class RemoteCameraActivity : AppCompatActivity() {
     private lateinit var statusText: TextView
     private lateinit var childNameText: TextView
     private lateinit var childAvatarImage: ImageView
+    private lateinit var changePersonButton: MaterialButton
     private lateinit var takePhotoButton: MaterialButton
     private lateinit var cameraToggleGroup: MaterialButtonToggleGroup
     private lateinit var cameraBackButton: MaterialButton
@@ -117,6 +120,7 @@ class RemoteCameraActivity : AppCompatActivity() {
             statusText = findViewById(R.id.statusText)
             childNameText = findViewById(R.id.childNameText)
             childAvatarImage = findViewById(R.id.remotePhotoPersonAvatar)
+            changePersonButton = findViewById(R.id.remotePhotoChangePersonButton)
             takePhotoButton = findViewById(R.id.takePhotoButton)
             cameraToggleGroup = findViewById(R.id.cameraToggleGroup)
             cameraBackButton = findViewById(R.id.cameraBackButton)
@@ -199,6 +203,68 @@ class RemoteCameraActivity : AppCompatActivity() {
         refreshGalleryButton.setOnClickListener {
             loadPhotos()
         }
+
+        changePersonButton.setOnClickListener {
+            showPersonSelector()
+        }
+    }
+
+    private fun showPersonSelector() {
+        if (pendingRequestId != null) {
+            Toast.makeText(this, R.string.family_target_switch_busy_photo, Toast.LENGTH_SHORT).show()
+            return
+        }
+        lifecycleScope.launch {
+            val selector = ParentTargetSelector(this@RemoteCameraActivity)
+            val options = runCatching { selector.load() }.getOrElse {
+                Toast.makeText(
+                    this@RemoteCameraActivity,
+                    R.string.remote_camera_load_error,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@launch
+            }
+            if (options.size <= 1) {
+                Toast.makeText(
+                    this@RemoteCameraActivity,
+                    R.string.family_target_only_one,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@launch
+            }
+            val labels = options.map { option ->
+                val deviceLabel = option.deviceDisplayName?.trim().orEmpty()
+                if (deviceLabel.isBlank() || deviceLabel == option.displayName) {
+                    option.displayName
+                } else {
+                    "${option.displayName}\n$deviceLabel"
+                }
+            }.toTypedArray()
+            MaterialAlertDialogBuilder(this@RemoteCameraActivity)
+                .setTitle(R.string.family_target_choose_photo)
+                .setItems(labels) { _, index ->
+                    val option = options[index]
+                    if (option.deviceId != childId) {
+                        selector.select(option)
+                        applySelectedPerson(option)
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun applySelectedPerson(option: ParentLinkedChildOption) {
+        clearPendingRequest()
+        unregisterPhotoListeners()
+        childId = option.deviceId
+        childName = option.displayName
+        resolvedGalleryDeviceId = null
+        childNameText.text = option.displayName
+        FamilyAvatarRenderer.bind(childAvatarImage, option.avatarKey)
+        updateStatus(getString(R.string.remote_camera_status_connecting))
+        loadPhotos()
+        ensureWebSocketReady()
     }
 
     /**
@@ -664,6 +730,11 @@ class RemoteCameraActivity : AppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         clearPendingRequest()
+        unregisterPhotoListeners()
+        Log.d(TAG, "RemoteCameraActivity destroyed")
+    }
+
+    private fun unregisterPhotoListeners() {
         photoReceivedListener?.let { WebSocketManager.removePhotoReceivedListener(it) }
         photoReceivedListener = null
         photoErrorListener?.let { WebSocketManager.removePhotoErrorListener(it) }
@@ -672,7 +743,6 @@ class RemoteCameraActivity : AppCompatActivity() {
         photoQueuedListener = null
         photoBusyListener?.let { WebSocketManager.removePhotoBusyListener(it) }
         photoBusyListener = null
-        Log.d(TAG, "RemoteCameraActivity destroyed")
     }
 
     /**
@@ -821,12 +891,14 @@ class RemoteCameraActivity : AppCompatActivity() {
         takePhotoButton.isEnabled = false
         cameraBackButton.isEnabled = false
         cameraFrontButton.isEnabled = false
+        changePersonButton.isEnabled = false
     }
 
     private fun enableButtons() {
         takePhotoButton.isEnabled = true
         cameraBackButton.isEnabled = true
         cameraFrontButton.isEnabled = true
+        changePersonButton.isEnabled = true
     }
 
     private fun normalizeBaseUrl(base: String): String {

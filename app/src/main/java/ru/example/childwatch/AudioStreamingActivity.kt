@@ -41,6 +41,8 @@ import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.profile.ParentParticipantNameResolver
 import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
+import ru.example.childwatch.profile.ParentLinkedChildOption
+import ru.example.childwatch.profile.ParentTargetSelector
 import ru.example.childwatch.profile.FamilyAvatarRenderer
 import ru.example.childwatch.recordings.RecordingsLibraryActivity
 import ru.example.childwatch.service.AudioPlaybackService
@@ -291,6 +293,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         FamilyAvatarRenderer.bind(binding.audioPersonAvatar, null)
         loadPersonPresentation()
         binding.topAppBar.setNavigationOnClickListener { finish() }
+        binding.audioChangePersonButton.setOnClickListener { showPersonSelector() }
 
         binding.filterCard.isVisible = false
         binding.advancedAudioVisualizer.setVisualizationMode(currentVisualizationMode)
@@ -350,6 +353,86 @@ class AudioStreamingActivity : AppCompatActivity() {
                 .ifBlank { getString(R.string.chat_partner_child) }
             FamilyAvatarRenderer.bind(binding.audioPersonAvatar, option.avatarKey)
         }
+    }
+
+    private fun showPersonSelector() {
+        lifecycleScope.launch {
+            val selector = ParentTargetSelector(this@AudioStreamingActivity)
+            val options = runCatching { selector.load() }.getOrElse {
+                Toast.makeText(
+                    this@AudioStreamingActivity,
+                    R.string.listen_connection_error,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@launch
+            }
+            if (options.size <= 1) {
+                Toast.makeText(
+                    this@AudioStreamingActivity,
+                    R.string.family_target_only_one,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@launch
+            }
+            val labels = options.map { option ->
+                val deviceLabel = option.deviceDisplayName?.trim().orEmpty()
+                if (deviceLabel.isBlank() || deviceLabel == option.displayName) {
+                    option.displayName
+                } else {
+                    "${option.displayName}\n$deviceLabel"
+                }
+            }.toTypedArray()
+            AlertDialog.Builder(this@AudioStreamingActivity)
+                .setTitle(R.string.family_target_choose_audio)
+                .setItems(labels) { _, index ->
+                    val option = options[index]
+                    if (option.deviceId == deviceId) return@setItems
+                    val switch = {
+                        selector.select(option)
+                        applySelectedPerson(option)
+                    }
+                    if (
+                        AudioPlaybackService.isPlaying ||
+                        AudioPlaybackService.isSessionDesired(this@AudioStreamingActivity)
+                    ) {
+                        AlertDialog.Builder(this@AudioStreamingActivity)
+                            .setTitle(R.string.family_target_switch_audio_title)
+                            .setMessage(R.string.family_target_switch_audio_message)
+                            .setNegativeButton(android.R.string.cancel, null)
+                            .setPositiveButton(android.R.string.ok) { _, _ ->
+                                stopStreaming()
+                                lifecycleScope.launch {
+                                    delay(800L)
+                                    switch()
+                                }
+                            }
+                            .show()
+                    } else {
+                        switch()
+                    }
+                }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
+        }
+    }
+
+    private fun applySelectedPerson(option: ParentLinkedChildOption) {
+        deviceId = option.deviceId
+        childBatteryLevel = null
+        childCharging = null
+        childStatusTimestamp = null
+        busyOwnerLabel = null
+        takeoverRequestSentAt = 0L
+        binding.deviceIdText.text = option.displayName
+        FamilyAvatarRenderer.bind(binding.audioPersonAvatar, option.avatarKey)
+        loadCachedStatus()
+        WebSocketManager.initialize(this, serverUrl, deviceId)
+        registerTakeoverRequestListener()
+        WebSocketManager.ensureConnected(
+            onReady = { runOnUiThread { updateUI() } },
+            onError = { runOnUiThread { updateUI() } }
+        )
+        updateUI()
     }
 
     private fun setupTechnicalDetails() {

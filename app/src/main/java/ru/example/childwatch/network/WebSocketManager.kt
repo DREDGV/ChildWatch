@@ -72,7 +72,9 @@ object WebSocketManager {
                 return
             }
             Log.d(TAG, "Reinitializing WebSocket for new target")
-            cleanup()
+            // Feature target changes (photo/listening) must not tear down the
+            // application-wide chat v2 listeners and subscriptions.
+            cleanup(preserveChatV2 = true)
         }
 
         Log.d(TAG, "Initializing WebSocket: $serverUrl with childDeviceId: $childDeviceId")

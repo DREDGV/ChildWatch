@@ -1013,6 +1013,23 @@ class WebSocketManager {
         createdAt: Date.now(),
       });
 
+      const queuedAt = this.pendingPhotoRequests.get(reqId)?.createdAt;
+      const expiryTimer = setTimeout(() => {
+        const pending = this.pendingPhotoRequests.get(reqId);
+        if (!pending || pending.createdAt !== queuedAt) return;
+        const parentSocket = this.io.sockets.sockets.get(pending.parentSocketId);
+        if (parentSocket?.connected) {
+          parentSocket.emit("photo_error", {
+            requestId: reqId,
+            error: "photo_request_timeout",
+          });
+        }
+        this.activePhotoRequests.delete(pending.deviceId);
+        this.pendingPhotoRequests.delete(reqId);
+        console.warn(`[photo] request timed out: requestId=${reqId}`);
+      }, this.PHOTO_REQUEST_TTL_MS);
+      expiryTimer.unref?.();
+
       childSocket.emit("request_photo", {
         requestId: reqId,
         targetDevice: resolvedDeviceId,

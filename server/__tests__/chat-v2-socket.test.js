@@ -281,6 +281,31 @@ describe("chat v2 WebSocket protocol", () => {
     expect(third.payloads("chat_v2:message")).toHaveLength(0);
   });
 
+  test("replaces a stale chat transport for the same authenticated device", async () => {
+    const reconnectedParent = new FakeSocket(
+      "parent-socket-reconnected",
+      "parent-device"
+    );
+    sockets.set(reconnectedParent.id, reconnectedParent);
+    socketService.registerSocket(reconnectedParent);
+
+    await subscribe(parent, "family-conversation");
+    await subscribe(child, "family-conversation");
+    await subscribe(reconnectedParent, "family-conversation");
+    clearOutgoing(parent, child, reconnectedParent);
+
+    await reconnectedParent.trigger("chat_v2:send", {
+      conversationId: "family-conversation",
+      clientMessageId: "after-transport-reconnect",
+      text: "Current transport only",
+      clientSentAt: 1_800_000_000_000,
+    });
+
+    expect(parent.payloads("chat_v2:message")).toHaveLength(0);
+    expect(reconnectedParent.payloads("chat_v2:message")).toHaveLength(1);
+    expect(child.payloads("chat_v2:message")).toHaveLength(1);
+  });
+
   test("does not accept or broadcast a message when durable storage fails", async () => {
     await subscribe(parent, "family-conversation");
     await subscribe(child, "family-conversation");

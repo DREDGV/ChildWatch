@@ -91,6 +91,16 @@
                         android:textStyle="bold"
                         tools:text="Устройство: Детский телефон" />
 
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/remotePhotoChangePersonButton"
+                        style="@style/Widget.Material3.Button.TextButton"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:minHeight="40dp"
+                        android:text="@string/family_target_change"
+                        android:textColor="#0F766E" />
+
                     <TextView
                         android:id="@+id/statusText"
                         android:layout_width="wrap_content"
