@@ -6,6 +6,19 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+### Fixed
+
+- Live family lists no longer expose thousands of obsolete provisional device identities left by old reinstalls; historical records remain preserved.
+- Family-chat loading avoids unnecessary database writes, replaces stale duplicate socket subscriptions, and delivers to active subscribers in parallel.
+- Remote photo requests now finish with a clear timeout or camera-restriction error instead of leaving the parent screen waiting indefinitely.
+- ParentMonitor can switch the selected family member directly from remote-photo and listening screens without mixing device contexts.
+- The ParentMonitor monitoring card is responsive: its action button moves below the status instead of squeezing the status text into a narrow column.
+- Map centering and history fitting now animate smoothly with a validated default zoom level.
+
+### Changed
+
+- Server release advanced to `2.2.1`.
+
 ## [7.3.0-rc3] - 2026-07-19
 
 ### Added

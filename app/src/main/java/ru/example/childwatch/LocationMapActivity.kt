@@ -288,10 +288,15 @@ class LocationMapActivity : AppCompatActivity() {
                         (longitude + parent.longitude) / 2
                     )
                 } ?: position
-                controller.animateTo(target)
-                controller.setZoom(
+                controller.animateTo(
+                    target,
                     parentLocation?.let { parent ->
-                        val distance = calculateDistance(latitude, longitude, parent.latitude, parent.longitude)
+                        val distance = calculateDistance(
+                            latitude,
+                            longitude,
+                            parent.latitude,
+                            parent.longitude
+                        )
                         when {
                             distance < 100 -> 18.0
                             distance < 500 -> 16.0
@@ -300,7 +305,8 @@ class LocationMapActivity : AppCompatActivity() {
                             distance < 10000 -> 12.0
                             else -> 11.0
                         }
-                    } ?: DEFAULT_ZOOM
+                    } ?: DEFAULT_ZOOM,
+                    1_000L
                 )
             }
         }
@@ -377,8 +383,7 @@ class LocationMapActivity : AppCompatActivity() {
 
     private fun centerMapOnChild() {
         currentMarker?.let { marker ->
-            osmMapView?.controller?.animateTo(marker.position)
-            osmMapView?.controller?.setZoom(DEFAULT_ZOOM)
+            osmMapView?.controller?.animateTo(marker.position, DEFAULT_ZOOM, 1000L)
         } ?: run {
             Toast.makeText(this, "Местоположение недоступно", Toast.LENGTH_SHORT).show()
         }
@@ -643,8 +648,6 @@ class LocationMapActivity : AppCompatActivity() {
                 val centerLat = (minLat + maxLat) / 2
                 val centerLon = (minLon + maxLon) / 2
 
-                map.controller.setCenter(GeoPoint(centerLat, centerLon))
-
                 // Calculate appropriate zoom level
                 val latSpan = maxLat - minLat
                 val lonSpan = maxLon - minLon
@@ -657,7 +660,7 @@ class LocationMapActivity : AppCompatActivity() {
                     maxSpan > 0.05 -> 14.0
                     else -> 15.0
                 }
-                map.controller.setZoom(zoom)
+                map.controller.animateTo(GeoPoint(centerLat, centerLon), zoom, 1_000L)
             }
 
             map.invalidate()
