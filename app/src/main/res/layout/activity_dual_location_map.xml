@@ -14,6 +14,7 @@
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:fitsSystemWindows="true"
         android:background="@android:color/transparent"
         app:elevation="0dp">
 
@@ -112,14 +113,24 @@
                 android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                 android:textColor="@color/cw_color_on_surface" />
 
-            <TextView
-                android:id="@+id/mapPersonCoordinatesText"
+            <!-- The compact part above stays visible over the map. Details are
+                 revealed only after tapping the card, so they do not hide the
+                 actual location. -->
+            <LinearLayout
+                android:id="@+id/mapPersonDetails"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="3dp"
-                android:text="@string/map_person_coordinates_waiting"
-                android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                android:textColor="@color/cw_color_on_surface_variant" />
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/mapPersonCoordinatesText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:text="@string/map_person_coordinates_waiting"
+                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                    android:textColor="@color/cw_color_on_surface_variant" />
 
             <View
                 android:layout_width="match_parent"
@@ -258,6 +269,8 @@
                 android:minHeight="40dp"
                 android:text="@string/map_timeline_button"
                 app:icon="@drawable/ic_history" />
+
+            </LinearLayout>
 
         </LinearLayout>
 

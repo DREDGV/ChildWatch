@@ -286,6 +286,10 @@ class PhotoCaptureService : Service() {
             return
         }
 
+        // The parent should not have to guess whether the command merely
+        // reached the server or was received by the child service.
+        notifyPhotoRequestAccepted(requestId)
+
         val service = cameraService
         if (service == null) {
             Log.e(TAG, "Camera service not initialized for request: $requestId")
@@ -389,6 +393,24 @@ class PhotoCaptureService : Service() {
             finishPhotoRequest(requestId)
         } else {
             abandonPhotoRequest(requestId)
+        }
+    }
+
+    private fun notifyPhotoRequestAccepted(requestId: String) {
+        runCatching {
+            val client = WebSocketManager.getClient()
+            if (client == null || !client.isReady()) {
+                Log.w(TAG, "Cannot acknowledge photo request: WebSocket is not ready")
+                return
+            }
+            client.emit("photo_request_received", org.json.JSONObject().apply {
+                put("requestId", requestId)
+                put("deviceId", deviceId)
+                put("timestamp", System.currentTimeMillis())
+            })
+            Log.d(TAG, "Photo request accepted: $requestId")
+        }.onFailure { error ->
+            Log.w(TAG, "Unable to acknowledge photo request", error)
         }
     }
 

@@ -573,6 +573,11 @@ class WebSocketManager {
         socket.on("photo_error", (data) => {
           this.handlePhotoError(socket, data);
         });
+        // The child accepted a request and started camera work.  This is a
+        // separate state from merely routing a Socket.IO message.
+        socket.on("photo_request_received", (data) => {
+          this.handlePhotoRequestReceived(socket, data);
+        });
 
       // Handle disconnection
       socket.on("disconnect", () => {
@@ -1118,6 +1123,37 @@ class WebSocketManager {
       this.pendingPhotoRequests.delete(requestId);
     } catch (error) {
       console.error("Error handling photo response:", error);
+    }
+  }
+
+  /** Relay the child's acknowledgement so the parent UI can distinguish a
+   * queued request from one the target service has actually received. */
+  handlePhotoRequestReceived(socket, data) {
+    try {
+      const requestId = data?.requestId;
+      if (!requestId) return;
+      const pending = this.pendingPhotoRequests.get(requestId);
+      if (!pending) return;
+
+      const responseDeviceId = this.normalizeDeviceId(socket.deviceId);
+      const pendingDeviceId = this.normalizeDeviceId(pending.deviceId);
+      if (!responseDeviceId || responseDeviceId !== pendingDeviceId) {
+        console.warn(`[photo] ignored acknowledgement from unexpected device for requestId=${requestId}`);
+        return;
+      }
+
+      pending.childSocketId = socket.id;
+      const parentSocket = this.io.sockets.sockets.get(pending.parentSocketId);
+      if (parentSocket?.connected) {
+        parentSocket.emit("photo_request_received", {
+          requestId,
+          deviceId: pending.deviceId,
+          timestamp: Date.now(),
+        });
+      }
+      console.log(`[photo] child accepted request: requestId=${requestId}`);
+    } catch (error) {
+      console.error("Error handling photo acknowledgement:", error);
     }
   }
 

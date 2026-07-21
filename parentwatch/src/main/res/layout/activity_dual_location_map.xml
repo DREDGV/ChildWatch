@@ -14,6 +14,7 @@
     <com.google.android.material.appbar.AppBarLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
+        android:fitsSystemWindows="true"
         android:background="@android:color/transparent"
         app:elevation="0dp">
 
@@ -48,6 +49,28 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:padding="12dp">
+
+            <TextView
+                android:id="@+id/mapPersonNameText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:ellipsize="end"
+                android:maxLines="1"
+                android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                android:textColor="@color/text_primary"
+                android:textStyle="bold"
+                tools:text="Мама" />
+
+            <TextView
+                android:id="@+id/mapPersonSummaryText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="4dp"
+                android:ellipsize="end"
+                android:maxLines="2"
+                android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                android:textColor="@color/text_secondary"
+                tools:text="Заряд: 62% · ±18 м · обновлено 40 сек назад" />
 
             <LinearLayout
                 android:layout_width="match_parent"

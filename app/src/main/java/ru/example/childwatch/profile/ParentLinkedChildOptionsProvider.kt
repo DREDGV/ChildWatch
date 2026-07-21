@@ -26,6 +26,13 @@ data class ParentLinkedChildOption(
 
 class ParentLinkedChildOptionsProvider(context: Context) {
 
+    private companion object {
+        // Offline rows are only a recovery cache. They must never recreate an
+        // unbounded family list from years of reinstalled devices.
+        const val LOCAL_FALLBACK_MAX_PEOPLE = 20
+        const val LOCAL_FALLBACK_FRESHNESS_MS = 30L * 24 * 60 * 60 * 1000
+    }
+
     private val appContext = context.applicationContext
     private val database by lazy { ChildWatchDatabase.getInstance(appContext) }
     private val networkClient by lazy { NetworkClient(appContext) }
@@ -71,7 +78,17 @@ class ParentLinkedChildOptionsProvider(context: Context) {
             return result.values.sortedBy { it.displayName.lowercase() }
         }
 
-        localChildren.filter(Child::isActive).forEach { child ->
+        val focusedDeviceId = effectiveContextResolver.resolveFocusedChildId().trim()
+        val now = System.currentTimeMillis()
+        localChildren.asSequence()
+            .filter(Child::isActive)
+            .filter { child ->
+                child.deviceId.trim() == focusedDeviceId ||
+                    child.lastSeenAt?.let { now - it <= LOCAL_FALLBACK_FRESHNESS_MS } == true
+            }
+            .sortedByDescending { child -> child.lastSeenAt ?: child.updatedAt }
+            .take(LOCAL_FALLBACK_MAX_PEOPLE)
+            .forEach { child ->
             val deviceId = child.deviceId.trim()
             if (deviceId.isBlank()) return@forEach
             result.putIfAbsent(

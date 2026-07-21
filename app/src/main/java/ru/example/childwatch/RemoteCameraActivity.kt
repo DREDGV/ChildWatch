@@ -81,6 +81,7 @@ class RemoteCameraActivity : AppCompatActivity() {
     private var photoReceivedListener: ((String, String, Long) -> Unit)? = null
     private var photoErrorListener: ((String, String) -> Unit)? = null
     private var photoQueuedListener: ((String, String, String, Long) -> Unit)? = null
+    private var photoRequestReceivedListener: ((String, String, Long) -> Unit)? = null
     private var photoBusyListener: ((String, String, String, String, Long) -> Unit)? = null
     private var retryJob: Job? = null
     private var connectionTimeoutJob: Job? = null
@@ -400,6 +401,21 @@ class RemoteCameraActivity : AppCompatActivity() {
                 startResponseTimeout(requestId)
             }
             WebSocketManager.addPhotoQueuedListener(photoQueuedListener!!)
+        }
+
+        if (photoRequestReceivedListener == null) {
+            photoRequestReceivedListener = photoRequestReceivedListener@{ requestId, _, _ ->
+                if (pendingRequestId != requestId) return@photoRequestReceivedListener
+                retryJob?.cancel()
+                retryJob = null
+                runOnUiThread {
+                    updateStatus(getString(R.string.remote_photo_status_device_accepted))
+                    // The child has the work now; retain the response timeout
+                    // so controls are still guaranteed to recover.
+                    startResponseTimeout(requestId)
+                }
+            }
+            WebSocketManager.addPhotoRequestReceivedListener(photoRequestReceivedListener!!)
         }
 
         if (photoBusyListener == null) {
@@ -741,6 +757,8 @@ class RemoteCameraActivity : AppCompatActivity() {
         photoErrorListener = null
         photoQueuedListener?.let { WebSocketManager.removePhotoQueuedListener(it) }
         photoQueuedListener = null
+        photoRequestReceivedListener?.let { WebSocketManager.removePhotoRequestReceivedListener(it) }
+        photoRequestReceivedListener = null
         photoBusyListener?.let { WebSocketManager.removePhotoBusyListener(it) }
         photoBusyListener = null
     }

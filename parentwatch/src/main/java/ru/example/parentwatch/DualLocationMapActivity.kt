@@ -41,6 +41,7 @@ import org.osmdroid.util.GeoPoint
 import ru.example.parentwatch.attention.ChildAttentionSignalLauncher
 import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polygon
 import org.osmdroid.views.overlay.Polyline
 import ru.example.parentwatch.database.ParentWatchDatabase
 import ru.example.parentwatch.database.entity.ParentLocation
@@ -112,6 +113,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var limitedMode = false
     private var myMarker: Marker? = null
     private var otherMarker: Marker? = null
+    private var otherAccuracyOverlay: Polygon? = null
     private var connectionLine: Polyline? = null
     private var historyLine: Polyline? = null
     private var historyStartMarker: Marker? = null
@@ -280,6 +282,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private fun setupToolbar() {
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        binding.toolbar.setNavigationOnClickListener { finish() }
         supportActionBar?.title = when (myRole) {
             ROLE_PARENT -> getString(R.string.map_title_where_child)
             ROLE_CHILD -> getString(R.string.map_title_where_parents)
@@ -819,6 +822,8 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
         myMarker?.let { mapView.overlays.remove(it) }
         otherMarker?.let { mapView.overlays.remove(it) }
+        otherAccuracyOverlay?.let { mapView.overlays.remove(it) }
+        otherAccuracyOverlay = null
         connectionLine?.let { mapView.overlays.remove(it) }
         clearFamilyMarkers()
         val myIcon = resolveMyMarkerIconRes()
@@ -854,6 +859,10 @@ class DualLocationMapActivity : AppCompatActivity() {
         mapView.overlays.add(myMarker)
         mapView.overlays.add(otherMarker)
         mapView.overlays.add(connectionLine)
+        otherAccuracyOverlay = addAccuracyOverlay(
+            GeoPoint(otherLat, otherLon),
+            linkedLocation.accuracy
+        )
         if (autoFitEnabled) centerMapOnBothLocations(myLat, myLon, otherLat, otherLon)
         val etaInfo = parentLocationRepository.calculateETA(otherLat, otherLon, myLat, myLon, otherSpeed)
         bindLinkedStats(
@@ -873,6 +882,8 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
         myMarker?.let { mapView.overlays.remove(it) }
         otherMarker?.let { mapView.overlays.remove(it) }
+        otherAccuracyOverlay?.let { mapView.overlays.remove(it) }
+        otherAccuracyOverlay = null
         connectionLine?.let { mapView.overlays.remove(it) }
         clearFamilyMarkers()
         myMarker = Marker(mapView).apply {
@@ -922,6 +933,10 @@ class DualLocationMapActivity : AppCompatActivity() {
             sanitizedMy != null -> displaySingleLocation(sanitizedMy.latitude, sanitizedMy.longitude, selfMarkerTitle(), myIcon, sanitizedMy.timestamp, getString(R.string.map_my_location))
             sanitizedOther != null -> {
                 displaySingleLocation(sanitizedOther.latitude, sanitizedOther.longitude, otherMarkerTitle(), otherIcon, sanitizedOther.timestamp, getString(R.string.map_other_location))
+                otherAccuracyOverlay = addAccuracyOverlay(
+                    GeoPoint(sanitizedOther.latitude, sanitizedOther.longitude),
+                    sanitizedOther.accuracy
+                )
                 bindLinkedStats(linkedLocation = sanitizedOther)
             }
             else -> binding.statsCard.visibility = View.GONE
@@ -935,6 +950,18 @@ class DualLocationMapActivity : AppCompatActivity() {
         if (familyMarkers.isEmpty()) return
         familyMarkers.values.forEach { mapView.overlays.remove(it) }
         familyMarkers.clear()
+    }
+
+    private fun addAccuracyOverlay(center: GeoPoint, accuracy: Float): Polygon? {
+        val radiusMeters = accuracy.takeIf { it.isFinite() && it > 0f && it <= 50_000f }?.toDouble()
+            ?: return null
+        return Polygon(mapView).apply {
+            points = Polygon.pointsAsCircle(center, radiusMeters)
+            outlinePaint.color = Color.argb(170, 0, 105, 92)
+            outlinePaint.strokeWidth = 3f * resources.displayMetrics.density
+            fillPaint.color = Color.argb(38, 0, 105, 92)
+            mapView.overlays.add(0, this)
+        }
     }
 
     private fun buildFamilyMarkerTitle(link: ru.example.parentwatch.network.LinkedParentLink): String {
@@ -1042,6 +1069,19 @@ class DualLocationMapActivity : AppCompatActivity() {
         distanceMeters: Float? = null,
         etaText: String? = null
     ) {
+        val battery = linkedLocation.battery?.takeIf { it in 0..100 }?.let { "$it%" }
+            ?: getString(R.string.map_person_battery_unknown)
+        val accuracy = linkedLocation.accuracy.takeIf { it.isFinite() && it > 0f }?.let {
+            getString(R.string.map_person_accuracy_meters, it.toInt().coerceAtLeast(1))
+        } ?: getString(R.string.map_person_accuracy_unknown)
+        val updated = normalizeTimestampMillis(linkedLocation.timestamp)?.let(::formatRelativeTimestamp) ?: "нет данных"
+        binding.mapPersonNameText.text = otherMarkerTitle()
+        binding.mapPersonSummaryText.text = getString(
+            R.string.map_person_summary,
+            battery,
+            accuracy,
+            updated
+        )
         binding.distanceText.text = distanceMeters?.let { formatEtaDistance(it) } ?: "--"
         binding.etaText.text = etaText ?: "--"
         binding.movementStatusText.text = getString(resolveMovementStatusText(linkedLocation))

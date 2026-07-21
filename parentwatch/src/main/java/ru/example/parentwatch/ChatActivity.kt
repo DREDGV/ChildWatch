@@ -198,6 +198,7 @@ class ChatActivity : AppCompatActivity() {
         // Set up toolbar as action bar
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        binding.toolbar.setNavigationOnClickListener { finish() }
         supportActionBar?.title = getString(R.string.chat_title_family)
 
         // Load parent name from preferences

@@ -230,6 +230,8 @@ describe("family model bootstrap", () => {
     expect(await db.getFamilyMembers(family.id)).toHaveLength(2);
     expect(await db.getFamilyDevices(family.id)).toHaveLength(2);
     expect(await db.getChatFamilyMembers(family.id)).toHaveLength(2);
+    expect(await db.getFamiliesForDevice(staleParentId)).toHaveLength(0);
+    expect(await db.getFamilyIdentityMembershipsForDevice(staleParentId)).toHaveLength(0);
 
     await db.updateFamilyMemberProfile({
       familyId: family.id,
@@ -239,6 +241,7 @@ describe("family model bootstrap", () => {
 
     expect(await db.getFamilyMembers(family.id)).toHaveLength(3);
     expect(await db.getFamilyDevices(family.id)).toHaveLength(3);
+    expect(await db.getFamiliesForDevice(staleParentId)).toHaveLength(1);
   });
 
   test("bootstrap preserves an explicit permission denial", async () => {

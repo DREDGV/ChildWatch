@@ -6,6 +6,21 @@ This project follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/) an
 
 ## [Unreleased]
 
+## [7.3.1] - 2026-07-22
+
+### Fixed
+
+- Family directory hides legacy provisional bindings that have not been active recently, while preserving historical chat, locations and devices in the database.
+- Parent profile edits wait for server confirmation instead of leaving a stale local card after an unsuccessful update.
+- Remote photo now reports when the child service actually accepts the request; the parent screen always recovers from error or timeout.
+- Fixed explicit Back navigation from both map screens and from the child chat.
+- Child map now shows the same live accuracy radius, battery, accuracy and update-time summary as the parent map.
+
+### Changed
+
+- Parent map keeps the person card compact by default; touching it opens coordinate, address, distance and timeline details.
+- Server release advanced to `2.2.2`.
+
 ### Fixed
 
 - Live family lists no longer expose thousands of obsolete provisional device identities left by old reinstalls; historical records remain preserved.

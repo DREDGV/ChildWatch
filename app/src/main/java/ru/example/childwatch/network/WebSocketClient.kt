@@ -68,6 +68,7 @@ class WebSocketClient(
     private var onChatStatusAckCallback: ((String, String, Long) -> Unit)? = null
     private var onRegisteredCallback: (() -> Unit)? = null
     var onPhotoQueuedCallback: ((requestId: String, deviceId: String, camera: String, timestamp: Long) -> Unit)? = null
+    var onPhotoRequestReceived: ((requestId: String, deviceId: String, timestamp: Long) -> Unit)? = null
     var onPhotoReceived: ((photoBase64: String, requestId: String, timestamp: Long) -> Unit)? = null
     var onPhotoError: ((requestId: String, error: String) -> Unit)? = null
     var onPhotoBusy: ((requestId: String, deviceId: String, ownerParentId: String, ownerDisplayName: String, timestamp: Long) -> Unit)? = null
@@ -662,6 +663,21 @@ class WebSocketClient(
         }
     }
 
+    private val onPhotoRequestReceivedEvent = Emitter.Listener { args ->
+        try {
+            val data = args.getOrNull(0) as? JSONObject
+            val requestId = data?.optString("requestId").orEmpty()
+            val deviceId = data?.optString("deviceId").orEmpty()
+            val timestamp = data?.optLong("timestamp", System.currentTimeMillis()) ?: System.currentTimeMillis()
+            if (requestId.isNotBlank()) {
+                Log.d(TAG, "Photo request accepted by device: requestId=$requestId device=$deviceId")
+                onPhotoRequestReceived?.invoke(requestId, deviceId, timestamp)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error handling photo_request_received", e)
+        }
+    }
+
     private val onPhotoErrorEvent = Emitter.Listener { args ->
         try {
             val data = args.getOrNull(0) as? JSONObject
@@ -893,6 +909,7 @@ class WebSocketClient(
             socket?.on("chat_message_status_ack", onChatMessageStatusAck)
             socket?.on("chat_message_error", onChatMessageError)
             socket?.on("photo_request_queued", onPhotoRequestQueued)
+            socket?.on("photo_request_received", onPhotoRequestReceivedEvent)
             socket?.on("photo", onPhoto)
             socket?.on("photo_error", onPhotoErrorEvent)
             socket?.on("photo_busy", onPhotoBusyEvent)
@@ -1365,6 +1382,7 @@ class WebSocketClient(
         onChatStatusCallback = null
         onPhotoReceived = null
         onPhotoError = null
+        onPhotoRequestReceived = null
         onPhotoBusy = null
         onStreamTakeoverRequested = null
         onStreamForceReleased = null

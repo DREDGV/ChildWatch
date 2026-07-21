@@ -167,6 +167,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private val participantNameResolver by lazy { ParentParticipantNameResolver(this) }
     private val familyDirectoryRepository by lazy { ParentFamilyDirectoryRepository(this) }
     private var familyPresentationByDevice: Map<String, MapPersonPresentation> = emptyMap()
+    private var isPersonDetailsExpanded = false
 
     private data class MapPersonPresentation(
         val displayName: String,
@@ -316,6 +317,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             setupHistoryButton()
             setupTimelineButton()
             setupAttentionSignalButton()
+            setupPersonCard()
             loadFamilyPresentation()
             binding.root.post {
                 if (!isFinishing && !isDestroyed) {
@@ -396,6 +398,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private fun setupToolbar() {
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        binding.toolbar.setNavigationOnClickListener { finish() }
         
         // Set title based on role
         supportActionBar?.title = if (showAllContacts) {
@@ -410,6 +413,14 @@ class DualLocationMapActivity : AppCompatActivity() {
         if (limitedMode) {
             binding.toolbar.subtitle = getString(R.string.map_limited_mode_subtitle)
         }
+    }
+
+    private fun setupPersonCard() {
+        binding.statsCard.setOnClickListener {
+            isPersonDetailsExpanded = !isPersonDetailsExpanded
+            binding.mapPersonDetails.visibility = if (isPersonDetailsExpanded) View.VISIBLE else View.GONE
+        }
+        binding.statsCard.contentDescription = "Карточка пользователя. Нажмите, чтобы открыть или скрыть подробности."
     }
     
     private fun setupMap() {

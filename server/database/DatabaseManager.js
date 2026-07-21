@@ -1038,8 +1038,21 @@ class DatabaseManager {
        WHERE fd.device_id = ?
          AND fd.is_active = 1
          AND f.is_active = 1
+         AND (
+           fd.member_binding_source = 'EXPLICIT'
+           OR EXISTS (
+             SELECT 1
+             FROM device_links dl
+             WHERE dl.is_active = 1
+               AND dl.updated_at >= strftime('%s', 'now') - ?
+               AND (
+                 dl.parent_device_id = fd.device_id
+                 OR dl.child_device_id = fd.device_id
+               )
+           )
+         )
        ORDER BY f.created_at, f.id`,
-      [deviceId]
+      [deviceId, LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS]
     );
   }
 
@@ -1081,8 +1094,21 @@ class DatabaseManager {
         AND fm.is_active = 1
        WHERE fd.device_id = ?
          AND fd.is_active = 1
+         AND (
+           fd.member_binding_source = 'EXPLICIT'
+           OR EXISTS (
+             SELECT 1
+             FROM device_links dl
+             WHERE dl.is_active = 1
+               AND dl.updated_at >= strftime('%s', 'now') - ?
+               AND (
+                 dl.parent_device_id = fd.device_id
+                 OR dl.child_device_id = fd.device_id
+               )
+           )
+         )
        ORDER BY f.created_at, f.id, fm.id`,
-      [deviceId]
+      [deviceId, LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS]
     );
   }
 

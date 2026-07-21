@@ -234,14 +234,23 @@ class ChildSelectionActivity : AppCompatActivity() {
 
         lifecycleScope.launch {
             try {
-                val children = childRepository.getAllChildren()
+                // The canonical family directory is the source for this
+                // screen. Rendering every local Room row first used to expose
+                // thousands of historical reinstall records before sync.
+                val options = linkedChildOptionsProvider.getOptions()
+                familyOptionsByDevice = options.associateBy { it.deviceId }
+                linkedChildOptionsProvider.syncLocalChildren(options)
+                val children = materializeFamilyChildren(options)
 
                 renderChildren(children)
+                childrenAdapter.updatePresentation(
+                    options = options,
+                    selectedDeviceId = effectiveContextResolver.resolveTargetDeviceId()
+                )
                 maybeOpenRequestedChildEditor(children)
 
                 binding.progressBar.visibility = View.GONE
-                syncLinkedChildrenFromServer()
-                Log.d(TAG, "Загружено устройств: ${children.size}")
+                Log.d(TAG, "Загружено участников семьи: ${children.size}")
 
             } catch (e: Exception) {
                 Log.e(TAG, "Ошибка загрузки устройств", e)
@@ -280,6 +289,22 @@ class ChildSelectionActivity : AppCompatActivity() {
         }
     }
 
+    private suspend fun materializeFamilyChildren(
+        options: List<ParentLinkedChildOption>
+    ): List<Child> = options
+        .filter { it.deviceId.isNotBlank() }
+        .distinctBy { it.memberId?.takeIf(String::isNotBlank) ?: it.deviceId }
+        .map { option ->
+            childRepository.getChildByDeviceId(option.deviceId) ?: Child(
+                deviceId = option.deviceId,
+                name = option.displayName,
+                role = option.role.name.lowercase(),
+                iconId = option.markerIconId,
+                avatarUrl = option.avatarKey,
+                lastSeenAt = option.lastSeenAt
+            )
+        }
+
     private fun maybeOpenRequestedChildEditor(children: List<Child>) {
         val requestedDeviceId = pendingEditChildId ?: return
         val child = children.firstOrNull { it.deviceId == requestedDeviceId } ?: return
@@ -298,24 +323,15 @@ class ChildSelectionActivity : AppCompatActivity() {
         }
 
         runCatching {
-            val beforeIds = childRepository.getAllChildren().mapTo(mutableSetOf(), Child::deviceId)
             val options = linkedChildOptionsProvider.getOptions()
             familyOptionsByDevice = options.associateBy { it.deviceId }
             linkedChildOptionsProvider.syncLocalChildren(options)
-            val refreshedChildren = childRepository.getAllChildren()
-            val importedCount = refreshedChildren.count { it.deviceId !in beforeIds }
+            val refreshedChildren = materializeFamilyChildren(options)
             renderChildren(refreshedChildren)
             childrenAdapter.updatePresentation(
                 options = options,
                 selectedDeviceId = effectiveContextResolver.resolveTargetDeviceId()
             )
-            if (importedCount > 0) {
-                Toast.makeText(
-                    this@ChildSelectionActivity,
-                    getString(R.string.relationship_sync_imported, importedCount),
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
         }.onFailure { error ->
             Log.w(TAG, "Unable to sync linked children from server", error)
         }
@@ -896,8 +912,14 @@ class ChildSelectionActivity : AppCompatActivity() {
                     avatarUrl = newAvatarUrl ?: child.avatarUrl,  // Keep old avatar if no new one selected
                     updatedAt = System.currentTimeMillis()
                 )
-                childRepository.insertOrUpdateChild(updatedChild)
-                linkChildOnServer(child.deviceId, newName, newIconId)
+                // The server directory is canonical.  Do not keep a local
+                // edit which the server did not confirm: it would re-create
+                // stale cards on the next screen refresh.
+                val linked = linkChildOnServer(child.deviceId, newName, newIconId)
+                if (!linked) {
+                    showError("Не удалось связаться с сервером. Профиль не изменён.")
+                    return@launch
+                }
                 val profileSynced = familyDirectoryRepository.updateProfileForDevice(
                     deviceId = child.deviceId,
                     displayName = newName,
@@ -905,8 +927,11 @@ class ChildSelectionActivity : AppCompatActivity() {
                 )
                 Log.d(TAG, "Устройство обновлено: $newName (${child.deviceId})")
                 if (!profileSynced) {
-                    Log.w(TAG, "Canonical profile sync postponed for ${child.deviceId}")
+                    showError("Сервер не подтвердил профиль. Попробуйте ещё раз.")
+                    return@launch
                 }
+
+                childRepository.insertOrUpdateChild(updatedChild)
 
                 // Обновить список
                 loadChildren()
