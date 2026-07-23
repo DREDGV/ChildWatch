@@ -8,7 +8,7 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $gradleWrapper = Join-Path $repoRoot "gradlew.bat"
 $gradleHome = Join-Path $repoRoot ".gradle-agent-home"
-$androidHome = Join-Path $repoRoot ".android-agent-home"
+$androidHome = Join-Path $repoRoot ".android-signing"
 
 if (-not (Test-Path -LiteralPath $gradleWrapper)) {
     throw "Gradle wrapper not found: $gradleWrapper"
