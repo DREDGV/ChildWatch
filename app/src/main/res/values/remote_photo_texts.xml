@@ -48,6 +48,15 @@
     <string name="remote_camera_done">Готово</string>
     <string name="remote_camera_request_timeout">Время ожидания истекло</string>
     <string name="remote_camera_no_response">Устройство не ответило на запрос фото</string>
+    <string name="remote_camera_device_offline_status">Устройство не в сети</string>
+    <string name="remote_camera_device_offline_message">Детский телефон сейчас не подключён к серверу. Проверьте интернет и работу мониторинга.</string>
+    <string name="remote_camera_device_camera_busy">Камера занята</string>
+    <string name="remote_camera_device_camera_busy_message">Камеру использует другое приложение или предыдущий снимок ещё не завершён. Закройте камеру на детском телефоне и повторите запрос.</string>
+    <string name="remote_camera_profile_mismatch_status">Профиль устройства изменился</string>
+    <string name="remote_camera_profile_mismatch_title">Нужно обновить данные семьи</string>
+    <string name="remote_camera_profile_mismatch_message">Выбранный профиль больше не соответствует этому телефону. Вернитесь на главный экран, обновите список семьи и выберите человека заново.</string>
+    <string name="remote_camera_service_start_failed">Не удалось запустить камеру</string>
+    <string name="remote_camera_service_start_failed_message">Android не разрешил запустить фоновую службу камеры. Откройте ChildDevice на детском телефоне один раз и повторите запрос.</string>
     <string name="remote_camera_busy_status">Камера занята: снимок уже запрашивает %1$s</string>
     <string name="remote_camera_other_parent_fallback">другой родитель</string>
     <string name="remote_camera_server_unavailable">Нет соединения с сервером</string>
@@ -61,6 +70,16 @@
     <string name="remote_camera_mode_video">Видео скоро</string>
     <string name="remote_camera_mode_cancel">Закрыть</string>
     <string name="remote_camera_video_unavailable">Видео еще не реализовано как отдельный стабильный режим. Пока оставил только удаленное фото.</string>
+
+    <string name="remote_camera_hint_back">Основная камера · нажмите значок справа, чтобы сменить</string>
+    <string name="remote_camera_hint_front">Фронтальная камера · нажмите значок справа, чтобы сменить</string>
+    <string name="remote_camera_switch_camera">Сменить камеру</string>
+    <string name="remote_camera_recent_photos">Последние снимки</string>
+    <string name="remote_camera_select_child_title">Выберите ребёнка</string>
+    <string name="remote_camera_close">Закрыть</string>
+    <string name="remote_camera_time_just_now">только что</string>
+    <string name="remote_camera_time_minutes">%1$d мин назад</string>
+    <string name="remote_camera_time_hours">%1$d ч назад</string>
 
     <string name="remote_photo_preview_error">Не удалось открыть фото</string>
     <string name="remote_photo_menu_title">Фотография</string>

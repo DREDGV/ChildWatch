@@ -121,6 +121,36 @@ class ChatV2SocketService {
     conversationIds.add(conversationId);
   }
 
+  async subscribeSocketToAccessibleConversations(socket) {
+    if (
+      typeof this.chatService?.listConversations !== "function" ||
+      socket?.connected === false
+    ) {
+      return 0;
+    }
+
+    const deviceId = this.requireAuthenticatedDeviceId(socket);
+    const result = await this.chatService.listConversations(deviceId);
+    const conversationIds = Array.from(
+      new Set(
+        (result?.conversations || [])
+          .map((conversation) =>
+            this.normalizeId(
+              conversation?.conversationId || conversation?.id
+            )
+          )
+          .filter(Boolean)
+      )
+    );
+
+    if (socket.connected === false) return 0;
+    this.bindCurrentDeviceSocket(socket, deviceId);
+    for (const conversationId of conversationIds) {
+      this.addSubscription(socket, conversationId);
+    }
+    return conversationIds.length;
+  }
+
   removeSubscription(socket, conversationId) {
     const normalizedConversationId = this.normalizeId(conversationId);
     if (!socket?.id || !normalizedConversationId) return false;
@@ -393,6 +423,14 @@ class ChatV2SocketService {
     socket.on("disconnect", () => {
       this.removeSocket(socket);
     });
+    if (socket.authMode === "authenticated" && socket.authenticatedDeviceId) {
+      this.subscribeSocketToAccessibleConversations(socket).catch((error) => {
+        console.warn(
+          `[chat-v2] Automatic subscription failed for ${socket.id}:`,
+          error?.message || error
+        );
+      });
+    }
     return true;
   }
 }

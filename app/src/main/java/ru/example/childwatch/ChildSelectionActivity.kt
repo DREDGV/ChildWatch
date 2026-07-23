@@ -222,7 +222,7 @@ class ChildSelectionActivity : AppCompatActivity() {
      */
     private fun setupFab() {
         binding.addChildFab.setOnClickListener {
-            showAddChildDialog()
+            startActivity(Intent(this, FamilyInviteActivity::class.java))
         }
     }
 

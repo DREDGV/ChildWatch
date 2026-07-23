@@ -125,7 +125,21 @@ class ConsentActivity : AppCompatActivity() {
 
     private fun proceedToMainActivity() {
         Log.d(TAG, "Proceeding to main activity")
-        val intent = Intent(this, MainActivity::class.java).apply {
+        val onboardingComplete = getSharedPreferences(
+            ParentSetupActivity.PREFS_NAME,
+            MODE_PRIVATE
+        ).getBoolean(ParentSetupActivity.KEY_ONBOARDING_COMPLETED, false)
+        val hasExistingPairing = !ru.example.childwatch.utils.SecureSettingsManager(this)
+            .getChildDeviceId()
+            .isNullOrBlank() || !getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
+            .getString("child_device_id", null)
+            .isNullOrBlank()
+        val destination = if (onboardingComplete || hasExistingPairing) {
+            MainActivity::class.java
+        } else {
+            ParentSetupActivity::class.java
+        }
+        val intent = Intent(this, destination).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
         }
         startActivity(intent)

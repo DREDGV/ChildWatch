@@ -228,6 +228,29 @@ class WebSocketManager {
     return (now - createdAt) < this.PHOTO_REQUEST_TTL_MS;
   }
 
+  getSocketDeviceId(socket) {
+    return this.normalizeDeviceId(
+      socket?.deviceId || socket?.authenticatedDeviceId || socket?.exactDeviceId
+    );
+  }
+
+  clearActivePhotoRequest(deviceId, requestId) {
+    const normalizedDeviceId = this.normalizeDeviceId(deviceId);
+    if (!normalizedDeviceId) return;
+    const active = this.activePhotoRequests.get(normalizedDeviceId);
+    if (!active || active.requestId === requestId) {
+      this.activePhotoRequests.delete(normalizedDeviceId);
+    }
+  }
+
+  completePhotoRequest(requestId) {
+    const pending = this.pendingPhotoRequests.get(requestId);
+    if (!pending) return null;
+    this.clearActivePhotoRequest(pending.deviceId, requestId);
+    this.pendingPhotoRequests.delete(requestId);
+    return pending;
+  }
+
   notifyStreamTakeoverRequested(childDeviceId, ownerParentId, requesterParentId, session) {
     const ownerSocketIds = this.getConnectedParentSocketIdsForParent(
       ownerParentId,
@@ -962,12 +985,36 @@ class WebSocketManager {
         );
       }
 
+      // requestId is the idempotency key for the complete operation. Repeating
+      // it must not deliver another Camera2 command or restart its timeout.
+      const existingPending = this.pendingPhotoRequests.get(reqId);
+      if (existingPending) {
+        const sameOperation =
+          existingPending.parentSocketId === socket.id &&
+          this.normalizeDeviceId(existingPending.deviceId) === resolvedDeviceId;
+        if (sameOperation) {
+          socket.emit("photo_request_queued", {
+            requestId: reqId,
+            deviceId: resolvedDeviceId,
+            camera: existingPending.camera || cameraFacing,
+            timestamp: existingPending.createdAt || Date.now(),
+          });
+        } else {
+          socket.emit("photo_error", {
+            requestId: reqId,
+            error: "photo_request_id_conflict",
+          });
+        }
+        return;
+      }
+
       const activePhotoRequest = this.activePhotoRequests.get(resolvedDeviceId);
-      if (
-        activePhotoRequest &&
-        this.isPhotoRequestActive(activePhotoRequest) &&
-        this.normalizeDeviceId(activePhotoRequest.parentDeviceId) !== requesterParentId
-      ) {
+      if (activePhotoRequest && !this.isPhotoRequestActive(activePhotoRequest)) {
+        this.clearActivePhotoRequest(
+          resolvedDeviceId,
+          activePhotoRequest.requestId
+        );
+      } else if (activePhotoRequest) {
         socket.emit("photo_busy", {
           requestId: reqId,
           deviceId: resolvedDeviceId,
@@ -1006,6 +1053,7 @@ class WebSocketManager {
         deviceId: resolvedDeviceId,
         parentDeviceId: requesterParentId,
         ownerDisplayName: requesterDisplayName,
+        camera: cameraFacing,
         createdAt: Date.now(),
       });
       this.activePhotoRequests.set(resolvedDeviceId, {
@@ -1029,8 +1077,7 @@ class WebSocketManager {
             error: "photo_request_timeout",
           });
         }
-        this.activePhotoRequests.delete(pending.deviceId);
-        this.pendingPhotoRequests.delete(reqId);
+        this.completePhotoRequest(reqId);
         console.warn(`[photo] request timed out: requestId=${reqId}`);
       }, this.PHOTO_REQUEST_TTL_MS);
       expiryTimer.unref?.();
@@ -1079,7 +1126,7 @@ class WebSocketManager {
         return;
       }
 
-      const responseDeviceId = this.normalizeDeviceId(socket.deviceId);
+      const responseDeviceId = this.getSocketDeviceId(socket);
       const pendingDeviceId = this.normalizeDeviceId(pending.deviceId);
       const sameChildDevice =
         responseDeviceId &&
@@ -1105,8 +1152,7 @@ class WebSocketManager {
             error: "Received empty photo payload",
           });
         }
-        this.activePhotoRequests.delete(pending.deviceId);
-        this.pendingPhotoRequests.delete(requestId);
+        this.completePhotoRequest(requestId);
         return;
       }
 
@@ -1119,8 +1165,7 @@ class WebSocketManager {
         });
         console.log(`[photo] delivered to parent socket ${pending.parentSocketId}`);
       }
-      this.activePhotoRequests.delete(pending.deviceId);
-      this.pendingPhotoRequests.delete(requestId);
+      this.completePhotoRequest(requestId);
     } catch (error) {
       console.error("Error handling photo response:", error);
     }
@@ -1135,7 +1180,7 @@ class WebSocketManager {
       const pending = this.pendingPhotoRequests.get(requestId);
       if (!pending) return;
 
-      const responseDeviceId = this.normalizeDeviceId(socket.deviceId);
+      const responseDeviceId = this.getSocketDeviceId(socket);
       const pendingDeviceId = this.normalizeDeviceId(pending.deviceId);
       if (!responseDeviceId || responseDeviceId !== pendingDeviceId) {
         console.warn(`[photo] ignored acknowledgement from unexpected device for requestId=${requestId}`);
@@ -1173,7 +1218,7 @@ class WebSocketManager {
         return;
       }
 
-      const responseDeviceId = this.normalizeDeviceId(socket.deviceId);
+      const responseDeviceId = this.getSocketDeviceId(socket);
       const pendingDeviceId = this.normalizeDeviceId(pending.deviceId);
       const sameChildDevice =
         responseDeviceId &&
@@ -1196,8 +1241,7 @@ class WebSocketManager {
           error: error || "Unknown error",
         });
       }
-      this.activePhotoRequests.delete(pending.deviceId);
-      this.pendingPhotoRequests.delete(requestId);
+      this.completePhotoRequest(requestId);
     } catch (err) {
       console.error("Error handling photo error:", err);
     }
@@ -1207,9 +1251,21 @@ class WebSocketManager {
     if (!parentSocketId) return;
     for (const [requestId, entry] of this.pendingPhotoRequests.entries()) {
       if (entry.parentSocketId === parentSocketId) {
-        this.activePhotoRequests.delete(entry.deviceId);
-        this.pendingPhotoRequests.delete(requestId);
+        this.completePhotoRequest(requestId);
       }
+    }
+  }
+
+  failPhotoRequestsForChild(deviceId, error = "Child device disconnected") {
+    const normalizedDeviceId = this.normalizeDeviceId(deviceId);
+    if (!normalizedDeviceId) return;
+    for (const [requestId, entry] of this.pendingPhotoRequests.entries()) {
+      if (this.normalizeDeviceId(entry.deviceId) !== normalizedDeviceId) continue;
+      const parentSocket = this.io.sockets.sockets.get(entry.parentSocketId);
+      if (parentSocket?.connected) {
+        parentSocket.emit("photo_error", { requestId, error });
+      }
+      this.completePhotoRequest(requestId);
     }
   }
 
@@ -1935,6 +1991,7 @@ class WebSocketManager {
         }
 
         this.childSockets.delete(deviceId);
+        this.failPhotoRequestsForChild(deviceId);
         console.log(`[ws] Child device removed: ${deviceId}`);
 
         // Notify all mapped parent sockets that child disconnected

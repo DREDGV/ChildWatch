@@ -17,6 +17,7 @@ const WebSocketManager = require("./managers/WebSocketManager");
 const AttentionSignalManager = require("./managers/AttentionSignalManager");
 const FamilyPermissionService = require("./services/FamilyPermissionService");
 const FamilyIdentityService = require("./services/FamilyIdentityService");
+const FamilyOnboardingService = require("./services/FamilyOnboardingService");
 
 // Import route modules
 const createChatRoutes = require("./routes/chat");
@@ -28,6 +29,7 @@ const alertsRoutes = require("./routes/alerts");
 const debugRoutes = require("./routes/debug");
 const createFamilyRoutes = require("./routes/families");
 const createMeRoutes = require("./routes/me");
+const createFamilyOnboardingRoutes = require("./routes/family-onboarding");
 
 const app = express();
 const server = http.createServer(app);
@@ -57,6 +59,7 @@ const commandManager = new CommandManager();
 const wsManager = new WebSocketManager(io, commandManager, dbManager);
 const familyPermissionService = new FamilyPermissionService(dbManager);
 const familyIdentityService = new FamilyIdentityService(dbManager);
+const familyOnboardingService = new FamilyOnboardingService(dbManager);
 const attentionSignalManager = new AttentionSignalManager({
   wsManager,
   dbManager,
@@ -69,6 +72,9 @@ const familyRoutes = createFamilyRoutes(
   familyIdentityService
 );
 const meRoutes = createMeRoutes(familyIdentityService);
+const familyOnboardingRoutes = createFamilyOnboardingRoutes(
+  familyOnboardingService
+);
 const chatRoutes = createChatRoutes(dbManager, familyPermissionService);
 const chatV2Routes = createChatV2Routes(dbManager);
 wsManager.dbManager = dbManager;
@@ -262,6 +268,12 @@ app.use(
   authMiddleware.authenticate(),
   authMiddleware.rateLimit(60_000, 120),
   familyRoutes
+);
+app.use(
+  "/api/family-onboarding",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60_000, 60),
+  familyOnboardingRoutes
 );
 
 // Routes

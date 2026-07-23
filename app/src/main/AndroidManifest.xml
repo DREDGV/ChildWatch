@@ -81,8 +81,12 @@
         <activity
             android:name=".ParentSetupActivity"
             android:exported="false"
-            android:theme="@style/Theme.ChildWatch"
-            android:noHistory="true" />
+            android:theme="@style/Theme.ChildWatch" />
+
+        <activity
+            android:name=".FamilyInviteActivity"
+            android:exported="false"
+            android:theme="@style/Theme.ChildWatch.NoActionBar" />
 
         <!-- Child Selection Activity -->
         <activity

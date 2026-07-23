@@ -3,6 +3,7 @@ package ru.example.parentwatch.service
 import android.app.ActivityManager
 import android.app.AppOpsManager
 import android.app.usage.UsageStats
+import android.app.usage.UsageEvents
 import android.app.usage.UsageStatsManager
 import android.content.Context
 import android.content.Intent
@@ -140,17 +141,30 @@ class AppUsageTracker(private val context: Context) {
                 UsageStatsManager.INTERVAL_DAILY,
                 startTime,
                 endTime
-            )
+            ).orEmpty()
 
-            if (usageStatsList.isNullOrEmpty()) {
-                return emptyList()
-            }
+            val statsByPackage = usageStatsList.associateBy { it.packageName }
+            val resumedAtByPackage = queryRecentForegroundEvents(startTime, endTime)
+            val packageNames = (statsByPackage.keys + resumedAtByPackage.keys)
+                .distinct()
+                .sortedByDescending { packageName ->
+                    maxOf(
+                        statsByPackage[packageName]?.lastTimeUsed ?: 0L,
+                        resumedAtByPackage[packageName] ?: 0L
+                    )
+                }
 
-            usageStatsList
-                .filter { it.lastTimeUsed > 0 && it.totalTimeInForeground > 0 }
-                .sortedByDescending { it.lastTimeUsed }
-                .mapNotNull { stats ->
-                    createAppUsageInfo(stats)
+            packageNames
+                .mapNotNull { packageName ->
+                    val stats = statsByPackage[packageName]
+                    createAppUsageInfo(
+                        packageName = packageName,
+                        lastTimeUsed = maxOf(
+                            stats?.lastTimeUsed ?: 0L,
+                            resumedAtByPackage[packageName] ?: 0L
+                        ),
+                        totalTimeInForeground = stats?.totalTimeInForeground ?: 0L
+                    )
                 }
                 // A preinstalled browser, video app or game is marked as a system
                 // package too. Keep it when it has a normal launcher entry, while
@@ -169,26 +183,62 @@ class AppUsageTracker(private val context: Context) {
     }
 
     /**
+     * Some Android builds omit launcher apps from queryUsageStats even though
+     * their foreground events are present. Merge those events so games and
+     * short app launches do not disappear from the parent activity screen.
+     */
+    private fun queryRecentForegroundEvents(startTime: Long, endTime: Long): Map<String, Long> {
+        val result = mutableMapOf<String, Long>()
+        val events = usageStatsManager?.queryEvents(startTime, endTime) ?: return result
+        val event = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            val foreground = event.eventType == UsageEvents.Event.MOVE_TO_FOREGROUND ||
+                (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    event.eventType == UsageEvents.Event.ACTIVITY_RESUMED)
+            val packageName = event.packageName?.takeIf { it.isNotBlank() }
+            if (!foreground || packageName == null) continue
+            val previous = result[packageName] ?: 0L
+            if (event.timeStamp > previous) {
+                result[packageName] = event.timeStamp
+            }
+        }
+        return result
+    }
+
+    /**
      * Create AppUsageInfo from UsageStats
      */
     private fun createAppUsageInfo(stats: UsageStats): AppUsageInfo? {
+        return createAppUsageInfo(
+            packageName = stats.packageName,
+            lastTimeUsed = stats.lastTimeUsed,
+            totalTimeInForeground = stats.totalTimeInForeground
+        )
+    }
+
+    private fun createAppUsageInfo(
+        packageName: String,
+        lastTimeUsed: Long,
+        totalTimeInForeground: Long
+    ): AppUsageInfo? {
         return try {
-            val appInfo = packageManager.getApplicationInfo(stats.packageName, 0)
+            val appInfo = packageManager.getApplicationInfo(packageName, 0)
             val appName = packageManager.getApplicationLabel(appInfo).toString()
             val isSystemApp = (appInfo.flags and ApplicationInfo.FLAG_SYSTEM) != 0
 
             AppUsageInfo(
-                packageName = stats.packageName,
+                packageName = packageName,
                 appName = appName,
-                lastTimeUsed = stats.lastTimeUsed,
-                totalTimeInForeground = stats.totalTimeInForeground,
+                lastTimeUsed = lastTimeUsed,
+                totalTimeInForeground = totalTimeInForeground,
                 isSystemApp = isSystemApp
             )
         } catch (e: PackageManager.NameNotFoundException) {
-            Log.w(TAG, "Package not found: ${stats.packageName}")
+            Log.w(TAG, "Package not found: $packageName")
             null
         } catch (e: Exception) {
-            Log.e(TAG, "Error creating app info for ${stats.packageName}", e)
+            Log.e(TAG, "Error creating app info for $packageName", e)
             null
         }
     }

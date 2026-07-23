@@ -13,6 +13,11 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
+import ru.childwatch.shared.onboarding.FamilyBootstrapRequest
+import ru.childwatch.shared.onboarding.FamilyInvitationAcceptRequest
+import ru.childwatch.shared.onboarding.FamilyInvitationCreateRequest
+import ru.childwatch.shared.onboarding.FamilyInvitationResponse
+import ru.childwatch.shared.onboarding.FamilyOnboardingResultResponse
 import java.io.File
 import java.io.IOException
 import java.security.cert.CertificateException
@@ -1241,6 +1246,148 @@ class NetworkClient(private val context: Context) {
         }
     }
 
+    /**
+     * Canonical family identity for this authenticated phone.  The UI must
+     * resolve people through family members and use device ids only for
+     * transport/routing.
+     */
+    suspend fun getAuthenticatedIdentity(): retrofit2.Response<AuthenticatedIdentityResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+                createRetrofitClient(serverUrl)
+                    .create(ChildWatchApi::class.java)
+                    .getAuthenticatedIdentity()
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting authenticated family identity", e)
+                retrofit2.Response.error(
+                    404,
+                    okhttp3.ResponseBody.create(null, "Error: ${e.message}")
+                )
+            }
+        }
+    }
+
+    suspend fun ensureOnboardingAuthentication(): Boolean = withContext(Dispatchers.IO) {
+        val serverUrl = getConfiguredServerUrl()?.takeIf { it.isNotBlank() }
+            ?: "http://31.28.27.96:3000".also { fallback ->
+                parentPrefs.edit().putString("server_url", fallback).apply()
+            }
+        if (!getAuthToken().isNullOrBlank()) return@withContext true
+        registerDevice(serverUrl) != null
+    }
+
+    suspend fun previewFamilyInvitation(
+        token: String
+    ): retrofit2.Response<FamilyInvitationResponse> = withContext(Dispatchers.IO) {
+        onboardingCall { api -> api.previewFamilyInvitation(token.trim()) }
+    }
+
+    suspend fun acceptFamilyInvitation(
+        token: String,
+        deviceName: String? = android.os.Build.MODEL
+    ): retrofit2.Response<FamilyOnboardingResultResponse> = withContext(Dispatchers.IO) {
+        onboardingCall { api ->
+            api.acceptFamilyInvitation(
+                token.trim(),
+                FamilyInvitationAcceptRequest(
+                    deviceName = deviceName?.trim(),
+                    clientKind = "CHILD_DEVICE"
+                )
+            )
+        }
+    }
+
+    suspend fun createFamilyInvitation(
+        request: FamilyInvitationCreateRequest
+    ): retrofit2.Response<FamilyInvitationResponse> = withContext(Dispatchers.IO) {
+        onboardingCall { api -> api.createFamilyInvitation(request) }
+    }
+
+    suspend fun bootstrapFamily(
+        request: FamilyBootstrapRequest
+    ): retrofit2.Response<FamilyOnboardingResultResponse> = withContext(Dispatchers.IO) {
+        onboardingCall { api -> api.bootstrapFamily(request) }
+    }
+
+    private suspend fun <T> onboardingCall(
+        call: suspend (ChildWatchApi) -> retrofit2.Response<T>
+    ): retrofit2.Response<T> {
+        return try {
+            if (!ensureOnboardingAuthentication()) {
+                retrofit2.Response.error(
+                    401,
+                    okhttp3.ResponseBody.create(null, "Device registration failed")
+                )
+            } else {
+                val serverUrl = checkNotNull(getConfiguredServerUrl())
+                call(createRetrofitClient(serverUrl).create(ChildWatchApi::class.java))
+            }
+        } catch (error: Exception) {
+            Log.e(TAG, "Family onboarding request failed", error)
+            retrofit2.Response.error(
+                503,
+                okhttp3.ResponseBody.create(null, "Error: ${error.message}")
+            )
+        }
+    }
+
+    suspend fun getFamilyMembers(
+        familyId: String
+    ): retrofit2.Response<FamilyMembersResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+                createRetrofitClient(serverUrl)
+                    .create(ChildWatchApi::class.java)
+                    .getFamilyMembers(familyId.trim())
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting family members", e)
+                retrofit2.Response.error(
+                    404,
+                    okhttp3.ResponseBody.create(null, "Error: ${e.message}")
+                )
+            }
+        }
+    }
+
+    suspend fun getFamilyDevices(
+        familyId: String
+    ): retrofit2.Response<FamilyDevicesResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+                createRetrofitClient(serverUrl)
+                    .create(ChildWatchApi::class.java)
+                    .getFamilyDevices(familyId.trim())
+            } catch (e: Exception) {
+                Log.e(TAG, "Error getting family devices", e)
+                retrofit2.Response.error(
+                    404,
+                    okhttp3.ResponseBody.create(null, "Error: ${e.message}")
+                )
+            }
+        }
+    }
+
     suspend fun getFamilyPresence(
         childDeviceId: String
     ): retrofit2.Response<FamilyPresenceResponse> {
@@ -1825,4 +1972,3 @@ private fun JSONObject.toParentLocationData(fallbackId: String, idKey: String): 
         bearing = if (has("bearing") && !isNull("bearing")) optDouble("bearing", 0.0).toFloat() else null
     )
 }
-

@@ -265,6 +265,31 @@ class DatabaseManager {
                 FOREIGN KEY (target_member_id) REFERENCES family_members (id)
             )`,
 
+      // One-time onboarding invitations. Only a SHA-256 digest is stored so a
+      // database read cannot be used to join a family. The clear token exists
+      // only in the response shown as a QR code to the inviting person.
+      `CREATE TABLE IF NOT EXISTS family_invitations (
+                id TEXT PRIMARY KEY,
+                token_hash TEXT NOT NULL UNIQUE,
+                family_id TEXT NOT NULL,
+                invitation_mode TEXT NOT NULL CHECK (invitation_mode IN ('NEW_MEMBER', 'EXISTING_MEMBER')),
+                target_member_id TEXT,
+                proposed_display_name TEXT,
+                proposed_role TEXT CHECK (proposed_role IN ('PARENT', 'CHILD', 'GUARDIAN')),
+                proposed_avatar_key TEXT,
+                created_by_member_id TEXT NOT NULL,
+                created_by_device_id TEXT NOT NULL,
+                expires_at INTEGER NOT NULL,
+                consumed_at INTEGER,
+                consumed_by_device_id TEXT,
+                revoked_at INTEGER,
+                created_at INTEGER NOT NULL,
+                updated_at INTEGER NOT NULL,
+                FOREIGN KEY (family_id) REFERENCES families (id),
+                FOREIGN KEY (target_member_id) REFERENCES family_members (id),
+                FOREIGN KEY (created_by_member_id) REFERENCES family_members (id)
+            )`,
+
       // Additive chat v2 model. The legacy chat_messages table intentionally
       // remains untouched so older installed clients can keep working during
       // the staged protocol rollout.
@@ -502,6 +527,8 @@ class DatabaseManager {
       "CREATE INDEX IF NOT EXISTS idx_family_devices_family ON family_devices (family_id)",
       "CREATE INDEX IF NOT EXISTS idx_family_devices_device ON family_devices (device_id)",
       "CREATE INDEX IF NOT EXISTS idx_family_permissions_lookup ON family_permissions (family_id, actor_member_id, target_member_id, feature)",
+      "CREATE INDEX IF NOT EXISTS idx_family_invitations_family ON family_invitations (family_id, expires_at DESC)",
+      "CREATE INDEX IF NOT EXISTS idx_family_invitations_token ON family_invitations (token_hash)",
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_family_conversation ON chat_conversations (family_id) WHERE type = 'FAMILY' AND is_active = 1",
       "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_direct_conversation ON chat_conversations (family_id, direct_pair_key) WHERE type = 'DIRECT' AND is_active = 1",
       "CREATE INDEX IF NOT EXISTS idx_chat_conversation_members_member ON chat_conversation_members (member_id, is_active, conversation_id)",
@@ -1025,6 +1052,485 @@ class DatabaseManager {
     });
   }
 
+  async createExplicitFamilyForDevice({
+    deviceId,
+    familyName,
+    displayName,
+    role = "PARENT",
+    avatarKey = null,
+  }) {
+    const normalizedDeviceId = String(deviceId || "").trim();
+    const normalizedFamilyName = String(familyName || "").trim().slice(0, 100);
+    const normalizedDisplayName = String(displayName || "").trim().slice(0, 100);
+    const normalizedRole = String(role || "").trim().toUpperCase();
+    if (!normalizedDeviceId || !normalizedFamilyName || !normalizedDisplayName) {
+      throw new Error("Device, family name and member name are required");
+    }
+    if (!["PARENT", "CHILD", "GUARDIAN"].includes(normalizedRole)) {
+      throw new Error("Unsupported family role");
+    }
+
+    return this.withTransaction(async () => {
+      const registeredDevice = await this.get(
+        `SELECT device_name AS deviceName, device_type AS deviceType
+         FROM devices WHERE device_id = ? AND is_active = 1 LIMIT 1`,
+        [normalizedDeviceId]
+      );
+      if (!registeredDevice) {
+        const error = new Error("Registered device is required");
+        error.code = "REGISTERED_DEVICE_REQUIRED";
+        throw error;
+      }
+
+      const existingExplicit = await this.get(
+        `SELECT fd.family_id AS familyId, fd.member_id AS memberId
+         FROM family_devices fd
+         JOIN families f ON f.id = fd.family_id AND f.is_active = 1
+         JOIN family_members fm ON fm.id = fd.member_id AND fm.is_active = 1
+         WHERE fd.device_id = ? AND fd.is_active = 1
+           AND fd.member_binding_source = 'EXPLICIT'
+         LIMIT 1`,
+        [normalizedDeviceId]
+      );
+      if (existingExplicit) {
+        const error = new Error("Device already belongs to a confirmed family member");
+        error.code = "DEVICE_ALREADY_ONBOARDED";
+        error.membership = existingExplicit;
+        throw error;
+      }
+
+      const nonce = crypto.randomBytes(16).toString("hex");
+      const familyId = this.createStableScopedId("family", normalizedDeviceId, nonce);
+      const memberId = this.createStableScopedId("member", familyId, normalizedDeviceId, nonce);
+      const now = Date.now();
+      await this.run(
+        `INSERT INTO families (id, name, is_active, created_at, updated_at)
+         VALUES (?, ?, 1, ?, ?)`,
+        [familyId, normalizedFamilyName, now, now]
+      );
+      await this.run(
+        `INSERT INTO family_members (
+           id, family_id, display_name, role, avatar_key, is_active, created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+        [
+          memberId,
+          familyId,
+          normalizedDisplayName,
+          normalizedRole,
+          avatarKey || null,
+          now,
+          now,
+        ]
+      );
+      const binding = await this.attachFamilyDeviceToMember({
+        familyId,
+        memberId,
+        deviceId: normalizedDeviceId,
+        displayName: registeredDevice.deviceName,
+        platform: registeredDevice.deviceType,
+        lastSeenAt: now,
+      });
+      await this.ensureFamilyConversationRecord(familyId, { now });
+      return {
+        family: await this.getFamilyById(familyId),
+        member: (await this.getFamilyMembers(familyId)).find(
+          (item) => item.id === memberId
+        ),
+        binding,
+      };
+    });
+  }
+
+  hashFamilyInvitationToken(token) {
+    return crypto
+      .createHash("sha256")
+      .update(String(token || "").trim(), "utf8")
+      .digest("hex");
+  }
+
+  async insertFamilyInvitation({
+    id,
+    token,
+    familyId,
+    invitationMode,
+    targetMemberId = null,
+    proposedDisplayName = null,
+    proposedRole = null,
+    proposedAvatarKey = null,
+    createdByMemberId,
+    createdByDeviceId,
+    expiresAt,
+  }) {
+    const now = Date.now();
+    return this.withTransaction(async () => {
+      // Repeated taps must not leave several valid invitations for the same
+      // person. Only the latest invitation created by this phone remains valid.
+      await this.run(
+        `UPDATE family_invitations
+         SET revoked_at = ?, updated_at = ?
+         WHERE family_id = ?
+           AND created_by_device_id = ?
+           AND invitation_mode = ?
+           AND consumed_at IS NULL
+           AND revoked_at IS NULL
+           AND expires_at > ?
+           AND (
+             (? = 'EXISTING_MEMBER' AND target_member_id = ?)
+             OR (
+               ? = 'NEW_MEMBER'
+               AND lower(trim(COALESCE(proposed_display_name, ''))) = lower(trim(?))
+               AND proposed_role = ?
+             )
+           )`,
+        [
+          now,
+          now,
+          familyId,
+          createdByDeviceId,
+          invitationMode,
+          now,
+          invitationMode,
+          targetMemberId,
+          invitationMode,
+          proposedDisplayName || "",
+          proposedRole,
+        ]
+      );
+      await this.run(
+        `INSERT INTO family_invitations (
+           id, token_hash, family_id, invitation_mode, target_member_id,
+           proposed_display_name, proposed_role, proposed_avatar_key,
+           created_by_member_id, created_by_device_id, expires_at,
+           created_at, updated_at
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          id,
+          this.hashFamilyInvitationToken(token),
+          familyId,
+          invitationMode,
+          targetMemberId,
+          proposedDisplayName,
+          proposedRole,
+          proposedAvatarKey,
+          createdByMemberId,
+          createdByDeviceId,
+          expiresAt,
+          now,
+          now,
+        ]
+      );
+      return this.getFamilyInvitationByToken(token);
+    });
+  }
+
+  async getFamilyInvitationByToken(token) {
+    const tokenHash = this.hashFamilyInvitationToken(token);
+    if (!tokenHash) return null;
+    return this.get(
+      `SELECT
+         fi.id,
+         fi.family_id AS familyId,
+         f.name AS familyName,
+         fi.invitation_mode AS invitationMode,
+         fi.target_member_id AS targetMemberId,
+         target.display_name AS targetDisplayName,
+         target.role AS targetRole,
+         target.avatar_key AS targetAvatarKey,
+         fi.proposed_display_name AS proposedDisplayName,
+         fi.proposed_role AS proposedRole,
+         fi.proposed_avatar_key AS proposedAvatarKey,
+         fi.created_by_member_id AS createdByMemberId,
+         creator.display_name AS createdByDisplayName,
+         fi.created_by_device_id AS createdByDeviceId,
+         fi.expires_at AS expiresAt,
+         fi.consumed_at AS consumedAt,
+         fi.consumed_by_device_id AS consumedByDeviceId,
+         fi.revoked_at AS revokedAt,
+         fi.created_at AS createdAt,
+         fi.updated_at AS updatedAt
+       FROM family_invitations fi
+       JOIN families f ON f.id = fi.family_id AND f.is_active = 1
+       JOIN family_members creator
+         ON creator.id = fi.created_by_member_id AND creator.is_active = 1
+       LEFT JOIN family_members target
+         ON target.id = fi.target_member_id AND target.is_active = 1
+       WHERE fi.token_hash = ?
+       LIMIT 1`,
+      [tokenHash]
+    );
+  }
+
+  async getActiveFamilyInvitations(familyId, now = Date.now()) {
+    return this.all(
+      `SELECT
+         fi.id,
+         fi.family_id AS familyId,
+         f.name AS familyName,
+         fi.invitation_mode AS invitationMode,
+         fi.target_member_id AS targetMemberId,
+         target.display_name AS targetDisplayName,
+         target.role AS targetRole,
+         target.avatar_key AS targetAvatarKey,
+         fi.proposed_display_name AS proposedDisplayName,
+         fi.proposed_role AS proposedRole,
+         fi.proposed_avatar_key AS proposedAvatarKey,
+         fi.created_by_member_id AS createdByMemberId,
+         creator.display_name AS createdByDisplayName,
+         fi.created_by_device_id AS createdByDeviceId,
+         fi.expires_at AS expiresAt,
+         fi.consumed_at AS consumedAt,
+         fi.consumed_by_device_id AS consumedByDeviceId,
+         fi.revoked_at AS revokedAt,
+         fi.created_at AS createdAt,
+         fi.updated_at AS updatedAt
+       FROM family_invitations fi
+       JOIN families f ON f.id = fi.family_id AND f.is_active = 1
+       JOIN family_members creator
+         ON creator.id = fi.created_by_member_id AND creator.is_active = 1
+       LEFT JOIN family_members target
+         ON target.id = fi.target_member_id AND target.is_active = 1
+       WHERE fi.family_id = ?
+         AND fi.consumed_at IS NULL
+         AND fi.revoked_at IS NULL
+         AND fi.expires_at > ?
+       ORDER BY fi.created_at DESC, fi.id DESC`,
+      [familyId, now]
+    );
+  }
+
+  async consumeFamilyInvitation({ token, deviceId, displayName = null }) {
+    const normalizedDeviceId = String(deviceId || "").trim();
+    if (!normalizedDeviceId) {
+      const error = new Error("Authenticated device is required");
+      error.code = "AUTHENTICATED_DEVICE_REQUIRED";
+      throw error;
+    }
+
+    return this.withTransaction(async () => {
+      const invitation = await this.getFamilyInvitationByToken(token);
+      const now = Date.now();
+      if (!invitation) {
+        const error = new Error("Invitation not found");
+        error.code = "INVITATION_NOT_FOUND";
+        throw error;
+      }
+      if (invitation.revokedAt) {
+        const error = new Error("Invitation was revoked");
+        error.code = "INVITATION_REVOKED";
+        throw error;
+      }
+      if (invitation.consumedAt) {
+        const error = new Error("Invitation was already used");
+        error.code = "INVITATION_ALREADY_USED";
+        throw error;
+      }
+      if (Number(invitation.expiresAt) <= now) {
+        const error = new Error("Invitation has expired");
+        error.code = "INVITATION_EXPIRED";
+        throw error;
+      }
+
+      const registeredDevice = await this.get(
+        `SELECT device_name AS deviceName, device_type AS deviceType
+         FROM devices WHERE device_id = ? AND is_active = 1 LIMIT 1`,
+        [normalizedDeviceId]
+      );
+      if (!registeredDevice) {
+        const error = new Error("Registered device is required");
+        error.code = "REGISTERED_DEVICE_REQUIRED";
+        throw error;
+      }
+
+      const confirmedMembership = await this.get(
+        `SELECT fd.family_id AS familyId, fd.member_id AS memberId
+         FROM family_devices fd
+         JOIN families f ON f.id = fd.family_id AND f.is_active = 1
+         JOIN family_members fm ON fm.id = fd.member_id AND fm.is_active = 1
+         WHERE fd.device_id = ? AND fd.is_active = 1
+           AND fd.member_binding_source = 'EXPLICIT'
+         LIMIT 1`,
+        [normalizedDeviceId]
+      );
+      if (confirmedMembership) {
+        const sameFamily = confirmedMembership.familyId === invitation.familyId;
+        const error = new Error(
+          sameFamily
+            ? "Device already belongs to a confirmed family member"
+            : "Device already belongs to another confirmed family"
+        );
+        error.code = sameFamily
+          ? "DEVICE_ALREADY_ONBOARDED"
+          : "DEVICE_IN_ANOTHER_FAMILY";
+        throw error;
+      }
+
+      let memberId = invitation.targetMemberId;
+      if (invitation.invitationMode === "NEW_MEMBER") {
+        memberId = this.createStableScopedId(
+          "member",
+          invitation.familyId,
+          normalizedDeviceId,
+          invitation.id
+        );
+        await this.run(
+          `INSERT INTO family_members (
+             id, family_id, display_name, role, avatar_key, is_active, created_at, updated_at
+           ) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`,
+          [
+            memberId,
+            invitation.familyId,
+            invitation.proposedDisplayName,
+            invitation.proposedRole,
+            invitation.proposedAvatarKey || null,
+            now,
+            now,
+          ]
+        );
+      }
+      if (!memberId) {
+        const error = new Error("Invitation has no target member");
+        error.code = "INVITATION_TARGET_MISSING";
+        throw error;
+      }
+
+      const binding = await this.attachFamilyDeviceToMember({
+        familyId: invitation.familyId,
+        memberId,
+        deviceId: normalizedDeviceId,
+        displayName: String(displayName || "").trim().slice(0, 100) || registeredDevice.deviceName,
+        platform: registeredDevice.deviceType,
+        lastSeenAt: now,
+      });
+
+      await this.run(
+        `UPDATE family_invitations
+         SET consumed_at = ?, consumed_by_device_id = ?, updated_at = ?
+         WHERE id = ? AND consumed_at IS NULL AND revoked_at IS NULL`,
+        [now, normalizedDeviceId, now, invitation.id]
+      );
+      await this.deactivateProvisionalMembershipsForDevice(
+        normalizedDeviceId,
+        invitation.familyId,
+        memberId,
+        now
+      );
+      await this.ensureDefaultFamilyPermissions(invitation.familyId, memberId);
+      await this.ensureFamilyConversationRecord(invitation.familyId, { now });
+      return {
+        family: await this.getFamilyById(invitation.familyId),
+        member: (await this.getFamilyMembers(invitation.familyId)).find(
+          (item) => item.id === memberId
+        ),
+        binding,
+      };
+    });
+  }
+
+  async deactivateProvisionalMembershipsForDevice(deviceId, keepFamilyId, keepMemberId, now) {
+    const provisional = await this.all(
+      `SELECT family_id AS familyId, member_id AS memberId
+       FROM family_devices
+       WHERE device_id = ? AND is_active = 1
+         AND member_binding_source <> 'EXPLICIT'
+         AND (family_id <> ? OR member_id <> ?)`,
+      [deviceId, keepFamilyId, keepMemberId]
+    );
+    for (const row of provisional) {
+      await this.run(
+        `UPDATE family_devices SET is_active = 0, updated_at = ?
+         WHERE family_id = ? AND member_id = ? AND device_id = ?`,
+        [now, row.familyId, row.memberId, deviceId]
+      );
+      const remaining = await this.get(
+        `SELECT COUNT(*) AS count FROM family_devices
+         WHERE family_id = ? AND member_id = ? AND is_active = 1`,
+        [row.familyId, row.memberId]
+      );
+      if (Number(remaining?.count) === 0) {
+        await this.run(
+          `UPDATE family_members SET is_active = 0, updated_at = ?
+           WHERE family_id = ? AND id = ?`,
+          [now, row.familyId, row.memberId]
+        );
+      }
+    }
+  }
+
+  async ensureDefaultFamilyPermissions(familyId, memberId) {
+    const joined = await this.get(
+      `SELECT role FROM family_members
+       WHERE family_id = ? AND id = ? AND is_active = 1 LIMIT 1`,
+      [familyId, memberId]
+    );
+    if (!joined) return;
+    const others = await this.all(
+      `SELECT id, role FROM family_members
+       WHERE family_id = ? AND id <> ? AND is_active = 1`,
+      [familyId, memberId]
+    );
+    for (const other of others) {
+      const joinedIsAdult = ["PARENT", "GUARDIAN"].includes(joined.role);
+      const otherIsAdult = ["PARENT", "GUARDIAN"].includes(other.role);
+      if (joinedIsAdult && other.role === "CHILD") {
+        for (const feature of DEFAULT_PARENT_TO_CHILD_FEATURES) {
+          await this.upsertFamilyPermission({
+            familyId,
+            actorMemberId: memberId,
+            targetMemberId: other.id,
+            feature,
+            allowed: true,
+            preserveExisting: true,
+          });
+        }
+      }
+      if (otherIsAdult && joined.role === "CHILD") {
+        for (const feature of DEFAULT_PARENT_TO_CHILD_FEATURES) {
+          await this.upsertFamilyPermission({
+            familyId,
+            actorMemberId: other.id,
+            targetMemberId: memberId,
+            feature,
+            allowed: true,
+            preserveExisting: true,
+          });
+        }
+      }
+      for (const feature of DEFAULT_CHILD_TO_PARENT_FEATURES) {
+        if (joined.role === "CHILD" && otherIsAdult) {
+          await this.upsertFamilyPermission({
+            familyId,
+            actorMemberId: memberId,
+            targetMemberId: other.id,
+            feature,
+            allowed: true,
+            preserveExisting: true,
+          });
+        }
+        if (other.role === "CHILD" && joinedIsAdult) {
+          await this.upsertFamilyPermission({
+            familyId,
+            actorMemberId: other.id,
+            targetMemberId: memberId,
+            feature,
+            allowed: true,
+            preserveExisting: true,
+          });
+        }
+      }
+    }
+  }
+
+  async revokeFamilyInvitation(invitationId, familyId) {
+    const now = Date.now();
+    const result = await this.run(
+      `UPDATE family_invitations
+       SET revoked_at = ?, updated_at = ?
+       WHERE id = ? AND family_id = ? AND consumed_at IS NULL AND revoked_at IS NULL`,
+      [now, now, invitationId, familyId]
+    );
+    return Number(result?.changes || 0) > 0;
+  }
+
   async getFamiliesForDevice(deviceId) {
     return this.all(
       `SELECT DISTINCT
@@ -1281,6 +1787,138 @@ class DatabaseManager {
     });
   }
 
+  async confirmOwnProvisionalFamilyMembership({
+    familyId,
+    memberId,
+    deviceId,
+    displayName,
+    avatarKey = null,
+  }) {
+    const normalizedFamilyId = String(familyId || "").trim();
+    const normalizedMemberId = String(memberId || "").trim();
+    const normalizedDeviceId = String(deviceId || "").trim();
+    const normalizedDisplayName = String(displayName || "")
+      .trim()
+      .replace(/\s+/g, " ")
+      .slice(0, 100);
+    const normalizedAvatarKey =
+      avatarKey === null || avatarKey === undefined
+        ? null
+        : String(avatarKey).trim().slice(0, 200) || null;
+    if (
+      !normalizedFamilyId ||
+      !normalizedMemberId ||
+      !normalizedDeviceId ||
+      !normalizedDisplayName
+    ) {
+      throw new Error("Family, member, device and display name are required");
+    }
+
+    return this.withTransaction(async () => {
+      const membership = await this.getFamilyDeviceMembership(
+        normalizedFamilyId,
+        normalizedDeviceId
+      );
+      if (!membership || membership.memberId !== normalizedMemberId) {
+        const error = new Error("Device does not represent this family member");
+        error.code = "FAMILY_PROFILE_CONFIRMATION_DENIED";
+        throw error;
+      }
+
+      const now = Date.now();
+      await this.run(
+        `UPDATE family_members
+         SET display_name = ?,
+             avatar_key = ?,
+             updated_at = ?
+         WHERE id = ? AND family_id = ? AND is_active = 1`,
+        [
+          normalizedDisplayName,
+          normalizedAvatarKey,
+          now,
+          normalizedMemberId,
+          normalizedFamilyId,
+        ]
+      );
+      await this.run(
+        `UPDATE family_devices
+         SET member_binding_source = 'EXPLICIT',
+             updated_at = ?
+         WHERE family_id = ?
+           AND member_id = ?
+           AND device_id = ?
+           AND is_active = 1`,
+        [
+          now,
+          normalizedFamilyId,
+          normalizedMemberId,
+          normalizedDeviceId,
+        ]
+      );
+      await this.deactivateProvisionalMembershipsForDevice(
+        normalizedDeviceId,
+        normalizedFamilyId,
+        normalizedMemberId,
+        now
+      );
+
+      // Preserve legacy history while replacing technical labels in all
+      // compatibility readers that still use device_links.
+      await this.run(
+        `UPDATE device_links
+         SET parent_display_name = ?, updated_at = ?
+         WHERE parent_device_id = ?`,
+        [normalizedDisplayName, now, normalizedDeviceId]
+      );
+      await this.run(
+        `UPDATE device_links
+         SET child_display_name = ?, display_name = ?, updated_at = ?
+         WHERE child_device_id = ?`,
+        [
+          normalizedDisplayName,
+          normalizedDisplayName,
+          now,
+          normalizedDeviceId,
+        ]
+      );
+      await this.run(
+        `UPDATE chat_messages_v2
+         SET sender_display_name_snapshot = ?
+         WHERE sender_member_id = ?`,
+        [normalizedDisplayName, normalizedMemberId]
+      );
+      await this.ensureDefaultFamilyPermissions(
+        normalizedFamilyId,
+        normalizedMemberId
+      );
+      await this.ensureFamilyConversationRecord(normalizedFamilyId, { now });
+
+      const member = await this.get(
+        `SELECT
+           id,
+           family_id AS familyId,
+           display_name AS displayName,
+           role,
+           avatar_key AS avatarKey,
+           is_active AS isActive,
+           created_at AS createdAt,
+           updated_at AS updatedAt
+         FROM family_members
+         WHERE id = ? AND family_id = ? AND is_active = 1
+         LIMIT 1`,
+        [normalizedMemberId, normalizedFamilyId]
+      );
+      return {
+        family: await this.getFamilyById(normalizedFamilyId),
+        member,
+        binding: await this.getFamilyDeviceMembership(
+          normalizedFamilyId,
+          normalizedDeviceId
+        ),
+      };
+    });
+  }
+
   async getChatFamilyMembers(familyId) {
     return this.all(
       `SELECT
@@ -1355,6 +1993,324 @@ class DatabaseManager {
        ORDER BY fd.display_name, fd.device_id`,
       [familyId, LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS]
     );
+  }
+
+  async getFamilyLegacyMigrationCandidates(familyId) {
+    const rows = await this.all(
+      `SELECT
+         fm.id AS memberId,
+         fm.family_id AS familyId,
+         fm.display_name AS displayName,
+         fm.role,
+         fm.avatar_key AS avatarKey,
+         fm.created_at AS memberCreatedAt,
+         fm.updated_at AS memberUpdatedAt,
+         fd.id AS bindingId,
+         fd.device_id AS deviceId,
+         fd.display_name AS deviceDisplayName,
+         fd.platform,
+         fd.last_seen_at AS lastSeenAt,
+         fd.member_binding_source AS memberBindingSource
+       FROM family_members fm
+       JOIN family_devices fd
+         ON fd.family_id = fm.family_id
+        AND fd.member_id = fm.id
+        AND fd.is_active = 1
+        AND fd.member_binding_source <> 'EXPLICIT'
+       WHERE fm.family_id = ?
+         AND fm.is_active = 1
+         AND EXISTS (
+           SELECT 1
+           FROM device_links dl
+           WHERE dl.is_active = 1
+             AND dl.updated_at >= strftime('%s', 'now') - ?
+             AND (
+               dl.parent_device_id = fd.device_id
+               OR dl.child_device_id = fd.device_id
+             )
+         )
+       ORDER BY CASE fm.role WHEN 'PARENT' THEN 0 WHEN 'GUARDIAN' THEN 1 ELSE 2 END,
+                fm.display_name,
+                fd.display_name,
+                fd.device_id`,
+      [familyId, LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS]
+    );
+
+    const candidates = new Map();
+    for (const row of rows) {
+      let candidate = candidates.get(row.memberId);
+      if (!candidate) {
+        candidate = {
+          member: {
+            id: row.memberId,
+            familyId: row.familyId,
+            displayName: row.displayName,
+            role: row.role,
+            avatarKey: row.avatarKey || null,
+            createdAt: row.memberCreatedAt,
+            updatedAt: row.memberUpdatedAt,
+          },
+          devices: [],
+        };
+        candidates.set(row.memberId, candidate);
+      }
+      candidate.devices.push({
+        id: row.bindingId,
+        familyId: row.familyId,
+        memberId: row.memberId,
+        deviceId: row.deviceId,
+        displayName: row.deviceDisplayName,
+        platform: row.platform || null,
+        lastSeenAt: row.lastSeenAt || null,
+        memberBindingSource: row.memberBindingSource,
+      });
+    }
+    return Array.from(candidates.values());
+  }
+
+  async confirmLegacyFamilyMemberProfile({
+    familyId,
+    memberId,
+    displayName,
+    role,
+    avatarKey = null,
+  }) {
+    const normalizedFamilyId = String(familyId || "").trim();
+    const normalizedMemberId = String(memberId || "").trim();
+    if (!normalizedFamilyId || !normalizedMemberId) return null;
+
+    return this.withTransaction(async () => {
+      const candidate = await this.get(
+        `SELECT fm.id
+         FROM family_members fm
+         WHERE fm.id = ?
+           AND fm.family_id = ?
+           AND fm.is_active = 1
+           AND EXISTS (
+             SELECT 1
+             FROM family_devices fd
+             WHERE fd.family_id = fm.family_id
+               AND fd.member_id = fm.id
+               AND fd.is_active = 1
+               AND fd.member_binding_source <> 'EXPLICIT'
+               AND EXISTS (
+                 SELECT 1
+                 FROM device_links dl
+                 WHERE dl.is_active = 1
+                   AND dl.updated_at >= strftime('%s', 'now') - ?
+                   AND (
+                     dl.parent_device_id = fd.device_id
+                     OR dl.child_device_id = fd.device_id
+                   )
+               )
+           )
+         LIMIT 1`,
+        [
+          normalizedMemberId,
+          normalizedFamilyId,
+          LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS,
+        ]
+      );
+      if (!candidate) return null;
+
+      const devices = await this.all(
+        `SELECT device_id AS deviceId
+         FROM family_devices
+         WHERE family_id = ?
+           AND member_id = ?
+           AND is_active = 1
+           AND member_binding_source <> 'EXPLICIT'`,
+        [normalizedFamilyId, normalizedMemberId]
+      );
+      if (!devices.length) return null;
+
+      const deviceIds = devices.map((device) => device.deviceId);
+      const placeholders = deviceIds.map(() => "?").join(",");
+      const conflict = await this.get(
+        `SELECT device_id AS deviceId, family_id AS familyId, member_id AS memberId
+         FROM family_devices
+         WHERE device_id IN (${placeholders})
+           AND is_active = 1
+           AND member_binding_source = 'EXPLICIT'
+           AND NOT (family_id = ? AND member_id = ?)
+         LIMIT 1`,
+        [...deviceIds, normalizedFamilyId, normalizedMemberId]
+      );
+      if (conflict) {
+        const error = new Error(
+          "A device from this old profile already belongs to another confirmed person"
+        );
+        error.code =
+          conflict.familyId === normalizedFamilyId
+            ? "DEVICE_ALREADY_ONBOARDED"
+            : "DEVICE_IN_ANOTHER_FAMILY";
+        throw error;
+      }
+
+      const now = Date.now();
+      await this.run(
+        `UPDATE family_members
+         SET display_name = ?,
+             role = ?,
+             avatar_key = ?,
+             updated_at = ?
+         WHERE id = ? AND family_id = ? AND is_active = 1`,
+        [
+          displayName,
+          role,
+          avatarKey || null,
+          now,
+          normalizedMemberId,
+          normalizedFamilyId,
+        ]
+      );
+      await this.run(
+        `UPDATE family_devices
+         SET member_binding_source = 'EXPLICIT',
+             updated_at = ?
+         WHERE family_id = ?
+           AND member_id = ?
+           AND is_active = 1`,
+        [now, normalizedFamilyId, normalizedMemberId]
+      );
+      await this.run(
+        `UPDATE device_links
+         SET parent_display_name = ?, updated_at = ?
+         WHERE parent_device_id IN (${placeholders})`,
+        [displayName, now, ...deviceIds]
+      );
+      await this.run(
+        `UPDATE device_links
+         SET child_display_name = ?, display_name = ?, updated_at = ?
+         WHERE child_device_id IN (${placeholders})`,
+        [displayName, displayName, now, ...deviceIds]
+      );
+      await this.run(
+        `UPDATE chat_messages_v2
+         SET sender_display_name_snapshot = ?
+         WHERE sender_member_id = ?`,
+        [displayName, normalizedMemberId]
+      );
+
+      await this.ensureDefaultFamilyPermissions(
+        normalizedFamilyId,
+        normalizedMemberId
+      );
+      await this.ensureFamilyConversationRecord(normalizedFamilyId, { now });
+      return {
+        family: await this.getFamilyById(normalizedFamilyId),
+        member: (await this.getFamilyMembers(normalizedFamilyId)).find(
+          (member) => member.id === normalizedMemberId
+        ),
+        devices: (await this.getFamilyDevices(normalizedFamilyId)).filter(
+          (device) => device.memberId === normalizedMemberId
+        ),
+      };
+    });
+  }
+
+  async transferFamilyDeviceToMember({
+    familyId,
+    deviceId,
+    targetMemberId,
+  }) {
+    const normalizedFamilyId = String(familyId || "").trim();
+    const normalizedDeviceId = String(deviceId || "").trim();
+    const normalizedTargetMemberId = String(targetMemberId || "").trim();
+    if (!normalizedFamilyId || !normalizedDeviceId || !normalizedTargetMemberId) {
+      return null;
+    }
+
+    return this.withTransaction(async () => {
+      const current = await this.get(
+        `SELECT
+           fd.member_id AS sourceMemberId,
+           source.role AS sourceRole,
+           target.id AS targetMemberId,
+           target.role AS targetRole,
+           target.display_name AS targetDisplayName
+         FROM family_devices fd
+         JOIN family_members source
+           ON source.id = fd.member_id
+          AND source.family_id = fd.family_id
+          AND source.is_active = 1
+         JOIN family_members target
+           ON target.id = ?
+          AND target.family_id = fd.family_id
+          AND target.is_active = 1
+         WHERE fd.family_id = ?
+           AND fd.device_id = ?
+           AND fd.is_active = 1
+           AND fd.member_binding_source = 'EXPLICIT'
+         LIMIT 1`,
+        [normalizedTargetMemberId, normalizedFamilyId, normalizedDeviceId]
+      );
+      if (!current) return null;
+
+      const sameRole = current.sourceRole === current.targetRole;
+      const bothAdults =
+        ["PARENT", "GUARDIAN"].includes(current.sourceRole) &&
+        ["PARENT", "GUARDIAN"].includes(current.targetRole);
+      if (!sameRole && !bothAdults) {
+        const error = new Error(
+          "A child phone cannot be transferred to an adult profile or vice versa"
+        );
+        error.code = "DEVICE_TRANSFER_ROLE_MISMATCH";
+        throw error;
+      }
+
+      if (current.sourceMemberId !== normalizedTargetMemberId) {
+        const now = Date.now();
+        await this.run(
+          `UPDATE family_devices
+           SET member_id = ?,
+               display_name = ?,
+               member_binding_source = 'EXPLICIT',
+               updated_at = ?
+           WHERE family_id = ? AND device_id = ? AND is_active = 1`,
+          [
+            normalizedTargetMemberId,
+            current.targetDisplayName,
+            now,
+            normalizedFamilyId,
+            normalizedDeviceId,
+          ]
+        );
+        await this.run(
+          `UPDATE device_links
+           SET parent_display_name = ?, updated_at = ?
+           WHERE parent_device_id = ?`,
+          [current.targetDisplayName, now, normalizedDeviceId]
+        );
+        await this.run(
+          `UPDATE device_links
+           SET child_display_name = ?, display_name = ?, updated_at = ?
+           WHERE child_device_id = ?`,
+          [
+            current.targetDisplayName,
+            current.targetDisplayName,
+            now,
+            normalizedDeviceId,
+          ]
+        );
+        await this.ensureDefaultFamilyPermissions(
+          normalizedFamilyId,
+          normalizedTargetMemberId
+        );
+        await this.ensureFamilyConversationRecord(normalizedFamilyId, { now });
+      }
+
+      return {
+        family: await this.getFamilyById(normalizedFamilyId),
+        member: (await this.getFamilyMembers(normalizedFamilyId)).find(
+          (member) => member.id === normalizedTargetMemberId
+        ),
+        binding: await this.getFamilyDeviceMembership(
+          normalizedFamilyId,
+          normalizedDeviceId
+        ),
+      };
+    });
   }
 
   async attachFamilyDeviceToMember({
@@ -1503,11 +2459,16 @@ class DatabaseManager {
 
   async getFamilyDeviceMembership(familyId, deviceId) {
     return this.get(
-      `SELECT
-         fd.family_id AS familyId,
-         fd.member_id AS memberId,
-         fd.device_id AS deviceId,
-         fm.role AS memberRole
+       `SELECT
+          fd.id AS id,
+          fd.family_id AS familyId,
+          fd.member_id AS memberId,
+          fd.device_id AS deviceId,
+          fd.display_name AS displayName,
+          fd.platform AS platform,
+          fd.last_seen_at AS lastSeenAt,
+          fd.member_binding_source AS memberBindingSource,
+          fm.role AS memberRole
        FROM family_devices fd
        JOIN family_members fm ON fm.id = fd.member_id
        JOIN families f ON f.id = fd.family_id

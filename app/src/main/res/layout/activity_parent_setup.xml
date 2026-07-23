@@ -164,6 +164,25 @@
                     android:maxLines="1" />
             </com.google.android.material.textfield.TextInputLayout>
 
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/familyNameInputLayout"
+                style="@style/Widget.ChildWatch.TextInputLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:hint="Название семьи">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/familyNameInput"
+                    style="@style/Widget.ChildWatch.TextInputEditText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionNext"
+                    android:inputType="textCapWords"
+                    android:maxLines="1"
+                    android:text="Моя семья" />
+            </com.google.android.material.textfield.TextInputLayout>
+
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -223,7 +242,7 @@
                 android:layout_height="wrap_content"
                 android:layout_marginTop="24dp"
                 android:minHeight="52dp"
-                android:text="Создать профиль"
+                android:text="Создать семью"
                 android:textAllCaps="false" />
 
             <com.google.android.material.button.MaterialButton
@@ -232,7 +251,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="4dp"
-                android:text="Пропустить пока"
+                android:text="У меня есть приглашение"
                 android:textAllCaps="false" />
         </LinearLayout>
     </androidx.core.widget.NestedScrollView>

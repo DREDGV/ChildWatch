@@ -9,7 +9,9 @@ import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.os.Build
+import android.os.Handler
 import android.os.IBinder
+import android.os.Looper
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.ServiceCompat
@@ -51,6 +53,11 @@ class PhotoCaptureService : Service() {
             "ru.example.parentwatch.PREPARE_CAMERA_FOREGROUND"
         private const val MAX_PREVIEW_DIMENSION = 960
         private const val PREVIEW_JPEG_QUALITY = 72
+        private const val DISPATCH_DEDUP_WINDOW_MS = 60_000L
+        private const val MAX_DISPATCH_HISTORY = 64
+        private val dispatchLock = Any()
+        private val dispatchedRequests = LinkedHashMap<String, Long>()
+        @Volatile private var activeInstance: PhotoCaptureService? = null
 
         fun start(context: Context, serverUrl: String, deviceId: String) {
             val intent = Intent(context, PhotoCaptureService::class.java).apply {
@@ -74,6 +81,10 @@ class PhotoCaptureService : Service() {
             targetDevice: String,
             cameraFacing: String
         ) {
+            if (!claimDispatch(requestId)) {
+                Log.d(TAG, "Duplicate photo dispatch suppressed before service start: $requestId")
+                return
+            }
             val intent = Intent(context, PhotoCaptureService::class.java).apply {
                 putExtra(EXTRA_SERVER_URL, serverUrl)
                 putExtra(EXTRA_DEVICE_ID, deviceId)
@@ -82,10 +93,66 @@ class PhotoCaptureService : Service() {
                 putExtra(EXTRA_CAMERA_FACING, cameraFacing)
             }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
+            try {
+                val runningService = activeInstance
+                if (runningService != null) {
+                    Handler(Looper.getMainLooper()).post {
+                        if (activeInstance === runningService) {
+                            runningService.dispatchInProcess(
+                                serverUrl = serverUrl,
+                                deviceId = deviceId,
+                                requestId = requestId,
+                                targetDevice = targetDevice,
+                                cameraFacing = cameraFacing
+                            )
+                        } else {
+                            reportDispatchError(
+                                requestId,
+                                IllegalStateException("Photo service stopped before dispatch")
+                            )
+                        }
+                    }
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            } catch (error: Exception) {
+                reportDispatchError(requestId, error)
+                throw error
+            }
+        }
+
+        private fun claimDispatch(requestId: String): Boolean = synchronized(dispatchLock) {
+            if (requestId.isBlank()) return@synchronized false
+            val now = System.currentTimeMillis()
+            val previous = dispatchedRequests[requestId]
+            if (previous != null && now - previous < DISPATCH_DEDUP_WINDOW_MS) {
+                return@synchronized false
+            }
+            dispatchedRequests[requestId] = now
+            while (dispatchedRequests.size > MAX_DISPATCH_HISTORY) {
+                val oldest = dispatchedRequests.entries.firstOrNull()?.key ?: break
+                dispatchedRequests.remove(oldest)
+            }
+            true
+        }
+
+        private fun reportDispatchError(requestId: String, error: Throwable) {
+            val reason = if (
+                error is SecurityException ||
+                error.javaClass.simpleName.contains("ForegroundServiceStartNotAllowed", true)
+            ) {
+                "camera_background_restricted"
             } else {
-                context.startService(intent)
+                "photo_service_start_failed"
+            }
+            runCatching {
+                WebSocketManager.getClient()?.emit("photo_error", JSONObject().apply {
+                    put("requestId", requestId)
+                    put("error", reason)
+                    put("timestamp", System.currentTimeMillis())
+                })
             }
         }
 
@@ -107,6 +174,11 @@ class PhotoCaptureService : Service() {
     private val activePhotoRequests = mutableSetOf<String>()
     private val recentPhotoRequests = ArrayDeque<String>()
     private val recentPhotoRequestSet = mutableSetOf<String>()
+    private enum class PhotoRequestClaim {
+        STARTED,
+        DUPLICATE,
+        BUSY
+    }
     private val commandListener: (String, JSONObject?) -> Unit = { command, data ->
         when (command) {
             "take_photo" -> {
@@ -132,6 +204,20 @@ class PhotoCaptureService : Service() {
 
         networkClient = NetworkClient(this)
         effectiveContextResolver = ChildEffectiveContextResolver(this)
+        activeInstance = this
+    }
+
+    private fun dispatchInProcess(
+        serverUrl: String,
+        deviceId: String,
+        requestId: String,
+        targetDevice: String,
+        cameraFacing: String
+    ) {
+        this.serverUrl = serverUrl
+        this.deviceId = deviceId
+        setupWebSocketListener()
+        handlePhotoRequest(requestId, targetDevice, cameraFacing)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -271,6 +357,7 @@ class PhotoCaptureService : Service() {
         val myDeviceId = deviceId ?: ""
         if (targetDevice.isNotEmpty() && targetDevice != myDeviceId) {
             Log.d(TAG, "Photo request not for this device (target=$targetDevice, me=$myDeviceId)")
+            sendPhotoError(requestId, "photo_target_mismatch")
             return
         }
 
@@ -281,9 +368,18 @@ class PhotoCaptureService : Service() {
             return
         }
 
-        if (!beginPhotoRequest(requestId)) {
-            Log.d(TAG, "Duplicate or already handled photo request ignored: $requestId")
-            return
+        when (beginPhotoRequest(requestId)) {
+            PhotoRequestClaim.DUPLICATE -> {
+                Log.d(TAG, "Duplicate or already handled photo request ignored: $requestId")
+                notifyPhotoRequestAccepted(requestId)
+                return
+            }
+            PhotoRequestClaim.BUSY -> {
+                Log.w(TAG, "Camera already has another active photo request")
+                sendPhotoError(requestId, "camera_in_use")
+                return
+            }
+            PhotoRequestClaim.STARTED -> Unit
         }
 
         // The parent should not have to guess whether the command merely
@@ -357,13 +453,16 @@ class PhotoCaptureService : Service() {
         }
     }
 
-    private fun beginPhotoRequest(requestId: String): Boolean {
+    private fun beginPhotoRequest(requestId: String): PhotoRequestClaim {
         synchronized(requestLock) {
             if (requestId in activePhotoRequests || requestId in recentPhotoRequestSet) {
-                return false
+                return PhotoRequestClaim.DUPLICATE
+            }
+            if (activePhotoRequests.isNotEmpty()) {
+                return PhotoRequestClaim.BUSY
             }
             activePhotoRequests.add(requestId)
-            return true
+            return PhotoRequestClaim.STARTED
         }
     }
 
@@ -597,6 +696,9 @@ class PhotoCaptureService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        if (activeInstance === this) {
+            activeInstance = null
+        }
         Log.d(TAG, "PhotoCaptureService destroyed")
         WebSocketManager.removeCommandListener(commandListener)
         listenersRegistered = false

@@ -52,8 +52,10 @@ import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.contacts.ContactIcons
 import ru.example.parentwatch.session.ChildEffectiveContextResolver
 import ru.example.parentwatch.session.ChildEffectiveContextProvider
+import ru.example.parentwatch.session.ChildFamilyDirectoryRepository
 import ru.example.parentwatch.session.ChildParticipantNameResolver
 import ru.example.parentwatch.network.ParentLocationData
+import ru.childwatch.shared.family.FamilyRole
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
@@ -125,6 +127,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var autoRefreshJob: Job? = null
     private var loadLocationsJob: Job? = null
     private var autoFitEnabled = true
+    private var isStatsCardCollapsed = false
     private var liveModeUntilMs: Long = 0L
     private var lastLinkedSourceRes: Int? = null
     private var lastMyPoint: GeoPoint? = null
@@ -205,9 +208,11 @@ class DualLocationMapActivity : AppCompatActivity() {
             limitedMode = otherId.isBlank()
 
             setupToolbar()
+            positionMapControlsBelowHeader()
             setupMap()
             setupRefreshButton()
             setupLiveModeButton()
+            setupStatsCard()
             setupCenterButtons()
             setupHistoryButton()
             setupTimelineButton()
@@ -291,6 +296,25 @@ class DualLocationMapActivity : AppCompatActivity() {
         binding.toolbar.subtitle = if (limitedMode) getString(R.string.map_limited_mode_subtitle) else null
     }
 
+    override fun onSupportNavigateUp(): Boolean {
+        finish()
+        return true
+    }
+
+    private fun positionMapControlsBelowHeader() {
+        binding.root.post {
+            if (isFinishing || isDestroyed) return@post
+            val params = binding.mapTopControls.layoutParams as? ViewGroup.MarginLayoutParams
+                ?: return@post
+            val spacing = (12 * resources.displayMetrics.density).toInt()
+            val requiredTopMargin = binding.appBarLayout.bottom + spacing
+            if (params.topMargin != requiredTopMargin) {
+                params.topMargin = requiredTopMargin
+                binding.mapTopControls.layoutParams = params
+            }
+        }
+    }
+
     private fun setupMap() {
         try {
             mapView = binding.mapView
@@ -299,6 +323,9 @@ class DualLocationMapActivity : AppCompatActivity() {
             mapView.controller.setZoom(15.0)
             mapView.setOnTouchListener { _, event ->
                 if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_MOVE) {
+                    if (event.action == MotionEvent.ACTION_DOWN && binding.statsCard.visibility == View.VISIBLE) {
+                        collapseStatsCard()
+                    }
                     if (autoFitEnabled) {
                         autoFitEnabled = false
                         updateAutoFitUi()
@@ -319,6 +346,20 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun setupRefreshButton() { binding.refreshButton.setOnClickListener { loadLocations() } }
+
+    private fun setupStatsCard() {
+        binding.collapseStatsButton.setOnClickListener { collapseStatsCard() }
+    }
+
+    private fun collapseStatsCard() {
+        isStatsCardCollapsed = true
+        binding.statsCard.visibility = View.GONE
+    }
+
+    private fun expandStatsCard() {
+        isStatsCardCollapsed = false
+        binding.statsCard.visibility = View.VISIBLE
+    }
 
     private fun setupLiveModeButton() {
         updateLiveModeUi()
@@ -679,6 +720,10 @@ class DualLocationMapActivity : AppCompatActivity() {
         binding.errorCard.visibility = View.GONE
         loadLocationsJob = lifecycleScope.launch {
             try {
+                if (myRole == ROLE_CHILD) {
+                    runCatching { participantNameResolver.refreshCanonicalDirectory() }
+                        .onFailure { Log.w(TAG, "Canonical family directory refresh failed", it) }
+                }
                 val cachedMy = loadCachedLocation(cacheKeyMy())?.takeIfUsable()
                 val cachedOther = if (limitedMode) null else loadCachedLocation(cacheKeyOther())?.takeIfUsable()
                 if (cachedMy != null || cachedOther != null) {
@@ -849,6 +894,11 @@ class DualLocationMapActivity : AppCompatActivity() {
                 accentColor = if (myRole == ROLE_CHILD) participantAccentColor(otherId, ROLE_PARENT) else childAccentColor(),
                 title = otherMarkerTitle()
             )
+            setOnMarkerClickListener { marker, _ ->
+                marker.showInfoWindow()
+                expandStatsCard()
+                true
+            }
         }
         connectionLine = Polyline().apply {
             addPoint(GeoPoint(myLat, myLon))
@@ -965,10 +1015,10 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun buildFamilyMarkerTitle(link: ru.example.parentwatch.network.LinkedParentLink): String {
-        return listOf(link.parentDisplayName, link.displayName, link.parentDeviceName, link.parentDeviceId)
-            .mapNotNull { it?.trim() }
-            .firstOrNull { it.isNotBlank() }
-            .orEmpty()
+        return participantNameResolver.resolveParentDisplayName(
+            parentDeviceId = link.parentDeviceId,
+            legacyCandidates = listOf(link.parentDisplayName, link.displayName)
+        ) ?: getString(R.string.family_member_name_missing)
     }
 
     private fun isActiveFamilyLink(link: ru.example.parentwatch.network.LinkedParentLink): Boolean {
@@ -1001,6 +1051,37 @@ class DualLocationMapActivity : AppCompatActivity() {
             .filter { it.isNotBlank() }
             .toSet()
 
+        // One canonical family member produces one marker even when the
+        // person has reinstalled the app or owns several phones.
+        val canonicalDirectory = ChildFamilyDirectoryRepository(this@DualLocationMapActivity).loadCached()
+        val canonicalMarkers = mutableListOf<FamilyMarkerCandidate>()
+        canonicalDirectory?.people.orEmpty()
+            .asSequence()
+            .filter { it.member.role == FamilyRole.PARENT || it.member.role == FamilyRole.GUARDIAN }
+            .forEach { person ->
+                val preferredDeviceId = person.activeDevices
+                    .firstOrNull { it.deviceId == resolvedOtherId || it.deviceId == otherId }
+                    ?.deviceId
+                val device = person.primaryDevice(preferredDeviceId) ?: return@forEach
+                if (device.deviceId in excludedParentIds) return@forEach
+                val location = try {
+                    networkClient.getLatestParentLocation(device.deviceId)?.takeIfUsable()
+                } catch (_: Exception) {
+                    null
+                } ?: return@forEach
+                canonicalMarkers += FamilyMarkerCandidate(
+                    deviceId = device.deviceId,
+                    title = person.member.displayName,
+                    latitude = location.latitude,
+                    longitude = location.longitude,
+                    timestamp = location.timestamp,
+                    iconId = ContactIcons.PARENT
+                )
+            }
+        if (canonicalMarkers.isNotEmpty()) return@withContext canonicalMarkers
+
+        // Compatibility fallback for an old/offline server. Human labels are
+        // still filtered by ChildParticipantNameResolver; ids are never shown.
         val response = runCatching { networkClient.getLinkedParents(childDeviceId) }.getOrNull()
         val linkedParents = response?.body()?.parents.orEmpty()
         if (linkedParents.isEmpty()) return@withContext emptyList()
@@ -1086,7 +1167,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         binding.etaText.text = etaText ?: "--"
         binding.movementStatusText.text = getString(resolveMovementStatusText(linkedLocation))
         binding.pointMetaText.text = buildPointMetaText(linkedLocation)
-        binding.statsCard.visibility = View.VISIBLE
+        binding.statsCard.visibility = if (isStatsCardCollapsed) View.GONE else View.VISIBLE
     }
 
     private fun resolveMovementStatusText(linkedLocation: ParentLocationData): Int {
@@ -1522,7 +1603,9 @@ class DualLocationMapActivity : AppCompatActivity() {
 
     private fun otherMarkerTitle(): String = when (myRole) {
         ROLE_PARENT -> getString(R.string.map_title_child)
-        ROLE_CHILD -> participantNameResolver.resolveActiveParentDisplayName()
+        ROLE_CHILD -> participantNameResolver.resolveParentDisplayName(
+            resolvedOtherId.ifBlank { otherId }
+        ) ?: participantNameResolver.resolveActiveParentDisplayName()
         else -> getString(R.string.map_title_other_device)
     }
 
@@ -1641,8 +1724,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
         val myPart = myTimestamp?.let { "${selfMarkerTitle()}: ${formatRelativeTimestamp(it)}" }
         val otherPart = otherTimestamp?.let { "${otherMarkerTitle()}: ${formatRelativeTimestamp(it)}" }
-        val livePart = if (isLiveModeActive()) getString(R.string.map_live_mode_active) else null
-        binding.toolbar.subtitle = listOfNotNull(myPart, otherPart, livePart).joinToString(" | ").ifBlank { null }
+        binding.toolbar.subtitle = listOfNotNull(myPart, otherPart).joinToString(" | ").ifBlank { null }
     }
 
     private fun formatRelativeTimestamp(timestamp: Long): String {
@@ -2019,11 +2101,6 @@ class DualLocationMapActivity : AppCompatActivity() {
         super.onDestroy()
         autoRefreshJob?.cancel()
         loadLocationsJob?.cancel()
-    }
-
-    override fun onSupportNavigateUp(): Boolean {
-        finish()
-        return true
     }
 
     private fun ParentLocation.toNetworkModel(): ParentLocationData {

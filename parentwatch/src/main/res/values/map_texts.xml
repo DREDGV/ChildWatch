@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="family_member_name_missing">Имя не указано</string>
     <string name="map_unknown_error">неизвестная ошибка</string>
     <string name="map_startup_failed">Не удалось открыть карту</string>
     <string name="map_startup_failed_with_reason">Не удалось открыть карту: %1$s</string>
@@ -45,6 +46,7 @@
     <string name="map_title_me">Я</string>
     <string name="map_title_child">Ребенок</string>
     <string name="map_title_parent">Родитель</string>
+    <string name="map_hide_details">Скрыть сведения</string>
     <string name="map_title_other_device">Другое устройство</string>
 
     <string name="map_location_unavailable">Локация недоступна</string>

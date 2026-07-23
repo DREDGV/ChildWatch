@@ -36,8 +36,12 @@ import ru.example.parentwatch.utils.ChildDeviceProfileManager
 import ru.example.parentwatch.utils.ServerUrlResolver
 import ru.example.parentwatch.session.ChildActiveSessionStore
 import ru.example.parentwatch.session.ChildEffectiveContextProvider
+import ru.example.parentwatch.session.ChildFamilyDirectoryRepository
+import ru.example.parentwatch.session.ChildFamilyOnboardingStore
 import ru.example.parentwatch.session.ChildParticipantNameResolver
 import ru.example.parentwatch.session.ChildProfileRuntimeCoordinator
+import ru.childwatch.shared.onboarding.FamilyOnboardingEntryDecision
+import ru.childwatch.shared.onboarding.FamilyOnboardingEntryPolicy
 import android.view.MotionEvent
 import android.view.View
 import org.json.JSONArray
@@ -91,7 +95,9 @@ class MainActivity : AppCompatActivity() {
     private val profileRuntimeCoordinator by lazy { ChildProfileRuntimeCoordinator(this) }
     private var chatManagerAdapter: ChatManagerAdapter? = null
     private val networkClient by lazy { NetworkClient(this) }
+    private val familyOnboardingStore by lazy { ChildFamilyOnboardingStore(this) }
     private var badgeRefreshJob: Job? = null
+    private var familyOnboardingCheckStarted = false
 
     // Permission launchers
     private val locationPermissionLauncher = registerForActivityResult(
@@ -154,7 +160,6 @@ class MainActivity : AppCompatActivity() {
         updateQuickProfileSummary()
         updateUI()
         updateChatBadge()
-        ensureRuntimePermissions()
         
         // PhotoIntegration is deprecated - RemotePhotoService now handles this via WebSocketManager
         // initializePhotoIntegration()
@@ -165,6 +170,64 @@ class MainActivity : AppCompatActivity() {
             updateChatBadge()
             val chatIntent = Intent(this, ChatConversationsActivity::class.java)
             startActivity(chatIntent)
+        }
+
+        maybeLaunchFamilyOnboarding()
+    }
+
+    /**
+     * Existing installations keep working through their migrated relationship.
+     * A genuinely new phone must join a server-side person profile before use.
+     */
+    private fun maybeLaunchFamilyOnboarding() {
+        if (familyOnboardingCheckStarted) return
+        if (familyOnboardingStore.isCompleted()) {
+            familyOnboardingCheckStarted = true
+            ensureRuntimePermissions()
+            return
+        }
+        familyOnboardingCheckStarted = true
+
+        lifecycleScope.launch {
+            val membership = runCatching {
+                if (!networkClient.ensureOnboardingAuthentication()) null
+                else networkClient.getAuthenticatedIdentity()
+                    .takeIf { it.isSuccessful }
+                    ?.body()
+                    ?.memberships
+                    .orEmpty()
+                    .firstOrNull { it.member.isActive }
+            }.onFailure { error ->
+                Log.w("MainActivity", "Unable to verify family onboarding", error)
+            }.getOrNull()
+
+            when (
+                FamilyOnboardingEntryPolicy.decide(
+                    localCompleted = familyOnboardingStore.isCompleted(),
+                    hasServerMembership = membership != null,
+                    hasLegacyParentLink = familyOnboardingStore.hasLegacyParentLink()
+                )
+            ) {
+                FamilyOnboardingEntryDecision.COMPLETE_FROM_SERVER -> {
+                    familyOnboardingStore.markCompleted(
+                        membership!!.familyId,
+                        membership.memberId
+                    )
+                    runCatching {
+                        ChildFamilyDirectoryRepository(this@MainActivity).refresh()
+                    }
+                    ensureRuntimePermissions()
+                }
+                FamilyOnboardingEntryDecision.OPEN_JOIN_WIZARD -> {
+                    if (!isFinishing && !isDestroyed) {
+                        startActivity(Intent(this@MainActivity, FamilyJoinActivity::class.java).apply {
+                            putExtra(FamilyJoinActivity.EXTRA_REQUIRED_ON_FIRST_RUN, true)
+                        })
+                    }
+                }
+                FamilyOnboardingEntryDecision.KEEP_COMPLETED,
+                FamilyOnboardingEntryDecision.PRESERVE_LEGACY_LINK -> ensureRuntimePermissions()
+            }
         }
     }
 
@@ -650,13 +713,13 @@ class MainActivity : AppCompatActivity() {
                     val item = array.optJSONObject(index) ?: continue
                     val parentId = item.optString("parentDeviceId").trim()
                     if (parentId.isBlank()) continue
-                    val displayName = item.optString("displayName").trim()
-                    val deviceName = item.optString("parentDeviceName").trim()
-                    val label = when {
-                        displayName.isNotBlank() -> displayName
-                        deviceName.isNotBlank() -> deviceName
-                        else -> formatProfileId(parentId)
-                    }
+                    val label = participantNameResolver.resolveParentDisplayName(
+                        parentDeviceId = parentId,
+                        legacyCandidates = listOf(
+                            item.optString("parentDisplayName").trim(),
+                            item.optString("displayName").trim()
+                        )
+                    ) ?: getString(R.string.family_member_name_missing)
                     put(parentId, label)
                 }
             }
@@ -763,6 +826,11 @@ class MainActivity : AppCompatActivity() {
         ensurePhotoCaptureService()
         ensureChatBackgroundService()
         updateQuickProfileSummary()
+        lifecycleScope.launch {
+            if (participantNameResolver.refreshCanonicalDirectory()) {
+                updateQuickProfileSummary()
+            }
+        }
         updateChatBadge()
         startBadgeRefreshLoop()
     }

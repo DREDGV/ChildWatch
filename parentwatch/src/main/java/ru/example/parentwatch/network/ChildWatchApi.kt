@@ -2,6 +2,12 @@ package ru.example.parentwatch.network
 
 import retrofit2.Response
 import retrofit2.http.*
+import ru.childwatch.shared.onboarding.FamilyBootstrapRequest
+import ru.childwatch.shared.onboarding.FamilyInvitationAcceptRequest
+import ru.childwatch.shared.onboarding.FamilyInvitationCreateRequest
+import ru.childwatch.shared.onboarding.FamilyInvitationResponse
+import ru.childwatch.shared.onboarding.FamilyOnboardingResultResponse
+import ru.childwatch.shared.onboarding.FamilyOnboardingSimpleResponse
 import ru.childwatch.shared.chat.ChatV2ConversationsResponse
 import ru.childwatch.shared.chat.ChatV2DirectConversationRequest
 import ru.childwatch.shared.chat.ChatV2DirectConversationResponse
@@ -15,6 +21,49 @@ import ru.childwatch.shared.chat.ChatV2SendMessageResponse
  * Retrofit API interface for ChildWatch server communication
  */
 interface ChildWatchApi {
+
+    /** Canonical authenticated family identity for this physical device. */
+    @GET("api/me")
+    suspend fun getAuthenticatedIdentity(): Response<AuthenticatedIdentityResponse>
+
+    @POST("api/family-onboarding/bootstrap")
+    suspend fun bootstrapFamily(
+        @Body request: FamilyBootstrapRequest
+    ): Response<FamilyOnboardingResultResponse>
+
+    @POST("api/family-onboarding/invitations")
+    suspend fun createFamilyInvitation(
+        @Body request: FamilyInvitationCreateRequest
+    ): Response<FamilyInvitationResponse>
+
+    @GET("api/family-onboarding/invitations/{token}")
+    suspend fun previewFamilyInvitation(
+        @Path("token") token: String
+    ): Response<FamilyInvitationResponse>
+
+    @POST("api/family-onboarding/invitations/{token}/accept")
+    suspend fun acceptFamilyInvitation(
+        @Path("token") token: String,
+        @Body request: FamilyInvitationAcceptRequest
+    ): Response<FamilyOnboardingResultResponse>
+
+    @DELETE("api/family-onboarding/families/{familyId}/invitations/{invitationId}")
+    suspend fun revokeFamilyInvitation(
+        @Path("familyId") familyId: String,
+        @Path("invitationId") invitationId: String
+    ): Response<FamilyOnboardingSimpleResponse>
+
+    /** Human family profiles. Device ids are resolved separately through bindings. */
+    @GET("api/families/{familyId}/members")
+    suspend fun getFamilyMembers(
+        @Path("familyId") familyId: String
+    ): Response<FamilyMembersResponse>
+
+    /** Device-to-person bindings for a canonical family. */
+    @GET("api/families/{familyId}/devices")
+    suspend fun getFamilyDevices(
+        @Path("familyId") familyId: String
+    ): Response<FamilyDevicesResponse>
 
     /**
      * Get latest location of a child device
@@ -152,6 +201,96 @@ data class DeviceInfo(
     val deviceName: String,
     val deviceType: String,
     val appVersion: String
+)
+
+data class AuthenticatedIdentityResponse(
+    val success: Boolean,
+    val device: AuthenticatedDeviceData,
+    val memberships: List<AuthenticatedMembershipData> = emptyList()
+)
+
+data class AuthenticatedDeviceData(
+    val deviceId: String,
+    val displayName: String,
+    val platform: String? = null,
+    val appVersion: String? = null
+)
+
+data class AuthenticatedMembershipData(
+    val familyId: String,
+    val memberId: String,
+    val family: AuthenticatedFamilyData,
+    val member: AuthenticatedMemberData,
+    val binding: AuthenticatedBindingData
+)
+
+data class AuthenticatedFamilyData(
+    val id: String,
+    val name: String,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
+)
+
+data class AuthenticatedMemberData(
+    val id: String,
+    val familyId: String,
+    val displayName: String,
+    val role: String,
+    val avatarKey: String? = null,
+    val isActive: Boolean = true,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
+)
+
+data class AuthenticatedBindingData(
+    val id: String,
+    val familyId: String,
+    val memberId: String,
+    val deviceId: String,
+    val displayName: String,
+    val platform: String? = null,
+    val lastSeenAt: Long? = null,
+    val memberBindingSource: String? = null,
+    val isActive: Boolean = true,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
+)
+
+data class FamilyMembersResponse(
+    val success: Boolean,
+    val familyId: String,
+    val members: List<FamilyMemberData> = emptyList()
+)
+
+data class FamilyMemberData(
+    val id: String,
+    val familyId: String,
+    val displayName: String,
+    val role: String,
+    val avatarKey: String? = null,
+    val isActive: Int = 1,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
+)
+
+data class FamilyDevicesResponse(
+    val success: Boolean,
+    val familyId: String,
+    val devices: List<FamilyDeviceData> = emptyList()
+)
+
+data class FamilyDeviceData(
+    val id: String,
+    val familyId: String,
+    val memberId: String,
+    val deviceId: String,
+    val displayName: String,
+    val platform: String? = null,
+    val lastSeenAt: Long? = null,
+    val memberBindingSource: String? = null,
+    val isActive: Int = 1,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L
 )
 
 data class DeviceStatusResponse(

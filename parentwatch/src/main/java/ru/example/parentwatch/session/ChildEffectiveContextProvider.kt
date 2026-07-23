@@ -83,6 +83,32 @@ class ChildEffectiveContextProvider private constructor(context: Context) : Effe
         return updated
     }
 
+    /**
+     * Enrich the device-scoped session with the canonical server family identity.
+     * Device ids remain routing keys; member ids identify the people who own them.
+     */
+    @Synchronized
+    fun updateFamilyIdentity(
+        familyId: String?,
+        selfMemberId: String?,
+        focusedMemberId: String?
+    ): ActiveContext? {
+        val existing = current() ?: return null
+        val normalizedFamilyId = familyId?.trim()?.takeIf(String::isNotBlank)
+        val normalizedSelfMemberId = selfMemberId?.trim()?.takeIf(String::isNotBlank)
+        val normalizedFocusedMemberId = focusedMemberId?.trim()?.takeIf(String::isNotBlank)
+            ?.takeIf { !existing.targetDeviceId.isNullOrBlank() }
+        val updated = existing.copy(
+            familyId = normalizedFamilyId ?: existing.familyId,
+            selfMemberId = normalizedSelfMemberId ?: existing.selfMemberId,
+            focusedMemberId = normalizedFocusedMemberId ?: existing.focusedMemberId,
+            source = ContextSource.CANONICAL,
+            updatedAt = System.currentTimeMillis()
+        )
+        persist(updated)
+        return updated
+    }
+
     fun storageNamespace(feature: String): String? {
         return current()?.storageNamespace(OWNER_SCOPE, feature)
     }

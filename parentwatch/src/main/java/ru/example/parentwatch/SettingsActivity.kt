@@ -166,7 +166,7 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         binding.showQrButton.text = getString(R.string.child_pairing_show_child_qr_button)
-        binding.scanParentQrButton.text = getString(R.string.child_pairing_scan_parent_backup_button)
+        binding.scanParentQrButton.text = getString(R.string.child_pairing_join_family_button)
 
         // Server URL preset buttons
         binding.useVpsBtn.setOnClickListener {
@@ -191,7 +191,7 @@ class SettingsActivity : AppCompatActivity() {
 
         // Scan Parent QR button
         binding.scanParentQrButton.setOnClickListener {
-            showBackupParentScanDialog()
+            startActivity(Intent(this, FamilyJoinActivity::class.java))
         }
 
         binding.selectActiveParentButton.setOnClickListener {
@@ -1136,14 +1136,16 @@ class SettingsActivity : AppCompatActivity() {
     ): String? {
         if (localParentId.isBlank()) return null
         val matchingParent = linkedParents.firstOrNull { it.parentDeviceId == localParentId }
-        return matchingParent?.let(::resolveParentDisplayName) ?: formatShortId(localParentId)
+        return matchingParent?.let(::resolveParentDisplayName)
+            ?: participantNameResolver.resolveParentDisplayName(localParentId)
+            ?: getString(R.string.family_member_name_missing)
     }
 
     private fun resolveParentDisplayName(link: LinkedParentLink): String {
-        return link.parentDisplayName?.takeIf { it.isNotBlank() }
-            ?: link.displayName?.takeIf { it.isNotBlank() }
-            ?: link.parentDeviceName?.takeIf { it.isNotBlank() }
-            ?: formatShortId(link.parentDeviceId)
+        return participantNameResolver.resolveParentDisplayName(
+            parentDeviceId = link.parentDeviceId,
+            legacyCandidates = listOf(link.parentDisplayName, link.displayName)
+        ) ?: getString(R.string.family_member_name_missing)
     }
 
     private fun cacheLinkedParentsSnapshot(
@@ -1162,7 +1164,7 @@ class SettingsActivity : AppCompatActivity() {
             labels.take(3).joinToString(", ") + " +${labels.size - 3}"
         }
         val activeLabel = resolveActiveParentLabel(localParentId, linkedParents)
-            ?: localParentId.takeIf { it.isNotBlank() }?.let(::formatShortId).orEmpty()
+            ?: getString(R.string.family_member_name_missing)
 
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
             .edit()

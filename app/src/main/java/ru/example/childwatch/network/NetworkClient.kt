@@ -12,6 +12,14 @@ import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
 import org.json.JSONObject
+import ru.childwatch.shared.onboarding.FamilyBootstrapRequest
+import ru.childwatch.shared.onboarding.FamilyInvitationAcceptRequest
+import ru.childwatch.shared.onboarding.FamilyInvitationCreateRequest
+import ru.childwatch.shared.onboarding.FamilyInvitationResponse
+import ru.childwatch.shared.onboarding.FamilyInvitationsResponse
+import ru.childwatch.shared.onboarding.FamilyOnboardingResultResponse
+import ru.childwatch.shared.onboarding.FamilyOnboardingSimpleResponse
+import ru.childwatch.shared.onboarding.FamilyProfileConfirmationRequest
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import java.io.File
 import java.io.IOException
@@ -1355,6 +1363,132 @@ class NetworkClient(private val context: Context) {
                 Log.e(TAG, "Error getting authenticated family identity", e)
                 retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
             }
+        }
+    }
+
+    suspend fun ensureOnboardingAuthentication(): Boolean = withContext(Dispatchers.IO) {
+        val serverUrl = getConfiguredServerUrl()?.takeIf { it.isNotBlank() }
+            ?: "http://31.28.27.96:3000".also(secureSettings::setServerUrl)
+        if (!getAuthToken().isNullOrBlank()) return@withContext true
+        registerDevice(serverUrl) != null
+    }
+
+    suspend fun bootstrapFamily(
+        request: FamilyBootstrapRequest
+    ): retrofit2.Response<FamilyOnboardingResultResponse> = withContext(Dispatchers.IO) {
+        onboardingCall { api -> api.bootstrapFamily(request) }
+    }
+
+    suspend fun confirmOwnFamilyProfile(
+        familyId: String,
+        request: FamilyProfileConfirmationRequest
+    ): retrofit2.Response<FamilyOnboardingResultResponse> = withContext(Dispatchers.IO) {
+        onboardingCall { api -> api.confirmOwnFamilyProfile(familyId.trim(), request) }
+    }
+
+    suspend fun createFamilyInvitation(
+        request: FamilyInvitationCreateRequest
+    ): retrofit2.Response<FamilyInvitationResponse> = withContext(Dispatchers.IO) {
+        onboardingCall { api -> api.createFamilyInvitation(request) }
+    }
+
+    suspend fun getActiveFamilyInvitations(
+        familyId: String
+    ): retrofit2.Response<FamilyInvitationsResponse> = withContext(Dispatchers.IO) {
+        onboardingCall { api -> api.getActiveFamilyInvitations(familyId.trim()) }
+    }
+
+    suspend fun revokeFamilyInvitation(
+        familyId: String,
+        invitationId: String
+    ): retrofit2.Response<FamilyOnboardingSimpleResponse> = withContext(Dispatchers.IO) {
+        onboardingCall {
+            api -> api.revokeFamilyInvitation(familyId.trim(), invitationId.trim())
+        }
+    }
+
+    suspend fun getFamilyLegacyMigrationCandidates(
+        familyId: String
+    ): retrofit2.Response<ru.childwatch.shared.onboarding.FamilyLegacyMigrationCandidatesResponse> =
+        withContext(Dispatchers.IO) {
+            onboardingCall { api ->
+                api.getFamilyLegacyMigrationCandidates(familyId.trim())
+            }
+        }
+
+    suspend fun confirmFamilyLegacyProfile(
+        familyId: String,
+        memberId: String,
+        request: ru.childwatch.shared.onboarding.FamilyLegacyProfileConfirmRequest
+    ): retrofit2.Response<ru.childwatch.shared.onboarding.FamilyLegacyProfileConfirmResponse> =
+        withContext(Dispatchers.IO) {
+            onboardingCall { api ->
+                api.confirmFamilyLegacyProfile(
+                    familyId.trim(),
+                    memberId.trim(),
+                    request
+                )
+            }
+        }
+
+    suspend fun transferFamilyDevice(
+        familyId: String,
+        deviceId: String,
+        targetMemberId: String
+    ): retrofit2.Response<FamilyOnboardingResultResponse> =
+        withContext(Dispatchers.IO) {
+            onboardingCall { api ->
+                api.transferFamilyDevice(
+                    familyId.trim(),
+                    deviceId.trim(),
+                    ru.childwatch.shared.onboarding.FamilyDeviceTransferRequest(
+                        targetMemberId = targetMemberId.trim(),
+                        confirmed = true
+                    )
+                )
+            }
+        }
+
+    suspend fun previewFamilyInvitation(
+        token: String
+    ): retrofit2.Response<FamilyInvitationResponse> = withContext(Dispatchers.IO) {
+        onboardingCall { api -> api.previewFamilyInvitation(token.trim()) }
+    }
+
+    suspend fun acceptFamilyInvitation(
+        token: String,
+        deviceName: String? = android.os.Build.MODEL
+    ): retrofit2.Response<FamilyOnboardingResultResponse> = withContext(Dispatchers.IO) {
+        onboardingCall { api ->
+            api.acceptFamilyInvitation(
+                token.trim(),
+                FamilyInvitationAcceptRequest(
+                    deviceName = deviceName?.trim(),
+                    clientKind = "PARENT_MONITOR"
+                )
+            )
+        }
+    }
+
+    private suspend fun <T> onboardingCall(
+        call: suspend (ChildWatchApi) -> retrofit2.Response<T>
+    ): retrofit2.Response<T> {
+        return try {
+            if (!ensureOnboardingAuthentication()) {
+                retrofit2.Response.error(
+                    401,
+                    okhttp3.ResponseBody.create(null, "Device registration failed")
+                )
+            } else {
+                val serverUrl = checkNotNull(getConfiguredServerUrl())
+                call(createRetrofitClient(serverUrl).create(ChildWatchApi::class.java))
+            }
+        } catch (error: Exception) {
+            Log.e(TAG, "Family onboarding request failed", error)
+            retrofit2.Response.error(
+                503,
+                okhttp3.ResponseBody.create(null, "Error: ${error.message}")
+            )
         }
     }
 

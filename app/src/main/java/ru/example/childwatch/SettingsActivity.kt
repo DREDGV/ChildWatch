@@ -192,12 +192,11 @@ class SettingsActivity : AppCompatActivity() {
             showEditOwnMarkerDialog()
         }
 
-        binding.scanQrButton.text = getString(R.string.parent_pairing_scan_child_qr_button)
-        binding.showQrCodeBtn.text = getString(R.string.parent_pairing_show_own_qr_backup_button)
+        binding.scanQrButton.text = getString(R.string.parent_pairing_invite_family_button)
+        binding.showQrCodeBtn.text = getString(R.string.parent_pairing_invite_device_button)
 
         binding.scanQrButton.setOnClickListener {
-            val intent = Intent(this, QrScannerActivity::class.java)
-            qrScannerLauncher.launch(intent)
+            startActivity(Intent(this, FamilyInviteActivity::class.java))
         }
 
         binding.selectChildButton.setOnClickListener {
@@ -211,8 +210,7 @@ class SettingsActivity : AppCompatActivity() {
         }
 
         binding.showQrCodeBtn.setOnClickListener {
-            val intent = Intent(this, QrCodeActivity::class.java)
-            startActivity(intent)
+            startActivity(Intent(this, FamilyInviteActivity::class.java))
         }
 
         binding.useVpsBtn.setOnClickListener {

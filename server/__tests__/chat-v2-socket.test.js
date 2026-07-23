@@ -306,6 +306,39 @@ describe("chat v2 WebSocket protocol", () => {
     expect(child.payloads("chat_v2:message")).toHaveLength(1);
   });
 
+  test("subscribes an authenticated device immediately after connection", async () => {
+    const autoChatService = createFakeChatService();
+    autoChatService.listConversations = jest.fn(async (deviceId) => ({
+      conversations:
+        deviceId === "parent-device"
+          ? [
+              { conversationId: "family-conversation" },
+              { conversationId: "direct-conversation" },
+            ]
+          : [],
+    }));
+    const autoSocketService = new ChatV2SocketService(io, autoChatService);
+    const connectedParent = new FakeSocket(
+      "auto-parent-socket",
+      "parent-device"
+    );
+    sockets.set(connectedParent.id, connectedParent);
+
+    autoSocketService.registerSocket(connectedParent);
+    await new Promise((resolve) => setImmediate(resolve));
+
+    expect(
+      autoSocketService.conversationSockets
+        .get("family-conversation")
+        ?.has(connectedParent.id)
+    ).toBe(true);
+    expect(
+      autoSocketService.conversationSockets
+        .get("direct-conversation")
+        ?.has(connectedParent.id)
+    ).toBe(true);
+  });
+
   test("does not accept or broadcast a message when durable storage fails", async () => {
     await subscribe(parent, "family-conversation");
     await subscribe(child, "family-conversation");

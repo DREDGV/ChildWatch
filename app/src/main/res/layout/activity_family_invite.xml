@@ -1,0 +1,294 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/cw_color_background"
+    android:orientation="vertical">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/inviteToolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        app:navigationIcon="@drawable/ic_arrow_back"
+        app:title="Добавить в семью" />
+
+    <androidx.core.widget.NestedScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="24dp">
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Кого вы добавляете?"
+                android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
+                android:textColor="@color/cw_color_on_surface"
+                android:textStyle="bold" />
+
+            <RadioGroup
+                android:id="@+id/inviteModeGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:orientation="vertical">
+
+                <com.google.android.material.radiobutton.MaterialRadioButton
+                    android:id="@+id/inviteNewPersonRadio"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:checked="true"
+                    android:text="Нового члена семьи" />
+
+                <com.google.android.material.radiobutton.MaterialRadioButton
+                    android:id="@+id/inviteExistingPersonRadio"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Ещё один телефон существующего человека" />
+
+                <com.google.android.material.radiobutton.MaterialRadioButton
+                    android:id="@+id/inviteLegacyProfileRadio"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Подтвердить старое устройство"
+                    android:visibility="gone" />
+            </RadioGroup>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/inviteLegacyCandidateLayout"
+                style="@style/Widget.ChildWatch.TextInputLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:hint="Старое устройство"
+                android:visibility="gone">
+
+                <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                    android:id="@+id/inviteLegacyCandidateInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/inviteNameLayout"
+                style="@style/Widget.ChildWatch.TextInputLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:hint="Имя человека">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/inviteNameInput"
+                    style="@style/Widget.ChildWatch.TextInputEditText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="textPersonName|textCapWords"
+                    android:maxLines="1" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/inviteRoleLayout"
+                style="@style/Widget.ChildWatch.TextInputLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:hint="Роль">
+
+                <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                    android:id="@+id/inviteRoleInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none" />
+                </com.google.android.material.textfield.TextInputLayout>
+
+            <LinearLayout
+                android:id="@+id/inviteAvatarSection"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Аватар"
+                    android:textAppearance="@style/TextAppearance.Material3.TitleSmall"
+                    android:textColor="@color/cw_color_on_surface" />
+
+                <HorizontalScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:clipToPadding="false"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:padding="2dp">
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:id="@+id/inviteAvatarPreset1"
+                            style="@style/Widget.ChildWatch.Avatar.Medium"
+                            android:contentDescription="Аватар 1"
+                            android:src="@drawable/avatar_family_sky" />
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:id="@+id/inviteAvatarPreset2"
+                            style="@style/Widget.ChildWatch.Avatar.Medium"
+                            android:layout_marginStart="10dp"
+                            android:contentDescription="Аватар 2"
+                            android:src="@drawable/avatar_family_mint" />
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:id="@+id/inviteAvatarPreset3"
+                            style="@style/Widget.ChildWatch.Avatar.Medium"
+                            android:layout_marginStart="10dp"
+                            android:contentDescription="Аватар 3"
+                            android:src="@drawable/avatar_family_sun" />
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:id="@+id/inviteAvatarPreset4"
+                            style="@style/Widget.ChildWatch.Avatar.Medium"
+                            android:layout_marginStart="10dp"
+                            android:contentDescription="Аватар 4"
+                            android:src="@drawable/avatar_family_coral" />
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:id="@+id/inviteAvatarPreset5"
+                            style="@style/Widget.ChildWatch.Avatar.Medium"
+                            android:layout_marginStart="10dp"
+                            android:contentDescription="Аватар 5"
+                            android:src="@drawable/avatar_family_lilac" />
+
+                        <com.google.android.material.imageview.ShapeableImageView
+                            android:id="@+id/inviteAvatarPreset6"
+                            style="@style/Widget.ChildWatch.Avatar.Medium"
+                            android:layout_marginStart="10dp"
+                            android:contentDescription="Аватар 6"
+                            android:src="@drawable/avatar_family_ocean" />
+                    </LinearLayout>
+                </HorizontalScrollView>
+            </LinearLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/inviteExistingLayout"
+                style="@style/Widget.ChildWatch.TextInputLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:hint="Член семьи"
+                android:visibility="gone">
+
+                <com.google.android.material.textfield.MaterialAutoCompleteTextView
+                    android:id="@+id/inviteExistingInput"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:inputType="none" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:text="Профиль появится в семье только после подтверждения на новом телефоне. Старые записи и история не будут изменены."
+                android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                android:textColor="@color/cw_color_on_surface_variant" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/createInvitationButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:minHeight="52dp"
+                android:text="Создать приглашение"
+                android:textAllCaps="false" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/manageInvitationsButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Активные приглашения"
+                android:textAllCaps="false" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/transferDeviceButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:text="Переназначить телефон"
+                android:textAllCaps="false" />
+
+            <ProgressBar
+                android:id="@+id/inviteProgress"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="20dp"
+                android:visibility="gone" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/invitationResultCard"
+                style="@style/Widget.ChildWatch.PersonCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_horizontal"
+                    android:orientation="vertical"
+                    android:padding="20dp">
+
+                    <TextView
+                        android:id="@+id/invitationResultTitle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                        android:textColor="@color/cw_color_on_surface"
+                        android:textStyle="bold" />
+
+                    <ImageView
+                        android:id="@+id/invitationQrImage"
+                        android:layout_width="240dp"
+                        android:layout_height="240dp"
+                        android:layout_marginTop="12dp"
+                        android:contentDescription="QR-код приглашения" />
+
+                    <TextView
+                        android:id="@+id/invitationResultHint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:text="Отсканируйте этот код на новом телефоне. Он действует 15 минут и только один раз."
+                        android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                        android:textColor="@color/cw_color_on_surface_variant" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/copyInvitationButton"
+                        style="@style/Widget.Material3.Button.OutlinedButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:text="Скопировать приглашение"
+                        android:textAllCaps="false" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+</LinearLayout>

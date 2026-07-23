@@ -1,4 +1,4 @@
-﻿package ru.example.childwatch
+package ru.example.childwatch
 
 import android.os.Bundle
 import android.content.Intent
@@ -7,20 +7,18 @@ import android.widget.TextView
 import android.widget.ImageView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
-import androidx.recyclerview.widget.GridLayoutManager
+import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import androidx.lifecycle.lifecycleScope
+import com.bumptech.glide.Glide
+import com.bumptech.glide.load.engine.DiskCacheStrategy
 import com.google.android.material.appbar.MaterialToolbar
-import com.google.android.material.button.MaterialButton
-import com.google.android.material.button.MaterialButtonToggleGroup
 import com.google.android.material.progressindicator.CircularProgressIndicator
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import ru.example.childwatch.network.WebSocketManager
 import android.view.View
-import android.widget.LinearLayout
 import kotlinx.coroutines.launch
 import ru.example.childwatch.network.NetworkClient
-import ru.example.childwatch.remote.RemotePhotoAdapter
 import ru.example.childwatch.remote.RemotePhotoCache
 import ru.example.childwatch.remote.RemotePhotoItem
 import ru.example.childwatch.remote.RemotePhotoErrorMessages
@@ -38,6 +36,8 @@ import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
 import ru.example.childwatch.profile.ParentLinkedChildOption
 import ru.example.childwatch.profile.ParentTargetSelector
 import ru.example.childwatch.profile.FamilyAvatarRenderer
+import ru.example.childwatch.remote.RemotePhotoThumbnailAdapter
+import ru.example.childwatch.remote.SelectChildBottomSheet
 import ru.example.childwatch.service.AudioPlaybackService
 
 /**
@@ -61,18 +61,22 @@ class RemoteCameraActivity : AppCompatActivity() {
     private lateinit var toolbar: MaterialToolbar
     private lateinit var statusText: TextView
     private lateinit var childNameText: TextView
-    private lateinit var childAvatarImage: ImageView
-    private lateinit var changePersonButton: MaterialButton
-    private lateinit var takePhotoButton: MaterialButton
-    private lateinit var cameraToggleGroup: MaterialButtonToggleGroup
-    private lateinit var cameraBackButton: MaterialButton
-    private lateinit var cameraFrontButton: MaterialButton
-    private lateinit var photosRecyclerView: RecyclerView
     private lateinit var progressIndicator: CircularProgressIndicator
-    private lateinit var emptyStateLayout: LinearLayout
-    private lateinit var galleryMetaText: TextView
-    private lateinit var refreshGalleryButton: MaterialButton
-    private lateinit var photoAdapter: RemotePhotoAdapter
+
+    // Новые элементы видоискателя
+    private lateinit var imgLastPhoto: ImageView
+    private lateinit var imgViewfinderPlaceholder: ImageView
+    private lateinit var pillChildSelector: View
+    private lateinit var childAvatarImage: ImageView
+    private lateinit var imgOnlineDot: ImageView
+    private lateinit var tvTimestamp: TextView
+    private lateinit var tvCameraLabel: TextView
+    private lateinit var btnTakePhoto: ImageView
+    private lateinit var btnRefresh: ImageView
+    private lateinit var btnSwitchCamera: ImageView
+    private lateinit var rvRecentPhotos: RecyclerView
+    private lateinit var tvPhotosEmptyHint: TextView
+    private lateinit var thumbnailAdapter: RemotePhotoThumbnailAdapter
 
     private var childId: String? = null
     private var childName: String? = null
@@ -83,7 +87,6 @@ class RemoteCameraActivity : AppCompatActivity() {
     private var photoQueuedListener: ((String, String, String, Long) -> Unit)? = null
     private var photoRequestReceivedListener: ((String, String, Long) -> Unit)? = null
     private var photoBusyListener: ((String, String, String, String, Long) -> Unit)? = null
-    private var retryJob: Job? = null
     private var connectionTimeoutJob: Job? = null
     private var responseTimeoutJob: Job? = null
     private var pendingRequestId: String? = null
@@ -103,55 +106,80 @@ class RemoteCameraActivity : AppCompatActivity() {
             ?: effectiveContextResolver.resolveFocusedChildId().takeIf { it.isNotBlank() }
         childName = intent.getStringExtra(EXTRA_CHILD_NAME)
 
-        if (childId == null) {
-            Toast.makeText(this, getString(R.string.remote_camera_missing_child_id), Toast.LENGTH_SHORT).show()
-            finish()
-            return
+        if (!initViews()) return
+        runCatching {
+            setupToolbar()
+            setupButtons()
+            if (childId == null) {
+                // A missing global selection is recoverable. Keeping this
+                // screen open avoids looking like a crash and lets the user
+                // select a person from the canonical family directory.
+                updateStatus(getString(R.string.remote_camera_missing_child_id))
+                btnTakePhoto.isEnabled = false
+                btnTakePhoto.alpha = 0.4f
+                showPersonSelector()
+                return@runCatching
+            }
+            loadPhotos()
+            ensureWebSocketReady()
+        }.onFailure { error ->
+            Log.e(TAG, "Remote photo screen startup failed", error)
+            updateStatus(getString(R.string.remote_camera_ui_error, error.message ?: "unknown"))
+            enableButtons()
+            Toast.makeText(
+                this,
+                getString(R.string.remote_camera_ui_error, error.message ?: "unknown"),
+                Toast.LENGTH_LONG
+            ).show()
         }
-        initViews()
-        setupToolbar()
-        setupButtons()
-        loadPhotos()
-        ensureWebSocketReady()
     }
 
-    private fun initViews() {
-        try {
+    private fun initViews(): Boolean {
+        return try {
             toolbar = findViewById(R.id.toolbar)
             statusText = findViewById(R.id.statusText)
-            childNameText = findViewById(R.id.childNameText)
-            childAvatarImage = findViewById(R.id.remotePhotoPersonAvatar)
-            changePersonButton = findViewById(R.id.remotePhotoChangePersonButton)
-            takePhotoButton = findViewById(R.id.takePhotoButton)
-            cameraToggleGroup = findViewById(R.id.cameraToggleGroup)
-            cameraBackButton = findViewById(R.id.cameraBackButton)
-            cameraFrontButton = findViewById(R.id.cameraFrontButton)
-            photosRecyclerView = findViewById(R.id.photosRecyclerView)
             progressIndicator = findViewById(R.id.progressIndicator)
-            emptyStateLayout = findViewById(R.id.emptyStateLayout)
-            galleryMetaText = findViewById(R.id.galleryMetaText)
-            refreshGalleryButton = findViewById(R.id.refreshGalleryButton)
 
-            photoAdapter = RemotePhotoAdapter(
-                onPhotoOpen = { photoItem -> openRemotePhotoPreview(photoItem) },
-                onPhotoSave = { photoItem -> downloadAndSavePhoto(photoItem) },
-                onPhotoShare = { photoItem -> sharePhoto(photoItem) }
+            // Новые элементы видоискателя
+            imgLastPhoto = findViewById(R.id.imgLastPhoto)
+            imgViewfinderPlaceholder = findViewById(R.id.imgViewfinderPlaceholder)
+            pillChildSelector = findViewById(R.id.pillChildSelector)
+            childAvatarImage = findViewById(R.id.imgChildAvatar)
+            imgOnlineDot = findViewById(R.id.imgOnlineDot)
+            tvTimestamp = findViewById(R.id.tvTimestamp)
+            tvCameraLabel = findViewById(R.id.tvCameraLabel)
+            btnTakePhoto = findViewById(R.id.btnTakePhoto)
+            btnRefresh = findViewById(R.id.btnRefresh)
+            btnSwitchCamera = findViewById(R.id.btnSwitchCamera)
+            rvRecentPhotos = findViewById(R.id.rvRecentPhotos)
+            tvPhotosEmptyHint = findViewById(R.id.tvPhotosEmptyHint)
+
+            // Перенаправить childNameText на видимую пилюлю
+            childNameText = findViewById(R.id.tvChildName)
+
+            thumbnailAdapter = RemotePhotoThumbnailAdapter(
+                onPhotoClick = { photoItem -> openRemotePhotoPreview(photoItem) }
             )
-            photosRecyclerView.apply {
-                layoutManager = GridLayoutManager(this@RemoteCameraActivity, 2)
-                adapter = photoAdapter
+            rvRecentPhotos.apply {
+                layoutManager = LinearLayoutManager(
+                    this@RemoteCameraActivity,
+                    LinearLayoutManager.HORIZONTAL,
+                    false
+                )
+                adapter = thumbnailAdapter
             }
 
             // Display child name if available
-        val resolvedChildName = childName?.takeIf { it.isNotBlank() }
-            ?: childId?.let { participantNameResolver.resolveFocusedChildDisplayName(it) }
+            val resolvedChildName = childName?.takeIf { it.isNotBlank() }
+                ?: childId?.let { participantNameResolver.resolveFocusedChildDisplayName(it) }
 
-        childNameText.text = resolvedChildName?.takeIf { it.isNotBlank() && it != childId }
-            ?: getString(R.string.chat_partner_child)
+            childNameText.text = resolvedChildName?.takeIf { it.isNotBlank() && it != childId }
+                ?: getString(R.string.chat_partner_child)
             FamilyAvatarRenderer.bind(childAvatarImage, null)
             loadPersonPresentation()
-            cameraToggleGroup.check(cameraBackButton.id)
             selectedCameraFacing = "back"
+            updateCameraLabel()
+            true
         } catch (e: Exception) {
             Log.e(TAG, "Error initializing views", e)
             Toast.makeText(
@@ -160,6 +188,7 @@ class RemoteCameraActivity : AppCompatActivity() {
                 Toast.LENGTH_SHORT
             ).show()
             finish()
+            false
         }
     }
 
@@ -188,26 +217,23 @@ class RemoteCameraActivity : AppCompatActivity() {
     }
 
     private fun setupButtons() {
-        cameraToggleGroup.addOnButtonCheckedListener { _, checkedId, isChecked ->
-            if (!isChecked) return@addOnButtonCheckedListener
-            selectedCameraFacing = if (checkedId == cameraFrontButton.id) "front" else "back"
+        // Новые кнопки видоискателя
+        btnTakePhoto.setOnClickListener {
+            if (childId == null) showPersonSelector() else takePhoto()
+        }
+
+        btnRefresh.setOnClickListener { loadPhotos() }
+
+        btnSwitchCamera.setOnClickListener {
+            selectedCameraFacing = if (selectedCameraFacing == "back") "front" else "back"
             updateStatus(
                 if (selectedCameraFacing == "front") getString(R.string.remote_camera_selected_front)
                 else getString(R.string.remote_camera_selected_back)
             )
+            updateCameraLabel()
         }
 
-        takePhotoButton.setOnClickListener {
-            takePhoto()
-        }
-
-        refreshGalleryButton.setOnClickListener {
-            loadPhotos()
-        }
-
-        changePersonButton.setOnClickListener {
-            showPersonSelector()
-        }
+        pillChildSelector.setOnClickListener { showPersonSelector() }
     }
 
     private fun showPersonSelector() {
@@ -225,7 +251,21 @@ class RemoteCameraActivity : AppCompatActivity() {
                 ).show()
                 return@launch
             }
-            if (options.size <= 1) {
+            if (options.isEmpty()) {
+                Toast.makeText(
+                    this@RemoteCameraActivity,
+                    R.string.remote_camera_missing_child_id,
+                    Toast.LENGTH_SHORT
+                ).show()
+                return@launch
+            }
+            if (options.size == 1 && childId == null) {
+                val option = options.single()
+                selector.select(option)
+                applySelectedPerson(option)
+                return@launch
+            }
+            if (options.size == 1) {
                 Toast.makeText(
                     this@RemoteCameraActivity,
                     R.string.family_target_only_one,
@@ -233,25 +273,29 @@ class RemoteCameraActivity : AppCompatActivity() {
                 ).show()
                 return@launch
             }
-            val labels = options.map { option ->
-                val deviceLabel = option.deviceDisplayName?.trim().orEmpty()
-                if (deviceLabel.isBlank() || deviceLabel == option.displayName) {
-                    option.displayName
-                } else {
-                    "${option.displayName}\n$deviceLabel"
-                }
-            }.toTypedArray()
-            MaterialAlertDialogBuilder(this@RemoteCameraActivity)
-                .setTitle(R.string.family_target_choose_photo)
-                .setItems(labels) { _, index ->
-                    val option = options[index]
+            if (isFinishing || isDestroyed || supportFragmentManager.isStateSaved) {
+                return@launch
+            }
+            val sheet = SelectChildBottomSheet().apply {
+                children = options
+                currentDeviceId = childId
+                onChildSelected = { option ->
                     if (option.deviceId != childId) {
                         selector.select(option)
                         applySelectedPerson(option)
                     }
                 }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
+            }
+            runCatching {
+                sheet.show(supportFragmentManager, "select_child")
+            }.onFailure { error ->
+                Log.w(TAG, "Cannot open family member selector", error)
+                Toast.makeText(
+                    this@RemoteCameraActivity,
+                    R.string.remote_camera_load_error,
+                    Toast.LENGTH_SHORT
+                ).show()
+            }
         }
     }
 
@@ -263,6 +307,7 @@ class RemoteCameraActivity : AppCompatActivity() {
         resolvedGalleryDeviceId = null
         childNameText.text = option.displayName
         FamilyAvatarRenderer.bind(childAvatarImage, option.avatarKey)
+        enableButtons()
         updateStatus(getString(R.string.remote_camera_status_connecting))
         loadPhotos()
         ensureWebSocketReady()
@@ -278,7 +323,7 @@ class RemoteCameraActivity : AppCompatActivity() {
         startConnectionTimeout()
         ensureWebSocketReady {
             cancelConnectionTimeout()
-            sendPhotoRequestWithRetry()
+            sendPhotoRequest()
         }
     }
 
@@ -329,7 +374,7 @@ class RemoteCameraActivity : AppCompatActivity() {
         connectionTimeoutJob?.cancel()
         connectionTimeoutJob = lifecycleScope.launch {
             delay(WEBSOCKET_READY_TIMEOUT_MS)
-            if (pendingRequestId != null || takePhotoButton.isEnabled) return@launch
+            if (pendingRequestId != null || btnTakePhoto.isEnabled) return@launch
 
             Log.w(TAG, "Timed out waiting for WebSocket registration before photo request")
             updateStatus(getString(R.string.remote_camera_connect_error))
@@ -353,6 +398,7 @@ class RemoteCameraActivity : AppCompatActivity() {
                 if (pendingRequestId != requestId) return@photoReceivedListener
                 clearPendingRequest()
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     updateStatus(getString(R.string.remote_camera_photo_received))
                     enableButtons()
                     AudioPlaybackService.restoreIfNeeded(this@RemoteCameraActivity)
@@ -368,6 +414,7 @@ class RemoteCameraActivity : AppCompatActivity() {
                 if (pendingRequestId != requestId) return@photoErrorListener
                 clearPendingRequest()
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     Log.w(TAG, "Remote photo failed: request=$requestId error=$error")
                     val uiError = RemotePhotoErrorMessages.resolve(this, error)
                     updateStatus(uiError.status)
@@ -390,9 +437,8 @@ class RemoteCameraActivity : AppCompatActivity() {
         if (photoQueuedListener == null) {
             photoQueuedListener = photoQueuedListener@{ requestId, _, camera, _ ->
                 if (pendingRequestId != requestId) return@photoQueuedListener
-                retryJob?.cancel()
-                retryJob = null
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     updateStatus(
                         if (camera == "front") getString(R.string.remote_photo_status_queued_front)
                         else getString(R.string.remote_photo_status_queued_back)
@@ -406,9 +452,8 @@ class RemoteCameraActivity : AppCompatActivity() {
         if (photoRequestReceivedListener == null) {
             photoRequestReceivedListener = photoRequestReceivedListener@{ requestId, _, _ ->
                 if (pendingRequestId != requestId) return@photoRequestReceivedListener
-                retryJob?.cancel()
-                retryJob = null
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     updateStatus(getString(R.string.remote_photo_status_device_accepted))
                     // The child has the work now; retain the response timeout
                     // so controls are still guaranteed to recover.
@@ -423,6 +468,7 @@ class RemoteCameraActivity : AppCompatActivity() {
                 if (pendingRequestId != requestId) return@photoBusyListener
                 clearPendingRequest()
                 runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
                     val ownerLabel = ownerDisplayName.ifBlank {
                         getString(R.string.remote_camera_other_parent_fallback)
                     }
@@ -440,7 +486,7 @@ class RemoteCameraActivity : AppCompatActivity() {
         }
     }
 
-    private fun sendPhotoRequestWithRetry() {
+    private fun sendPhotoRequest() {
         val targetId = childId ?: return
         val requestId = java.util.UUID.randomUUID().toString()
         clearPendingRequest()
@@ -451,29 +497,30 @@ class RemoteCameraActivity : AppCompatActivity() {
             else getString(R.string.remote_camera_sending_back)
         )
 
-        val delays = listOf(0L, 3000L, 7000L)
         startResponseTimeout(requestId)
-        retryJob?.cancel()
-        retryJob = lifecycleScope.launch {
-            for ((index, delayMs) in delays.withIndex()) {
-                if (pendingRequestId == null) return@launch
-                if (delayMs > 0) {
-                    delay(delayMs)
+        WebSocketManager.requestPhoto(
+            targetDevice = targetId,
+            cameraFacing = camera,
+            requestId = requestId,
+            onSuccess = {
+                Log.d(TAG, "Photo request sent once (camera=$camera, request=$requestId)")
+            },
+            onError = photoError@{ error ->
+                Log.e(TAG, "Photo request failed before queueing: $error")
+                if (pendingRequestId != requestId) return@photoError
+                clearPendingRequest()
+                runOnUiThread {
+                    if (isFinishing || isDestroyed) return@runOnUiThread
+                    updateStatus(getString(R.string.remote_camera_connect_error))
+                    Toast.makeText(
+                        this@RemoteCameraActivity,
+                        getString(R.string.remote_camera_connect_error_with_reason, error),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    enableButtons()
                 }
-                if (pendingRequestId == null) return@launch
-                WebSocketManager.requestPhoto(
-                    targetDevice = targetId,
-                    cameraFacing = camera,
-                    requestId = requestId,
-                    onSuccess = {
-                        Log.d(TAG, "Photo request sent (attempt ${index + 1}, camera=$camera)")
-                    },
-                    onError = { error ->
-                        Log.e(TAG, "Photo request failed: $error")
-                    }
-                )
             }
-        }
+        )
     }
 
     private fun startResponseTimeout(requestId: String) {
@@ -484,6 +531,7 @@ class RemoteCameraActivity : AppCompatActivity() {
             clearPendingRequest()
             runOnUiThread {
                 updateStatus(getString(R.string.remote_camera_request_timeout))
+                AudioPlaybackService.restoreIfNeeded(this@RemoteCameraActivity)
                 Toast.makeText(
                     this@RemoteCameraActivity,
                     getString(R.string.remote_camera_no_response),
@@ -497,8 +545,6 @@ class RemoteCameraActivity : AppCompatActivity() {
     private fun clearPendingRequest() {
         pendingRequestId = null
         cancelConnectionTimeout()
-        retryJob?.cancel()
-        retryJob = null
         responseTimeoutJob?.cancel()
         responseTimeoutJob = null
     }
@@ -562,11 +608,11 @@ class RemoteCameraActivity : AppCompatActivity() {
         if (deviceIds.isEmpty()) {
             return
         }
-        
+
         // Show loading state
         progressIndicator.visibility = View.VISIBLE
-        photosRecyclerView.visibility = View.GONE
-        emptyStateLayout.visibility = View.GONE
+        rvRecentPhotos.visibility = View.GONE
+        tvPhotosEmptyHint.visibility = View.GONE
 
         updateStatus(getString(R.string.remote_camera_loading_gallery))
 
@@ -581,17 +627,17 @@ class RemoteCameraActivity : AppCompatActivity() {
 
                     if (photos.isEmpty()) {
                         resolvedGalleryDeviceId = null
-                        photoAdapter.submitList(emptyList())
-                        emptyStateLayout.visibility = View.VISIBLE
-                        photosRecyclerView.visibility = View.GONE
-                        galleryMetaText.text = getString(R.string.remote_camera_gallery_subtitle_empty)
+                        thumbnailAdapter.submitList(emptyList())
+                        clearViewfinderPhoto()
+                        tvPhotosEmptyHint.visibility = View.VISIBLE
+                        rvRecentPhotos.visibility = View.GONE
                         updateStatus(getString(R.string.remote_camera_no_photos))
                     } else {
                         resolvedGalleryDeviceId = resolvedDeviceId
                         val serverUrl = SecureSettingsManager(this@RemoteCameraActivity).getServerUrl().trim()
                         if (serverUrl.isBlank()) {
-                            emptyStateLayout.visibility = View.VISIBLE
-                            photosRecyclerView.visibility = View.GONE
+                            tvPhotosEmptyHint.visibility = View.VISIBLE
+                            rvRecentPhotos.visibility = View.GONE
                             updateStatus(getString(R.string.server_url_missing))
                             Toast.makeText(this@RemoteCameraActivity, getString(R.string.server_url_missing), Toast.LENGTH_SHORT).show()
                             return@launch
@@ -611,21 +657,22 @@ class RemoteCameraActivity : AppCompatActivity() {
                             )
                         }
 
-                        photoAdapter.submitList(items)
-                        photosRecyclerView.visibility = View.VISIBLE
-                        emptyStateLayout.visibility = View.GONE
-                        galleryMetaText.text = getString(
-                            R.string.remote_camera_gallery_subtitle_loaded,
-                            items.size,
-                            dateFormatter.format(Date(photos.maxOfOrNull { it.timestamp } ?: System.currentTimeMillis()))
-                        )
+                        thumbnailAdapter.submitList(items)
+                        rvRecentPhotos.visibility = View.VISIBLE
+                        tvPhotosEmptyHint.visibility = View.GONE
                         updateStatus(getString(R.string.remote_camera_gallery_updated))
+
+                        // Обновить таймстемп на видоискателе
+                        val latestIndex = photos.indices.maxByOrNull { photos[it].timestamp }
+                        if (latestIndex != null) {
+                            showViewfinderPhoto(items[latestIndex])
+                            updateViewfinderTimestamp(photos[latestIndex].timestamp)
+                        }
                     }
                 } else {
                     Log.e(TAG, "Failed to load photos: ${response.code()}")
-                    emptyStateLayout.visibility = View.VISIBLE
-                    photosRecyclerView.visibility = View.GONE
-                    galleryMetaText.text = getString(R.string.remote_camera_gallery_subtitle_empty)
+                    tvPhotosEmptyHint.visibility = View.VISIBLE
+                    rvRecentPhotos.visibility = View.GONE
                     updateStatus(getString(R.string.remote_camera_fetch_failed))
                     Toast.makeText(
                         this@RemoteCameraActivity,
@@ -636,9 +683,8 @@ class RemoteCameraActivity : AppCompatActivity() {
             } catch (e: Exception) {
                 Log.e(TAG, "Error loading photos", e)
                 progressIndicator.visibility = View.GONE
-                emptyStateLayout.visibility = View.VISIBLE
-                photosRecyclerView.visibility = View.GONE
-                galleryMetaText.text = getString(R.string.remote_camera_gallery_subtitle_empty)
+                tvPhotosEmptyHint.visibility = View.VISIBLE
+                rvRecentPhotos.visibility = View.GONE
                 updateStatus(getString(R.string.remote_camera_load_error))
                 Toast.makeText(
                     this@RemoteCameraActivity,
@@ -903,20 +949,39 @@ class RemoteCameraActivity : AppCompatActivity() {
 
     private fun updateStatus(status: String) {
         statusText.text = status
+        // Обновить индикатор online/offline
+        val isConnected = status == getString(R.string.remote_camera_connected) ||
+                status == getString(R.string.remote_camera_photo_received) ||
+                status == getString(R.string.remote_camera_gallery_updated) ||
+                status == getString(R.string.remote_camera_done) ||
+                status == getString(R.string.remote_camera_saved) ||
+                status == getString(R.string.remote_camera_status_ready)
+        imgOnlineDot.setImageResource(
+            if (isConnected) R.drawable.ic_dot_online_green
+            else R.drawable.ic_dot_offline_gray
+        )
     }
 
     private fun disableButtons() {
-        takePhotoButton.isEnabled = false
-        cameraBackButton.isEnabled = false
-        cameraFrontButton.isEnabled = false
-        changePersonButton.isEnabled = false
+        btnTakePhoto.isEnabled = false
+        btnTakePhoto.alpha = 0.4f
+        btnSwitchCamera.isEnabled = false
+        btnSwitchCamera.alpha = 0.4f
+        btnRefresh.isEnabled = false
+        btnRefresh.alpha = 0.4f
+        pillChildSelector.isEnabled = false
+        pillChildSelector.alpha = 0.4f
     }
 
     private fun enableButtons() {
-        takePhotoButton.isEnabled = true
-        cameraBackButton.isEnabled = true
-        cameraFrontButton.isEnabled = true
-        changePersonButton.isEnabled = true
+        btnTakePhoto.isEnabled = true
+        btnTakePhoto.alpha = 1f
+        btnSwitchCamera.isEnabled = true
+        btnSwitchCamera.alpha = 1f
+        btnRefresh.isEnabled = true
+        btnRefresh.alpha = 1f
+        pillChildSelector.isEnabled = true
+        pillChildSelector.alpha = 1f
     }
 
     private fun normalizeBaseUrl(base: String): String {
@@ -948,5 +1013,44 @@ class RemoteCameraActivity : AppCompatActivity() {
         }
 
         return listOfNotNull(formattedDate, resolution, sizeLabel).joinToString(" | ")
+    }
+
+    private fun updateCameraLabel() {
+        tvCameraLabel.text = if (selectedCameraFacing == "front") {
+            getString(R.string.remote_camera_hint_front)
+        } else {
+            getString(R.string.remote_camera_hint_back)
+        }
+    }
+
+    private fun updateViewfinderTimestamp(timestamp: Long) {
+        val now = System.currentTimeMillis()
+        val diff = now - timestamp
+        val label = when {
+            diff < 60_000 -> getString(R.string.remote_camera_time_just_now)
+            diff < 3_600_000 -> getString(R.string.remote_camera_time_minutes, (diff / 60_000).toInt())
+            diff < 86_400_000 -> getString(R.string.remote_camera_time_hours, (diff / 3_600_000).toInt())
+            else -> dateFormatter.format(Date(timestamp))
+        }
+        tvTimestamp.text = label
+    }
+
+    private fun showViewfinderPhoto(photo: RemotePhotoItem) {
+        imgLastPhoto.visibility = View.VISIBLE
+        imgViewfinderPlaceholder.visibility = View.GONE
+        Glide.with(this)
+            .load(photo.previewUrl)
+            .diskCacheStrategy(DiskCacheStrategy.ALL)
+            .placeholder(R.drawable.ic_photo_placeholder)
+            .error(R.drawable.ic_photo_placeholder)
+            .centerCrop()
+            .into(imgLastPhoto)
+    }
+
+    private fun clearViewfinderPhoto() {
+        Glide.with(this).clear(imgLastPhoto)
+        imgLastPhoto.visibility = View.GONE
+        imgViewfinderPlaceholder.visibility = View.VISIBLE
+        tvTimestamp.text = ""
     }
 }

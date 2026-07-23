@@ -10,6 +10,18 @@ import ru.childwatch.shared.chat.ChatV2ReceiptRequest
 import ru.childwatch.shared.chat.ChatV2ReceiptResponse
 import ru.childwatch.shared.chat.ChatV2SendMessageRequest
 import ru.childwatch.shared.chat.ChatV2SendMessageResponse
+import ru.childwatch.shared.onboarding.FamilyBootstrapRequest
+import ru.childwatch.shared.onboarding.FamilyInvitationAcceptRequest
+import ru.childwatch.shared.onboarding.FamilyInvitationCreateRequest
+import ru.childwatch.shared.onboarding.FamilyInvitationResponse
+import ru.childwatch.shared.onboarding.FamilyInvitationsResponse
+import ru.childwatch.shared.onboarding.FamilyDeviceTransferRequest
+import ru.childwatch.shared.onboarding.FamilyLegacyMigrationCandidatesResponse
+import ru.childwatch.shared.onboarding.FamilyLegacyProfileConfirmRequest
+import ru.childwatch.shared.onboarding.FamilyLegacyProfileConfirmResponse
+import ru.childwatch.shared.onboarding.FamilyOnboardingResultResponse
+import ru.childwatch.shared.onboarding.FamilyOnboardingSimpleResponse
+import ru.childwatch.shared.onboarding.FamilyProfileConfirmationRequest
 
 /**
  * Retrofit API interface for ChildWatch server communication
@@ -18,6 +30,63 @@ interface ChildWatchApi {
 
     @GET("api/me")
     suspend fun getAuthenticatedIdentity(): Response<AuthenticatedIdentityResponse>
+
+    @POST("api/family-onboarding/bootstrap")
+    suspend fun bootstrapFamily(
+        @Body request: FamilyBootstrapRequest
+    ): Response<FamilyOnboardingResultResponse>
+
+    @POST("api/family-onboarding/families/{familyId}/confirm-self")
+    suspend fun confirmOwnFamilyProfile(
+        @Path("familyId") familyId: String,
+        @Body request: FamilyProfileConfirmationRequest
+    ): Response<FamilyOnboardingResultResponse>
+
+    @POST("api/family-onboarding/invitations")
+    suspend fun createFamilyInvitation(
+        @Body request: FamilyInvitationCreateRequest
+    ): Response<FamilyInvitationResponse>
+
+    @GET("api/family-onboarding/families/{familyId}/invitations")
+    suspend fun getActiveFamilyInvitations(
+        @Path("familyId") familyId: String
+    ): Response<FamilyInvitationsResponse>
+
+    @GET("api/family-onboarding/invitations/{token}")
+    suspend fun previewFamilyInvitation(
+        @Path("token") token: String
+    ): Response<FamilyInvitationResponse>
+
+    @POST("api/family-onboarding/invitations/{token}/accept")
+    suspend fun acceptFamilyInvitation(
+        @Path("token") token: String,
+        @Body request: FamilyInvitationAcceptRequest
+    ): Response<FamilyOnboardingResultResponse>
+
+    @DELETE("api/family-onboarding/families/{familyId}/invitations/{invitationId}")
+    suspend fun revokeFamilyInvitation(
+        @Path("familyId") familyId: String,
+        @Path("invitationId") invitationId: String
+    ): Response<FamilyOnboardingSimpleResponse>
+
+    @GET("api/family-onboarding/families/{familyId}/legacy-candidates")
+    suspend fun getFamilyLegacyMigrationCandidates(
+        @Path("familyId") familyId: String
+    ): Response<FamilyLegacyMigrationCandidatesResponse>
+
+    @POST("api/family-onboarding/families/{familyId}/legacy-candidates/{memberId}/confirm")
+    suspend fun confirmFamilyLegacyProfile(
+        @Path("familyId") familyId: String,
+        @Path("memberId") memberId: String,
+        @Body request: FamilyLegacyProfileConfirmRequest
+    ): Response<FamilyLegacyProfileConfirmResponse>
+
+    @POST("api/family-onboarding/families/{familyId}/devices/{deviceId}/transfer")
+    suspend fun transferFamilyDevice(
+        @Path("familyId") familyId: String,
+        @Path("deviceId") deviceId: String,
+        @Body request: FamilyDeviceTransferRequest
+    ): Response<FamilyOnboardingResultResponse>
 
     @GET("api/families")
     suspend fun getFamilies(): Response<FamiliesResponse>
