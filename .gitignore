@@ -22,6 +22,7 @@ out/
 .gradle-user/
 .gradle-agent-home/
 .gradle-agent-home-*/
+.android-agent-home/
 .codex-build/
 artifacts/android/
 artifacts/server/
@@ -132,7 +133,6 @@ nul
 # Local Android Studio / Codex state
 .android/
 .android-user/
-.android-agent-home/
 .codex-logs/
 backup-childwatch/
 .idea/
