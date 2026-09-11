@@ -3,31 +3,37 @@ package ru.example.childwatch
 import android.content.Intent
 import android.content.res.ColorStateList
 import android.os.Bundle
+import android.os.LocaleList
 import android.util.Log
 import android.util.Patterns
 import android.view.View
 import android.widget.EditText
+import android.widget.GridLayout
+import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.imageview.ShapeableImageView
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import org.json.JSONObject
-import ru.childwatch.shared.onboarding.FamilyBootstrapRequest
 import ru.childwatch.shared.onboarding.FamilyAppKind
 import ru.childwatch.shared.onboarding.FamilyInvitationTokenParser
 import ru.childwatch.shared.onboarding.FamilyOnboardingRolePolicy
-import ru.childwatch.shared.onboarding.FamilyProfileConfirmationRequest
 import ru.childwatch.shared.onboarding.OnboardingMemberData
 import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.database.entity.Parent
 import ru.example.childwatch.databinding.ActivityParentSetupBinding
-import ru.example.childwatch.network.AuthenticatedMembershipData
 import ru.example.childwatch.network.NetworkClient
+import ru.example.childwatch.onboarding.ParentOnboardingSyncWorker
 import ru.example.childwatch.profile.FamilyAvatarRenderer
-import ru.example.childwatch.profile.ParentFamilyDirectoryRepository
+import ru.example.childwatch.profile.ParentParticipantNameResolver
 import java.util.UUID
 
 /** First-run wizard. A person profile and a phone binding are separate records. */
@@ -43,7 +49,9 @@ class ParentSetupActivity : AppCompatActivity() {
     private lateinit var binding: ActivityParentSetupBinding
     private val database by lazy { ChildWatchDatabase.getInstance(this) }
     private val networkClient by lazy { NetworkClient(this) }
+    private val deferredSetupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var selectedAvatarValue = FamilyAvatarRenderer.presets.first().storageValue
+    private var avatarPresetViews: List<ShapeableImageView> = emptyList()
 
     private val pickImageLauncher = registerForActivityResult(
         ActivityResultContracts.OpenDocument()
@@ -77,17 +85,22 @@ class ParentSetupActivity : AppCompatActivity() {
     }
 
     private fun setupUi() {
+        val nameLocales = LocaleList.forLanguageTags("ru-RU,en-US")
+        binding.nameInput.imeHintLocales = nameLocales
+        binding.familyNameInput.imeHintLocales = nameLocales
         FamilyAvatarRenderer.bind(binding.avatarImage, selectedAvatarValue)
         setupAvatarPresetChoices()
         binding.changeAvatarButton.setOnClickListener {
-            pickImageLauncher.launch(arrayOf("image/*"))
+            showAvatarSourcePicker()
         }
         binding.continueButton.setOnClickListener { validateAndCreateFamily() }
+        binding.configureLaterButton.setOnClickListener { configureLater() }
         binding.skipButton.setOnClickListener { showInvitationEntry() }
     }
 
     private fun setupAvatarPresetChoices() {
-        val views = listOf(
+        val density = resources.displayMetrics.density
+        val views = mutableListOf(
             binding.parentAvatarPreset1,
             binding.parentAvatarPreset2,
             binding.parentAvatarPreset3,
@@ -95,7 +108,26 @@ class ParentSetupActivity : AppCompatActivity() {
             binding.parentAvatarPreset5,
             binding.parentAvatarPreset6
         )
+        FamilyAvatarRenderer.presets.drop(views.size).forEach { preset ->
+            val view = ShapeableImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(
+                    (56 * density).toInt(),
+                    (56 * density).toInt()
+                ).apply { marginStart = (10 * density).toInt() }
+                scaleType = android.widget.ImageView.ScaleType.CENTER_CROP
+                isClickable = true
+                isFocusable = true
+                shapeAppearanceModel = shapeAppearanceModel.toBuilder()
+                    .setAllCornerSizes(28 * density)
+                    .build()
+                FamilyAvatarRenderer.bind(this, preset.storageValue)
+                binding.parentAvatarPresetContainer.addView(this)
+            }
+            views += view
+        }
+        avatarPresetViews = views
         FamilyAvatarRenderer.presets.zip(views).forEachIndexed { index, (preset, view) ->
+            FamilyAvatarRenderer.bind(view, preset.storageValue)
             view.contentDescription = getString(
                 R.string.family_profile_avatar_preset_description,
                 index + 1
@@ -110,14 +142,7 @@ class ParentSetupActivity : AppCompatActivity() {
     }
 
     private fun refreshAvatarPresetSelection() {
-        val views = listOf(
-            binding.parentAvatarPreset1,
-            binding.parentAvatarPreset2,
-            binding.parentAvatarPreset3,
-            binding.parentAvatarPreset4,
-            binding.parentAvatarPreset5,
-            binding.parentAvatarPreset6
-        )
+        val views = avatarPresetViews
         val primary = ContextCompat.getColor(this, R.color.cw_color_primary)
         val outline = ContextCompat.getColor(this, R.color.cw_color_outline_variant)
         FamilyAvatarRenderer.presets.zip(views).forEach { (preset, view) ->
@@ -130,27 +155,80 @@ class ParentSetupActivity : AppCompatActivity() {
         }
     }
 
+    private fun showAvatarSourcePicker() {
+        MaterialAlertDialogBuilder(this)
+            .setItems(arrayOf("Выбрать аватар", "Выбрать своё фото")) { _, which ->
+                if (which == 0) showPresetAvatarPicker()
+                else pickImageLauncher.launch(arrayOf("image/*"))
+            }
+            .show()
+    }
+
+    /** Full preset sheet. New avatar keys are stored, not device-local image paths. */
+    private fun showPresetAvatarPicker() {
+        val density = resources.displayMetrics.density
+        val avatarSize = (64 * density).toInt()
+        val margin = (6 * density).toInt()
+        val grid = GridLayout(this).apply {
+            columnCount = 5
+            useDefaultMargins = false
+            setPadding(margin, margin, margin, margin)
+        }
+        FamilyAvatarRenderer.presets.forEachIndexed { index, preset ->
+            val avatar = ShapeableImageView(this).apply {
+                layoutParams = GridLayout.LayoutParams().apply {
+                    width = avatarSize
+                    height = avatarSize
+                    setMargins(margin, margin, margin, margin)
+                }
+                contentDescription = getString(
+                    R.string.family_profile_avatar_preset_description,
+                    index + 1
+                )
+                isClickable = true
+                isFocusable = true
+                shapeAppearanceModel = shapeAppearanceModel.toBuilder()
+                    .setAllCornerSizes(avatarSize / 2f)
+                    .build()
+                strokeWidth = if (preset.storageValue == selectedAvatarValue) 3f * density else 1f * density
+                strokeColor = ColorStateList.valueOf(
+                    ContextCompat.getColor(
+                        this@ParentSetupActivity,
+                        if (preset.storageValue == selectedAvatarValue) R.color.cw_color_primary
+                        else R.color.cw_color_outline_variant
+                    )
+                )
+                FamilyAvatarRenderer.bind(this, preset.storageValue)
+            }
+            grid.addView(avatar)
+        }
+        val scroll = ScrollView(this).apply { addView(grid) }
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle("Выберите аватар")
+            .setView(scroll)
+            .setNegativeButton("Отмена", null)
+            .create()
+        for (index in 0 until grid.childCount) {
+            grid.getChildAt(index).setOnClickListener {
+                selectedAvatarValue = FamilyAvatarRenderer.presets[index].storageValue
+                FamilyAvatarRenderer.bind(binding.avatarImage, selectedAvatarValue)
+                refreshAvatarPresetSelection()
+                dialog.dismiss()
+            }
+        }
+        dialog.show()
+    }
+
     private fun validateAndCreateFamily() {
         val name = binding.nameInput.text?.toString().orEmpty().trim()
+            .ifEmpty { getString(R.string.parent_setup_default_name) }
         val familyName = binding.familyNameInput.text?.toString().orEmpty().trim()
+            .ifEmpty { getString(R.string.parent_setup_default_family) }
         val email = binding.emailInput.text?.toString().orEmpty().trim()
         val phone = binding.phoneInput.text?.toString().orEmpty().trim()
 
-        binding.nameInputLayout.error = when {
-            name.isEmpty() -> "Введите ваше имя"
-            name.length < 2 -> "Имя слишком короткое"
-            else -> null
-        }
-        if (binding.nameInputLayout.error != null) {
-            binding.nameInput.requestFocus()
-            return
-        }
-        binding.familyNameInputLayout.error =
-            if (familyName.length < 2) "Введите название семьи" else null
-        if (binding.familyNameInputLayout.error != null) {
-            binding.familyNameInput.requestFocus()
-            return
-        }
+        binding.nameInputLayout.error = null
+        binding.familyNameInputLayout.error = null
         binding.emailInputLayout.error =
             if (email.isNotEmpty() && !Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
                 "Неверный формат email"
@@ -160,84 +238,72 @@ class ParentSetupActivity : AppCompatActivity() {
             if (phone.isNotEmpty() && phone.length < 10) "Неверный формат телефона" else null
         if (binding.phoneInputLayout.error != null) return
 
-        createOrConfirmFamily(familyName, name, email, phone)
+        completeLocallyAndScheduleSync(familyName, name, email, phone)
     }
 
-    private fun createOrConfirmFamily(
+    private fun configureLater() {
+        binding.nameInputLayout.error = null
+        binding.familyNameInputLayout.error = null
+        binding.emailInputLayout.error = null
+        binding.phoneInputLayout.error = null
+        completeLocallyAndScheduleSync(
+            familyName = getString(R.string.parent_setup_default_family),
+            name = getString(R.string.parent_setup_default_name),
+            email = "",
+            phone = "",
+            completionMessage = getString(R.string.parent_setup_later_done)
+        )
+    }
+
+    private fun completeLocallyAndScheduleSync(
         familyName: String,
         name: String,
         email: String,
-        phone: String
+        phone: String,
+        completionMessage: String? = null
     ) {
-        showLoading(true)
-        lifecycleScope.launch {
+        val avatarValue = selectedAvatarValue
+        getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
+            .putBoolean(KEY_ONBOARDING_COMPLETED, true)
+            .apply()
+        getSharedPreferences("childwatch_prefs", MODE_PRIVATE).edit()
+            .putString(ParentParticipantNameResolver.KEY_SELF_DISPLAY_NAME, name)
+            .apply()
+
+        Toast.makeText(
+            this,
+            completionMessage ?: "Семья настроена",
+            Toast.LENGTH_SHORT
+        ).show()
+
+        /*
+         * A fresh Room/WorkManager initialization can be slow on an emulator.
+         * Keep it outside the click handler so Android never sees a frozen UI.
+         */
+        deferredSetupScope.launch {
             try {
-                check(networkClient.ensureOnboardingAuthentication()) {
-                    "Не удалось зарегистрировать телефон на сервере"
-                }
-                val identityResponse = networkClient.getAuthenticatedIdentity()
-                val identity = identityResponse.body()
-                    ?.takeIf { identityResponse.isSuccessful && it.success }
-                check(identity != null) {
-                    readServerError(identityResponse.errorBody()?.string())
-                }
-                val existing = identity.memberships
-                    .sortedWith(
-                        compareByDescending<AuthenticatedMembershipData> {
-                            it.binding.memberBindingSource == "EXPLICIT"
-                        }.thenByDescending { it.binding.updatedAt }
-                    )
-                    .firstOrNull()
-                val member = if (existing != null) {
-                    val avatarKey = selectedAvatarValue.takeIf { it.startsWith("preset:") }
-                    if (existing.binding.memberBindingSource != "EXPLICIT") {
-                        val response = networkClient.confirmOwnFamilyProfile(
-                            existing.familyId,
-                            FamilyProfileConfirmationRequest(
-                                displayName = name,
-                                avatarKey = avatarKey
-                            )
-                        )
-                        check(response.isSuccessful && response.body()?.success == true) {
-                            readServerError(response.errorBody()?.string())
-                        }
-                        response.body()!!.member
-                    } else {
-                        check(
-                            ParentFamilyDirectoryRepository(this@ParentSetupActivity)
-                                .updateOwnProfile(name, selectedAvatarValue)
-                        ) { "Не удалось сохранить профиль семьи" }
-                        OnboardingMemberData(
-                            id = existing.member.id,
-                            familyId = existing.familyId,
-                            displayName = name,
-                            role = existing.member.role,
-                            avatarKey = avatarKey
-                        )
-                    }
-                } else {
-                    val response = networkClient.bootstrapFamily(
-                        FamilyBootstrapRequest(
-                            familyName = familyName,
-                            displayName = name,
-                            role = "PARENT",
-                            avatarKey = selectedAvatarValue.takeIf { it.startsWith("preset:") }
-                        )
-                    )
-                    check(response.isSuccessful && response.body()?.success == true) {
-                        readServerError(response.errorBody()?.string())
-                    }
-                    response.body()!!.member
-                }
-                persistCompletedProfile(member, email, phone)
-                Toast.makeText(this@ParentSetupActivity, "Семья настроена", Toast.LENGTH_SHORT).show()
-                navigateToMain()
+                persistCompletedProfile(
+                    OnboardingMemberData(
+                        id = null,
+                        familyId = null,
+                        displayName = name,
+                        role = "PARENT",
+                        avatarKey = avatarValue
+                    ),
+                    email,
+                    phone
+                )
+                ParentOnboardingSyncWorker.enqueue(
+                    context = applicationContext,
+                    familyName = familyName,
+                    displayName = name,
+                    avatarValue = avatarValue
+                )
             } catch (error: Exception) {
-                Log.e(TAG, "Family setup failed", error)
-                showLoading(false)
-                Toast.makeText(this@ParentSetupActivity, error.message, Toast.LENGTH_LONG).show()
+                Log.e(TAG, "Deferred family setup failed", error)
             }
         }
+        navigateToMain()
     }
 
     private fun showInvitationEntry() {
@@ -374,6 +440,7 @@ class ParentSetupActivity : AppCompatActivity() {
     private fun showLoading(show: Boolean) {
         binding.progressBar.visibility = if (show) View.VISIBLE else View.GONE
         binding.continueButton.isEnabled = !show
+        binding.configureLaterButton.isEnabled = !show
         binding.skipButton.isEnabled = !show
         binding.changeAvatarButton.isEnabled = !show
         binding.nameInput.isEnabled = !show

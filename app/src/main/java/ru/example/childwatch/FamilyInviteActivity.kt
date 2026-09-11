@@ -6,6 +6,7 @@ import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Color
 import android.os.Bundle
+import android.os.LocaleList
 import android.view.View
 import android.widget.ArrayAdapter
 import android.widget.Toast
@@ -54,6 +55,7 @@ class FamilyInviteActivity : AppCompatActivity() {
     }
 
     private fun setupInputs() {
+        binding.inviteNameInput.imeHintLocales = LocaleList.forLanguageTags("ru-RU,en-US")
         binding.inviteRoleInput.setAdapter(
             ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, roleLabels)
         )
@@ -402,6 +404,12 @@ class FamilyInviteActivity : AppCompatActivity() {
                     return@launch
                 }
                 invitationUri = invitation!!.invitationUri
+                if (BuildConfig.DEBUG) {
+                    getSharedPreferences(DEBUG_PREFS_NAME, MODE_PRIVATE)
+                        .edit()
+                        .putString(DEBUG_LAST_INVITATION_URI, invitationUri)
+                        .apply()
+                }
                 binding.invitationResultTitle.text =
                     "Приглашение для ${invitation.member.displayName}"
                 binding.invitationResultHint.text = if (invitation.member.role == "CHILD") {
@@ -475,7 +483,18 @@ class FamilyInviteActivity : AppCompatActivity() {
 
     private fun clearResult() {
         invitationUri = null
+        if (BuildConfig.DEBUG) {
+            getSharedPreferences(DEBUG_PREFS_NAME, MODE_PRIVATE)
+                .edit()
+                .remove(DEBUG_LAST_INVITATION_URI)
+                .apply()
+        }
         binding.invitationResultCard.visibility = View.GONE
+    }
+
+    companion object {
+        const val DEBUG_PREFS_NAME = "childwatch_emulator_lab"
+        const val DEBUG_LAST_INVITATION_URI = "last_invitation_uri"
     }
 
     private fun setupAvatarChoices() {
@@ -488,6 +507,7 @@ class FamilyInviteActivity : AppCompatActivity() {
             binding.inviteAvatarPreset6
         )
         FamilyAvatarRenderer.presets.zip(views).forEach { (preset, view) ->
+            FamilyAvatarRenderer.bind(view, preset.storageValue)
             view.setOnClickListener {
                 selectedAvatarValue = preset.storageValue
                 refreshAvatarChoices()

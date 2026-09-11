@@ -18,8 +18,9 @@
             android:layout_height="80dp"
             android:layout_gravity="center_horizontal"
             android:layout_marginBottom="24dp"
-            android:src="@android:drawable/ic_dialog_alert"
-            android:tint="?attr/colorPrimary" />
+            android:contentDescription="@string/app_name"
+            android:scaleType="centerCrop"
+            android:src="@drawable/ic_brand_parentmonitor" />
 
         <TextView
             android:layout_width="match_parent"

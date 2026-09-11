@@ -467,6 +467,7 @@ class ChildSelectionActivity : AppCompatActivity() {
         currentAvatarPresetViews = viewIds.map { dialogView.findViewById<ShapeableImageView>(it) }
         FamilyAvatarRenderer.presets.zip(currentAvatarPresetViews).forEachIndexed { index, (preset, view) ->
             view.apply {
+                FamilyAvatarRenderer.bind(this, preset.storageValue)
                 contentDescription = getString(
                     R.string.family_profile_avatar_preset_description,
                     index + 1

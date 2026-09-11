@@ -385,4 +385,10 @@
     <string name="audio_monitor_section_visualizer_hint">Показывает, как меняется входящий сигнал, но не влияет на качество звука.</string>
     <string name="audio_monitor_section_diagnostics">Диагностика</string>
     <string name="audio_monitor_section_diagnostics_hint">Помогает понять качество соединения, задержку и состояние потока.</string>
+    <string name="parent_setup_continue">Продолжить</string>
+    <string name="parent_setup_later">Настроить позже</string>
+    <string name="parent_setup_have_invitation">Есть приглашение</string>
+    <string name="parent_setup_default_name">Родитель</string>
+    <string name="parent_setup_default_family">Моя семья</string>
+    <string name="parent_setup_later_done">Готово. Имя, аватар и контакты можно заполнить позже в профиле.</string>
 </resources>

@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [ValidateSet("status", "devices", "studio", "build", "deploy", "watch", "cleanup", "setup", "start", "test")]
+    [ValidateSet("status", "devices", "studio", "build", "deploy", "observe", "watch", "cleanup", "setup", "start", "test")]
     [string]$Action = "status",
 
     [ValidateSet("app", "parentwatch", "both")]
@@ -10,7 +10,7 @@ param(
     [string]$ParentwatchSerial,
     [switch]$PreferSeparateDevices,
     [switch]$SkipInitialDeploy,
-    [int]$DebounceMs = 1200
+    [int]$DebounceMs = 15000
 )
 
 $ErrorActionPreference = "Stop"
@@ -280,14 +280,14 @@ function Invoke-Gradle {
         [string[]]$Arguments
     )
 
-    $gradlePath = Join-Path $script:ProjectRoot "gradlew.bat"
-    if (-not (Test-Path $gradlePath)) {
-        throw "gradlew.bat was not found in the project root."
+    $safeGradlePath = Join-Path $PSScriptRoot "run-gradle-safe.ps1"
+    if (-not (Test-Path $safeGradlePath)) {
+        throw "Safe Gradle wrapper was not found: $safeGradlePath"
     }
 
     Push-Location $script:ProjectRoot
     try {
-        & $gradlePath @Arguments
+        & $safeGradlePath @Arguments
         if ($LASTEXITCODE -ne 0) {
             throw "Gradle failed with exit code $LASTEXITCODE."
         }
@@ -466,10 +466,10 @@ function Show-Status {
 
     Write-Host ""
     Write-Host "Recommended Android Studio workflow:"
-    Write-Host "  1. Open Device Manager and start an emulator."
-    Write-Host "  2. Run the needed module once."
-    Write-Host "  3. Use Apply Changes for small UI/code updates."
-    Write-Host "  4. Use this script or VS Code tasks for rebuild+install when needed."
+    Write-Host "  1. Keep the Git > Local Changes window open to see agent edits."
+    Write-Host "  2. Run: .\scripts\dev-workflow.ps1 -Action observe"
+    Write-Host "  3. Run the needed module once on a phone or emulator."
+    Write-Host "  4. Use deploy for a stable checkpoint or watch for automatic preview."
 }
 
 function Open-AndroidStudio {
@@ -608,7 +608,8 @@ function Watch-Targets {
     }
 
     Write-Host ""
-    Write-Info "Watching for file changes. Press Ctrl+C to stop."
+    Write-Info "Automatic preview is active. A build starts after $DebounceMs ms without new edits."
+    Write-Info "Press Ctrl+C to stop."
 
     $pending = @{}
     $watchers = Register-Watchers
@@ -648,6 +649,48 @@ function Watch-Targets {
             }
 
             Start-Sleep -Milliseconds 350
+        }
+    }
+    finally {
+        foreach ($watcher in $watchers) {
+            $watcher.EnableRaisingEvents = $false
+            $watcher.Dispose()
+        }
+
+        Unregister-Watchers
+    }
+}
+
+function Observe-Targets {
+    param([string[]]$TargetKeys)
+
+    Write-Host ""
+    Write-Info "Observation mode is active. No builds or APK installations will run."
+    Write-Info "Changes made by the agent will appear here immediately. Press Ctrl+C to stop."
+
+    $watchers = Register-Watchers
+    try {
+        while ($true) {
+            $event = Wait-Event -SourceIdentifier "cw.source" -Timeout 1
+            if (-not $event) {
+                continue
+            }
+
+            $changedPath = [string]$event.MessageData
+            Remove-Event -EventIdentifier $event.EventIdentifier
+            $changedTargets = @(Get-TargetsForChangedPath -Path $changedPath)
+            $visibleTargets = @($changedTargets | Where-Object { $TargetKeys -contains $_ })
+            if ($visibleTargets.Count -eq 0) {
+                continue
+            }
+
+            $shownPath = $changedPath
+            if ($changedPath.StartsWith($script:ProjectRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+                $shownPath = $changedPath.Substring($script:ProjectRoot.Length).TrimStart("\")
+            }
+
+            $time = Get-Date -Format "HH:mm:ss"
+            Write-Host "[$time] $shownPath  [$($visibleTargets -join ', ')]" -ForegroundColor Green
         }
     }
     finally {
@@ -722,6 +765,9 @@ switch ($normalizedAction) {
     }
     "deploy" {
         Invoke-Deploy -TargetKeys $selectedTargets
+    }
+    "observe" {
+        Observe-Targets -TargetKeys $selectedTargets
     }
     "watch" {
         Watch-Targets -TargetKeys $selectedTargets

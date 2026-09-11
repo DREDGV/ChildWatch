@@ -12,6 +12,7 @@ import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.util.Log
+import android.util.Patterns
 import android.view.ViewGroup
 import android.widget.EditText
 import android.widget.LinearLayout
@@ -723,32 +724,66 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun showEditOwnNameDialog() {
-        val input = createProfileInput(
-            getString(R.string.participant_self_name_hint_parent),
-            participantNameResolver.resolveOwnParentDisplayName()
-        )
-
-        val dialog = AlertDialog.Builder(this)
-            .setTitle(R.string.participant_self_name_title_parent)
-            .setView(createProfileDialogLayout(input))
-            .setPositiveButton(android.R.string.ok, null)
-            .setNegativeButton(android.R.string.cancel, null)
-            .create()
-
-        dialog.setOnShowListener {
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
-                val newName = input.text?.toString()?.trim().orEmpty()
-                if (newName.isBlank()) {
-                    input.error = getString(R.string.participant_self_name_error_empty)
-                    return@setOnClickListener
-                }
-                input.error = null
-                dialog.dismiss()
-                saveOwnParentDisplayName(newName)
+        lifecycleScope.launch {
+            val parent = withContext(Dispatchers.IO) { findLocalParent() }
+            val nameInput = createProfileInput(
+                getString(R.string.participant_self_name_hint_parent),
+                parent?.name
+                    ?.takeUnless { it == getString(R.string.parent_setup_default_name) }
+                    .orEmpty()
+            )
+            val emailInput = createProfileInput(
+                getString(R.string.participant_self_email_hint),
+                parent?.email
+                    ?.takeUnless { it.endsWith("@childwatch.local") }
+                    .orEmpty()
+            ).apply {
+                inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                    android.text.InputType.TYPE_TEXT_VARIATION_EMAIL_ADDRESS
             }
-        }
+            val phoneInput = createProfileInput(
+                getString(R.string.participant_self_phone_hint),
+                parent?.phoneNumber.orEmpty()
+            ).apply {
+                inputType = android.text.InputType.TYPE_CLASS_PHONE
+            }
 
-        dialog.show()
+            val dialog = AlertDialog.Builder(this@SettingsActivity)
+                .setTitle(R.string.participant_self_name_title_parent)
+                .setMessage(R.string.participant_self_details_optional)
+                .setView(createProfileDialogLayout(nameInput, emailInput, phoneInput))
+                .setPositiveButton(R.string.participant_self_save, null)
+                .setNegativeButton(android.R.string.cancel, null)
+                .create()
+
+            dialog.setOnShowListener {
+                dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener {
+                    val newName = nameInput.text?.toString()?.trim().orEmpty()
+                        .ifEmpty { getString(R.string.parent_setup_default_name) }
+                    val email = emailInput.text?.toString()?.trim().orEmpty()
+                    val phone = phoneInput.text?.toString()?.trim().orEmpty()
+                    emailInput.error =
+                        if (email.isNotEmpty() && !Patterns.EMAIL_ADDRESS.matcher(email).matches()) {
+                            getString(R.string.participant_self_email_error)
+                        } else {
+                            null
+                        }
+                    phoneInput.error =
+                        if (phone.isNotEmpty() && phone.count(Char::isDigit) < 10) {
+                            getString(R.string.participant_self_phone_error)
+                        } else {
+                            null
+                        }
+                    if (emailInput.error != null || phoneInput.error != null) {
+                        return@setOnClickListener
+                    }
+                    dialog.dismiss()
+                    saveOwnParentPersonalData(newName, email, phone)
+                }
+            }
+
+            dialog.show()
+        }
     }
 
     private fun showEditOwnMarkerDialog() {
@@ -772,14 +807,18 @@ class SettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun saveOwnParentDisplayName(newName: String) {
+    private fun saveOwnParentPersonalData(
+        newName: String,
+        email: String,
+        phone: String
+    ) {
         lifecycleScope.launch {
             prefs.edit()
                 .putString(ParentParticipantNameResolver.KEY_SELF_DISPLAY_NAME, newName)
                 .putString(KEY_LINKED_PARENT_SELF_LABEL, newName)
                 .apply()
 
-            updateLocalParentName(newName)
+            updateLocalParentPersonalData(newName, email, phone)
             val synced = syncOwnParentNameToServer(newName)
             syncLinkedProfilesInBackground()
             updateProfileSummary()
@@ -787,9 +826,9 @@ class SettingsActivity : AppCompatActivity() {
             Toast.makeText(
                 this@SettingsActivity,
                 if (synced) {
-                    R.string.participant_self_name_saved
+                    R.string.participant_self_details_saved
                 } else {
-                    R.string.participant_self_name_sync_partial
+                    R.string.participant_self_details_sync_partial
                 },
                 Toast.LENGTH_SHORT
             ).show()
@@ -818,19 +857,29 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun updateLocalParentName(newName: String) {
+    private suspend fun findLocalParent() = withContext(Dispatchers.IO) {
+        val onboardingPrefs = getSharedPreferences(PARENT_ONBOARDING_PREFS, MODE_PRIVATE)
+        val storedParentId = onboardingPrefs.getLong(KEY_PARENT_ID, 0L)
+        if (storedParentId > 0) {
+            database.parentDao().getById(storedParentId)
+        } else {
+            database.parentDao().getAll().firstOrNull()
+        }
+    }
+
+    private suspend fun updateLocalParentPersonalData(
+        newName: String,
+        email: String,
+        phone: String
+    ) {
         withContext(Dispatchers.IO) {
-            val onboardingPrefs = getSharedPreferences(PARENT_ONBOARDING_PREFS, MODE_PRIVATE)
-            val storedParentId = onboardingPrefs.getLong(KEY_PARENT_ID, 0L)
-            val existingParent = if (storedParentId > 0) {
-                database.parentDao().getById(storedParentId)
-            } else {
-                database.parentDao().getAll().firstOrNull()
-            } ?: return@withContext
+            val existingParent = findLocalParent() ?: return@withContext
 
             database.parentDao().update(
                 existingParent.copy(
                     name = newName,
+                    email = email.ifBlank { "parent@childwatch.local" },
+                    phoneNumber = phone.ifBlank { null },
                     updatedAt = System.currentTimeMillis()
                 )
             )

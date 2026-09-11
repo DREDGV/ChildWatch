@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application>
+        <receiver
+            android:name=".debug.EmulatorLabReceiver"
+            android:enabled="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="ru.example.parentwatch.DEBUG_EMULATOR_SETUP" />
+            </intent-filter>
+        </receiver>
+    </application>
+</manifest>

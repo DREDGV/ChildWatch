@@ -17,6 +17,26 @@ if (-not (Test-Path -LiteralPath $gradleWrapper)) {
 New-Item -ItemType Directory -Force -Path $gradleHome, $androidHome | Out-Null
 $env:GRADLE_USER_HOME = $gradleHome
 $env:ANDROID_USER_HOME = $androidHome
+
+# Android Studio updates can change its installation directory (for example,
+# "Android Studio" to "Android Studio1").  A stale JAVA_HOME then makes the
+# Gradle wrapper fail before it can start.  Select a valid bundled JDK only
+# for this safe Gradle process; the user's global environment is untouched.
+$androidStudioRoot = Join-Path $env:ProgramFiles "Android"
+if (Test-Path -LiteralPath $androidStudioRoot) {
+    $bundledJdk = Get-ChildItem -LiteralPath $androidStudioRoot -Directory -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending |
+        ForEach-Object {
+            $candidate = Join-Path $_.FullName "jbr"
+            if (Test-Path -LiteralPath (Join-Path $candidate "bin\java.exe")) {
+                $candidate
+            }
+        } |
+        Select-Object -First 1
+    if ($bundledJdk) {
+        $env:JAVA_HOME = $bundledJdk
+    }
+}
 $userHomeOption = "-Duser.home=$androidHome"
 if ($env:GRADLE_OPTS -notlike "*$userHomeOption*") {
     $env:GRADLE_OPTS = "$($env:GRADLE_OPTS) $userHomeOption".Trim()

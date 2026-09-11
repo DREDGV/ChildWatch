@@ -345,7 +345,7 @@ object NotificationManager {
         val channelId = ensureChatChannel(context, settings)
         val pendingIntent = buildOpenChatPendingIntent(context, conversationId, conversationTitle)
         val builder = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(conversationTitle ?: context.getString(R.string.notification_content_title))
             .setContentText(messageText)
             .setPriority(mapCompatPriority(settings.priority))
@@ -444,7 +444,7 @@ object NotificationManager {
         timestamp: Long
     ): Notification {
         return NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.notification_content_title))
             .setContentText(context.getString(R.string.notification_hidden_content))
             .setAutoCancel(true)

@@ -630,7 +630,7 @@ class AudioStreamRecorder(
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
         val notification = NotificationCompat.Builder(context, RECOVERY_CHANNEL_ID)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle(context.getString(R.string.audio_recovery_notification_title))
             .setContentText(context.getString(R.string.audio_recovery_notification_text))
             .setContentIntent(pendingIntent)

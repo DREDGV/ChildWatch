@@ -1,6 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="Theme.ChildWatch.DesignSystem" parent="Theme.MaterialComponents.DayNight">
+    <!--
+      The shared widgets use Material 3 TextInputLayout and TextInputEditText
+      styles.  Their required TextAppearance attributes are supplied by a
+      Material 3 theme; using the older Material Components parent caused the
+      onboarding screen to crash while inflating its first text field.
+    -->
+    <style name="Theme.ChildWatch.DesignSystem" parent="Theme.Material3.DayNight">
         <item name="colorPrimary">@color/cw_color_primary</item>
         <item name="colorPrimaryVariant">@color/cw_color_primary_container</item>
         <item name="colorOnPrimary">@color/cw_color_on_primary</item>

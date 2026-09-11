@@ -208,7 +208,7 @@ class ChatBackgroundService : LifecycleService() {
             serviceClass = ChatBackgroundService::class.java,
             mainActivityClass = MainActivity::class.java,
             stopAction = ACTION_STOP_ATTENTION,
-            notificationIcon = R.mipmap.ic_launcher,
+            notificationIcon = R.drawable.ic_notification,
             appName = getString(R.string.app_name)
         )
         chatV2Coordinator = ChatV2BackgroundCoordinator(this, lifecycleScope)
@@ -677,7 +677,7 @@ class ChatBackgroundService : LifecycleService() {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle(getString(R.string.chat_service_title))
             .setContentText(contentText)
-            .setSmallIcon(R.mipmap.ic_launcher)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentIntent(pendingIntent)
             .setOngoing(true)
             .setPriority(NotificationCompat.PRIORITY_LOW)

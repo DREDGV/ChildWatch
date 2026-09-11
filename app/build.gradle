@@ -20,7 +20,6 @@ android {
         vectorDrawables {
             useSupportLibrary true
         }
-        setProperty("archivesBaseName", "ParentMonitor-v$versionName")
     }
 
     buildTypes {
@@ -54,6 +53,12 @@ android {
     ksp {
         arg("room.schemaLocation", "$projectDir/schemas")
     }
+}
+
+// `archivesBaseName` was removed in recent Android Gradle Plugin versions.
+// Keep the APK name stable through the supported Base plugin extension.
+base {
+    archivesName = "ParentMonitor-v${rootProject.ext.cwVersionName}"
 }
 
 dependencies {
@@ -107,9 +112,10 @@ dependencies {
     implementation 'androidx.work:work-runtime-ktx:2.9.0'
 
     // Room Database
-    implementation 'androidx.room:room-runtime:2.6.1'
-    ksp 'androidx.room:room-compiler:2.6.1'
-    implementation 'androidx.room:room-ktx:2.6.1'
+    // Room 2.7 supports the current Kotlin/KSP toolchain used by Android Studio.
+    implementation 'androidx.room:room-runtime:2.7.2'
+    ksp 'androidx.room:room-compiler:2.7.2'
+    implementation 'androidx.room:room-ktx:2.7.2'
 
     // Lifecycle
     implementation 'androidx.lifecycle:lifecycle-service:2.7.0'

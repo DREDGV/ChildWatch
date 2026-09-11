@@ -41,9 +41,9 @@
                     android:layout_width="88dp"
                     android:layout_height="88dp"
                     android:contentDescription="@string/home_child_protection_active"
-                    android:padding="@dimen/cw_space_4"
-                    android:src="@drawable/ic_logo_childdevice"
-                    app:tint="@color/cw_color_primary" />
+                    android:padding="@dimen/cw_space_2"
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/ic_brand_childdevice" />
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -80,9 +80,9 @@
                 <com.google.android.material.imageview.ShapeableImageView
                     style="@style/Widget.ChildWatch.Avatar.Medium"
                     android:contentDescription="@string/home_child_profile_avatar_description"
-                    android:padding="@dimen/cw_space_2"
-                    android:src="@drawable/ic_logo_childdevice"
-                    app:tint="@color/cw_color_primary" />
+                    android:padding="@dimen/cw_space_1"
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/ic_brand_childdevice" />
 
                 <LinearLayout
                     android:layout_width="0dp"

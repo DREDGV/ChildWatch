@@ -28,6 +28,7 @@ import ru.example.parentwatch.chat.withStatus
 import ru.example.parentwatch.network.FamilyPresenceParticipant
 import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.network.WebSocketManager
+import ru.example.parentwatch.profile.FamilyAvatarRenderer
 import ru.example.parentwatch.session.ChildActiveSessionStore
 import ru.example.parentwatch.session.ChildEffectiveContextProvider
 import ru.example.parentwatch.session.ChildEffectiveContextResolver
@@ -148,6 +149,10 @@ class ChatActivity : AppCompatActivity() {
             partnerDeviceId
         }
         val childDisplayName = participantNameResolver.resolveChildDisplayName()
+        FamilyAvatarRenderer.bind(
+            binding.chatAvatar,
+            participantNameResolver.resolveParentAvatarKey(partnerDeviceId)
+        )
         binding.chatPartnerName.text = getString(R.string.chat_header_participants_title)
         binding.chatPartnerMeta.text = getString(R.string.chat_partner_meta_family)
         chatInfoDetailsText = buildString {
