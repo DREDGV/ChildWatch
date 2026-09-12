@@ -39,7 +39,12 @@ class WebSocketManager {
     this.pendingPhotoRequests = new Map();
     // Map: deviceId (child) -> active photo owner/request
     this.activePhotoRequests = new Map();
-    this.PHOTO_REQUEST_TTL_MS = 25 * 1000;
+    // A photo request covers service start, Camera2 capture, JPEG encoding,
+    // base64 transfer and relay, which routinely exceeds 25s on older devices
+    // (the project's test phone is a Moto G 5 Plus on Android 11). The parent
+    // client waits LONGER than this value, so a shorter server TTL made the
+    // server give up while the parent was still legitimately waiting.
+    this.PHOTO_REQUEST_TTL_MS = 90 * 1000;
     this.lastMissingParentLogAt = new Map();
 
     console.log("[ws] WebSocketManager initialized");
@@ -236,6 +241,12 @@ class WebSocketManager {
 
   isPhotoRequestActive(entry, now = Date.now()) {
     if (!entry) return false;
+    // The scheduled deadline governs, because the request may have been
+    // re-armed when the child acknowledged it.
+    const expiresAt = Number(entry.expiresAt || 0);
+    if (Number.isFinite(expiresAt) && expiresAt > 0) {
+      return now < expiresAt;
+    }
     const createdAt = Number(entry.createdAt || 0);
     if (!Number.isFinite(createdAt) || createdAt <= 0) return false;
     return (now - createdAt) < this.PHOTO_REQUEST_TTL_MS;
@@ -256,9 +267,48 @@ class WebSocketManager {
     }
   }
 
+  /**
+   * Arms (or re-arms) the expiry of one photo request.
+   *
+   * The deadline follows real progress: it starts when the child actually
+   * acknowledges the command, and is cleared as soon as the request finishes.
+   * Older code armed it once at queue time only.
+   */
+  schedulePhotoRequestExpiry(requestId) {
+    const pending = this.pendingPhotoRequests.get(requestId);
+    if (!pending) return;
+
+    if (pending.expiryTimer) {
+      clearTimeout(pending.expiryTimer);
+      pending.expiryTimer = null;
+    }
+
+    const deadlineAt = Date.now();
+    pending.expiresAt = deadlineAt + this.PHOTO_REQUEST_TTL_MS;
+    pending.expiryTimer = setTimeout(() => {
+      const current = this.pendingPhotoRequests.get(requestId);
+      // Ignore a stale timer whose request has been re-armed or completed.
+      if (!current || current.expiresAt !== pending.expiresAt) return;
+      const parentSocket = this.io.sockets.sockets.get(current.parentSocketId);
+      if (parentSocket?.connected) {
+        parentSocket.emit("photo_error", {
+          requestId,
+          error: "photo_request_timeout",
+        });
+      }
+      this.completePhotoRequest(requestId);
+      console.warn(`[photo] request timed out: requestId=${requestId}`);
+    }, this.PHOTO_REQUEST_TTL_MS);
+    pending.expiryTimer.unref?.();
+  }
+
   completePhotoRequest(requestId) {
     const pending = this.pendingPhotoRequests.get(requestId);
     if (!pending) return null;
+    if (pending.expiryTimer) {
+      clearTimeout(pending.expiryTimer);
+      pending.expiryTimer = null;
+    }
     this.clearActivePhotoRequest(pending.deviceId, requestId);
     this.pendingPhotoRequests.delete(requestId);
     return pending;
@@ -1079,21 +1129,7 @@ class WebSocketManager {
         createdAt: Date.now(),
       });
 
-      const queuedAt = this.pendingPhotoRequests.get(reqId)?.createdAt;
-      const expiryTimer = setTimeout(() => {
-        const pending = this.pendingPhotoRequests.get(reqId);
-        if (!pending || pending.createdAt !== queuedAt) return;
-        const parentSocket = this.io.sockets.sockets.get(pending.parentSocketId);
-        if (parentSocket?.connected) {
-          parentSocket.emit("photo_error", {
-            requestId: reqId,
-            error: "photo_request_timeout",
-          });
-        }
-        this.completePhotoRequest(reqId);
-        console.warn(`[photo] request timed out: requestId=${reqId}`);
-      }, this.PHOTO_REQUEST_TTL_MS);
-      expiryTimer.unref?.();
+      this.schedulePhotoRequestExpiry(reqId);
 
       childSocket.emit("request_photo", {
         requestId: reqId,
@@ -1201,6 +1237,8 @@ class WebSocketManager {
       }
 
       pending.childSocketId = socket.id;
+      // The child only just started the work, so the deadline restarts here.
+      this.schedulePhotoRequestExpiry(requestId);
       const parentSocket = this.io.sockets.sockets.get(pending.parentSocketId);
       if (parentSocket?.connected) {
         parentSocket.emit("photo_request_received", {

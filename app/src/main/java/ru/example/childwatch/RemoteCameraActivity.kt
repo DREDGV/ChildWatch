@@ -55,7 +55,23 @@ class RemoteCameraActivity : AppCompatActivity() {
         const val EXTRA_CHILD_ID = "childId"
         const val EXTRA_CHILD_NAME = "childName"
         private const val WEBSOCKET_READY_TIMEOUT_MS = 12_000L
-        private const val PHOTO_RESPONSE_TIMEOUT_MS = 30_000L
+
+        /**
+         * Must stay comfortably longer than the server-side photo request TTL
+         * (`PHOTO_REQUEST_TTL_MS` in server/managers/WebSocketManager.js), which
+         * covers service start, Camera2 capture, JPEG encoding and transfer.
+         * When this was shorter than the server deadline, the server gave up on
+         * a request the parent was still legitimately waiting for, which is how
+         * a capture could complete and then be discarded by the UI.
+         */
+        private const val PHOTO_RESPONSE_TIMEOUT_MS = 120_000L
+
+        /**
+         * After the UI timeout the request may still complete; keep accepting
+         * its result for this long instead of dropping a photo that was already
+         * captured and sent.
+         */
+        private const val PHOTO_LATE_DELIVERY_GRACE_MS = 120_000L
     }
 
     private lateinit var toolbar: MaterialToolbar
@@ -90,6 +106,13 @@ class RemoteCameraActivity : AppCompatActivity() {
     private var connectionTimeoutJob: Job? = null
     private var responseTimeoutJob: Job? = null
     private var pendingRequestId: String? = null
+
+    /**
+     * Request ids whose UI timeout already fired, mapped to the moment it fired.
+     * A capture that finishes after the timeout is still a real photo, so its
+     * result is accepted during the grace window instead of being discarded.
+     */
+    private val timedOutRequestIds = mutableMapOf<String, Long>()
     private var selectedCameraFacing: String = "back"
     private var resolvedGalleryDeviceId: String? = null
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
@@ -395,8 +418,10 @@ class RemoteCameraActivity : AppCompatActivity() {
     private fun registerPhotoListeners() {
         if (photoReceivedListener == null) {
             photoReceivedListener = photoReceivedListener@{ photoBase64, requestId, timestamp ->
-                if (pendingRequestId != requestId) return@photoReceivedListener
+                val late = isLateDeliveryFor(requestId)
+                if (pendingRequestId != requestId && !late) return@photoReceivedListener
                 clearPendingRequest()
+                if (late) clearLateDelivery(requestId)
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     updateStatus(getString(R.string.remote_camera_photo_received))
@@ -411,8 +436,10 @@ class RemoteCameraActivity : AppCompatActivity() {
 
         if (photoErrorListener == null) {
             photoErrorListener = photoErrorListener@{ requestId, error ->
-                if (pendingRequestId != requestId) return@photoErrorListener
+                val late = isLateDeliveryFor(requestId)
+                if (pendingRequestId != requestId && !late) return@photoErrorListener
                 clearPendingRequest()
+                if (late) clearLateDelivery(requestId)
                 runOnUiThread {
                     if (isFinishing || isDestroyed) return@runOnUiThread
                     Log.w(TAG, "Remote photo failed: request=$requestId error=$error")
@@ -528,6 +555,9 @@ class RemoteCameraActivity : AppCompatActivity() {
         responseTimeoutJob = lifecycleScope.launch {
             delay(PHOTO_RESPONSE_TIMEOUT_MS)
             if (pendingRequestId != requestId) return@launch
+            // The capture may still be running on the child. Remember the id so
+            // a late photo or late error is still handled rather than dropped.
+            rememberTimedOutRequest(requestId)
             clearPendingRequest()
             runOnUiThread {
                 updateStatus(getString(R.string.remote_camera_request_timeout))
@@ -540,6 +570,22 @@ class RemoteCameraActivity : AppCompatActivity() {
                 enableButtons()
             }
         }
+    }
+
+    private fun rememberTimedOutRequest(requestId: String) {
+        val now = System.currentTimeMillis()
+        timedOutRequestIds[requestId] = now
+        val staleBefore = now - PHOTO_LATE_DELIVERY_GRACE_MS
+        timedOutRequestIds.entries.removeAll { it.value < staleBefore }
+    }
+
+    private fun isLateDeliveryFor(requestId: String): Boolean {
+        val timedOutAt = timedOutRequestIds[requestId] ?: return false
+        return System.currentTimeMillis() - timedOutAt <= PHOTO_LATE_DELIVERY_GRACE_MS
+    }
+
+    private fun clearLateDelivery(requestId: String) {
+        timedOutRequestIds.remove(requestId)
     }
 
     private fun clearPendingRequest() {
