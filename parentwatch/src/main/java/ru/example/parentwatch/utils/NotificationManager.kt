@@ -109,7 +109,11 @@ object NotificationManager {
             settings = settings,
             unreadCount = unreadMessageCount,
             displayHistory = messageHistory.toList(),
-            includeReplyAction = conversationId == null,
+            // The reply action is offered for both storages: the receiver sends a
+            // conversation reply through the durable conversation outbox when the
+            // notification names a conversation, and keeps the legacy path
+            // otherwise.
+            includeReplyAction = true,
             conversationId = conversationId,
             conversationTitle = conversationTitle
         )
@@ -411,18 +415,27 @@ object NotificationManager {
         return builder
     }
 
-    private fun buildReplyAction(context: Context): NotificationCompat.Action {
+    /**
+     * The reply action carries the conversation it belongs to, so a quick reply
+     * is delivered to that conversation instead of an overloaded legacy thread.
+     * The request code is derived from the conversation id: a shared one would
+     * let the last notification overwrite the extras of the others.
+     */
+    private fun buildReplyAction(context: Context, conversationId: String? = null): NotificationCompat.Action {
         val remoteInput = RemoteInput.Builder(NotificationReplyReceiver.KEY_TEXT_REPLY)
             .setLabel(context.getString(R.string.notification_reply_hint))
             .build()
 
         val replyIntent = Intent(context, NotificationReplyReceiver::class.java).apply {
             action = NotificationReplyReceiver.ACTION_REPLY
+            if (!conversationId.isNullOrBlank()) {
+                putExtra(ChatConversationV2Activity.EXTRA_CONVERSATION_ID, conversationId)
+            }
         }
 
         val replyPendingIntent = PendingIntent.getBroadcast(
             context,
-            0,
+            conversationId?.hashCode() ?: 0,
             replyIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
         )
