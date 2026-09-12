@@ -1,4 +1,4 @@
-﻿package ru.example.childwatch
+package ru.example.childwatch
 
 import android.Manifest
 import android.content.Intent
@@ -1671,7 +1671,12 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch(Dispatchers.IO) {
             val unreadFromStore = try { chatManager.getUnreadCount() } catch (_: Exception) { 0 }
             val unreadFromNotifications = try { ru.example.childwatch.utils.NotificationManager.getUnreadCount() } catch (_: Exception) { 0 }
-            val unread = maxOf(unreadFromStore, unreadFromNotifications)
+            val unreadFromConversations = readUnreadFromConversations()
+            // Conversation chat is the current storage, while the legacy store and
+            // notification tray remain valid fallbacks. Taking the maximum keeps
+            // the badge truthful for an installation that uses any of them
+            // without adding the same message up twice.
+            val unread = maxOf(unreadFromStore, unreadFromNotifications, unreadFromConversations)
             withContext(Dispatchers.Main) {
                 if (unread > 0) {
                     binding.chatBadge.visibility = View.VISIBLE
@@ -1679,8 +1684,39 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     binding.chatBadge.visibility = View.GONE
                 }
-                Log.d("MainActivity", "Chat badge updated: $unread unread messages")
+                Log.d(
+                    "MainActivity",
+                    "Chat badge updated: $unread unread " +
+                        "(conversations=$unreadFromConversations, legacy=$unreadFromStore, " +
+                        "notifications=$unreadFromNotifications)"
+                )
             }
+        }
+    }
+
+    /**
+     * Unread count from the conversation (v2) storage.
+     *
+     * The legacy count is capped at 100 stored messages and lags behind as soon
+     * as several conversations are in use, which is what made the home badge
+     * disagree with the conversation list.
+     */
+    private suspend fun readUnreadFromConversations(): Int {
+        return try {
+            val serverUrl = effectiveContextResolver.resolveServerUrl()
+                .ifBlank { getConfiguredServerUrl().orEmpty() }
+            if (serverUrl.isBlank()) return 0
+            val repository = ru.example.childwatch.chat.v2.ChatV2Repository.create(
+                applicationContext,
+                serverUrl
+            )
+            repository.getCachedConversations()
+                .sumOf { it.unreadCount.coerceAtLeast(0L) }
+                .coerceAtMost(Int.MAX_VALUE.toLong())
+                .toInt()
+        } catch (e: Exception) {
+            Log.w("MainActivity", "Unable to read unread conversations", e)
+            0
         }
     }
 

@@ -40,6 +40,14 @@ class DataMigrationManager(private val context: Context) {
     private val chatRepository = ChatRepository(database.chatMessageDao())
 
     /**
+     * Set only when the current run proved that every message found in the old
+     * store reached Room. Cleanup is gated on it, so a partial or empty read can
+     * never erase history that the user still needs.
+     */
+    @Volatile
+    private var legacyDataVerifiedForCleanup = false
+
+    /**
      * Проверяет, нужна ли миграция
      */
     fun isMigrationNeeded(): Boolean {
@@ -70,12 +78,28 @@ class DataMigrationManager(private val context: Context) {
 
             // 2. Мигрируем сообщения чата
             if (!isChatMigrated()) {
-                val migratedCount = migrateChatMessages(child.id)
-                result.messagesMigrated = migratedCount
+                val transfer = migrateChatMessages(child.id)
+                result.messagesMigrated = transfer.migratedCount
+                result.messagesInSource = transfer.sourceCount
+
+                // Legacy data may only be removed when everything that was in the
+                // old store is provably present in Room. A partial read (for
+                // example a renamed or context-namespaced preferences key) must
+                // never turn into a silent loss of the user's history.
+                legacyDataVerifiedForCleanup =
+                    transfer.sourceCount > 0 && transfer.migratedCount == transfer.sourceCount
+
+                if (!legacyDataVerifiedForCleanup) {
+                    Log.w(
+                        TAG,
+                        "Legacy chat data was not verified (source=${transfer.sourceCount}, " +
+                            "migrated=${transfer.migratedCount}); keeping it in place"
+                    )
+                }
 
                 // Отмечаем миграцию чата как выполненную
                 migrationPrefs.edit().putBoolean(KEY_CHAT_MIGRATED, true).apply()
-                Log.i(TAG, "Миграция чата завершена: $migratedCount сообщений")
+                Log.i(TAG, "Миграция чата завершена: ${transfer.migratedCount} сообщений")
             } else {
                 Log.d(TAG, "Миграция чата уже была выполнена ранее")
                 result.messagesMigrated = 0
@@ -99,10 +123,20 @@ class DataMigrationManager(private val context: Context) {
     }
 
     /**
+     * Счётчики переноса сообщений: сколько было в старом хранилище и сколько
+     * реально записано в Room.
+     */
+    private data class ChatTransferResult(
+        val sourceCount: Int,
+        val migratedCount: Int
+    )
+
+    /**
      * Мигрирует сообщения чата из SharedPreferences в Room
      */
-    private suspend fun migrateChatMessages(childId: Long): Int = withContext(Dispatchers.IO) {
+    private suspend fun migrateChatMessages(childId: Long): ChatTransferResult = withContext(Dispatchers.IO) {
         var migratedCount = 0
+        var sourceCount = 0
 
         try {
             // Читаем старые сообщения из SecurePreferences
@@ -111,10 +145,11 @@ class DataMigrationManager(private val context: Context) {
 
             if (messagesJson.isEmpty() || messagesJson == "[]") {
                 Log.d(TAG, "Нет сообщений для миграции")
-                return@withContext 0
+                return@withContext ChatTransferResult(0, 0)
             }
 
             val jsonArray = JSONArray(messagesJson)
+            sourceCount = jsonArray.length()
             val messages = mutableListOf<ChatMessage>()
 
             // Парсим JSON
@@ -143,7 +178,7 @@ class DataMigrationManager(private val context: Context) {
             throw e
         }
 
-        return@withContext migratedCount
+        return@withContext ChatTransferResult(sourceCount, migratedCount)
     }
 
     /**
@@ -153,12 +188,17 @@ class DataMigrationManager(private val context: Context) {
         val result = CleanupResult()
 
         try {
-            if (isChatMigrated()) {
+            if (isChatMigrated() && legacyDataVerifiedForCleanup) {
                 // Очищаем старые сообщения чата
                 val securePrefs = SecurePreferences(context, CHAT_PREFS)
                 securePrefs.remove(MESSAGES_KEY)
                 result.chatDataCleared = true
                 Log.i(TAG, "Старые данные чата очищены из SharedPreferences")
+            } else if (isChatMigrated()) {
+                Log.w(
+                    TAG,
+                    "Старые данные чата оставлены: перенос не подтверждён в этой сессии"
+                )
             }
 
             result.success = true
@@ -187,11 +227,13 @@ class DataMigrationManager(private val context: Context) {
         var success: Boolean = false,
         var childCreated: Boolean = false,
         var messagesMigrated: Int = 0,
+        var messagesInSource: Int = 0,
         var error: String? = null
     ) {
         override fun toString(): String {
             return if (success) {
-                "Миграция успешна: профиль=${if (childCreated) "создан" else "существует"}, сообщений=$messagesMigrated"
+                "Миграция успешна: профиль=${if (childCreated) "создан" else "существует"}, " +
+                    "сообщений=$messagesMigrated из $messagesInSource"
             } else {
                 "Миграция не удалась: $error"
             }
