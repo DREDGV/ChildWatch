@@ -235,6 +235,9 @@ function resolveChatSenderDisplayName(message) {
 
 // Initialize streaming routes with managers
 streamingRoutes.init(commandManager, dbManager, wsManager);
+// Media and streaming verify every request against the authenticated device and
+// an active parent link, so they no longer trust a raw deviceId from the client.
+mediaRoutes.init(dbManager);
 alertsRoutes.init(dbManager, wsManager);
 
 // API Routes. Chat v2 is mounted before the legacy compatibility router so
@@ -253,9 +256,9 @@ app.use(
   chatRoutes
 );
 app.use("/api/location", locationRoutes);
-app.use("/api/media", mediaRoutes);
-app.use("/api/streaming", streamingRoutes);
-app.use("/api/debug", debugRoutes);
+app.use("/api/media", authMiddleware.authenticate(), mediaRoutes);
+app.use("/api/streaming", authMiddleware.authenticate(), streamingRoutes);
+app.use("/api/debug", authMiddleware.authenticate(), debugRoutes);
 // Alerts are mounted with authentication: `routes/alerts.js` verifies that the
 // caller is either the alert subject itself or a parent actively linked to it.
 app.use("/api/alerts", authMiddleware.authenticate(), alertsRoutes);

@@ -8,6 +8,7 @@ const router = express.Router();
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const DeviceAccessService = require('../services/DeviceAccessService');
 
 // Configure multer for audio chunk uploads
 const storage = multer.memoryStorage();
@@ -19,13 +20,44 @@ const upload = multer({
 /**
  * Initialize with managers
  */
-let commandManager, dbManager, wsManager;
+let commandManager, dbManager, wsManager, deviceAccess;
 
 router.init = (cmdMgr, dbMgr, wsMgr) => {
     commandManager = cmdMgr;
     dbManager = dbMgr;
     wsManager = wsMgr;
+    deviceAccess = new DeviceAccessService(dbMgr);
 };
+
+/**
+ * Verifies that the authenticated caller may drive the given child device.
+ * Returns the verified target device id, or null when a response was sent.
+ */
+async function requireStreamingAccess(req, res, requestedDeviceId) {
+    if (!deviceAccess) {
+        res.status(503).json({
+            error: 'Streaming access is not configured',
+            code: 'STREAMING_NOT_INITIALIZED'
+        });
+        return null;
+    }
+    return deviceAccess.requireDeviceAccess(req, res, requestedDeviceId);
+}
+
+/**
+ * The session owner is always the authenticated caller. The `parentId` field in
+ * the request body used to name the owner, which let any caller claim an
+ * arbitrary identity and take over someone else's listening session.
+ */
+function resolveOwnerId(req, requestedParentId) {
+    const caller = normalizeParentId(req.deviceId);
+    if (caller) {
+        return caller;
+    }
+    // No verified identity: fall back to the legacy shape only so the response
+    // stays well-formed. Access is already refused before this point.
+    return normalizeParentId(requestedParentId) || 'parent';
+}
 
 function normalizeParentId(value) {
     if (value === null || value === undefined) return "";
@@ -82,12 +114,19 @@ router.get('/commands/:deviceId', async (req, res) => {
             });
         }
 
-        // Get pending commands
-        const commands = commandManager.getCommands(deviceId);
+        const authorizedDeviceId = await requireStreamingAccess(req, res, deviceId);
+        if (authorizedDeviceId === null) {
+            return undefined;
+        }
+
+        // Reading the queue is destructive: CommandManager marks the commands
+        // delivered and removes them, so it is restricted to the device itself
+        // or a linked parent instead of being open to any caller.
+        const commands = commandManager.getCommands(authorizedDeviceId);
 
         res.json({
             success: true,
-            deviceId: deviceId,
+            deviceId: authorizedDeviceId,
             commands: commands,
             count: commands.length,
             timestamp: Date.now()
@@ -120,11 +159,16 @@ router.post('/start', async (req, res) => {
             });
         }
 
+        const authorizedDeviceId = await requireStreamingAccess(req, res, deviceId);
+        if (authorizedDeviceId === null) {
+            return undefined;
+        }
+
         const resolvedConnectedId =
             typeof wsManager?.resolveConnectedChildDeviceId === 'function'
-                ? wsManager.resolveConnectedChildDeviceId(deviceId)
+                ? wsManager.resolveConnectedChildDeviceId(authorizedDeviceId)
                 : '';
-        const targetDeviceId = resolvedConnectedId || deviceId;
+        const targetDeviceId = resolvedConnectedId || authorizedDeviceId;
 
         // Start streaming session with optional timeout (default 30 minutes)
         const parsedTimeout = Number(timeoutMinutes);
@@ -137,7 +181,7 @@ router.post('/start', async (req, res) => {
             Number.isFinite(parsedSampleRate) && [24000, 32000, 48000].includes(parsedSampleRate)
                 ? parsedSampleRate
                 : null;
-        const normalizedParentId = normalizeParentId(parentId) || 'parent';
+        const normalizedParentId = resolveOwnerId(req, parentId);
         const ownerDisplayName = await resolveOwnerDisplayName(normalizedParentId);
         const result = commandManager.requestStreamingStart(
             targetDeviceId,
@@ -225,17 +269,22 @@ router.post('/stop', async (req, res) => {
             });
         }
 
+        const authorizedDeviceId = await requireStreamingAccess(req, res, deviceId);
+        if (authorizedDeviceId === null) {
+            return undefined;
+        }
+
         const resolvedConnectedId =
             typeof wsManager?.resolveConnectedChildDeviceId === 'function'
-                ? wsManager.resolveConnectedChildDeviceId(deviceId)
+                ? wsManager.resolveConnectedChildDeviceId(authorizedDeviceId)
                 : '';
-        const targetDeviceId = resolvedConnectedId || deviceId;
+        const targetDeviceId = resolvedConnectedId || authorizedDeviceId;
 
         // Stop streaming session
-        const normalizedParentId = normalizeParentId(parentId) || 'parent';
+        const normalizedParentId = resolveOwnerId(req, parentId);
         let result = commandManager.requestStreamingStop(targetDeviceId, normalizedParentId);
-        if (!result.ok && result.code === 'NO_ACTIVE_SESSION' && targetDeviceId !== deviceId) {
-            result = commandManager.requestStreamingStop(deviceId, normalizedParentId);
+        if (!result.ok && result.code === 'NO_ACTIVE_SESSION' && targetDeviceId !== authorizedDeviceId) {
+            result = commandManager.requestStreamingStop(authorizedDeviceId, normalizedParentId);
         }
 
         if (result.ok) {
@@ -295,13 +344,18 @@ router.post('/record/start', async (req, res) => {
             });
         }
 
+        const authorizedDeviceId = await requireStreamingAccess(req, res, deviceId);
+        if (authorizedDeviceId === null) {
+            return undefined;
+        }
+
         // Start recording
         const resolvedConnectedId =
             typeof wsManager?.resolveConnectedChildDeviceId === 'function'
-                ? wsManager.resolveConnectedChildDeviceId(deviceId)
+                ? wsManager.resolveConnectedChildDeviceId(authorizedDeviceId)
                 : '';
-        const targetDeviceId = resolvedConnectedId || deviceId;
-        const normalizedParentId = normalizeParentId(parentId) || 'parent';
+        const targetDeviceId = resolvedConnectedId || authorizedDeviceId;
+        const normalizedParentId = resolveOwnerId(req, parentId);
         const result = commandManager.requestRecordingStart(targetDeviceId, normalizedParentId);
 
         if (!result.ok && result.busy) {
@@ -350,13 +404,18 @@ router.post('/record/stop', async (req, res) => {
             });
         }
 
+        const authorizedDeviceId = await requireStreamingAccess(req, res, deviceId);
+        if (authorizedDeviceId === null) {
+            return undefined;
+        }
+
         // Stop recording
         const resolvedConnectedId =
             typeof wsManager?.resolveConnectedChildDeviceId === 'function'
-                ? wsManager.resolveConnectedChildDeviceId(deviceId)
+                ? wsManager.resolveConnectedChildDeviceId(authorizedDeviceId)
                 : '';
-        const targetDeviceId = resolvedConnectedId || deviceId;
-        const normalizedParentId = normalizeParentId(parentId) || 'parent';
+        const targetDeviceId = resolvedConnectedId || authorizedDeviceId;
+        const normalizedParentId = resolveOwnerId(req, parentId);
         const result = commandManager.requestRecordingStop(targetDeviceId, normalizedParentId);
 
         if (!result.ok && result.busy) {
@@ -406,6 +465,14 @@ router.post('/chunk', upload.single('audio'), async (req, res) => {
             });
         }
 
+        const callerDeviceId = normalizeParentId(req.deviceId);
+        if (!callerDeviceId || callerDeviceId !== normalizeParentId(deviceId)) {
+            return res.status(403).json({
+                error: 'A device may only upload its own audio chunks',
+                code: 'DEVICE_ACCESS_DENIED'
+            });
+        }
+
         if (!req.file) {
             return res.status(400).json({
                 error: 'No audio chunk provided',
@@ -414,11 +481,12 @@ router.post('/chunk', upload.single('audio'), async (req, res) => {
         }
 
         // Add chunk to buffer
-        const chunkCount = commandManager.addAudioChunk(deviceId, req.file.buffer);
+        const chunkCount = commandManager.addAudioChunk(callerDeviceId, req.file.buffer);
 
-        // If recording, save chunk to disk
+        // If recording, save chunk to disk. The directory is derived from the
+        // verified caller identity, never from the raw request value.
         if (recording === 'true') {
-            const uploadsDir = path.join(__dirname, '..', 'uploads', 'audio', 'chunks', deviceId);
+            const uploadsDir = path.join(__dirname, '..', 'uploads', 'audio', 'chunks', callerDeviceId);
             if (!fs.existsSync(uploadsDir)) {
                 fs.mkdirSync(uploadsDir, { recursive: true });
             }
@@ -430,7 +498,7 @@ router.post('/chunk', upload.single('audio'), async (req, res) => {
 
         res.json({
             success: true,
-            deviceId: deviceId,
+            deviceId: callerDeviceId,
             sequence: parseInt(sequence || 0),
             bufferSize: chunkCount,
             recording: recording === 'true',
@@ -462,12 +530,17 @@ router.get('/chunks/:deviceId', async (req, res) => {
             });
         }
 
+        const authorizedDeviceId = await requireStreamingAccess(req, res, deviceId);
+        if (authorizedDeviceId === null) {
+            return undefined;
+        }
+
         // Get latest chunks
-        const chunks = commandManager.getAudioChunks(deviceId, count);
+        const chunks = commandManager.getAudioChunks(authorizedDeviceId, count);
 
         res.json({
             success: true,
-            deviceId: deviceId,
+            deviceId: authorizedDeviceId,
             chunks: chunks.map((chunk, index) => ({
                 sequence: index,
                 data: chunk.data.toString('base64'),
@@ -501,10 +574,15 @@ router.get('/status/:deviceId', async (req, res) => {
             });
         }
 
-        const session = commandManager.getSessionInfo(deviceId);
+        const authorizedDeviceId = await requireStreamingAccess(req, res, deviceId);
+        if (authorizedDeviceId === null) {
+            return undefined;
+        }
+
+        const session = commandManager.getSessionInfo(authorizedDeviceId);
         const wsStats = wsManager.getStats();
-        const childConnected = wsManager.isChildConnected(deviceId);
-        const hasListener = wsManager.hasActiveListener(deviceId);
+        const childConnected = wsManager.isChildConnected(authorizedDeviceId);
+        const hasListener = wsManager.hasActiveListener(authorizedDeviceId);
 
         if (!session) {
             return res.json({
@@ -512,7 +590,7 @@ router.get('/status/:deviceId', async (req, res) => {
                 streaming: false,
                 active: false,
                 recording: false,
-                deviceId: deviceId,
+                deviceId: authorizedDeviceId,
                 webSocket: {
                     childConnected,
                     hasListener,
@@ -526,7 +604,7 @@ router.get('/status/:deviceId', async (req, res) => {
             streaming: true,
             active: true,
             recording: session.recording,
-            deviceId: deviceId,
+            deviceId: authorizedDeviceId,
             parentId: session.parentId,
             ownerParentId: session.ownerParentId,
             ownerDisplayName: await resolveOwnerDisplayName(

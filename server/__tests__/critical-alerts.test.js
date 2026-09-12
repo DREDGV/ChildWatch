@@ -298,7 +298,7 @@ describe("critical alerts", () => {
       );
       expect(read).toEqual({
         status: 403,
-        body: { error: "Alert access denied", code: "ALERT_ACCESS_DENIED" },
+        body: { error: "Device access denied", code: "DEVICE_ACCESS_DENIED" },
       });
 
       const ack = await requestJson(harness.server, "/api/alerts/ack", strangerDeviceId, {

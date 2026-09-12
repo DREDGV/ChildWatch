@@ -1,12 +1,16 @@
 const express = require('express');
+const DeviceAccessService = require('../services/DeviceAccessService');
+
 const router = express.Router();
 
 let dbManager;
 let wsManager;
+let deviceAccess;
 
 router.init = (databaseManager, webSocketManager) => {
     dbManager = databaseManager;
     wsManager = webSocketManager;
+    deviceAccess = new DeviceAccessService(databaseManager);
 };
 
 /**
@@ -18,49 +22,16 @@ router.init = (databaseManager, webSocketManager) => {
  * the alert subject, so it cannot be replaced by the caller identity without
  * losing that meaning. It is verified instead.
  */
-async function isLinkedParentOf(parentDeviceId, childDeviceId) {
-    if (!parentDeviceId || !childDeviceId) return false;
-    const link = await dbManager.get(
-        'SELECT 1 AS linked FROM device_links WHERE parent_device_id = ? AND child_device_id = ? AND is_active = 1 LIMIT 1',
-        [parentDeviceId, childDeviceId]
-    );
-    return Boolean(link);
-}
-
 async function resolveAuthorizedAlertTarget(req, res, requestedDeviceId) {
-    const callerDeviceId = String(req.deviceId || '').trim();
-    if (!callerDeviceId) {
-        // Defensive: this router must be mounted behind authenticate(). Failing
-        // closed keeps a misconfiguration from turning into an open door.
-        res.status(401).json({
-            error: 'Authentication required',
-            code: 'AUTH_REQUIRED'
+    if (!deviceAccess) {
+        // Defensive: without initialized dependencies nothing can be verified.
+        res.status(503).json({
+            error: 'Alert access is not configured',
+            code: 'ALERTS_NOT_INITIALIZED'
         });
         return null;
     }
-
-    const requested = String(requestedDeviceId || '').trim();
-    if (!requested) {
-        res.status(400).json({
-            error: 'deviceId is required',
-            code: 'MISSING_DEVICE_ID'
-        });
-        return null;
-    }
-
-    if (requested === callerDeviceId) {
-        return requested;
-    }
-
-    if (await isLinkedParentOf(callerDeviceId, requested)) {
-        return requested;
-    }
-
-    res.status(403).json({
-        error: 'Alert access denied',
-        code: 'ALERT_ACCESS_DENIED'
-    });
-    return null;
+    return deviceAccess.requireDeviceAccess(req, res, requestedDeviceId);
 }
 
 router.post('/', async (req, res) => {

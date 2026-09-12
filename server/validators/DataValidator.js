@@ -148,9 +148,14 @@ class DataValidator {
     }
     
     /**
-     * Check rate limiting
+     * Check rate limiting.
+     *
+     * `limitOverride` lets a route enforce the budget it actually declares.
+     * Without it the limit falls back to the fixed per-minute/per-hour
+     * defaults, which is what callers used to get silently: the declared
+     * maximum only ever reached the response header.
      */
-    checkRateLimit(identifier, windowMs = 60000) {
+    checkRateLimit(identifier, windowMs = 60000, limitOverride = null) {
         const now = Date.now();
         const windowStart = now - windowMs;
         
@@ -165,7 +170,10 @@ class DataValidator {
         this.rateLimitMap.set(identifier, recentRequests);
         
         // Check if limit exceeded
-        const limit = windowMs === 60000 ? this.maxRequestsPerMinute : this.maxRequestsPerHour;
+        const override = Number(limitOverride);
+        const limit = Number.isFinite(override) && override > 0
+            ? override
+            : (windowMs === 60000 ? this.maxRequestsPerMinute : this.maxRequestsPerHour);
         if (recentRequests.length >= limit) {
             return {
                 allowed: false,

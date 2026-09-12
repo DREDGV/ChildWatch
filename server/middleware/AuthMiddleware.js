@@ -79,7 +79,9 @@ class AuthMiddleware {
         return (req, res, next) => {
             try {
                 const identifier = req.deviceId || req.ip;
-                const rateLimit = this.validator.checkRateLimit(identifier, windowMs);
+                // The declared maximum is now enforced, not merely advertised in
+                // the X-RateLimit-Limit header as it used to be.
+                const rateLimit = this.validator.checkRateLimit(identifier, windowMs, maxRequests);
                 
                 if (!rateLimit.allowed) {
                     res.set({

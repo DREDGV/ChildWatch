@@ -17,7 +17,6 @@ const router = express.Router();
 router.post('/log', (req, res) => {
     try {
         const {
-            deviceId = 'unknown-device',
             source = 'unknown-source',
             level = 'INFO',
             message,
@@ -30,6 +29,11 @@ router.post('/log', (req, res) => {
                 error: 'message is required'
             });
         }
+
+        // The device identity comes from the authenticated request. It used to
+        // be read from the body, which let any caller write log lines that
+        // looked like they came from another phone.
+        const deviceId = req.deviceId || 'unauthenticated-device';
 
         const timestamp = new Date().toISOString();
         const normalizedLevel = (level || 'INFO').toUpperCase();
