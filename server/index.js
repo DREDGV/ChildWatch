@@ -238,6 +238,7 @@ streamingRoutes.init(commandManager, dbManager, wsManager);
 // Media and streaming verify every request against the authenticated device and
 // an active parent link, so they no longer trust a raw deviceId from the client.
 mediaRoutes.init(dbManager);
+locationRoutes.init(dbManager);
 alertsRoutes.init(dbManager, wsManager);
 
 // API Routes. Chat v2 is mounted before the legacy compatibility router so
@@ -255,7 +256,9 @@ app.use(
   authMiddleware.rateLimit(60_000, 120),
   chatRoutes
 );
-app.use("/api/location", locationRoutes);
+// Location, media and streaming all verify the authenticated caller against the
+// requested device, so a raw deviceId from the client is never trusted.
+app.use("/api/location", authMiddleware.authenticate(), locationRoutes);
 app.use("/api/media", authMiddleware.authenticate(), mediaRoutes);
 app.use("/api/streaming", authMiddleware.authenticate(), streamingRoutes);
 app.use("/api/debug", authMiddleware.authenticate(), debugRoutes);
@@ -1293,133 +1296,7 @@ app.get(
   }
 );
 
-// Get latest location of a device (protected)
-app.get(
-  "/api/location/latest/:deviceId?",
-  authMiddleware.authenticate(),
-  authMiddleware.rateLimit(60000, 120), // 120 requests per minute
-  async (req, res) => {
-    try {
-      // If deviceId is provided in params, use it; otherwise use authenticated device's own location
-      const targetDeviceId = req.params.deviceId || req.deviceId;
-
-      // Validate device ID
-      if (!validator.validateDeviceIdFormat(targetDeviceId)) {
-        return res.status(400).json({
-          error: "Invalid device ID format",
-          code: "INVALID_DEVICE_ID",
-        });
-      }
-
-      // Get latest location from database
-      const location = await dbManager.getLatestLocation(targetDeviceId);
-
-      if (!location) {
-        return res.status(404).json({
-          error: "No location data found for this device",
-          code: "LOCATION_NOT_FOUND",
-          deviceId: targetDeviceId,
-        });
-      }
-
-      res.json({
-        success: true,
-        deviceId: targetDeviceId,
-        location: {
-          latitude: location.latitude,
-          longitude: location.longitude,
-          accuracy: location.accuracy,
-          timestamp: location.timestamp,
-          recordedAt: new Date(location.timestamp).toISOString(),
-        },
-      });
-    } catch (error) {
-      console.error("Get latest location error:", error);
-      res.status(500).json({
-        error: "Internal server error",
-        code: "LOCATION_FETCH_ERROR",
-      });
-    }
-  }
-);
-
-// Get location history of a device (protected)
-app.get(
-  "/api/location/history/:deviceId?",
-  authMiddleware.authenticate(),
-  authMiddleware.rateLimit(60000, 60), // 60 requests per minute
-  async (req, res) => {
-    try {
-      const targetDeviceId = req.params.deviceId || req.deviceId;
-      const limit = parseInt(req.query.limit) || 100;
-      const offset = parseInt(req.query.offset) || 0;
-      const from =
-        req.query.from !== undefined ? parseInt(req.query.from, 10) : null;
-      const to = req.query.to !== undefined ? parseInt(req.query.to, 10) : null;
-
-      // Validate parameters
-      if (!validator.validateDeviceIdFormat(targetDeviceId)) {
-        return res.status(400).json({
-          error: "Invalid device ID format",
-          code: "INVALID_DEVICE_ID",
-        });
-      }
-
-      if (limit < 1 || limit > 1000) {
-        return res.status(400).json({
-          error: "Limit must be between 1 and 1000",
-          code: "INVALID_LIMIT",
-        });
-      }
-
-      if (from !== null && Number.isNaN(from)) {
-        return res.status(400).json({
-          error: "Invalid from timestamp",
-          code: "INVALID_FROM_TIMESTAMP",
-        });
-      }
-
-      if (to !== null && Number.isNaN(to)) {
-        return res.status(400).json({
-          error: "Invalid to timestamp",
-          code: "INVALID_TO_TIMESTAMP",
-        });
-      }
-
-      // Get location history from database
-      const locations = await dbManager.getLocationHistory(
-        targetDeviceId,
-        limit,
-        offset,
-        from,
-        to
-      );
-
-      res.json({
-        success: true,
-        deviceId: targetDeviceId,
-        count: locations.length,
-        limit: limit,
-        offset: offset,
-        locations: locations.map((loc) => ({
-          latitude: loc.latitude,
-          longitude: loc.longitude,
-          accuracy: loc.accuracy,
-          timestamp: loc.timestamp,
-          recordedAt: new Date(loc.timestamp).toISOString(),
-        })),
-      });
-    } catch (error) {
-      console.error("Get location history error:", error);
-      res.status(500).json({
-        error: "Internal server error",
-        code: "LOCATION_HISTORY_ERROR",
-      });
-    }
-  }
-);
-
-// Get chat message history (protected)
+// Chat message history (protected)
 app.get(
   "/api/chat/history/:deviceId?",
   authMiddleware.authenticate(),

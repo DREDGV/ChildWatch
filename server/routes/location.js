@@ -1,7 +1,70 @@
 const express = require("express");
 const DatabaseManager = require("../database/DatabaseManager");
+const DeviceAccessService = require("../services/DeviceAccessService");
 
 const router = express.Router();
+
+/**
+ * Every location endpoint verifies the authenticated caller against the device
+ * whose data is requested. The router previously had no authentication at all,
+ * so anyone who knew a device id could read a family's live position and its
+ * history, and could write a position into someone else's record.
+ *
+ * The device id stays in the request because a parent legitimately reads the
+ * position of its child; it is verified instead of trusted.
+ */
+let sharedDatabase;
+let deviceAccess;
+let parentLocationTablesReady;
+
+router.init = (databaseManager) => {
+  sharedDatabase = databaseManager;
+  deviceAccess = new DeviceAccessService(databaseManager);
+  parentLocationTablesReady = null;
+};
+
+async function withDatabase(work) {
+  if (sharedDatabase) {
+    return work(sharedDatabase);
+  }
+  const temporary = new DatabaseManager();
+  await temporary.initialize();
+  try {
+    return await work(temporary);
+  } finally {
+    await temporary.close();
+  }
+}
+
+/** The parent_locations table lives here, so it is ensured once per process. */
+async function ensureSharedParentLocationTables() {
+  if (!sharedDatabase) return;
+  if (!parentLocationTablesReady) {
+    parentLocationTablesReady = ensureParentLocationTables(sharedDatabase);
+  }
+  await parentLocationTablesReady;
+}
+
+/**
+ * Express-friendly access check. Returns the verified device id, or null when a
+ * response has already been sent.
+ *
+ * `relatedRead` accepts a link in either direction, which read-only endpoints
+ * need: the child app reads the position of its linked parent. Writes stay
+ * directed so a device can never publish a position for another device.
+ */
+async function requireDevice(req, res, requestedDeviceId, { relatedRead = false } = {}) {
+  if (!deviceAccess) {
+    res.status(503).json({
+      error: "Location access is not configured",
+      code: "LOCATION_NOT_INITIALIZED",
+    });
+    return null;
+  }
+  return relatedRead
+    ? deviceAccess.requireRelatedDeviceRead(req, res, requestedDeviceId)
+    : deviceAccess.requireDeviceAccess(req, res, requestedDeviceId);
+}
 
 function formatLocationTimestamp(timestamp) {
   if (!timestamp || Number.isNaN(Number(timestamp))) {
@@ -60,28 +123,36 @@ router.get("/pair", async (req, res) => {
       });
     }
 
-    const dbManager = new DatabaseManager();
-    await dbManager.initialize();
-    await ensureParentLocationTables(dbManager);
+    // Both sides of the pair must be reachable by this caller.
+    const authorizedParentId = await requireDevice(req, res, parentId, { relatedRead: true });
+    if (authorizedParentId === null) {
+      return undefined;
+    }
+    const authorizedChildId = await requireDevice(req, res, childId, { relatedRead: true });
+    if (authorizedChildId === null) {
+      return undefined;
+    }
 
-    const [parentLocation, childLocation] = await Promise.all([
-      dbManager.get(
-        `
-          SELECT * FROM parent_locations
-          WHERE parent_id = ?
-          ORDER BY timestamp DESC
-          LIMIT 1
+    await ensureSharedParentLocationTables();
+
+    const [parentLocation, childLocation] = await withDatabase((db) =>
+      Promise.all([
+        db.get(
+          `
+            SELECT * FROM parent_locations
+            WHERE parent_id = ?
+            ORDER BY timestamp DESC
+            LIMIT 1
         `,
-        [parentId]
-      ),
-      dbManager.getLatestLocation(childId),
-    ]);
-
-    await dbManager.close();
+          [authorizedParentId]
+        ),
+        db.getLatestLocation(authorizedChildId),
+      ])
+    );
 
     console.info("[location/pair] result", {
-      parentId,
-      childId,
+      parentId: authorizedParentId,
+      childId: authorizedChildId,
       hasParent: Boolean(parentLocation),
       hasChild: Boolean(childLocation),
       parentTimestamp: formatLocationTimestamp(parentLocation?.timestamp),
@@ -107,7 +178,7 @@ router.get("/pair", async (req, res) => {
           : null,
         child: childLocation
           ? {
-              deviceId: childId,
+              deviceId: authorizedChildId,
               latitude: childLocation.latitude,
               longitude: childLocation.longitude,
               accuracy: childLocation.accuracy,
@@ -117,8 +188,8 @@ router.get("/pair", async (req, res) => {
           : null,
       },
       requested: {
-        parentId,
-        childId,
+        parentId: authorizedParentId,
+        childId: authorizedChildId,
       },
       serverTimestamp: Date.now(),
     });
@@ -138,26 +209,28 @@ router.get("/history/:deviceId", async (req, res) => {
     const { limit = 100, offset = 0, from, to } = req.query;
     console.info("[location/history] lookup", { deviceId, limit, offset, from, to });
 
-    const dbManager = new DatabaseManager();
-    await dbManager.initialize();
+    const authorizedDeviceId = await requireDevice(req, res, deviceId);
+    if (authorizedDeviceId === null) {
+      return undefined;
+    }
 
     const parsedLimit = parseInt(limit, 10) || 100;
     const parsedOffset = parseInt(offset, 10) || 0;
     const parsedFrom = from !== undefined ? parseInt(from, 10) : null;
     const parsedTo = to !== undefined ? parseInt(to, 10) : null;
 
-    const locations = await dbManager.getLocationHistory(
-      deviceId,
-      parsedLimit,
-      parsedOffset,
-      parsedFrom,
-      parsedTo
+    const locations = await withDatabase((db) =>
+      db.getLocationHistory(
+        authorizedDeviceId,
+        parsedLimit,
+        parsedOffset,
+        parsedFrom,
+        parsedTo
+      )
     );
 
-    await dbManager.close();
-
     console.info("[location/history] result", {
-      deviceId,
+      deviceId: authorizedDeviceId,
       count: locations.length,
       firstTimestamp: formatLocationTimestamp(locations[0]?.timestamp),
       lastTimestamp: formatLocationTimestamp(locations[locations.length - 1]?.timestamp),
@@ -165,7 +238,7 @@ router.get("/history/:deviceId", async (req, res) => {
 
     res.json({
       success: true,
-      deviceId,
+      deviceId: authorizedDeviceId,
       limit: parsedLimit,
       offset: parsedOffset,
       locations: locations.map((loc) => ({
@@ -192,15 +265,15 @@ router.get("/latest/:deviceId", async (req, res) => {
     const { deviceId } = req.params;
     console.info("[location/latest] lookup", { deviceId });
 
-    const dbManager = new DatabaseManager();
-    await dbManager.initialize();
+    const authorizedDeviceId = await requireDevice(req, res, deviceId);
+    if (authorizedDeviceId === null) {
+      return undefined;
+    }
 
-    const location = await dbManager.getLatestLocation(deviceId);
-
-    await dbManager.close();
+    const location = await withDatabase((db) => db.getLatestLocation(authorizedDeviceId));
 
     if (!location) {
-      console.info("[location/latest] result", { deviceId, found: false });
+      console.info("[location/latest] result", { deviceId: authorizedDeviceId, found: false });
       return res.status(404).json({
         error: "No location data found for device",
         code: "NO_LOCATION_DATA",
@@ -208,14 +281,14 @@ router.get("/latest/:deviceId", async (req, res) => {
     }
 
     console.info("[location/latest] result", {
-      deviceId,
+      deviceId: authorizedDeviceId,
       found: true,
       timestamp: formatLocationTimestamp(location.timestamp),
     });
 
     res.json({
       success: true,
-      deviceId,
+      deviceId: authorizedDeviceId,
       location: {
         latitude: location.latitude,
         longitude: location.longitude,
@@ -239,20 +312,23 @@ router.get("/stats/:deviceId", async (req, res) => {
     const { deviceId } = req.params;
     const { days = 7 } = req.query;
 
-    const dbManager = new DatabaseManager();
-    await dbManager.initialize();
+    const authorizedDeviceId = await requireDevice(req, res, deviceId);
+    if (authorizedDeviceId === null) {
+      return undefined;
+    }
 
-    const fromTimestamp = Date.now() - parseInt(days) * 24 * 60 * 60 * 1000;
+    const fromTimestamp = Date.now() - parseInt(days, 10) * 24 * 60 * 60 * 1000;
 
-    // Total locations in period
-    const totalCount = await dbManager.get(
-      "SELECT COUNT(*) as count FROM locations WHERE device_id = ? AND timestamp >= ?",
-      [deviceId, fromTimestamp]
-    );
+    const { totalCount, dailyStats, accuracyStats } = await withDatabase(async (db) => {
+      // Total locations in period
+      const total = await db.get(
+        "SELECT COUNT(*) as count FROM locations WHERE device_id = ? AND timestamp >= ?",
+        [authorizedDeviceId, fromTimestamp]
+      );
 
-    // Locations per day
-    const dailyStats = await dbManager.all(
-      `
+      // Locations per day
+      const daily = await db.all(
+        `
             SELECT 
                 DATE(timestamp/1000, 'unixepoch') as date,
                 COUNT(*) as count,
@@ -264,16 +340,17 @@ router.get("/stats/:deviceId", async (req, res) => {
             GROUP BY DATE(timestamp/1000, 'unixepoch')
             ORDER BY date DESC
         `,
-      [deviceId, fromTimestamp]
-    );
+        [authorizedDeviceId, fromTimestamp]
+      );
 
-    // Average accuracy
-    const accuracyStats = await dbManager.get(
-      "SELECT AVG(accuracy) as avg_accuracy, MIN(accuracy) as best_accuracy, MAX(accuracy) as worst_accuracy FROM locations WHERE device_id = ? AND timestamp >= ?",
-      [deviceId, fromTimestamp]
-    );
+      // Average accuracy
+      const accuracy = await db.get(
+        "SELECT AVG(accuracy) as avg_accuracy, MIN(accuracy) as best_accuracy, MAX(accuracy) as worst_accuracy FROM locations WHERE device_id = ? AND timestamp >= ?",
+        [authorizedDeviceId, fromTimestamp]
+      );
 
-    await dbManager.close();
+      return { totalCount: total, dailyStats: daily, accuracyStats: accuracy };
+    });
 
     res.json({
       success: true,
@@ -318,12 +395,6 @@ router.post("/parent/:parentId", async (req, res) => {
       speed,
       bearing,
     } = req.body;
-    console.info("[location/parent/upload] incoming", {
-      parentId,
-      latitude,
-      longitude,
-      timestamp: formatLocationTimestamp(timestamp),
-    });
 
     // Validate required fields
     if (latitude === undefined || latitude === null || longitude === undefined || longitude === null) {
@@ -333,33 +404,44 @@ router.post("/parent/:parentId", async (req, res) => {
       });
     }
 
-    const dbManager = new DatabaseManager();
-    await dbManager.initialize();
-    await ensureParentLocationTables(dbManager);
+    const authorizedParentId = await requireDevice(req, res, parentId);
+    if (authorizedParentId === null) {
+      return undefined;
+    }
 
-    // Insert location
-    await dbManager.run(
-      `
+    console.info("[location/parent/upload] incoming", {
+      parentId: authorizedParentId,
+      latitude,
+      longitude,
+      timestamp: formatLocationTimestamp(timestamp),
+    });
+
+    await ensureSharedParentLocationTables();
+
+    await withDatabase(async (db) => {
+      // Insert location
+      await db.run(
+        `
             INSERT INTO parent_locations (
                 parent_id, latitude, longitude, accuracy, 
                 timestamp, battery, speed, bearing
             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `,
-      [
-        parentId,
-        parseFloat(latitude),
-        parseFloat(longitude),
-        accuracy ? parseFloat(accuracy) : null,
-        timestamp ? parseInt(timestamp) : Date.now(),
-        battery ? parseInt(battery) : null,
-        speed ? parseFloat(speed) : null,
-        bearing ? parseFloat(bearing) : null,
-      ]
-    );
+        [
+          authorizedParentId,
+          parseFloat(latitude),
+          parseFloat(longitude),
+          accuracy ? parseFloat(accuracy) : null,
+          timestamp ? parseInt(timestamp, 10) : Date.now(),
+          battery ? parseInt(battery, 10) : null,
+          speed ? parseFloat(speed) : null,
+          bearing ? parseFloat(bearing) : null,
+        ]
+      );
 
-    // Clean up old locations (keep last 1000)
-    await dbManager.run(
-      `
+      // Clean up old locations (keep last 1000)
+      await db.run(
+        `
             DELETE FROM parent_locations 
             WHERE parent_id = ? 
             AND id NOT IN (
@@ -369,10 +451,9 @@ router.post("/parent/:parentId", async (req, res) => {
                 LIMIT 1000
             )
         `,
-      [parentId, parentId]
-    );
-
-    await dbManager.close();
+        [authorizedParentId, authorizedParentId]
+      );
+    });
 
     res.json({
       success: true,
@@ -396,24 +477,30 @@ router.get("/parent/latest/:parentId", async (req, res) => {
     const { parentId } = req.params;
     console.info("[location/parent/latest] lookup", { parentId });
 
-    const dbManager = new DatabaseManager();
-    await dbManager.initialize();
-    await ensureParentLocationTables(dbManager);
+    const authorizedParentId = await requireDevice(req, res, parentId, { relatedRead: true });
+    if (authorizedParentId === null) {
+      return undefined;
+    }
 
-    const location = await dbManager.get(
-      `
+    await ensureSharedParentLocationTables();
+
+    const location = await withDatabase((db) =>
+      db.get(
+        `
             SELECT * FROM parent_locations 
             WHERE parent_id = ? 
             ORDER BY timestamp DESC 
             LIMIT 1
         `,
-      [parentId]
+        [authorizedParentId]
+      )
     );
 
-    await dbManager.close();
-
     if (!location) {
-      console.info("[location/parent/latest] result", { parentId, found: false });
+      console.info("[location/parent/latest] result", {
+        parentId: authorizedParentId,
+        found: false,
+      });
       return res.status(404).json({
         error: "No location data found for parent",
         code: "NO_PARENT_LOCATION",
@@ -421,7 +508,7 @@ router.get("/parent/latest/:parentId", async (req, res) => {
     }
 
     console.info("[location/parent/latest] result", {
-      parentId,
+      parentId: authorizedParentId,
       found: true,
       timestamp: formatLocationTimestamp(location.timestamp),
     });
@@ -460,9 +547,12 @@ router.get("/parent/history/:parentId", async (req, res) => {
     const { limit = 100, offset = 0, from, to } = req.query;
     console.info("[location/parent/history] lookup", { parentId, limit, offset, from, to });
 
-    const dbManager = new DatabaseManager();
-    await dbManager.initialize();
-    await ensureParentLocationTables(dbManager);
+    const authorizedParentId = await requireDevice(req, res, parentId, { relatedRead: true });
+    if (authorizedParentId === null) {
+      return undefined;
+    }
+
+    await ensureSharedParentLocationTables();
 
     const parsedLimit = parseInt(limit, 10) || 100;
     const parsedOffset = parseInt(offset, 10) || 0;
@@ -470,7 +560,7 @@ router.get("/parent/history/:parentId", async (req, res) => {
     const parsedTo = to !== undefined ? parseInt(to, 10) : null;
 
     const filters = ["parent_id = ?"];
-    const params = [parentId];
+    const params = [authorizedParentId];
 
     if (parsedFrom !== null && !Number.isNaN(parsedFrom)) {
       filters.push("timestamp >= ?");
@@ -483,20 +573,20 @@ router.get("/parent/history/:parentId", async (req, res) => {
 
     params.push(parsedLimit, parsedOffset);
 
-    const locations = await dbManager.all(
-      `
+    const locations = await withDatabase((db) =>
+      db.all(
+        `
             SELECT * FROM parent_locations 
             WHERE ${filters.join(" AND ")}
             ORDER BY timestamp DESC 
             LIMIT ? OFFSET ?
         `,
-      params
+        params
+      )
     );
 
-    await dbManager.close();
-
     console.info("[location/parent/history] result", {
-      parentId,
+      parentId: authorizedParentId,
       count: locations.length,
       firstTimestamp: formatLocationTimestamp(locations[0]?.timestamp),
       lastTimestamp: formatLocationTimestamp(locations[locations.length - 1]?.timestamp),
@@ -504,7 +594,7 @@ router.get("/parent/history/:parentId", async (req, res) => {
 
     res.json({
       success: true,
-      parentId,
+      parentId: authorizedParentId,
       limit: parsedLimit,
       offset: parsedOffset,
       locations: locations.map((loc) => ({
