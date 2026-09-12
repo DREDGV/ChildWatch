@@ -1,4 +1,4 @@
-﻿const express = require("express");
+const express = require("express");
 const http = require("http");
 const { Server } = require("socket.io");
 const multer = require("multer");
@@ -256,6 +256,8 @@ app.use("/api/location", locationRoutes);
 app.use("/api/media", mediaRoutes);
 app.use("/api/streaming", streamingRoutes);
 app.use("/api/debug", debugRoutes);
+// Alerts are mounted with authentication: `routes/alerts.js` verifies that the
+// caller is either the alert subject itself or a parent actively linked to it.
 app.use("/api/alerts", authMiddleware.authenticate(), alertsRoutes);
 app.use(
   "/api/me",

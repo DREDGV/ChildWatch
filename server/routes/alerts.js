@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const router = express.Router();
 
 let dbManager;
@@ -8,6 +8,60 @@ router.init = (databaseManager, webSocketManager) => {
     dbManager = databaseManager;
     wsManager = webSocketManager;
 };
+
+/**
+ * The authenticated device may only touch alerts it is entitled to:
+ * its own (a child reporting about itself), or a child it is actively linked
+ * to (ParentMonitor syncs the alerts of the monitored child).
+ *
+ * The device identifier travels in the body/params because the child device is
+ * the alert subject, so it cannot be replaced by the caller identity without
+ * losing that meaning. It is verified instead.
+ */
+async function isLinkedParentOf(parentDeviceId, childDeviceId) {
+    if (!parentDeviceId || !childDeviceId) return false;
+    const link = await dbManager.get(
+        'SELECT 1 AS linked FROM device_links WHERE parent_device_id = ? AND child_device_id = ? AND is_active = 1 LIMIT 1',
+        [parentDeviceId, childDeviceId]
+    );
+    return Boolean(link);
+}
+
+async function resolveAuthorizedAlertTarget(req, res, requestedDeviceId) {
+    const callerDeviceId = String(req.deviceId || '').trim();
+    if (!callerDeviceId) {
+        // Defensive: this router must be mounted behind authenticate(). Failing
+        // closed keeps a misconfiguration from turning into an open door.
+        res.status(401).json({
+            error: 'Authentication required',
+            code: 'AUTH_REQUIRED'
+        });
+        return null;
+    }
+
+    const requested = String(requestedDeviceId || '').trim();
+    if (!requested) {
+        res.status(400).json({
+            error: 'deviceId is required',
+            code: 'MISSING_DEVICE_ID'
+        });
+        return null;
+    }
+
+    if (requested === callerDeviceId) {
+        return requested;
+    }
+
+    if (await isLinkedParentOf(callerDeviceId, requested)) {
+        return requested;
+    }
+
+    res.status(403).json({
+        error: 'Alert access denied',
+        code: 'ALERT_ACCESS_DENIED'
+    });
+    return null;
+}
 
 router.post('/', async (req, res) => {
     try {
@@ -20,8 +74,13 @@ router.post('/', async (req, res) => {
             });
         }
 
+        const authorizedDeviceId = await resolveAuthorizedAlertTarget(req, res, deviceId);
+        if (authorizedDeviceId === null) {
+            return undefined;
+        }
+
         const alertRecord = await dbManager.saveCriticalAlert({
-            deviceId,
+            deviceId: authorizedDeviceId,
             eventType,
             severity,
             message,
@@ -30,7 +89,7 @@ router.post('/', async (req, res) => {
 
         const alertPayload = {
             id: alertRecord.id,
-            deviceId,
+            deviceId: authorizedDeviceId,
             eventType,
             severity,
             message,
@@ -40,7 +99,7 @@ router.post('/', async (req, res) => {
 
         let delivered = false;
         if (wsManager) {
-            delivered = wsManager.emitCriticalAlert(deviceId, alertPayload) === true;
+            delivered = wsManager.emitCriticalAlert(authorizedDeviceId, alertPayload) === true;
             if (delivered) {
                 await dbManager.markAlertDelivered(alertRecord.id);
             }
@@ -72,11 +131,16 @@ router.get('/pending/:deviceId', async (req, res) => {
             });
         }
 
-        const pendingAlerts = await dbManager.getPendingCriticalAlerts(deviceId, limit);
+        const authorizedDeviceId = await resolveAuthorizedAlertTarget(req, res, deviceId);
+        if (authorizedDeviceId === null) {
+            return undefined;
+        }
+
+        const pendingAlerts = await dbManager.getPendingCriticalAlerts(authorizedDeviceId, limit);
 
         res.json({
             success: true,
-            deviceId,
+            deviceId: authorizedDeviceId,
             count: pendingAlerts.length,
             alerts: pendingAlerts
         });
@@ -100,7 +164,12 @@ router.post('/ack', async (req, res) => {
             });
         }
 
-        await dbManager.acknowledgeCriticalAlerts(deviceId, alertIds);
+        const authorizedDeviceId = await resolveAuthorizedAlertTarget(req, res, deviceId);
+        if (authorizedDeviceId === null) {
+            return undefined;
+        }
+
+        await dbManager.acknowledgeCriticalAlerts(authorizedDeviceId, alertIds);
 
         res.json({
             success: true,

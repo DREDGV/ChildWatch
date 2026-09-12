@@ -1,4 +1,4 @@
-﻿/**
+/**
  * WebSocketManager - Manages WebSocket connections for real-time audio streaming
  *
  * Architecture:
@@ -120,6 +120,19 @@ class WebSocketManager {
       delivered += 1;
     }
     return delivered;
+  }
+
+  /**
+   * Deliver a critical alert to the exact device it belongs to.
+   *
+   * `routes/alerts.js` treats a strict `true` as "the phone received it", so
+   * this reports whether at least one live socket took the payload. There is
+   * deliberately no fallback to another connected phone: an alert for device A
+   * must never surface on device B.
+   */
+  emitCriticalAlert(deviceId, payload) {
+    const delivered = this.emitToExactDevice(deviceId, "critical_alert", payload);
+    return delivered > 0;
   }
 
   looksLikeSyntheticParentDeviceId(value) {
