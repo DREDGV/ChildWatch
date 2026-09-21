@@ -147,3 +147,21 @@ parent_repro_logcat.txt
 server/*.zip
 server/deploy/
 .android-signing/
+
+# Server-side diagnostic and deployment scripts, plus the SSH known-hosts file.
+# The scripts carry the live host address and one-off repairs; the known-hosts file
+# is machine-specific. Neither belongs in the repository.
+.ssh-local/
+
+# Database files. They hold live family data and change on every local run, so a
+# committed copy is a stale, machine-specific artefact rather than source.
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Screenshots taken while checking behaviour on a phone. They are evidence for a
+# conversation, not part of the product, and they add megabytes per check.
+/qa/
+
