@@ -1,4 +1,4 @@
-﻿package ru.example.parentwatch
+package ru.example.parentwatch
 
 import android.Manifest
 import android.content.Context
@@ -35,11 +35,15 @@ import ru.example.parentwatch.utils.ChildDeviceProfile
 import ru.example.parentwatch.utils.ChildDeviceProfileManager
 import ru.example.parentwatch.utils.ServerUrlResolver
 import ru.example.parentwatch.session.ChildActiveSessionStore
+import ru.example.parentwatch.session.ChildDeviceIdentity
 import ru.example.parentwatch.session.ChildEffectiveContextProvider
 import ru.example.parentwatch.session.ChildFamilyDirectoryRepository
 import ru.example.parentwatch.session.ChildFamilyOnboardingStore
 import ru.example.parentwatch.session.ChildParticipantNameResolver
 import ru.example.parentwatch.session.ChildProfileRuntimeCoordinator
+import ru.example.parentwatch.profile.FamilyAvatarRenderer
+import ru.example.parentwatch.profile.OwnProfilePublisher
+import ru.example.parentwatch.profile.ProfileEditDialog
 import ru.childwatch.shared.onboarding.FamilyOnboardingEntryDecision
 import ru.childwatch.shared.onboarding.FamilyOnboardingEntryPolicy
 import android.view.MotionEvent
@@ -83,6 +87,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var titleText: TextView
     private lateinit var activeProfileName: TextView
     private lateinit var activeProfileMeta: TextView
+    private lateinit var activeProfileAvatar: com.google.android.material.imageview.ShapeableImageView
     private lateinit var chatCard: MaterialCardView
     private lateinit var chatBadge: TextView
     private lateinit var settingsCard: MaterialCardView
@@ -255,6 +260,7 @@ class MainActivity : AppCompatActivity() {
     titleText = findViewById(R.id.titleText)
         activeProfileName = findViewById(R.id.activeProfileName)
         activeProfileMeta = findViewById(R.id.activeProfileMeta)
+        activeProfileAvatar = findViewById(R.id.activeProfileAvatar)
         chatCard = findViewById(R.id.chatCard)
         chatBadge = findViewById(R.id.chatBadge)
         settingsCard = findViewById(R.id.settingsCard)
@@ -264,8 +270,12 @@ class MainActivity : AppCompatActivity() {
     titleText.text = getString(R.string.home_child_brand)
 
         findViewById<MaterialButton>(R.id.switchProfileQuickButton)?.setOnClickListener {
-            showQuickProfilePicker()
+            openProfileEditor()
         }
+        // The card itself opens the same editor: it shows the avatar and name,
+        // so tapping it is the natural way to change them.
+        findViewById<com.google.android.material.card.MaterialCardView>(R.id.activeProfileCard)
+            ?.setOnClickListener { openProfileEditor() }
         
         // Menu card click listeners
         chatCard.setOnClickListener {
@@ -450,14 +460,80 @@ class MainActivity : AppCompatActivity() {
         val lastUpdate = prefs.getLong("last_update", 0)
         if (lastUpdate > 0) {
             val dateLine = SimpleDateFormat("dd.MM.yy", Locale.getDefault()).format(Date(lastUpdate))
-            lastUpdateText.text = "$dateLine - ChildDevice v$appVersion\nРаботает в фоновом режиме"
+            // The build date is shown next to the version: a version string alone does
+            // not tell anybody which build a phone is actually running.
+            lastUpdateText.text = getString(
+                R.string.child_status_version_line,
+                dateLine,
+                appVersion,
+                BuildConfig.BUILD_STAMP
+            )
         }
     }
 
+    /**
+     * Opens the profile editor in place.
+     *
+     * It used to jump to the settings screen, which moved the user to a different
+     * part of the app for a change as small as a new picture, so it now stays on
+     * this screen.
+     */
+    private fun openProfileEditor() {
+        val activeProfile = profileManager.getActiveProfile()
+        ProfileEditDialog.show(
+            activity = this,
+            initial = activeProfile,
+            currentAvatarKey = participantNameResolver.resolveChildAvatarKey(),
+            onSave = onProfileEdited@{ name, avatarKey ->
+                val base = activeProfile ?: profileManager.getActiveProfile()
+                if (base == null) {
+                    Toast.makeText(
+                        this,
+                        getString(R.string.profile_switch_no_active),
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@onProfileEdited
+                }
+                val updated = base.copy(
+                    name = name,
+                    avatarKey = avatarKey,
+                    updatedAt = System.currentTimeMillis()
+                )
+                profileManager.saveProfile(updated)
+                updateQuickProfileSummary()
+                // The name and picture live in the family too, so they are sent to
+                // the server. Saving only locally let the next directory refresh
+                // bring the old picture back.
+                OwnProfilePublisher.publish(
+                    context = this,
+                    scope = lifecycleScope,
+                    name = name,
+                    avatarKey = avatarKey
+                ) { published ->
+                    Toast.makeText(
+                        this,
+                        getString(
+                            if (published) {
+                                OwnProfilePublisher.successMessageRes()
+                            } else {
+                                OwnProfilePublisher.failureMessageRes()
+                            }
+                        ),
+                        if (published) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+                    ).show()
+                    updateQuickProfileSummary()
+                }
+            }
+        )
+    }
+
     private fun showQuickProfilePicker() {
+        // The edit screen, which is the only place with the avatar picker, was
+        // previously reachable only through the ambiguous label "Сохранить
+        // текущий", so it looked as if a profile could not be changed at all.
         val actionLabels = arrayOf(
+            getString(R.string.profile_switch_edit_title),
             getString(R.string.profile_switch_apply),
-            getString(R.string.profile_switch_save_current),
             getString(R.string.profile_switch_manage)
         )
 
@@ -465,8 +541,8 @@ class MainActivity : AppCompatActivity() {
             .setTitle(R.string.profile_switch_manage_title)
             .setItems(actionLabels) { _, which ->
                 when (which) {
-                    0 -> showQuickProfileSwitchDialog()
-                    1 -> showProfileEditorDialog(profileManager.getActiveProfile())
+                    0 -> openProfileEditor()
+                    1 -> showQuickProfileSwitchDialog()
                     2 -> showProfileManagementDialog()
                 }
             }
@@ -661,15 +737,26 @@ class MainActivity : AppCompatActivity() {
         if (ownChildId.isNullOrBlank() || serverUrl.isNullOrBlank()) {
             activeProfileName.text = getString(R.string.profile_switch_title)
             activeProfileMeta.text = getString(R.string.profile_switch_no_active)
+            FamilyAvatarRenderer.bind(activeProfileAvatar, null, null)
             return
         }
 
-        activeProfileName.text = participantNameResolver.resolveChildDisplayName()
+        val displayName = participantNameResolver.resolveChildDisplayName()
+        activeProfileName.text = displayName
         activeProfileMeta.text = if (parentId.isNullOrBlank()) {
             getString(R.string.home_child_profile_not_connected)
         } else {
             getString(R.string.home_child_profile_connected)
         }
+        // The canonical directory already carries this profile's avatar key; it
+        // was simply never read here, so the card kept showing the app icon.
+        // The name is passed as well, so a profile without a picture still gets
+        // a recognizable initial instead of a bare question mark.
+        FamilyAvatarRenderer.bind(
+            activeProfileAvatar,
+            participantNameResolver.resolveChildAvatarKey(),
+            displayName
+        )
     }
 
     private fun formatProfileServer(serverUrl: String): String {
@@ -1010,7 +1097,12 @@ class MainActivity : AppCompatActivity() {
         } else {
             SimpleDateFormat("dd.MM.yy", Locale.getDefault()).format(Date())
         }
-    lastUpdateText.text = "$dateLine - ChildDevice v$appVersion\nРаботает в фоновом режиме"
+        lastUpdateText.text = getString(
+            R.string.child_status_version_line,
+            dateLine,
+            appVersion,
+            BuildConfig.BUILD_STAMP
+        )
     }
 
     private fun updateChatBadge() {
@@ -1136,17 +1228,17 @@ class MainActivity : AppCompatActivity() {
         return resolved
     }
     private fun getUniqueDeviceId(): String {
-        var deviceId = contextProvider.current()?.selfDeviceId.orEmpty().ifBlank {
+        val deviceId = contextProvider.current()?.selfDeviceId.orEmpty().ifBlank {
             sessionStore.resolveCurrentChildId()
         }.ifBlank {
-            prefs.getString("device_id", null)
+            prefs.getString("device_id", null).orEmpty()
+        }.ifBlank {
+            // The shared source is the only place allowed to invent an identifier;
+            // a random value here could disagree with what registration uses.
+            ChildDeviceIdentity.resolve(this)
         }
 
         // Keep existing ID stable to avoid breaking pairing/streaming after updates.
-        if (deviceId.isNullOrBlank()) {
-            deviceId = "child-" + UUID.randomUUID().toString().substring(0, 8)
-        }
-
         mirrorLegacyIdsFromSession(deviceId, sessionStore.resolveCurrentParentId())
 
         val currentSession = sessionStore.getActiveSession()

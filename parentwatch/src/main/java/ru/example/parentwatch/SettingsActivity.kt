@@ -1,4 +1,4 @@
-﻿package ru.example.parentwatch
+package ru.example.parentwatch
 
 import android.content.Intent
 import android.net.Uri
@@ -12,6 +12,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import org.json.JSONArray
 import org.json.JSONObject
 import ru.example.parentwatch.contacts.ContactIcons
@@ -21,14 +22,19 @@ import ru.example.parentwatch.database.entity.Child
 import ru.example.parentwatch.network.LinkedParentLink
 import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.network.WebSocketManager
+import ru.example.parentwatch.profile.FamilyAvatarRenderer
+import ru.example.parentwatch.profile.OwnProfilePublisher
 import ru.example.parentwatch.service.AppUsageTracker
 import ru.example.parentwatch.service.AudioStreamingService
 import ru.example.parentwatch.service.LocationService
 import ru.example.parentwatch.session.ChildEffectiveContext
 import ru.example.parentwatch.utils.ChildDeviceProfile
 import ru.example.parentwatch.utils.ChildDeviceProfileManager
+import ru.example.parentwatch.utils.PermissionHelper
 import ru.example.parentwatch.utils.ServerUrlResolver
 import ru.example.parentwatch.session.ChildActiveSessionStore
+import ru.example.parentwatch.session.ChildDeviceIdentity
+import ru.example.parentwatch.session.ChildFamilyOnboardingStore
 import ru.example.parentwatch.session.ChildParticipantNameResolver
 import ru.example.parentwatch.session.ChildProfileRuntimeCoordinator
 import kotlinx.coroutines.launch
@@ -54,6 +60,12 @@ class SettingsActivity : AppCompatActivity() {
         private const val KEY_LINKED_PARENTS_JSON = "linked_parents_json"
         private const val KEY_ACTIVE_PARENT_LABEL = "active_parent_label"
 
+        /** Opens the profile editor as soon as the screen is created. */
+        const val EXTRA_OPEN_PROFILE_EDITOR = "open_profile_editor"
+
+        /** Matches a generated profile name, which always embeds a device id. */
+        private val TECHNICAL_NAME_PATTERN = Regex("(child-|device_)[A-Za-z0-9]{4,}")
+
         // Server URL presets
         private const val LOCALHOST_URL = "http://10.0.2.2:3000"
         private const val VPS_URL = "http://31.28.27.96:3000"
@@ -66,6 +78,11 @@ class SettingsActivity : AppCompatActivity() {
     private val participantNameResolver by lazy { ChildParticipantNameResolver(this) }
     private val profileRuntimeCoordinator by lazy { ChildProfileRuntimeCoordinator(this) }
     private val networkClient by lazy { NetworkClient(this) }
+
+    /** Result of an in-app permission request: refresh the card when it returns. */
+    private val permissionRequestLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { _ -> updatePermissionsSummary() }
     
     // QR Scanner result launcher
     private val qrScannerLauncher = registerForActivityResult(
@@ -92,6 +109,13 @@ class SettingsActivity : AppCompatActivity() {
         
         setupUI()
         loadSettings()
+
+        // Allows the profile card on the home screen to open the profile editor
+        // directly, instead of dropping the user on an unexplained settings list
+        // where the edit action is buried.
+        if (intent?.getBooleanExtra(EXTRA_OPEN_PROFILE_EDITOR, false) == true) {
+            showProfileEditorDialog(profileManager.getActiveProfile())
+        }
     }
     
     private fun setupUI() {
@@ -103,13 +127,13 @@ class SettingsActivity : AppCompatActivity() {
             ServerUrlResolver.getServerUrl(this) ?: ""
         }
         
-        // Generate device_id if not exists
-        var deviceId = prefs.getString("device_id", null)
-        if (deviceId.isNullOrBlank()) {
-            deviceId = sessionStore.resolveCurrentChildId()
-        }
-        if (deviceId.isNullOrBlank()) {
-            deviceId = "child-" + java.util.UUID.randomUUID().toString().substring(0, 8)
+        // Take the identifier from the single shared source, which creates one only
+        // when none exists and always returns the value the device is known by.
+        val storedDeviceId = prefs.getString("device_id", null).orEmpty()
+            .ifBlank { sessionStore.resolveCurrentChildId() }
+            .ifBlank { ChildDeviceIdentity.resolve(this) }
+        var deviceId = storedDeviceId
+        if (prefs.getString("device_id", null).isNullOrBlank()) {
             prefs.edit()
                 .putString("device_id", deviceId)
                 .putString("child_device_id", deviceId)
@@ -210,6 +234,11 @@ class SettingsActivity : AppCompatActivity() {
             requestUsageStatsPermission()
         }
 
+        // Permissions card
+        binding.requestPermissionsButton.setOnClickListener { requestMissingPermissions() }
+        binding.openAppSettingsButton.setOnClickListener { openAppSettings() }
+        updatePermissionsSummary()
+
         // Service controls
         val isRunning = prefs.getBoolean("service_running", false)
         updateServiceButtons(isRunning)
@@ -273,6 +302,97 @@ class SettingsActivity : AppCompatActivity() {
                 "Не удалось открыть настройки разрешений",
                 Toast.LENGTH_SHORT
             ).show()
+        }
+    }
+
+    /** One line per permission, so the state of the device is visible at a glance. */
+    private fun updatePermissionsSummary() {
+        val helper = PermissionHelper
+        val entries = listOf(
+            "Геолокация" to helper.hasLocationPermissions(this),
+            "Геолокация в фоне" to helper.hasBackgroundLocationPermission(this),
+            "Микрофон" to helper.hasAudioPermission(this),
+            "Камера" to helper.hasCameraPermission(this),
+            "Уведомления" to hasNotificationPermission()
+        )
+        binding.permissionsSummaryText.text = entries.joinToString("\n") { (label, granted) ->
+            val mark = if (granted) "\u2714" else "\u2716"
+            "$mark  $label"
+        }
+        val allGranted = entries.all { it.second }
+        binding.requestPermissionsButton.isEnabled = !allGranted
+        binding.requestPermissionsButton.text =
+            if (allGranted) "Все разрешения выданы" else "Запросить недостающие"
+    }
+
+    private fun hasNotificationPermission(): Boolean {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            androidx.core.content.ContextCompat.checkSelfPermission(
+                this,
+                android.Manifest.permission.POST_NOTIFICATIONS
+            ) == android.content.pm.PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
+    }
+
+    /**
+     * Asks for the permissions that can still be requested in-app.
+     *
+     * Background location is deliberately sent to the system screen instead: on
+     * Android 11+ the system only offers "Allow all the time" from the app's
+     * settings page, so a dialog request there could never succeed.
+     */
+    private fun requestMissingPermissions() {
+        val missing = mutableListOf<String>()
+        if (!PermissionHelper.hasLocationPermissions(this)) {
+            missing.add(android.Manifest.permission.ACCESS_FINE_LOCATION)
+            missing.add(android.Manifest.permission.ACCESS_COARSE_LOCATION)
+        }
+        if (!PermissionHelper.hasAudioPermission(this)) {
+            missing.add(android.Manifest.permission.RECORD_AUDIO)
+        }
+        if (!PermissionHelper.hasCameraPermission(this)) {
+            missing.add(android.Manifest.permission.CAMERA)
+        }
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            !hasNotificationPermission()
+        ) {
+            missing.add(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+
+        if (missing.isNotEmpty()) {
+            permissionRequestLauncher.launch(missing.toTypedArray())
+            return
+        }
+
+        if (!PermissionHelper.hasBackgroundLocationPermission(this)) {
+            MaterialAlertDialogBuilder(this)
+                .setTitle("Геолокация в фоне")
+                .setMessage(
+                    "Чтобы местоположение отслеживалось при закрытом приложении, выберите «Всегда разрешать». " +
+                        "Это делается на странице настроек приложения."
+                )
+                .setPositiveButton("Открыть настройки") { _, _ -> openAppSettings() }
+                .setNegativeButton("Отмена", null)
+                .show()
+            return
+        }
+
+        updatePermissionsSummary()
+        Toast.makeText(this, "Все доступные разрешения уже выданы", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun openAppSettings() {
+        try {
+            startActivity(
+                Intent(
+                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    Uri.fromParts("package", packageName, null)
+                )
+            )
+        } catch (e: Exception) {
+            Toast.makeText(this, "Не удалось открыть настройки приложения", Toast.LENGTH_SHORT).show()
         }
     }
     
@@ -342,8 +462,11 @@ class SettingsActivity : AppCompatActivity() {
             .setItems(items) { _, which ->
                 showProfileActionsDialog(profiles[which])
             }
-            .setPositiveButton(R.string.profile_switch_save_current) { _, _ ->
+            .setPositiveButton(R.string.profile_switch_edit_title) { _, _ ->
                 showProfileEditorDialog(profileManager.getActiveProfile())
+            }
+            .setNeutralButton(R.string.profile_switch_save_current) { _, _ ->
+                showProfileEditorDialog(null)
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
@@ -397,22 +520,137 @@ class SettingsActivity : AppCompatActivity() {
         val currentServerUrl = existingProfile?.serverUrl?.ifBlank { null }
             ?: binding.serverUrlInput.text?.toString()?.trim().orEmpty()
                 .ifBlank { profileManager.resolveCurrentServerUrl() }
+        // A name a person can act on. The previous default spelled out device
+        // identifiers ("Ребенок child-6f3a -> device_1f..."), which told the user
+        // nothing and looked broken.
         val suggestedName = existingProfile?.name
             ?.takeUnless { it == getString(R.string.profile_switch_current_name) }
-            ?: getString(
-                R.string.profile_switch_default_name_format,
-                formatProfileId(currentOwnId),
-                formatProfileId(currentParentId.ifBlank { getString(R.string.profile_switch_no_link_short) })
-            )
+            ?.takeUnless { isTechnicalProfileName(it) }
+            ?: participantNameResolver.resolveChildDisplayName()
+                .takeUnless { isTechnicalProfileName(it) }
+            ?: getString(R.string.profile_child_default_name)
 
         val nameInput = createProfileInput(getString(R.string.profile_switch_name_hint), suggestedName)
         val serverInput = createProfileInput(getString(R.string.profile_switch_server_hint), currentServerUrl)
         val ownIdInput = createProfileInput(getString(R.string.profile_switch_own_child_id_hint), currentOwnId)
         val parentIdInput = createProfileInput(getString(R.string.profile_switch_linked_parent_id_hint), currentParentId)
 
+        // The technical values stay editable, but behind a disclosure: they are
+        // needed while setting the device up and are noise for everyone else.
+        var advancedExpanded = false
+        val advancedWarning = android.widget.TextView(this).apply {
+            text = getString(R.string.profile_advanced_warning)
+            setPadding(0, 0, 0, (8 * resources.displayMetrics.density).toInt())
+            textSize = 12f
+            setTextColor(
+                androidx.core.content.ContextCompat.getColor(
+                    this@SettingsActivity,
+                    R.color.cw_color_on_surface_variant
+                )
+            )
+        }
+        val advancedContent = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            visibility = android.view.View.GONE
+            addView(advancedWarning)
+            addView(serverInput)
+            addView(ownIdInput)
+            addView(parentIdInput)
+        }
+        val advancedToggle = android.widget.TextView(this).apply {
+            text = getString(R.string.profile_advanced_show)
+            setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, 0)
+            setTextColor(
+                androidx.core.content.ContextCompat.getColor(
+                    this@SettingsActivity,
+                    R.color.cw_color_primary
+                )
+            )
+            isClickable = true
+            setOnClickListener {
+                advancedExpanded = !advancedExpanded
+                advancedContent.visibility = if (advancedExpanded) {
+                    android.view.View.VISIBLE
+                } else {
+                    android.view.View.GONE
+                }
+                text = getString(
+                    if (advancedExpanded) {
+                        R.string.profile_advanced_hide
+                    } else {
+                        R.string.profile_advanced_show
+                    }
+                )
+            }
+        }
+
+        // The picture this profile uses. It was not editable at all before, so a
+        // profile could only ever show the built-in fallback icon.
+        var selectedAvatar = existingProfile?.avatarKey
+            ?.takeIf { it.isNotBlank() }
+            ?: participantNameResolver.resolveChildAvatarKey()
+
+        val density = resources.displayMetrics.density
+        val avatarRow = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            setPadding(0, 0, 0, (12 * density).toInt())
+        }
+        val avatarScroll = android.widget.HorizontalScrollView(this).apply {
+            isHorizontalScrollBarEnabled = false
+            addView(avatarRow)
+        }
+        val avatarLabel = android.widget.TextView(this).apply {
+            text = getString(R.string.profile_avatar_section_title)
+            setPadding(0, 0, 0, (8 * density).toInt())
+        }
+        val avatarViews = mutableListOf<com.google.android.material.imageview.ShapeableImageView>()
+        val size = (52 * density).toInt()
+        val spacing = (8 * density).toInt()
+
+        fun refreshAvatars() {
+            val primary = androidx.core.content.ContextCompat.getColor(this, R.color.cw_color_primary)
+            val outline = androidx.core.content.ContextCompat.getColor(this, R.color.cw_color_outline_variant)
+            FamilyAvatarRenderer.presets.zip(avatarViews).forEach { (preset, view) ->
+                val selected = preset.storageValue == selectedAvatar
+                view.strokeColor = android.content.res.ColorStateList.valueOf(
+                    if (selected) primary else outline
+                )
+                view.strokeWidth = (if (selected) 3f else 1f) * density
+                view.alpha = if (selected) 1f else 0.7f
+            }
+        }
+
+        FamilyAvatarRenderer.presets.forEachIndexed { index, preset ->
+            val view = com.google.android.material.imageview.ShapeableImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                    if (index > 0) marginStart = spacing
+                }
+                shapeAppearanceModel = com.google.android.material.shape.ShapeAppearanceModel
+                    .builder()
+                    .setAllCornerSizes(size / 2f)
+                    .build()
+                setOnClickListener {
+                    selectedAvatar = preset.storageValue
+                    refreshAvatars()
+                }
+            }
+            FamilyAvatarRenderer.bind(view, preset.storageValue)
+            avatarViews += view
+            avatarRow.addView(view)
+        }
+        refreshAvatars()
+
         val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle(if (existingProfile == null) R.string.profile_switch_name_title else R.string.profile_switch_edit_title)
-            .setView(createProfileDialogLayout(nameInput, serverInput, ownIdInput, parentIdInput))
+            .setView(
+                createProfileDialogLayout(
+                    nameInput,
+                    avatarLabel,
+                    avatarScroll,
+                    advancedToggle,
+                    advancedContent
+                )
+            )
             .setPositiveButton(android.R.string.ok, null)
             .setNegativeButton(android.R.string.cancel, null)
             .create()
@@ -435,8 +673,15 @@ class SettingsActivity : AppCompatActivity() {
                             serverUrl = serverUrl,
                             ownChildDeviceId = ownId,
                             linkedParentDeviceId = parentId,
+                            avatarKey = selectedAvatar,
                             updatedAt = System.currentTimeMillis()
-                        ) ?: profileManager.buildProfile(name, serverUrl, ownId, parentId)
+                        ) ?: profileManager.buildProfile(
+                            name,
+                            serverUrl,
+                            ownId,
+                            parentId,
+                            selectedAvatar
+                        )
                         profileManager.saveProfile(profile)
                         if (existingProfile?.id == profileManager.getActiveProfileId()) {
                             applyProfile(profile)
@@ -449,12 +694,63 @@ class SettingsActivity : AppCompatActivity() {
                             Toast.LENGTH_SHORT
                         ).show()
                         dialog.dismiss()
+                        // The name and avatar also live in the family on the server,
+                        // so the change is published through the shared helper that
+                        // the home screen editor uses as well.
+                        publishOwnProfile(selectedAvatar, name)
                     }
                 }
             }
         }
 
         dialog.show()
+    }
+
+    /**
+     * Sends this device's name and avatar to the family on the server.
+     *
+     * Failures are reported instead of ignored: a silent failure is exactly what
+     * made an avatar change look like it did nothing.
+     */
+    /**
+     * Publishes the profile through the shared helper.
+     *
+     * Both this screen and the home screen offer the editor, so the server write
+     * lives in one place instead of being duplicated and forgotten in one of them.
+     */
+    private fun publishOwnProfile(avatarKey: String?, name: String?) {
+        OwnProfilePublisher.publish(
+            context = this,
+            scope = lifecycleScope,
+            name = name,
+            avatarKey = avatarKey
+        ) { published ->
+            updateProfileSummary()
+            Toast.makeText(
+                this,
+                getString(
+                    if (published) {
+                        OwnProfilePublisher.successMessageRes()
+                    } else {
+                        OwnProfilePublisher.failureMessageRes()
+                    }
+                ),
+                if (published) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+
+    /**
+     * True when a saved profile name is really a device identifier.
+     *
+     * Older versions generated names such as "Ребенок child-6f3a -> device_1f".
+     * Offering that back as the name is confusing, so it is treated as absent.
+     */
+    private fun isTechnicalProfileName(name: String): Boolean {
+        val normalized = name.trim()
+        if (normalized.isEmpty()) return true
+        // A generated name always embeds a device identifier.
+        return TECHNICAL_NAME_PATTERN.containsMatchIn(normalized)
     }
 
     private fun applyProfile(profile: ChildDeviceProfile) {
@@ -472,6 +768,15 @@ class SettingsActivity : AppCompatActivity() {
         Toast.makeText(this, R.string.profile_switch_applied, Toast.LENGTH_SHORT).show()
     }
 
+    /**
+     * Fills the profile card with what a person needs to see.
+     *
+     * It used to print the server address, both device identifiers, the context
+     * source and a diagnostics line. That is setup information, not something a
+     * family member reads, so the card now shows the name, the picture and
+     * whether the family link is alive. The technical values stay reachable
+     * through the profile editor's advanced section.
+     */
     private fun updateProfileSummary() {
         val activeProfile = profileManager.getActiveProfile()
         val effectiveContext = sessionStore.resolveEffectiveContext()
@@ -479,55 +784,26 @@ class SettingsActivity : AppCompatActivity() {
             ?: effectiveContext?.ownChildDeviceId?.takeIf { it.isNotBlank() }
         val parentId = activeProfile?.linkedParentDeviceId?.takeIf { it.isNotBlank() }
             ?: effectiveContext?.linkedParentDeviceId?.takeIf { it.isNotBlank() }
-        val serverUrl = activeProfile?.serverUrl?.takeIf { it.isNotBlank() }
-            ?: effectiveContext?.serverUrl?.takeIf { it.isNotBlank() }
-        val profileName = activeProfile?.name?.takeIf { it.isNotBlank() }
-            ?: sessionStore.getActiveSession()?.name?.takeIf { it.isNotBlank() }
-            ?: getString(R.string.profile_switch_current_name)
-        val selfNameLine = getString(
-            R.string.participant_self_name_summary_line,
-            participantNameResolver.resolveChildDisplayName()
-        )
-        val selfMarkerLine = getString(
-            R.string.participant_self_marker_summary_line,
-            ContactIcons.labelFor(participantNameResolver.resolveChildMarkerIconId())
-        )
 
-        if (ownChildId.isNullOrBlank() || serverUrl.isNullOrBlank()) {
+        if (ownChildId.isNullOrBlank()) {
             binding.profileSummaryText.text = getString(R.string.profile_switch_no_active)
             return
         }
 
-        binding.profileSummaryText.text = getString(
-            R.string.profile_switch_summary_format,
-            profileName,
-            formatProfileServer(serverUrl),
-            formatProfileId(ownChildId),
-            formatProfileId(
-                parentId?.takeIf { it.isNotBlank() }
-                    ?: getString(R.string.profile_switch_unknown_link)
-            )
-        ) + "\n" + selfNameLine + "\n" + selfMarkerLine + "\n" + getString(
-            R.string.profile_switch_source_line,
-            describeProfileContextSource(effectiveContext?.source)
-        ) + "\n" + buildCanonicalContextDiagnosticsLine() + "\n" + getString(
-            R.string.profile_switch_status_line,
-            getString(
-                if (activeProfile?.id?.let { activeId ->
-                    profileManager.getSavedProfiles().any { it.id == activeId }
-                } == true) {
-                    R.string.profile_switch_status_saved
-                } else {
-                    R.string.profile_switch_status_runtime_only
-                }
-            )
-        ) + (buildCachedLinkedParentsLine()?.let { "\n$it" } ?: "") +
-            (buildCachedActiveParentLine()?.let { "\n$it" } ?: "") +
-            if (isProfileContextMismatched(activeProfile, effectiveContext)) {
-            "\n" + getString(R.string.profile_switch_warning_mismatch)
+        val displayName = participantNameResolver.resolveChildDisplayName()
+        val connectionLine = if (parentId.isNullOrBlank()) {
+            getString(R.string.profile_summary_not_linked)
         } else {
-            ""
+            getString(R.string.profile_summary_linked)
         }
+        val lines = mutableListOf(displayName, connectionLine)
+
+        // A mismatch between the saved profile and the running context is a real
+        // problem, so it is still surfaced.
+        if (isProfileContextMismatched(activeProfile, effectiveContext)) {
+            lines += getString(R.string.profile_switch_warning_mismatch)
+        }
+        binding.profileSummaryText.text = lines.joinToString("\n")
     }
 
     private fun buildCanonicalContextDiagnosticsLine(): String {
@@ -857,7 +1133,8 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    private fun createProfileDialogLayout(vararg inputs: EditText): LinearLayout {
+    /** Accepts any views, so the avatar picker can sit among the text fields. */
+    private fun createProfileDialogLayout(vararg inputs: android.view.View): LinearLayout {
         return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(
