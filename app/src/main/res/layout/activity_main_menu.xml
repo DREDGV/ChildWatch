@@ -1,4 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    Parent home screen, ordered by what a parent opens the application for.
+
+    1. The child that is being watched — without a child there is nothing to do.
+    2. The monitoring switch — the one control that matters, with its state.
+    3. The family and the device-power warnings.
+    4. The quick actions.
+    5. Diagnostics: the child's device state and, at the very bottom, the build.
+
+    The screen used to open with the heading "Семья рядом" and the subtitle
+    "Главные действия и состояние ребёнка". Both were removed: they repeated the
+    application name, told the parent nothing about the family, and pushed the
+    child and the monitoring control below the fold. The version line moved from
+    the top to the bottom for the same reason — a build number is something a
+    parent reads once when reporting a problem, not a greeting.
+-->
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -13,34 +29,148 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:paddingHorizontal="@dimen/cw_space_5"
-        android:paddingTop="@dimen/cw_space_6"
+        android:paddingTop="@dimen/cw_space_5"
         android:paddingBottom="@dimen/cw_space_5">
 
+        <!--
+            Who is being watched. This is the first thing on the screen, because
+            every action below applies to this child, and the selection is often
+            wrong after a phone has been used for another family member.
+        -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/childSelectionCard"
+            style="@style/Widget.ChildWatch.PersonCard.Selected"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
+            <LinearLayout
+                android:id="@+id/childSelectionContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:padding="@dimen/cw_space_4">
+
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/selectedChildAvatar"
+                    style="@style/Widget.ChildWatch.Avatar.Medium"
+                    android:contentDescription="@string/main_child_card_button_hint"
+                    android:src="@android:drawable/ic_menu_myplaces"
+                    app:tint="@null" />
+
+                <LinearLayout
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/cw_space_4"
+                    android:layout_weight="1"
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/selectedChildName"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/main_select_contact_placeholder_title"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Person.Name" />
+
+                    <TextView
+                        android:id="@+id/selectedChildDeviceId"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/cw_space_1"
+                        android:text="@string/home_selected_child_hint"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Person.Supporting" />
+                </LinearLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/childSelectionEditIcon"
+                    style="@style/Widget.ChildWatch.Button.Icon.Tonal"
+                    android:layout_marginStart="@dimen/cw_space_2"
+                    android:contentDescription="@string/main_child_card_button_hint"
+                    app:icon="@android:drawable/ic_menu_edit" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!--
+            The monitoring switch. It used to sit fourth, below the family card, so
+            the one control a parent comes for was the hardest thing to reach.
+
+            The state line names its own subject ("Мониторинг активен" / "Мониторинг
+            неактивен") instead of saying just "Активен", and instead of a separate
+            "Мониторинг" heading that repeated it at the same size.
+        -->
+        <com.google.android.material.card.MaterialCardView
+            android:id="@+id/statusCard"
+            style="@style/Widget.ChildWatch.Card"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/cw_space_4">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="@dimen/cw_space_4">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/statusText"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/monitoring_inactive"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
+
+                    <ImageView
+                        android:id="@+id/statusIcon"
+                        android:layout_width="40dp"
+                        android:layout_height="40dp"
+                        android:contentDescription="@string/monitoring_status"
+                        android:src="@android:drawable/presence_offline"
+                        app:tint="@color/cw_color_warning" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/serviceRunningTimeText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/cw_space_1"
+                    android:text="@string/service_running_time"
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/monitoringToggleBtn"
+                    style="@style/Widget.ChildWatch.Button.Primary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/cw_space_4"
+                    android:text="@string/home_monitoring_action" />
+            </LinearLayout>
+        </com.google.android.material.card.MaterialCardView>
+
+        <!--
+            The family itself: its name, how many people and phones are in it, and
+            the button that opens the parent's own profile. It stays near the top
+            because the profile editor is reachable only from here, but it now sits
+            below the child and the switch instead of competing with them.
+        -->
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/home_parent_title"
-            android:textAppearance="@style/TextAppearance.ChildWatch.Display" />
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_1"
-            android:text="@string/home_parent_subtitle"
-            android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
-
-        <TextView
-            android:id="@+id/appVersionText"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:visibility="gone" />
+            android:layout_marginTop="@dimen/cw_space_6"
+            android:text="@string/home_family_section"
+            android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
 
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/activeProfileCard"
             style="@style/Widget.ChildWatch.Card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_5">
+            android:layout_marginTop="@dimen/cw_space_2">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -48,6 +178,19 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal"
                 android:padding="@dimen/cw_space_4">
+
+                <!--
+                    The person's own picture. Without it this card named a person and
+                    showed no face, while every other list in the application did.
+                -->
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/activeProfileAvatar"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:layout_marginEnd="@dimen/cw_space_3"
+                    android:contentDescription="@string/family_profile_avatar_description"
+                    android:scaleType="centerCrop"
+                    app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.ChildWatch.Avatar" />
 
                 <LinearLayout
                     android:layout_width="0dp"
@@ -59,7 +202,7 @@
                         android:id="@+id/activeProfileName"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/home_family_profile"
+                        android:text="@string/family_profiles_title"
                         android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
 
                     <TextView
@@ -78,10 +221,13 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="@dimen/cw_space_3"
-                    android:text="@string/family_home_open" />
+                    android:text="@string/profile_switch_edit" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- Power warnings. Kept directly under the family card: they are the one
+             thing on this screen that is urgent and actionable, because a phone
+             that blocks the service cannot be monitored at all. -->
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/powerSettingsCard"
             style="@style/Widget.ChildWatch.Card"
@@ -147,127 +293,12 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/childSelectionCard"
-            style="@style/Widget.ChildWatch.PersonCard.Selected"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_4">
-
-            <LinearLayout
-                android:id="@+id/childSelectionContainer"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="@dimen/cw_space_4">
-
-                <com.google.android.material.imageview.ShapeableImageView
-                    android:id="@+id/selectedChildAvatar"
-                    style="@style/Widget.ChildWatch.Avatar.Medium"
-                    android:contentDescription="@string/main_child_card_button_hint"
-                    android:src="@android:drawable/ic_menu_myplaces"
-                    app:tint="@null" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="@dimen/cw_space_4"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/selectedChildName"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/main_select_contact_placeholder_title"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Person.Name" />
-
-                    <TextView
-                        android:id="@+id/selectedChildDeviceId"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_1"
-                        android:text="@string/home_selected_child_hint"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Person.Supporting" />
-                </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/childSelectionEditIcon"
-                    style="@style/Widget.ChildWatch.Button.Icon.Tonal"
-                    android:layout_marginStart="@dimen/cw_space_2"
-                    android:contentDescription="@string/main_child_card_button_hint"
-                    app:icon="@android:drawable/ic_menu_edit" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/statusCard"
-            style="@style/Widget.ChildWatch.Card"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_4">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="@dimen/cw_space_4">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <ImageView
-                        android:id="@+id/statusIcon"
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
-                        android:contentDescription="@string/monitoring_status"
-                        android:src="@android:drawable/presence_offline"
-                        app:tint="@color/cw_color_warning" />
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="@dimen/cw_space_3"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:id="@+id/statusText"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="@string/monitoring_inactive"
-                            android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
-
-                        <TextView
-                            android:id="@+id/serviceRunningTimeText"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/cw_space_1"
-                            android:text="@string/service_running_time"
-                            android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
-                    </LinearLayout>
-                </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/monitoringToggleBtn"
-                    style="@style/Widget.ChildWatch.Button.Primary"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/cw_space_4"
-                    android:text="@string/home_monitoring_action" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
         <TextView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="@dimen/cw_space_6"
             android:text="@string/home_quick_actions"
-            android:textAppearance="@style/TextAppearance.ChildWatch.Headline" />
+            android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -526,12 +557,25 @@
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>
 
+        <!--
+            Diagnostics. The version and the build date belong here and not at the
+            top: they are read when something has to be reported, so they sit with
+            the other technical detail and below everything a parent acts on.
+        -->
+        <TextView
+            android:id="@+id/homeDiagnosticsHeader"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/cw_space_6"
+            android:text="@string/home_diagnostics_section"
+            android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
+
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/deviceInfoCard"
             style="@style/Widget.ChildWatch.Card"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_5">
+            android:layout_marginTop="@dimen/cw_space_2">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -626,6 +670,17 @@
                     android:text="@string/home_action_activity" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
+
+        <!-- The version and the date the build was made, filled in by MainActivity.
+             It was hidden once, so there was no way to tell which build a phone was
+             running — which matters when a fix has been sent to one phone and not
+             yet to another. -->
+        <TextView
+            android:id="@+id/appVersionText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/cw_space_4"
+            android:textAppearance="@style/TextAppearance.ChildWatch.Diagnostics" />
 
         <!-- Compatibility-only controls and technical status remain available to code,
              but raw identifiers and service diagnostics no longer clutter the home screen. -->

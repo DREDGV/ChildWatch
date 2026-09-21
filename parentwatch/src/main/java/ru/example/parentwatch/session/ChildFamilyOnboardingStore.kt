@@ -12,6 +12,14 @@ class ChildFamilyOnboardingStore(context: Context) {
 
     fun isCompleted(): Boolean = onboardingPrefs.getBoolean(KEY_COMPLETED, false)
 
+    /** Canonical family this device joined, or an empty string when unknown. */
+    fun familyId(): String =
+        onboardingPrefs.getString(KEY_FAMILY_ID, null).orEmpty().trim()
+
+    /** This device's own member id inside [familyId], or an empty string. */
+    fun memberId(): String =
+        onboardingPrefs.getString(KEY_MEMBER_ID, null).orEmpty().trim()
+
     fun markCompleted(familyId: String, memberId: String) {
         onboardingPrefs.edit()
             .putBoolean(KEY_COMPLETED, true)

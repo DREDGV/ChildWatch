@@ -44,9 +44,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/chat_partner_child"
-                    android:textColor="@color/cw_color_on_surface"
-                    android:textSize="18sp"
-                    android:textStyle="bold" />
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Header.Title" />
 
                 <LinearLayout
                     android:layout_width="wrap_content"
@@ -69,20 +67,43 @@
                         android:ellipsize="end"
                         android:maxLines="1"
                         android:text="@string/chat_presence_connecting"
-                        android:textColor="@color/cw_color_on_surface_variant"
-                        android:textSize="13sp" />
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Header.Status" />
 
                     <TextView
                         android:id="@+id/chatPartnerMeta"
-                        android:layout_width="0dp"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="12dp"
-                        android:layout_weight="1"
                         android:ellipsize="end"
                         android:maxLines="1"
-                        android:text="@string/chat_partner_unknown_id"
-                        android:textColor="@color/cw_color_on_surface_variant"
-                        android:textSize="12sp" />
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <!-- Presence of the other side: a coloured dot plus text, on its own
+                     row because the meta slot beside the sync text has no width. -->
+                <LinearLayout
+                    android:id="@+id/peerPresenceRow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingTop="2dp"
+                    android:visibility="gone">
+
+                    <View
+                        android:id="@+id/peerPresenceDot"
+                        android:layout_width="9dp"
+                        android:layout_height="9dp"
+                        android:layout_marginEnd="6dp"
+                        android:background="@drawable/status_indicator_circle" />
+
+                    <TextView
+                        android:id="@+id/peerPresenceText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -213,39 +234,10 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="12dp">
+            android:padding="@dimen/cw_space_3">
 
-            <com.google.android.material.textfield.TextInputLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                app:boxStrokeColor="?attr/colorPrimary"
-                app:hintTextColor="?attr/colorPrimary">
-
-                <com.vanniktech.emoji.EmojiEditText
-                    android:id="@+id/messageInput"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:hint="@string/chat_input_hint"
-                    android:imeOptions="actionSend"
-                    android:inputType="textCapSentences|textMultiLine|textNoSuggestions"
-                    android:maxLines="3"
-                    android:minLines="1"
-                    android:textDirection="anyRtl"
-                    android:textLocale="ru_RU" />
-
-            </com.google.android.material.textfield.TextInputLayout>
-
-            <TextView
-                android:id="@+id/composerMetaText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="8dp"
-                android:text="@string/chat_composer_hint_online"
-                android:textColor="#6B7280"
-                android:textSize="12sp" />
-
-
+            <!-- Composer styling comes from the shared design-system styles, so
+                 this screen and ChildDevice cannot drift apart again. -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -254,47 +246,53 @@
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/emojiButton"
-                    style="@style/Widget.Material3.Button.TextButton"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
+                    style="@style/Widget.ChildWatch.Chat.Action"
                     android:contentDescription="@string/chat_emoji_button_content_description"
-                    android:insetTop="0dp"
-                    android:insetBottom="0dp"
-                    android:minWidth="48dp"
                     android:tooltipText="@string/chat_emoji_button_label"
                     app:icon="@drawable/ic_emoji"
                     app:iconGravity="textStart"
                     app:iconPadding="0dp"
-                    app:iconTint="?attr/colorPrimary" />
+                    app:iconTint="@color/cw_color_primary" />
 
-                <Space
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.ChildWatch.Chat.Composer"
                     android:layout_width="0dp"
-                    android:layout_height="1dp"
-                    android:layout_weight="1" />
-
-                <LinearLayout
-                    android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:orientation="horizontal">
+                    android:layout_marginStart="@dimen/cw_space_1"
+                    android:layout_marginEnd="@dimen/cw_space_2"
+                    android:layout_weight="1">
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/clearButton"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="wrap_content"
+                    <com.vanniktech.emoji.EmojiEditText
+                        android:id="@+id/messageInput"
+                        style="@style/Widget.ChildWatch.Chat.Composer.Input"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginEnd="8dp"
-                        android:text="@string/chat_clear" />
+                        android:hint="@string/chat_input_hint" />
 
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/sendButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/chat_send"
-                        app:icon="@android:drawable/ic_menu_send" />
+                </com.google.android.material.textfield.TextInputLayout>
 
-                </LinearLayout>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/sendButton"
+                    style="@style/Widget.ChildWatch.Chat.Send"
+                    android:contentDescription="@string/chat_send"
+                    android:enabled="false"
+                    app:icon="@drawable/ic_send" />
 
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/composerMetaText"
+                style="@style/TextAppearance.ChildWatch.Chat.ComposerHint"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/cw_space_1"
+                android:paddingStart="@dimen/cw_space_4"
+                android:text="@string/chat_composer_hint_online"
+                android:textSize="12sp" />
+
+            <!-- A "Clear" button used to sit here with no click handler, so it
+                 did nothing. Clearing is not offered in a family conversation:
+                 it would remove the history for the other participants too. -->
 
         </LinearLayout>
 

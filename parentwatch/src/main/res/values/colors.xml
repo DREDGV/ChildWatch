@@ -35,4 +35,8 @@
     <color name="chat_status_online_color">#2ECC71</color>
     <color name="chat_status_connecting_color">#FFC107</color>
     <color name="chat_status_offline_color">#E53935</color>
+    <!-- Presence dot in the chat header: green when the other side is online,
+         neutral grey when it is not, so the two never look alike. -->
+    <color name="presence_online">#2ECC71</color>
+    <color name="presence_offline">#9AA5B1</color>
 </resources>

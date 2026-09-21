@@ -166,13 +166,33 @@
                     android:maxLines="1" />
             </com.google.android.material.textfield.TextInputLayout>
 
+            <!--
+                Both ways into the application are offered side by side and with the
+                same weight. Creating a family used to be the only visible path, and
+                the second one was hidden behind a button, so a phone that meant to
+                join an existing family created one of its own instead.
+            -->
+            <com.google.android.material.radiobutton.MaterialRadioButton
+                android:id="@+id/createFamilyRadio"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="20dp"
+                android:checked="true"
+                android:text="Создать новую семью" />
+
+            <com.google.android.material.radiobutton.MaterialRadioButton
+                android:id="@+id/joinFamilyRadio"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Войти в существующую семью" />
+
             <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/familyNameInputLayout"
                 style="@style/Widget.ChildWatch.TextInputLayout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:hint="Название семьи">
+                android:hint="@string/parent_setup_family_name_hint">
 
                 <com.google.android.material.textfield.TextInputEditText
                     android:id="@+id/familyNameInput"
@@ -183,6 +203,25 @@
                     android:inputType="textCapWords"
                     android:maxLines="1"
                     android:text="Моя семья" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/invitationInputLayout"
+                style="@style/Widget.ChildWatch.TextInputLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:hint="@string/parent_setup_invitation_hint"
+                android:visibility="gone">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/invitationInput"
+                    style="@style/Widget.ChildWatch.TextInputEditText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:imeOptions="actionNext"
+                    android:inputType="textNoSuggestions"
+                    android:maxLines="2" />
             </com.google.android.material.textfield.TextInputLayout>
 
             <TextView

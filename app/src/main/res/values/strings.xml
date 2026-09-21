@@ -64,8 +64,6 @@
     <string name="photo">Камера ребенка</string>
     <string name="quick_actions">Быстрые действия</string>
     <string name="last_update">Последнее обновление: %1$s</string>
-    <string name="monitoring_active_status">Активен</string>
-    <string name="monitoring_inactive_status">Неактивен</string>
     
     <!-- Consent Screen Strings -->
     <string name="privacy_notice_title">Важная информация о конфиденциальности</string>

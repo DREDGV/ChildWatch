@@ -64,9 +64,7 @@
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:text="@string/chat_partner_parent"
-                    android:textColor="#212121"
-                    android:textSize="18sp"
-                    android:textStyle="bold" />
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Header.Title" />
 
                 <LinearLayout
                     android:layout_width="wrap_content"
@@ -89,20 +87,44 @@
                         android:ellipsize="end"
                         android:maxLines="1"
                         android:text="@string/chat_presence_connecting"
-                        android:textColor="@android:color/darker_gray"
-                        android:textSize="13sp" />
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Header.Status" />
 
                     <TextView
                         android:id="@+id/chatPartnerMeta"
-                        android:layout_width="0dp"
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="12dp"
-                        android:layout_weight="1"
                         android:ellipsize="end"
                         android:maxLines="1"
-                        android:text="@string/chat_partner_unknown_id"
-                        android:textColor="@android:color/darker_gray"
-                        android:textSize="12sp" />
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta"
+                        android:visibility="gone" />
+                </LinearLayout>
+
+                <!-- Presence of the other side: a coloured dot plus text, the way
+                     messengers show it. It lives on its own row because the meta
+                     slot beside the sync text has no width to spare. -->
+                <LinearLayout
+                    android:id="@+id/peerPresenceRow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:paddingTop="2dp"
+                    android:visibility="gone">
+
+                    <View
+                        android:id="@+id/peerPresenceDot"
+                        android:layout_width="9dp"
+                        android:layout_height="9dp"
+                        android:layout_marginEnd="6dp"
+                        android:background="@drawable/status_indicator_circle" />
+
+                    <TextView
+                        android:id="@+id/peerPresenceText"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta" />
                 </LinearLayout>
             </LinearLayout>
 
@@ -238,48 +260,30 @@
             app:iconPadding="0dp"
             app:iconTint="@color/emerald_primary" />
 
+        <!-- Composer styling comes from the shared design-system styles, so this
+             screen and ParentMonitor cannot drift apart again. -->
         <com.google.android.material.textfield.TextInputLayout
+            style="@style/Widget.ChildWatch.Chat.Composer"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
-            android:layout_marginEnd="8dp"
-            android:layout_weight="1"
-            app:boxBackgroundMode="outline"
-            app:boxCornerRadiusBottomEnd="24dp"
-            app:boxCornerRadiusBottomStart="24dp"
-            app:boxCornerRadiusTopEnd="24dp"
-            app:boxCornerRadiusTopStart="24dp">
+            android:layout_marginEnd="@dimen/cw_space_2"
+            android:layout_weight="1">
 
             <com.vanniktech.emoji.EmojiEditText
                 android:id="@+id/messageInput"
+                style="@style/Widget.ChildWatch.Chat.Composer.Input"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="@string/chat_input_hint"
-                android:imeOptions="actionSend"
-                android:inputType="textCapSentences|textMultiLine|textNoSuggestions"
-                android:maxLines="4"
-                android:minHeight="48dp"
-                android:textColor="#212121"
-                android:textColorHint="#757575"
-                android:textDirection="anyRtl"
-                android:textLocale="ru_RU" />
+                android:hint="@string/chat_input_hint" />
 
         </com.google.android.material.textfield.TextInputLayout>
 
-        <com.google.android.material.floatingactionbutton.FloatingActionButton
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/sendButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:clickable="true"
+            style="@style/Widget.ChildWatch.Chat.Send"
             android:contentDescription="@string/chat_send"
-            android:stateListAnimator="@null"
-            app:backgroundTint="#80FFFFFF"
-            app:elevation="2dp"
-            app:fabSize="normal"
-            app:pressedTranslationZ="4dp"
-            app:rippleColor="@color/emerald_primary_variant"
-            app:srcCompat="@drawable/ic_send"
-            app:tint="@color/emerald_primary"
-            app:useCompatPadding="false" />
+            android:enabled="false"
+            app:icon="@drawable/ic_send" />
 
     </LinearLayout>
 

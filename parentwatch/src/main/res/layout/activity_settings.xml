@@ -397,6 +397,69 @@
 
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- Permissions Card: shows what the device is actually allowed to do.
+             Without this the user had no way to see whether background location
+             or the microphone were granted, because the app only asked once on
+             the main screen and then never showed the result again. -->
+        <com.google.android.material.card.MaterialCardView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="16dp"
+            app:cardCornerRadius="16dp"
+            app:cardElevation="2dp">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="20dp">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="Разрешения"
+                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                    android:textColor="@color/cw_color_on_surface"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/permissionsSummaryText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:lineSpacingExtra="4dp"
+                    android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                    android:textColor="@color/cw_color_on_surface_variant" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/requestPermissionsButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:text="Запросить недостающие"
+                    android:textAllCaps="false" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/openAppSettingsButton"
+                    style="@style/Widget.Material3.Button.OutlinedButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="Открыть системные настройки приложения"
+                    android:textAllCaps="false" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="Для отслеживания в фоне выберите разрешение геолокации «Всегда разрешать». Если система больше не показывает запрос, разрешение выдаётся только в системных настройках."
+                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                    android:textColor="@color/cw_color_on_surface_variant" />
+
+            </LinearLayout>
+
+        </com.google.android.material.card.MaterialCardView>
+
         <!-- Notification Settings Card -->
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"

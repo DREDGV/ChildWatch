@@ -5,6 +5,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import ru.example.parentwatch.R
 import ru.example.parentwatch.utils.ServerUrlResolver
+import ru.example.parentwatch.utils.TextEncodingRepair
 import java.nio.charset.StandardCharsets
 import java.util.UUID
 
@@ -132,24 +133,30 @@ class ChildActiveSessionStore(private val context: Context) {
         name: String,
         serverUrl: String,
         ownChildDeviceId: String,
-        linkedParentDeviceId: String
+        linkedParentDeviceId: String,
+        avatarKey: String? = null
     ): ChildActiveSession {
         val normalizedName = name.trim()
         val normalizedServer = ServerUrlResolver.normalizeServerUrl(serverUrl.trim())
         val normalizedOwnId = ownChildDeviceId.trim()
         val normalizedParentId = linkedParentDeviceId.trim()
         val existingSessions = getSessions()
+        val existingId = existingSessions.firstOrNull {
+            it.name.equals(normalizedName, ignoreCase = true) ||
+                (it.serverUrl.equals(normalizedServer, ignoreCase = true) &&
+                    it.ownChildDeviceId == normalizedOwnId &&
+                    it.linkedParentDeviceId == normalizedParentId)
+        }?.id
         return ChildActiveSession(
-            id = existingSessions.firstOrNull {
-                it.name.equals(normalizedName, ignoreCase = true) ||
-                    (it.serverUrl.equals(normalizedServer, ignoreCase = true) &&
-                        it.ownChildDeviceId == normalizedOwnId &&
-                        it.linkedParentDeviceId == normalizedParentId)
-            }?.id ?: buildDerivedSessionId(normalizedServer, normalizedOwnId, normalizedParentId),
+            id = existingId ?: buildDerivedSessionId(normalizedServer, normalizedOwnId, normalizedParentId),
             name = normalizedName,
             serverUrl = normalizedServer,
             ownChildDeviceId = normalizedOwnId,
             linkedParentDeviceId = normalizedParentId,
+            // Keep an already stored avatar when the caller does not supply one,
+            // so editing another field never clears the chosen picture.
+            avatarKey = avatarKey?.trim()?.takeIf { it.isNotBlank() }
+                ?: existingSessions.firstOrNull { it.id == existingId }?.avatarKey,
             updatedAt = System.currentTimeMillis()
         )
     }
@@ -386,10 +393,15 @@ class ChildActiveSessionStore(private val context: Context) {
     private fun JSONObject.toSession(): ChildActiveSession {
         return ChildActiveSession(
             id = optString("id"),
-            name = optString("name"),
+            // Names written by an older build were stored with a wrong charset
+            // and read back as box-drawing gibberish. They are repaired here,
+            // where the value enters the app, so every screen benefits and the
+            // corrected name is written back on the next save.
+            name = TextEncodingRepair.repair(optString("name")).orEmpty(),
             serverUrl = optString("serverUrl"),
             ownChildDeviceId = optString("ownChildDeviceId"),
             linkedParentDeviceId = optString("linkedParentDeviceId"),
+            avatarKey = optString("avatarKey").trim().takeIf { it.isNotBlank() && it != "null" },
             updatedAt = optLong("updatedAt", 0L)
         )
     }
@@ -401,6 +413,11 @@ class ChildActiveSessionStore(private val context: Context) {
             put("serverUrl", serverUrl)
             put("ownChildDeviceId", ownChildDeviceId)
             put("linkedParentDeviceId", linkedParentDeviceId)
+            if (avatarKey.isNullOrBlank()) {
+                put("avatarKey", JSONObject.NULL)
+            } else {
+                put("avatarKey", avatarKey)
+            }
             put("updatedAt", updatedAt)
         }
     }

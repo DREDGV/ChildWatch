@@ -1,6 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="chat_v2_list_title">Сообщения</string>
+    <string name="chat_action_rename">Переименовать</string>
+    <string name="chat_action_remove">Удалить из списка</string>
+    <string name="chat_rename_hint">Название чата</string>
+    <string name="chat_rename_reset">Сбросить</string>
+    <string name="chat_remove_confirm">Убрать чат «%1$s» из списка? Сообщения останутся в переписке.</string>
+    <string name="chat_removed">Чат убран из списка</string>
+    <string name="chat_message_deleted">Сообщение удалено</string>
+    <string name="chat_message_edited_time">%1$s · изменено</string>
+    <string name="chat_action_edit_message">Изменить</string>
+    <string name="chat_action_delete_for_everyone">Удалить у всех</string>
+    <string name="chat_action_delete_for_me">Удалить только у меня</string>
+    <string name="chat_delete_for_everyone_confirm">Удалить сообщение у всех участников? Вместо него останется пометка об удалении.</string>
+    <string name="chat_delete_for_me_confirm">Убрать сообщение из этого чата только на этом телефоне? У остальных оно останется.</string>
+    <string name="chat_message_edit_title">Изменить сообщение</string>
+    <string name="chat_message_updated">Сообщение изменено</string>
+    <string name="chat_message_deleted_done">Сообщение удалено</string>
+    <string name="chat_message_action_failed">Не удалось выполнить действие. Проверьте связь.</string>
+    <string name="group_action_rename">Название группы</string>
+    <string name="chat_action_group_settings">Настройки группы</string>
+    <string name="chat_back_to_home">Назад на главный экран</string>
+    <string name="group_action_avatar">Аватар группы</string>
+    <string name="group_read_only">Настройки группы меняет администратор</string>
+    <string name="group_name_hint">Название группы</string>
+    <string name="group_avatar_hint">Аватар группы видят все участники</string>
+    <string name="group_settings_saved">Настройки группы сохранены</string>
+    <string name="group_settings_failed">Не удалось сохранить настройки группы</string>
+    <string name="group_settings_unavailable">Не удалось получить настройки группы. Проверьте связь.</string>
     <string name="chat_v2_syncing">Обновляем семейные чаты…</string>
     <string name="chat_v2_ready">Все сообщения синхронизированы</string>
     <string name="chat_v2_offline">Нет связи — сообщения сохранятся и отправятся позже</string>

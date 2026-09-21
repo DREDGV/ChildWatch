@@ -1,5 +1,9 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- Presence dot in the chat header: green when the other side is online,
+         neutral grey when it is not, so the two never look alike. -->
+    <color name="presence_online">#2ECC71</color>
+    <color name="presence_offline">#9AA5B1</color>
     <!-- Emerald palette -->
     <color name="emerald_primary">#0F766E</color>
     <color name="emerald_primary_variant">#115E59</color>

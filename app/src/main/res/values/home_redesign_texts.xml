@@ -1,12 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="home_parent_title">Семья рядом</string>
-    <string name="home_parent_subtitle">Главные действия и состояние ребёнка</string>
-    <string name="home_family_profile">Мой семейный профиль</string>
+    <!--
+        The heading "Семья рядом" and its subtitle "Главные действия и состояние
+        ребёнка" were removed from the top of the parent home screen: they repeated
+        the application name and described the screen instead of saying anything
+        about the family, while pushing the child and the monitoring control below
+        the fold. The screen now starts with the child and the monitoring switch,
+        and the version line sits at the bottom under a "Диагностика" heading.
+
+        The monitoring state line names its own subject ("Мониторинг активен" /
+        "Мониторинг неактивен", from the shared monitoring_active/monitoring_inactive
+        strings), so the card no longer needs its own heading.
+    -->
+    <string name="home_family_section">Семья</string>
     <string name="home_family_child_format">Выбран: %1$s</string>
     <string name="home_family_child_default">Ребёнок</string>
     <string name="home_family_child_missing">Выберите ребёнка для управления</string>
-    <string name="home_selected_child_hint">Нажмите, чтобы выбрать или изменить</string>
+    <string name="home_selected_child_hint">Нажмите, чтобы выбрать ребёнка</string>
     <string name="home_quick_actions">Быстрые действия</string>
     <string name="home_action_listen">Прослушать</string>
     <string name="home_action_listen_hint">Звук вокруг устройства</string>
@@ -19,8 +29,8 @@
     <string name="home_action_map">Карта семьи</string>
     <string name="home_action_map_hint">Положение на карте</string>
     <string name="home_action_activity">Активность</string>
-    <string name="home_action_activity_hint">Использование приложений</string>
     <string name="home_device_summary">Состояние устройства</string>
+    <string name="home_diagnostics_section">Диагностика</string>
     <string name="home_settings">Настройки</string>
-    <string name="home_monitoring_action">Запустить</string>
+    <string name="home_monitoring_action">Начать мониторинг</string>
 </resources>

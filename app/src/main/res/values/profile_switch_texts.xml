@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="profile_switch_title">Профили</string>
     <string name="profile_switch_no_active">Активный профиль не выбран</string>
@@ -17,7 +17,22 @@
     <string name="profile_switch_empty">Сначала сохраните хотя бы один профиль</string>
     <string name="profile_switch_name_title">Новый профиль</string>
     <string name="profile_switch_edit_title">Изменить профиль</string>
-    <string name="profile_switch_name_hint">Название профиля</string>
+    <string name="profile_switch_name_hint">Имя</string>
+    <string name="profile_avatar_section_title">Аватар профиля</string>
+    <string name="profile_avatar_preset_description">Встроенный аватар %1$d</string>
+    <string name="profile_publish_saved">Имя и аватар сохранены в семье</string>
+    <string name="profile_publish_failed">Не удалось сохранить в семье. Проверьте связь.</string>
+    <string name="profile_advanced_section_title">Для продвинутых</string>
+    <string name="home_version_line">Версия %1$s · сборка %2$s</string>
+    <string name="parent_setup_family_name_hint">Название семьи</string>
+    <string name="parent_setup_invitation_hint">Код приглашения</string>
+    <string name="parent_setup_invitation_explain">Возьмите код у того, кто уже в семье: «Пригласить» → скопировать код.</string>
+    <string name="parent_setup_create_family">Создать семью</string>
+    <string name="parent_setup_join_family">Войти в семью</string>
+    <string name="parent_setup_no_invitation">Кода нет — попросите приглашение у члена семьи</string>
+    <string name="parent_setup_later_hint">Можно настроить позже: семья не создаётся, пока вы её не создадите сами.</string>
+    <string name="profile_advanced_warning">Меняйте только если понимаете, что это значит</string>
+    <string name="profile_published">Профиль сохранён в семье</string>
     <string name="profile_switch_server_hint">Сервер</string>
     <string name="profile_switch_own_parent_id_hint">Ваш parent ID</string>
     <string name="profile_switch_linked_child_id_hint">ID ребенка</string>
@@ -42,5 +57,12 @@
     <string name="profile_switch_current_name">Текущий профиль</string>
     <string name="profile_switch_default_name_format">Родитель %1$s -&gt; %2$s</string>
     <string name="profile_switch_no_link_short">без связи</string>
+    <!--
+        The profile card is the owner's own profile, so it describes the owner: their
+        name in the first line and what they are in the family in the second.
+    -->
+    <string name="profile_card_name_fallback">Мой семейный профиль</string>
+    <string name="profile_card_role">%1$s в семье</string>
+    <string name="family_role_guardian">Опекун</string>
     <string name="profile_switch_warning_mismatch">Внимание: текущий контекст отличается от сохраненного профиля</string>
 </resources>

@@ -138,6 +138,39 @@ class ChildParticipantNameResolver(context: Context) {
     fun resolveParentAvatarKey(parentDeviceId: String?): String? =
         canonicalProfileForDevice(parentDeviceId)?.avatarKey
 
+    /**
+     * The member id this device is actually bound to on the server.
+     *
+     * The id stored during onboarding can belong to a different member record:
+     * when this device joined, the server created its own member for it, so the
+     * stored value went stale. The server authorises a profile update by the
+     * device's current binding, so the directory is the trustworthy source.
+     */
+    fun resolveOwnMemberId(): String? {
+        val ownChildId = sessionStore.resolveCurrentChildId().trim()
+        if (ownChildId.isNotBlank()) {
+            canonicalProfileForDevice(ownChildId)?.memberId?.let { return it }
+        }
+        return null
+    }
+
+    /**
+     * The avatar of this device's own child profile.
+     *
+     * The screen previously showed only the app icon because nothing ever read
+     * the child's own key out of the canonical directory, even though the value
+     * was already cached on the device.
+     */
+    fun resolveChildAvatarKey(): String? {
+        val ownChildId = sessionStore.resolveCurrentChildId().trim()
+        if (ownChildId.isNotBlank()) {
+            canonicalProfileForDevice(ownChildId)?.avatarKey?.let { return it }
+        }
+        return runBlocking(Dispatchers.IO) {
+            database.childDao().getByDeviceId(ownChildId)
+        }?.avatarUrl?.trim()?.takeIf { it.isNotBlank() }
+    }
+
     fun resolveChildMarkerIconId(): Int {
         val explicitIconId = prefs.getInt(KEY_SELF_MARKER_ICON_ID, ContactIcons.DEFAULT)
         if (ContactIcons.isKnown(explicitIconId) && explicitIconId != ContactIcons.DEFAULT) {

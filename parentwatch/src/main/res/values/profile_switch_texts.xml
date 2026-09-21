@@ -43,4 +43,6 @@
     <string name="profile_switch_default_name_format">Ребенок %1$s -&gt; %2$s</string>
     <string name="profile_switch_no_link_short">без связи</string>
     <string name="profile_switch_warning_mismatch">Внимание: текущий контекст отличается от сохраненного профиля</string>
+    <string name="profile_avatar_section_title">Аватар профиля</string>
+    <string name="profile_avatar_preset_description">Встроенный аватар %1$d</string>
 </resources>

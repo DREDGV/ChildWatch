@@ -16,22 +16,13 @@
         android:layout_marginEnd="4dp"
         android:layout_marginBottom="2dp"
         android:text="@string/chat_partner_parent"
-        android:textColor="#B3FFFFFF"
-        android:textSize="12sp"
-        android:textStyle="bold" />
+        android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta.OnPrimary" />
 
     <com.vanniktech.emoji.EmojiTextView
         android:id="@+id/messageText"
+        style="@style/Widget.ChildWatch.ChatBubble.Outgoing"
         android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:background="@drawable/bg_message_outgoing"
-        android:maxWidth="280dp"
-        android:paddingStart="16dp"
-        android:paddingTop="12dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="12dp"
-        android:textColor="@android:color/white"
-        android:textSize="16sp" />
+        android:layout_height="wrap_content" />
 
     <LinearLayout
         android:layout_width="wrap_content"
@@ -46,17 +37,15 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="12:34"
-            android:textColor="#B3FFFFFF"
-            android:textSize="12sp" />
+            android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta.OnPrimary" />
 
         <TextView
             android:id="@+id/statusText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="6dp"
-            android:text="✓"
-            android:textColor="#B3FFFFFF"
-            android:textSize="12sp" />
+            android:text="вњ“"
+            android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta.OnPrimary" />
 
     </LinearLayout>
 

@@ -1,4 +1,4 @@
-﻿package ru.example.childwatch
+package ru.example.childwatch
 
 import android.Manifest
 import android.content.Context
@@ -1102,8 +1102,13 @@ class DualLocationMapActivity : AppCompatActivity() {
         canvas.drawCircle(circleCx, circleCy, outerCircle, circleFill)
         canvas.drawCircle(circleCx, circleCy, outerCircle, circleStroke)
 
-        val iconDrawable = FamilyAvatarRenderer.drawable(this, avatarValue, iconRes)?.mutate()
-            ?: return BitmapDrawable(resources, bitmap)
+        // A stored picture wins; otherwise the marker gets the person's letter
+        // avatar, and the contact icon tint is kept for the no-avatar case.
+        val iconDrawable = if (avatarValue.isNullOrBlank()) {
+            ContextCompat.getDrawable(this, iconRes)?.mutate()
+        } else {
+            FamilyAvatarRenderer.drawable(this, avatarValue)?.mutate()
+        } ?: return BitmapDrawable(resources, bitmap)
         if (avatarValue.isNullOrBlank()) {
             DrawableCompat.setTint(iconDrawable, accentColor)
         }

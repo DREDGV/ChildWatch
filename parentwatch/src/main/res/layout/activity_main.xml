@@ -68,7 +68,9 @@
             style="@style/Widget.ChildWatch.PersonCard.Selected"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_4">
+            android:layout_marginTop="@dimen/cw_space_4"
+            android:clickable="true"
+            android:focusable="true">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -78,6 +80,7 @@
                 android:padding="@dimen/cw_space_4">
 
                 <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/activeProfileAvatar"
                     style="@style/Widget.ChildWatch.Avatar.Medium"
                     android:contentDescription="@string/home_child_profile_avatar_description"
                     android:padding="@dimen/cw_space_1"

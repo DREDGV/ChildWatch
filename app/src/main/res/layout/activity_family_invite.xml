@@ -99,8 +99,9 @@
                 style="@style/Widget.ChildWatch.TextInputLayout"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:hint="Роль">
+                android:layout_marginTop="16dp"
+                android:hint="Роль"
+                app:endIconMode="dropdown_menu">
 
                 <com.google.android.material.textfield.MaterialAutoCompleteTextView
                     android:id="@+id/inviteRoleInput"
@@ -131,52 +132,11 @@
                     android:scrollbars="none">
 
                     <LinearLayout
+                        android:id="@+id/inviteAvatarRow"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:padding="2dp">
-
-                        <com.google.android.material.imageview.ShapeableImageView
-                            android:id="@+id/inviteAvatarPreset1"
-                            style="@style/Widget.ChildWatch.Avatar.Medium"
-                            android:contentDescription="Аватар 1"
-                            android:src="@drawable/avatar_family_sky" />
-
-                        <com.google.android.material.imageview.ShapeableImageView
-                            android:id="@+id/inviteAvatarPreset2"
-                            style="@style/Widget.ChildWatch.Avatar.Medium"
-                            android:layout_marginStart="10dp"
-                            android:contentDescription="Аватар 2"
-                            android:src="@drawable/avatar_family_mint" />
-
-                        <com.google.android.material.imageview.ShapeableImageView
-                            android:id="@+id/inviteAvatarPreset3"
-                            style="@style/Widget.ChildWatch.Avatar.Medium"
-                            android:layout_marginStart="10dp"
-                            android:contentDescription="Аватар 3"
-                            android:src="@drawable/avatar_family_sun" />
-
-                        <com.google.android.material.imageview.ShapeableImageView
-                            android:id="@+id/inviteAvatarPreset4"
-                            style="@style/Widget.ChildWatch.Avatar.Medium"
-                            android:layout_marginStart="10dp"
-                            android:contentDescription="Аватар 4"
-                            android:src="@drawable/avatar_family_coral" />
-
-                        <com.google.android.material.imageview.ShapeableImageView
-                            android:id="@+id/inviteAvatarPreset5"
-                            style="@style/Widget.ChildWatch.Avatar.Medium"
-                            android:layout_marginStart="10dp"
-                            android:contentDescription="Аватар 5"
-                            android:src="@drawable/avatar_family_lilac" />
-
-                        <com.google.android.material.imageview.ShapeableImageView
-                            android:id="@+id/inviteAvatarPreset6"
-                            style="@style/Widget.ChildWatch.Avatar.Medium"
-                            android:layout_marginStart="10dp"
-                            android:contentDescription="Аватар 6"
-                            android:src="@drawable/avatar_family_ocean" />
-                    </LinearLayout>
+                        android:padding="2dp" />
                 </HorizontalScrollView>
             </LinearLayout>
 
@@ -212,6 +172,28 @@
                 android:minHeight="52dp"
                 android:text="Создать приглашение"
                 android:textAllCaps="false" />
+
+            <!-- Load failures used to disable the button silently. The reason is
+                 shown here together with a way to try again. -->
+            <TextView
+                android:id="@+id/inviteStatusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:gravity="center"
+                android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                android:textColor="@color/cw_color_error"
+                android:visibility="gone" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/retryLoadButton"
+                style="@style/Widget.Material3.Button.OutlinedButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Повторить"
+                android:textAllCaps="false"
+                android:visibility="gone" />
 
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/manageInvitationsButton"

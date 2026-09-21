@@ -43,9 +43,7 @@
                 android:layout_height="wrap_content"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="#102A43"
-                android:textSize="17sp"
-                android:textStyle="bold" />
+                android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Row.Title" />
 
             <TextView
                 android:id="@+id/previewText"
@@ -54,8 +52,7 @@
                 android:layout_marginTop="4dp"
                 android:ellipsize="end"
                 android:maxLines="1"
-                android:textColor="#627D98"
-                android:textSize="14sp" />
+                android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Row.Preview" />
         </LinearLayout>
 
         <LinearLayout
@@ -68,8 +65,7 @@
                 android:id="@+id/timeText"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="#829AB1"
-                android:textSize="12sp" />
+                android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Row.Time" />
 
             <TextView
                 android:id="@+id/unreadText"
@@ -83,9 +79,7 @@
                 android:paddingTop="3dp"
                 android:paddingEnd="7dp"
                 android:paddingBottom="3dp"
-                android:textColor="#FFFFFF"
-                android:textSize="12sp"
-                android:textStyle="bold"
+                android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Row.Badge"
                 android:visibility="gone" />
         </LinearLayout>
     </LinearLayout>
