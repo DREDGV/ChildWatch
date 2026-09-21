@@ -33,6 +33,7 @@ import ru.example.childwatch.service.ParentLocationService
 import ru.example.childwatch.utils.BatteryOptimizationHelper
 import ru.example.childwatch.utils.ParentMonitorProfile
 import ru.example.childwatch.utils.ParentMonitorProfileManager
+import ru.example.childwatch.utils.ParentMonitorProfileNameRules
 import ru.example.childwatch.utils.PermissionHelper
 import ru.example.childwatch.utils.SecurityChecker
 import ru.example.childwatch.utils.SecureSettingsManager
@@ -40,6 +41,7 @@ import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentEffectiveContextProvider
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.profile.ParentFamilyDirectoryRepository
+import ru.example.childwatch.profile.ProfileEditDialog
 import ru.example.childwatch.profile.FamilyAvatarRenderer
 import ru.example.childwatch.profile.ParentLinkedChildOption
 import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
@@ -141,8 +143,12 @@ class MainActivity : AppCompatActivity() {
         chatManager = ChatManager(this)
         hasConsent = ConsentActivity.hasConsent(this)
 
-        // Set app version
-        binding.appVersionText.text = "v${BuildConfig.VERSION_NAME}"
+        // The version and the date of the build, so anybody can tell at a glance
+        // which build a phone is running. The line sits at the bottom of the
+        // screen, under the diagnostics heading, not at the top: it is read when
+        // a problem has to be reported, not when the application is opened.
+        binding.appVersionText.text =
+            getString(R.string.home_version_line, BuildConfig.VERSION_NAME, BuildConfig.BUILD_STAMP)
 
         setupUI()
         updateQuickProfileSummary()
@@ -196,9 +202,14 @@ class MainActivity : AppCompatActivity() {
     private fun setupUI() {
         setupBatteryOptimizationUi()
 
-        binding.switchProfileQuickButton.setOnClickListener {
-            childSelectionLauncher.launch(Intent(this, ChildSelectionActivity::class.java))
+        // The card is named "Мой семейный профиль", so tapping it must open that
+        // profile. Its button used to open the child picker instead, which is why
+        // the person's own name and picture could not be found anywhere.
+        val openOwnProfile = android.view.View.OnClickListener {
+            showProfileIdentityEditor(profileManager.getActiveProfile())
         }
+        binding.activeProfileCard.setOnClickListener(openOwnProfile)
+        binding.switchProfileQuickButton.setOnClickListener(openOwnProfile)
 
         // Unified monitoring toggle button with visual feedback
         binding.monitoringToggleBtn.setOnClickListener {
@@ -376,7 +387,7 @@ class MainActivity : AppCompatActivity() {
             .setItems(actionLabels) { _, which ->
                 when (which) {
                     0 -> showQuickProfileSwitchDialog()
-                    1 -> showProfileEditorDialog(profileManager.getActiveProfile())
+                    1 -> showProfileIdentityEditor(profileManager.getActiveProfile())
                     2 -> showProfileManagementDialog()
                 }
             }
@@ -411,7 +422,7 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             val profiles = loadProfilesAfterRelationshipSync()
             if (profiles.isEmpty()) {
-                showProfileEditorDialog(null)
+                showProfileIdentityEditor(null)
                 return@launch
             }
 
@@ -422,7 +433,7 @@ class MainActivity : AppCompatActivity() {
                     showProfileActionsDialog(profiles[which])
                 }
                 .setPositiveButton(R.string.profile_switch_save_current) { _, _ ->
-                    showProfileEditorDialog(profileManager.getActiveProfile())
+                    showProfileIdentityEditor(profileManager.getActiveProfile())
                 }
                 .setNegativeButton(android.R.string.cancel, null)
                 .show()
@@ -464,6 +475,80 @@ class MainActivity : AppCompatActivity() {
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    /**
+     * Opens the profile editor as a dialog on this screen.
+     *
+     * Only the name and the picture are offered: the address of the server and the
+     * device identifiers were part of this dialog before, which is noise for anyone
+     * who is not diagnosing a connection. Choosing which child to monitor has moved
+     * to the advanced editor in settings, so nothing is lost.
+     *
+     * The change is also published to the family, because the name and picture live
+     * there too and would otherwise be reverted by the next synchronisation.
+     */
+    private fun showProfileIdentityEditor(existingProfile: ParentMonitorProfile?) {
+        val currentOwnId = existingProfile?.ownParentDeviceId?.ifBlank { null }
+            ?: effectiveContextResolver.resolveOwnParentId().ifBlank { profileManager.resolveCurrentParentId() }
+        val currentChildId = existingProfile?.linkedChildDeviceId?.ifBlank { null }
+            ?: effectiveContextResolver.resolveFocusedChildId().ifBlank { profileManager.resolveCurrentChildId() }
+        val currentServerUrl = existingProfile?.serverUrl?.ifBlank { null }
+            ?: effectiveContextResolver.resolveServerUrl().ifBlank { getConfiguredServerUrl().orEmpty() }
+        val currentChildName = existingProfile?.linkedChildDisplayName?.ifBlank { null }
+            ?: profileManager.resolveLinkedChildDisplayName(
+                childDeviceId = currentChildId,
+                serverUrl = currentServerUrl,
+                ownParentDeviceId = currentOwnId
+            )
+        val suggestedName = existingProfile?.name
+            ?.takeUnless { it == getString(R.string.profile_switch_current_name) }
+            ?: profileManager.buildSuggestedProfileName(currentChildName, currentChildId)
+
+        lifecycleScope.launch {
+            // The stored picture is read first, otherwise saving would clear it.
+            val stored = runCatching { familyDirectoryRepository.loadOwnProfile() }.getOrNull()
+            ProfileEditDialog.show(
+                activity = this@MainActivity,
+                initialName = stored?.first?.takeIf { it.isNotBlank() } ?: suggestedName,
+                currentAvatarKey = stored?.second
+            ) { name: String, avatarKey: String? ->
+                val profile = existingProfile?.copy(
+                    name = name,
+                    updatedAt = System.currentTimeMillis()
+                ) ?: profileManager.buildProfile(
+                    name,
+                    currentServerUrl,
+                    currentOwnId,
+                    currentChildId,
+                    currentChildName
+                )
+                profileManager.saveProfile(profile)
+                if (existingProfile?.id == profileManager.getActiveProfileId()) {
+                    applyQuickProfile(profile)
+                } else {
+                    updateQuickProfileSummary()
+                }
+                publishOwnProfile(name, avatarKey)
+            }
+        }
+    }
+
+    /** Sends this device's own name and picture to the family. */
+    private fun publishOwnProfile(name: String, avatarKey: String?) {
+        lifecycleScope.launch {
+            val published = runCatching {
+                familyDirectoryRepository.updateOwnProfile(name, avatarKey)
+            }.getOrElse { error ->
+                Log.w(TAG, "Publishing the own profile failed", error)
+                false
+            }
+            showToast(
+                getString(
+                    if (published) R.string.profile_published else R.string.profile_publish_failed
+                )
+            )
+        }
     }
 
     private fun showProfileEditorDialog(existingProfile: ParentMonitorProfile?) {
@@ -634,61 +719,59 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateQuickProfileSummary() {
-        val activeProfile = profileManager.getActiveProfile()
-        val effectiveContext = effectiveContextResolver.resolve()
-        val ownParentId = activeProfile?.ownParentDeviceId?.takeIf { it.isNotBlank() }
-            ?: effectiveContext.ownParentDeviceId.takeIf { it.isNotBlank() }
-        val childId = activeProfile?.linkedChildDeviceId?.takeIf { it.isNotBlank() }
-            ?: effectiveContext.linkedChildDeviceId.takeIf { it.isNotBlank() }
-        val serverUrl = activeProfile?.serverUrl?.takeIf { it.isNotBlank() }
-            ?: effectiveContext.serverUrl.takeIf { it.isNotBlank() }
-
-        binding.activeProfileName.text = getString(R.string.family_profiles_title)
-        val childLabel = activeProfile?.linkedChildDisplayName?.takeIf { it.isNotBlank() }
-            ?: profileManager.resolveLinkedChildDisplayName(
-                childDeviceId = childId.orEmpty(),
-                serverUrl = serverUrl,
-                ownParentDeviceId = ownParentId
-            )?.takeIf { name ->
-                name.isNotBlank() &&
-                    !name.startsWith("child-", ignoreCase = true) &&
-                    !name.startsWith("device_", ignoreCase = true)
-            }
-            ?: getString(R.string.home_family_child_default)
-        binding.activeProfileMeta.text = if (
-            ownParentId.isNullOrBlank() || serverUrl.isNullOrBlank() || childId.isNullOrBlank()
-        ) {
-            getString(R.string.home_family_child_missing)
-        } else {
-            getString(R.string.home_family_child_format, childLabel)
-        }
+        // Placeholder until the directory answers; the card is about the person, so
+        // it must not sit showing the family name in the meantime.
+        binding.activeProfileName.text = getString(R.string.profile_card_name_fallback)
+        // This card is the owner's own profile, so it says who the owner is: their
+        // name and their role in the family.
+        //
+        // It carries no line about a child. That line came from the older dialog in
+        // which this profile was also where a child got chosen, and left the card
+        // describing a child under a heading that says "my profile". Which child is
+        // being watched belongs to the child card at the top of this screen.
+        binding.activeProfileName.text = getString(R.string.profile_card_name_fallback)
 
         familySummaryJob?.cancel()
         familySummaryJob = lifecycleScope.launch {
             val directory = runCatching { familyDirectoryRepository.load().directory }
                 .onFailure { Log.w(TAG, "Unable to refresh family summary", it) }
                 .getOrNull() ?: return@launch
-            val peopleCount = directory.people.size
-            val deviceCount = directory.people.sumOf { it.activeDevices.size }
-            val peopleLabel = resources.getQuantityString(
-                R.plurals.family_home_people_count,
-                peopleCount,
-                peopleCount
+            // Name, picture and role all come from this one member record, so the card
+            // cannot mix one person's name with another person's face or role.
+            val ownPerson = familyDirectoryRepository.ownPerson(
+                directory,
+                familyDirectoryRepository.ownMemberId(),
+                null
             )
-            val devicesLabel = resources.getQuantityString(
-                R.plurals.family_home_devices_count,
-                deviceCount,
-                deviceCount
+            val canonicalOwnName = ownPerson?.member?.displayName
+            FamilyAvatarRenderer.bind(
+                binding.activeProfileAvatar,
+                ownPerson?.member?.avatarKey,
+                canonicalOwnName
             )
-            binding.activeProfileName.text = directory.family.name.ifBlank {
-                getString(R.string.family_profiles_title)
+            val card = profileManager.resolveOwnProfileCard(
+                canonicalName = canonicalOwnName,
+                familyName = directory.family.name
+            )
+            binding.activeProfileName.text = if (
+                card.name == ParentMonitorProfileNameRules.FALLBACK
+            ) {
+                getString(R.string.profile_card_name_fallback)
+            } else {
+                card.name
             }
             binding.activeProfileMeta.text = getString(
-                R.string.family_home_summary,
-                peopleLabel,
-                devicesLabel
+                R.string.profile_card_role,
+                roleLabel(ownPerson?.member?.role)
             )
         }
+    }
+
+    /** How a family role is named in the interface. */
+    private fun roleLabel(role: FamilyRole?): String = when (role) {
+        FamilyRole.CHILD -> getString(R.string.family_role_child)
+        FamilyRole.GUARDIAN -> getString(R.string.family_role_guardian)
+        else -> getString(R.string.family_role_parent)
     }
 
     private fun describeProfileContextSource(source: String): String {
@@ -1001,7 +1084,7 @@ class MainActivity : AppCompatActivity() {
         
         if (isMonitoring) {
             // Active monitoring - bright green with pulsing animation
-            binding.statusText.text = getString(R.string.monitoring_active_status)
+            binding.statusText.text = getString(R.string.monitoring_active)
             binding.statusText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
             binding.statusIcon.setImageResource(android.R.drawable.presence_online)
             binding.statusIcon.setColorFilter(ContextCompat.getColor(this, android.R.color.holo_green_light))
@@ -1038,7 +1121,7 @@ class MainActivity : AppCompatActivity() {
             
         } else {
             // Inactive monitoring - gray
-            binding.statusText.text = getString(R.string.monitoring_inactive_status)
+            binding.statusText.text = getString(R.string.monitoring_inactive)
             binding.statusText.setTextColor(ContextCompat.getColor(this, android.R.color.darker_gray))
             binding.statusIcon.setImageResource(android.R.drawable.presence_offline)
             binding.statusIcon.setColorFilter(ContextCompat.getColor(this, android.R.color.darker_gray))
@@ -1955,7 +2038,12 @@ class MainActivity : AppCompatActivity() {
             ?: child.avatarUrl?.trim()?.takeIf { it.isNotBlank() }
         selectedPersonAvatarValue = avatar
         val fallbackIcon = ContactIcons.resolve(option?.markerIconId ?: child.iconId, child.role)
-        FamilyAvatarRenderer.bind(binding.selectedChildAvatar, avatar, fallbackIcon)
+        // The person's name drives the letter avatar when no picture is stored.
+        FamilyAvatarRenderer.bind(
+            binding.selectedChildAvatar,
+            avatar,
+            option?.displayName ?: child.name
+        )
     }
 
     private fun selectedChildMeta(child: Child, option: ParentLinkedChildOption?): String {
