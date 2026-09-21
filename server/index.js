@@ -26,6 +26,8 @@ const locationRoutes = require("./routes/location");
 const mediaRoutes = require("./routes/media");
 const streamingRoutes = require("./routes/streaming");
 const alertsRoutes = require("./routes/alerts");
+const avatarRoutes = require("./routes/avatars");
+const updateRoutes = require("./routes/updates");
 const debugRoutes = require("./routes/debug");
 const createFamilyRoutes = require("./routes/families");
 const createMeRoutes = require("./routes/me");
@@ -265,6 +267,14 @@ app.use("/api/debug", authMiddleware.authenticate(), debugRoutes);
 // Alerts are mounted with authentication: `routes/alerts.js` verifies that the
 // caller is either the alert subject itself or a parent actively linked to it.
 app.use("/api/alerts", authMiddleware.authenticate(), alertsRoutes);
+// Published application releases. Unauthenticated on purpose: a phone must be
+// able to learn that an update exists before anybody signs in, and the answer
+// holds nothing private. Rate limited by address, since there is no device yet.
+app.use("/updates", authMiddleware.rateLimit(60_000, 30), updateRoutes);
+// Profile pictures: an authenticated device may upload a picture and store the
+// returned value in its member profile. The value is a path on this server, so it
+// reaches every device in the family.
+app.use("/api/avatars", authMiddleware.authenticate(), avatarRoutes);
 app.use(
   "/api/me",
   authMiddleware.authenticate(),

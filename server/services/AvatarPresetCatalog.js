@@ -49,7 +49,19 @@ const AVATAR_PRESET_SET = new Set(AVATAR_PRESETS);
 const AVATAR_PATTERN = new RegExp(`^preset:(${AVATAR_PRESETS.join("|")})$`);
 
 /**
- * Strict check: the value must already be exactly `preset:<name>`.
+ * A picture the person uploaded, as returned by the upload endpoint.
+ *
+ * The value is a path on this server, not an absolute address: storing the
+ * server's own hostname in a profile would break every member's picture the day
+ * the server moves, and would let a profile point at somebody else's website.
+ * The shape is fixed — a directory, then thirty-two hexadecimal characters and a
+ * known extension — so a stored value can never name a path outside the avatar
+ * directory, and can never be something other than a picture this server wrote.
+ */
+const UPLOADED_AVATAR_PATTERN = /^\/avatars\/[a-f0-9]{32}\.(jpg|png|webp)$/;
+
+/**
+ * Strict check: a supported preset, or a picture this server stored.
  *
  * It deliberately does not trim. Callers that accept user input normalize it
  * first, so trimming here would let a padded value pass one check and be stored
@@ -57,7 +69,13 @@ const AVATAR_PATTERN = new RegExp(`^preset:(${AVATAR_PRESETS.join("|")})$`);
  */
 function isValidAvatarKey(value) {
   if (typeof value !== "string" || value === "") return false;
+  if (UPLOADED_AVATAR_PATTERN.test(value)) return true;
   return AVATAR_PATTERN.test(value);
+}
+
+/** Whether the value is a picture the person uploaded rather than a preset. */
+function isUploadedAvatar(value) {
+  return typeof value === "string" && UPLOADED_AVATAR_PATTERN.test(value);
 }
 
 /**
@@ -91,6 +109,8 @@ module.exports = {
   AVATAR_PRESETS,
   AVATAR_PRESET_SET,
   AVATAR_PATTERN,
+  UPLOADED_AVATAR_PATTERN,
   isValidAvatarKey,
+  isUploadedAvatar,
   defaultAvatarKeyFor,
 };
