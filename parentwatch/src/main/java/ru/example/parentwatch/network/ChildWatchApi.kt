@@ -2,6 +2,7 @@ package ru.example.parentwatch.network
 
 import retrofit2.Response
 import retrofit2.http.*
+import okhttp3.MultipartBody
 import ru.childwatch.shared.onboarding.FamilyBootstrapRequest
 import ru.childwatch.shared.onboarding.FamilyInvitationAcceptRequest
 import ru.childwatch.shared.onboarding.FamilyInvitationCreateRequest
@@ -205,12 +206,25 @@ interface ChildWatchApi {
         @Body request: ChatV2UpdateGroupTitleRequest
     ): Response<ChatV2GroupSettingsResponse>
 
-    /** Sets the shared picture of the group. Only its administrator may. */
+    /** Shares the picture of the group with every participant. Only its administrator may. */
     @PUT("api/chat/v2/conversations/{conversationId}/group/avatar")
     suspend fun updateChatV2GroupAvatar(
         @Path("conversationId") conversationId: String,
         @Body request: ChatV2UpdateGroupAvatarRequest
     ): Response<ChatV2GroupSettingsResponse>
+
+    /**
+     * Uploads a person's own profile picture.
+     *
+     * The answer carries the value to store in the profile — a path on the
+     * server such as `/avatars/ab12….jpg`, not an address, so a stored profile
+     * keeps working when the server moves.
+     */
+    @Multipart
+    @POST("api/avatars/avatar")
+    suspend fun uploadAvatar(
+        @Part picture: MultipartBody.Part
+    ): Response<AvatarUploadResponse>
 
     @POST("api/chat/v2/conversations/{conversationId}/receipts")
     suspend fun sendChatV2Receipt(
@@ -320,6 +334,22 @@ data class FamilyMembersResponse(
     val success: Boolean,
     val familyId: String,
     val members: List<FamilyMemberData> = emptyList()
+)
+
+/**
+ * The answer to uploading a profile picture.
+ *
+ * `avatarValue` is what belongs in the profile: a path on the server, so the
+ * address of the server is not baked into somebody's profile.
+ */
+data class AvatarUploadResponse(
+    val success: Boolean = false,
+    val avatarValue: String? = null,
+    val publicPath: String? = null,
+    val bytes: Long? = null,
+    val contentType: String? = null,
+    val code: String? = null,
+    val error: String? = null
 )
 
 data class FamilyMemberData(

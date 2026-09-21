@@ -1,5 +1,6 @@
 package ru.example.childwatch.network
 
+import okhttp3.MultipartBody
 import retrofit2.Response
 import retrofit2.http.*
 import ru.childwatch.shared.chat.ChatV2ConversationsResponse
@@ -112,6 +113,27 @@ interface ChildWatchApi {
     suspend fun getFamilyDevices(
         @Path("familyId") familyId: String
     ): Response<FamilyDevicesResponse>
+
+    /**
+     * Stores a picture the person chose from their own phone.
+     *
+     * The single part is named `avatar`, and the answer carries `avatarValue` —
+     * a path on the server, not an address — which is what the profile stores.
+     */
+    @Multipart
+    @POST("api/avatars/avatar")
+    suspend fun uploadAvatar(
+        @Part avatar: MultipartBody.Part
+    ): Response<AvatarUploadResponse>
+
+    /**
+     * Removes a picture this device uploaded earlier, so replacing it does not
+     * leave the old file on the server forever.
+     */
+    @DELETE("api/avatars/avatar")
+    suspend fun deleteUploadedAvatar(
+        @Query("path") path: String
+    ): Response<AvatarDeleteResponse>
 
     /**
      * Get latest location of a child device
@@ -407,6 +429,31 @@ data class UpdateFamilyMemberProfileRequest(
 data class UpdateFamilyMemberProfileResponse(
     val success: Boolean,
     val member: FamilyMemberData
+)
+
+/**
+ * The answer to an uploaded profile picture.
+ *
+ * [avatarValue] is a path on the server such as `/avatars/ab12….jpg`, not an
+ * absolute address, and it is stored in the profile exactly as returned: the
+ * address of the server is kept out of the stored profile, so the family keeps
+ * working if the server moves.
+ */
+data class AvatarUploadResponse(
+    val success: Boolean,
+    val avatarValue: String? = null,
+    val publicPath: String? = null,
+    val bytes: Long = 0L,
+    val contentType: String? = null,
+    val code: String? = null,
+    val error: String? = null
+)
+
+data class AvatarDeleteResponse(
+    val success: Boolean,
+    val removed: String? = null,
+    val code: String? = null,
+    val error: String? = null
 )
 
 data class FamilyDevicesResponse(

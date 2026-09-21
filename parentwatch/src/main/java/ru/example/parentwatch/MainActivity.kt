@@ -41,8 +41,8 @@ import ru.example.parentwatch.session.ChildFamilyDirectoryRepository
 import ru.example.parentwatch.session.ChildFamilyOnboardingStore
 import ru.example.parentwatch.session.ChildParticipantNameResolver
 import ru.example.parentwatch.session.ChildProfileRuntimeCoordinator
+import ru.example.parentwatch.profile.AvatarPhotoSession
 import ru.example.parentwatch.profile.FamilyAvatarRenderer
-import ru.example.parentwatch.profile.OwnProfilePublisher
 import ru.example.parentwatch.profile.ProfileEditDialog
 import ru.childwatch.shared.onboarding.FamilyOnboardingEntryDecision
 import ru.childwatch.shared.onboarding.FamilyOnboardingEntryPolicy
@@ -484,47 +484,69 @@ class MainActivity : AppCompatActivity() {
             activity = this,
             initial = activeProfile,
             currentAvatarKey = participantNameResolver.resolveChildAvatarKey(),
-            onSave = onProfileEdited@{ name, avatarKey ->
-                val base = activeProfile ?: profileManager.getActiveProfile()
-                if (base == null) {
-                    Toast.makeText(
-                        this,
-                        getString(R.string.profile_switch_no_active),
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    return@onProfileEdited
-                }
-                val updated = base.copy(
-                    name = name,
-                    avatarKey = avatarKey,
-                    updatedAt = System.currentTimeMillis()
-                )
-                profileManager.saveProfile(updated)
-                updateQuickProfileSummary()
-                // The name and picture live in the family too, so they are sent to
-                // the server. Saving only locally let the next directory refresh
-                // bring the old picture back.
-                OwnProfilePublisher.publish(
-                    context = this,
-                    scope = lifecycleScope,
-                    name = name,
-                    avatarKey = avatarKey
-                ) { published ->
-                    Toast.makeText(
-                        this,
-                        getString(
-                            if (published) {
-                                OwnProfilePublisher.successMessageRes()
-                            } else {
-                                OwnProfilePublisher.failureMessageRes()
+            // This screen can upload a photograph, so the editor offers one.
+            canChoosePhoto = true,
+            onSave = { name, choice, done ->
+                when (choice) {
+                    is ProfileEditDialog.AvatarChoice.Photo -> {
+                        // A photograph has no value yet: the server returns the
+                        // path to store, and until then there is nothing to save.
+                        AvatarPhotoSession.uploadChosenPhoto(
+                            context = this,
+                            scope = lifecycleScope,
+                            photo = choice.uri,
+                            previousAvatarKey = participantNameResolver.resolveChildAvatarKey(),
+                            onUploaded = { avatarValue ->
+                                storeEditedProfile(name, avatarValue, done)
+                            },
+                            onFailed = { messageRes ->
+                                Toast.makeText(this, messageRes, Toast.LENGTH_LONG).show()
+                                done(false)
                             }
-                        ),
-                        if (published) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
-                    ).show()
-                    updateQuickProfileSummary()
+                        )
+                    }
+
+                    is ProfileEditDialog.AvatarChoice.BuiltIn ->
+                        storeEditedProfile(name, choice.value, done)
                 }
             }
         )
+    }
+
+    /**
+     * Saves the edited name and picture, then publishes them to the family.
+     *
+     * The name and picture live in the family too, so saving only locally let the
+     * next directory refresh bring the old picture back.
+     */
+    private fun storeEditedProfile(name: String, avatarKey: String?, done: (Boolean) -> Unit) {
+        val activeProfile = profileManager.getActiveProfile()
+        if (activeProfile == null) {
+            Toast.makeText(this, getString(R.string.profile_switch_no_active), Toast.LENGTH_SHORT).show()
+            done(false)
+            return
+        }
+        val previousAvatarKey = activeProfile.avatarKey?.takeIf { it.isNotBlank() }
+            ?: participantNameResolver.resolveChildAvatarKey()
+
+        val updated = activeProfile.copy(
+            name = name,
+            avatarKey = avatarKey,
+            updatedAt = System.currentTimeMillis()
+        )
+        profileManager.saveProfile(updated)
+        updateQuickProfileSummary()
+        done(true)
+
+        AvatarPhotoSession.publish(
+            context = this,
+            scope = lifecycleScope,
+            name = name,
+            avatarKey = avatarKey,
+            previousAvatarKey = previousAvatarKey
+        ) {
+            updateQuickProfileSummary()
+        }
     }
 
     private fun showQuickProfilePicker() {

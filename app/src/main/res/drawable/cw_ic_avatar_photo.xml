@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The invitation to choose a photograph from the phone, shown as the empty
+    state of the profile editor's photograph tile. It is a camera in the app's
+    primary colour so it reads as an action next to the built-in avatars, and it
+    is a placeholder for a picture rather than a picture of a person.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="52dp"
+    android:height="52dp"
+    android:viewportWidth="52"
+    android:viewportHeight="52">
+
+    <!-- The body of the camera, with the small bump that a camera has on top. -->
+    <path
+        android:fillColor="@color/cw_color_primary"
+        android:pathData="M22,14 L30,14 L32.4,17.5 L39,17.5 C40.7,17.5 42,18.8 42,20.5 L42,33 C42,34.7 40.7,36 39,36 L13,36 C11.3,36 10,34.7 10,33 L10,20.5 C10,18.8 11.3,17.5 13,17.5 L19.6,17.5 Z" />
+
+    <!-- The lens, in the surface colour so it reads as a ring at this size. -->
+    <path
+        android:fillColor="@color/cw_color_surface"
+        android:pathData="M26,22 A7,7 0 1 0 26,36 A7,7 0 1 0 26,22 Z M26,25 A4,4 0 1 1 26,33 A4,4 0 1 1 26,25 Z" />
+</vector>

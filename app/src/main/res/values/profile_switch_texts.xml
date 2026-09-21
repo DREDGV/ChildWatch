@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="profile_switch_title">Профили</string>
     <string name="profile_switch_no_active">Активный профиль не выбран</string>
@@ -20,6 +20,17 @@
     <string name="profile_switch_name_hint">Имя</string>
     <string name="profile_avatar_section_title">Аватар профиля</string>
     <string name="profile_avatar_preset_description">Встроенный аватар %1$d</string>
+    <!--
+        The person's own photograph next to the built-in avatars. It is described
+        as a photograph rather than as a "file" because that is what they choose
+        from their phone.
+    -->
+    <string name="profile_avatar_photo_button">Своё фото</string>
+    <string name="profile_avatar_photo_too_large">Фото больше 5 МБ. Выберите другое.</string>
+    <string name="profile_avatar_photo_unsupported">Подойдёт фото в формате JPEG, PNG или WebP.</string>
+    <string name="profile_avatar_photo_unreadable">Не удалось открыть выбранное фото. Выберите другое.</string>
+    <string name="profile_avatar_photo_failed">Не удалось загрузить фото. Проверьте связь и попробуйте снова.</string>
+    <string name="profile_avatar_photo_uploading">Фото еще загружается, подождите немного</string>
     <string name="profile_publish_saved">Имя и аватар сохранены в семье</string>
     <string name="profile_publish_failed">Не удалось сохранить в семье. Проверьте связь.</string>
     <string name="profile_advanced_section_title">Для продвинутых</string>

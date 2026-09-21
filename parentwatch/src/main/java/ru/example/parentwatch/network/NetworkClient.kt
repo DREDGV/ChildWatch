@@ -61,6 +61,16 @@ class NetworkClient(private val context: Context) {
         private const val RETRY_DELAY_MS = 1000L
         private const val PREFS_PARENT = "parentwatch_prefs"
         private const val PREFS_LEGACY = "childwatch_prefs"
+
+        /**
+         * A profile picture this server stored.
+         *
+         * The shape is fixed by the server — a directory, thirty-two hexadecimal
+         * characters and a known extension — so a stored value can never name a
+         * path outside the avatar directory.
+         */
+        private val UPLOADED_AVATAR_VALUE =
+            Regex("^/avatars/[a-f0-9]{32}\\.(jpg|png|webp)$")
     }
 
     private var authToken: String? = null
@@ -1423,6 +1433,97 @@ class NetworkClient(private val context: Context) {
             }
         }
     }
+
+    /**
+     * Sends a person's own profile picture to the server.
+     *
+     * The answer value is a path on the server, not an address, and it is stored
+     * in the profile exactly as returned: building an address here would bake
+     * this server's hostname into somebody's profile and break it the day the
+     * server moves.
+     *
+     * The picture is checked by the server by its content, so a file that merely
+     * claims to be an image is refused there.
+     *
+     * @return the stored value to save in the profile, or null when the upload
+     *         did not succeed
+     */
+    suspend fun uploadOwnAvatar(
+        serverUrl: String,
+        picture: ByteArray,
+        contentType: String
+    ): String? = withContext(Dispatchers.IO) {
+        try {
+            if (picture.isEmpty()) {
+                Log.w(TAG, "Avatar upload skipped: the picture is empty")
+                return@withContext null
+            }
+            val secureUrl = ensureHttpsUrl(serverUrl)
+            val extension = when (contentType) {
+                "image/png" -> "png"
+                "image/webp" -> "webp"
+                else -> "jpg"
+            }
+            val part = MultipartBody.Part.createFormData(
+                "avatar",
+                "avatar.$extension",
+                picture.toRequestBody(contentType.toMediaType())
+            )
+            val response = createRetrofitClient(secureUrl)
+                .create(ChildWatchApi::class.java)
+                .uploadAvatar(part)
+
+            val body = response.body()
+            val avatarValue = body?.avatarValue?.trim().orEmpty()
+            if (response.isSuccessful && body?.success == true && avatarValue.isNotEmpty()) {
+                Log.d(TAG, "Avatar uploaded: $avatarValue")
+                return@withContext avatarValue
+            }
+            Log.w(
+                TAG,
+                "Avatar upload refused: http=${response.code()} " +
+                    "code=${body?.code} body=${runCatching { response.errorBody()?.string()?.take(160) }.getOrNull()}"
+            )
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "Error uploading avatar", e)
+            null
+        }
+    }
+
+    /**
+     * Removes a picture this device uploaded earlier.
+     *
+     * It is called when the person goes back to a built-in avatar, so their own
+     * photograph does not stay on the server. A failure is not reported to the
+     * user: the profile has already been changed, and the leftover file is
+     * invisible to them.
+     */
+    suspend fun deleteUploadedAvatar(serverUrl: String, avatarValue: String): Boolean =
+        withContext(Dispatchers.IO) {
+            try {
+                val path = avatarValue.trim()
+                if (!UPLOADED_AVATAR_VALUE.matches(path)) {
+                    Log.d(TAG, "Not removing an uploaded avatar: $path")
+                    return@withContext false
+                }
+                val base = ensureHttpsUrl(serverUrl).trimEnd('/')
+                val url = "$base/api/avatars/avatar?path=" +
+                    java.net.URLEncoder.encode(path, "UTF-8")
+                val request = Request.Builder()
+                    .url(url)
+                    .delete()
+                    .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
+                    .build()
+                client.newCall(request).execute().use { response ->
+                    Log.d(TAG, "Removing uploaded avatar: http=${response.code}")
+                    response.isSuccessful
+                }
+            } catch (e: Exception) {
+                Log.w(TAG, "Could not remove the uploaded avatar", e)
+                false
+            }
+        }
 
     suspend fun getFamilyPresence(
         childDeviceId: String

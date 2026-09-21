@@ -42,6 +42,9 @@ import ru.example.childwatch.profile.ParentEffectiveContextProvider
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.profile.ParentFamilyDirectoryRepository
 import ru.example.childwatch.profile.ProfileEditDialog
+import ru.example.childwatch.profile.ProfileEditResult
+import ru.example.childwatch.profile.ProfileImagePicker
+import ru.example.childwatch.profile.ProfilePhotoSession
 import ru.example.childwatch.profile.FamilyAvatarRenderer
 import ru.example.childwatch.profile.ParentLinkedChildOption
 import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
@@ -131,8 +134,19 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * The chooser for a person's own profile picture.
+     *
+     * It is the system photo picker: it needs no permission to read the phone's
+     * pictures on any supported Android version, and it hands over only the picture
+     * the person picks. It is registered here because only an activity may register
+     * a result launcher, and the profile editor is a dialog inside this one.
+     */
+    private val profilePhotoPickerLauncher = ProfileImagePicker.registerLauncher(this)
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
         binding = ActivityMainMenuBinding.inflate(layoutInflater)
         setContentView(binding.root)
         
@@ -508,16 +522,20 @@ class MainActivity : AppCompatActivity() {
         lifecycleScope.launch {
             // The stored picture is read first, otherwise saving would clear it.
             val stored = runCatching { familyDirectoryRepository.loadOwnProfile() }.getOrNull()
+            // A photograph chosen here is sent to the server by the editor itself, so
+            // it can be shown at once and stored on the family like any other.
+            val photoSession = ProfilePhotoSession(this@MainActivity, this@MainActivity)
             ProfileEditDialog.show(
                 activity = this@MainActivity,
                 initialName = stored?.first?.takeIf { it.isNotBlank() } ?: suggestedName,
-                currentAvatarKey = stored?.second
-            ) { name: String, avatarKey: String? ->
+                currentAvatarKey = stored?.second,
+                photoSession = photoSession
+            ) { result: ProfileEditResult ->
                 val profile = existingProfile?.copy(
-                    name = name,
+                    name = result.name,
                     updatedAt = System.currentTimeMillis()
                 ) ?: profileManager.buildProfile(
-                    name,
+                    result.name,
                     currentServerUrl,
                     currentOwnId,
                     currentChildId,
@@ -529,16 +547,22 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     updateQuickProfileSummary()
                 }
-                publishOwnProfile(name, avatarKey)
+                publishOwnProfile(result)
             }
         }
     }
 
-    /** Sends this device's own name and picture to the family. */
-    private fun publishOwnProfile(name: String, avatarKey: String?) {
+    /**
+     * Sends this device's own name and picture to the family.
+     *
+     * The value passed here is the one the editor chose — a built-in avatar or the
+     * path of a picture the server now holds — so the family sees the same picture
+     * as this phone.
+     */
+    private fun publishOwnProfile(result: ProfileEditResult) {
         lifecycleScope.launch {
             val published = runCatching {
-                familyDirectoryRepository.updateOwnProfile(name, avatarKey)
+                familyDirectoryRepository.updateOwnProfile(result.name, result.avatarKey)
             }.getOrElse { error ->
                 Log.w(TAG, "Publishing the own profile failed", error)
                 false

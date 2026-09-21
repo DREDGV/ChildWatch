@@ -8,6 +8,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
@@ -1596,10 +1597,91 @@ class NetworkClient(private val context: Context) {
         }
     }
 
+    /**
+     * Sends a picture the person chose and answers with the value to store.
+     *
+     * The bytes are read from [openBytes], which keeps the reading out of this
+     * class and lets the caller refuse a file that is too large before anything
+     * is held in memory. Failures — including the server's own refusal of a file
+     * that is not really an image — are reported as a failed response rather than
+     * an exception, so a screen can show a message instead of crashing.
+     */
+    suspend fun uploadAvatar(
+        fileName: String,
+        contentType: String,
+        openBytes: () -> ByteArray
+    ): retrofit2.Response<AvatarUploadResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                val mediaType = contentType.toMediaTypeOrNull()
+                    ?: "application/octet-stream".toMediaType()
+                val part = MultipartBody.Part.createFormData(
+                    name = "avatar",
+                    filename = fileName,
+                    body = openBytes().toRequestBody(mediaType)
+                )
+
+                withCredentialRecovery {
+                    createRetrofitClient(serverUrl)
+                        .create(ChildWatchApi::class.java)
+                        .uploadAvatar(part)
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error uploading a profile picture", e)
+                retrofit2.Response.error(
+                    503,
+                    okhttp3.ResponseBody.create(null, "Error: ${e.message}")
+                )
+            }
+        }
+    }
+
+    /**
+     * Removes a picture this device uploaded earlier.
+     *
+     * Only a path the server stored itself is accepted, so a stale value can
+     * never delete anything else. Callers treat a failure as harmless: tidying
+     * the file matters less than the profile change that replaced it.
+     */
+    suspend fun deleteUploadedAvatar(
+        path: String
+    ): retrofit2.Response<AvatarDeleteResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+
+                withCredentialRecovery {
+                    createRetrofitClient(serverUrl)
+                        .create(ChildWatchApi::class.java)
+                        .deleteUploadedAvatar(path.trim())
+                }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error removing an uploaded profile picture", e)
+                retrofit2.Response.error(
+                    503,
+                    okhttp3.ResponseBody.create(null, "Error: ${e.message}")
+                )
+            }
+        }
+    }
+
     suspend fun getFamilyDevices(
         familyId: String
-    ): retrofit2.Response<FamilyDevicesResponse> {
-        return withContext(Dispatchers.IO) {
+    ): retrofit2.Response<FamilyDevicesResponse> {        return withContext(Dispatchers.IO) {
             try {
                 val serverUrl = getConfiguredServerUrl()
                 if (serverUrl.isNullOrBlank()) {

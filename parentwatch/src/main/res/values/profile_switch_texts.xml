@@ -45,4 +45,18 @@
     <string name="profile_switch_warning_mismatch">Внимание: текущий контекст отличается от сохраненного профиля</string>
     <string name="profile_avatar_section_title">Аватар профиля</string>
     <string name="profile_avatar_preset_description">Встроенный аватар %1$d</string>
+
+    <!-- Своя фотография вместо встроенной картинки -->
+    <string name="avatar_photo_section_title">Своя фотография</string>
+    <string name="avatar_photo_pick">Выбрать фото</string>
+    <string name="avatar_photo_replace">Заменить фото</string>
+    <string name="avatar_photo_remove">Убрать фотографию</string>
+    <string name="avatar_photo_hint">Фотографию увидят все участники семьи</string>
+    <string name="avatar_photo_preview_description">Выбранная фотография профиля</string>
+    <string name="avatar_photo_uploading">Отправляем фотографию…</string>
+    <string name="avatar_photo_uploaded">Фотография сохранена</string>
+    <string name="avatar_photo_too_large">Фотография больше 5 МБ. Выберите другую или уменьшите её.</string>
+    <string name="avatar_photo_unsupported">Подойдёт только фотография в формате JPEG, PNG или WebP.</string>
+    <string name="avatar_photo_failed">Не удалось отправить фотографию. Проверьте связь и попробуйте снова.</string>
+    <string name="avatar_photo_no_server">Сервер не настроен, поэтому фотографию нельзя отправить.</string>
 </resources>

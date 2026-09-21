@@ -186,17 +186,18 @@ class ParentFamilyDirectoryRepository(context: Context) {
     }
 
     /**
-     * Accepts a picture only when it is one of the built-in avatars.
+     * Accepts a picture only when this app and the server both agree what it is.
      *
      * The list used to be written out here and named six old values, so every one
      * of the current avatars was silently dropped and the choice appeared not to
-     * save. The shared catalog now decides, which is the same rule the server and
-     * both applications use.
+     * save. A picture the person uploaded is a path this server returned, so it is
+     * passed through unchanged — it is the value the server itself wrote, and
+     * rewriting it would name a file that does not exist.
      */
     private fun String?.toPortableAvatarKey(): String? = this
         ?.trim()
         ?.takeIf { it.isNotEmpty() }
-        ?.takeIf { FamilyAvatarRenderer.isPreset(it) }
+        ?.takeIf { FamilyAvatarRenderer.isPreset(it) || FamilyAvatarRenderer.isUploadedValue(it) }
 
     private suspend fun loadFromServer(
         localChildren: List<Child>,

@@ -22,6 +22,9 @@ import ru.example.parentwatch.database.entity.Child
 import ru.example.parentwatch.network.LinkedParentLink
 import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.network.WebSocketManager
+import ru.example.parentwatch.profile.AvatarImageLoader
+import ru.example.parentwatch.profile.AvatarPhotoSection
+import ru.example.parentwatch.profile.AvatarPhotoSession
 import ru.example.parentwatch.profile.FamilyAvatarRenderer
 import ru.example.parentwatch.profile.OwnProfilePublisher
 import ru.example.parentwatch.service.AppUsageTracker
@@ -83,6 +86,33 @@ class SettingsActivity : AppCompatActivity() {
     private val permissionRequestLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
     ) { _ -> updatePermissionsSummary() }
+
+    /**
+     * The photograph chosen in the profile editor, if one has been chosen.
+     *
+     * It is held here rather than inside the dialog because the profile editor on
+     * this screen is built inline, and the picker is registered with the activity.
+     * The value is cleared as soon as the editor stores it.
+     */
+    private var pendingPhotoUri: Uri? = null
+
+    /**
+     * The system photo picker.
+     *
+     * It needs no storage permission, which is what makes it the only way left to
+     * choose a picture on Android 14 — the storage permissions used before are no
+     * longer available for this purpose.
+     */
+    private val photoPickerLauncher = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { picked ->
+        if (picked == null) return@registerForActivityResult
+        pendingPhotoUri = picked
+        photoSectionHolder?.refresh(picked)
+    }
+
+    /** Redraws the photograph section once the picker has registered its views. */
+    private var photoSectionHolder: AvatarPhotoSection.Section? = null
     
     // QR Scanner result launcher
     private val qrScannerLauncher = registerForActivityResult(
@@ -630,7 +660,12 @@ class SettingsActivity : AppCompatActivity() {
                     .setAllCornerSizes(size / 2f)
                     .build()
                 setOnClickListener {
+                    // A built-in picture replaces the photograph, so a photograph
+                    // that was picked but not saved is abandoned here instead of
+                    // being uploaded on top of the choice just made.
                     selectedAvatar = preset.storageValue
+                    pendingPhotoUri = null
+                    photoSectionHolder?.refresh(null)
                     refreshAvatars()
                 }
             }
@@ -640,11 +675,40 @@ class SettingsActivity : AppCompatActivity() {
         }
         refreshAvatars()
 
+        // A photograph from the phone instead of a built-in picture. The same
+        // section as on the home screen, so the two editors stay recognisable.
+        pendingPhotoUri = null
+        val photoSection = AvatarPhotoSection.create(
+            context = this,
+            storedAvatarValue = selectedAvatar,
+            onPick = {
+                photoPickerLauncher.launch(
+                    androidx.activity.result.PickVisualMediaRequest(
+                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                    )
+                )
+            },
+            onRemove = {
+                // Back to a built-in picture: on save the uploaded photograph is
+                // removed from the server.
+                pendingPhotoUri = null
+                selectedAvatar = null
+                refreshAvatars()
+                photoSectionHolder?.refresh(null)
+            }
+        )
+        photoSectionHolder = photoSection
+        if (AvatarImageLoader.isUploadedPicture(selectedAvatar)) {
+            // The photograph already in the profile is shown where it is.
+            photoSection.refresh(null)
+        }
+
         val dialog = androidx.appcompat.app.AlertDialog.Builder(this)
             .setTitle(if (existingProfile == null) R.string.profile_switch_name_title else R.string.profile_switch_edit_title)
             .setView(
                 createProfileDialogLayout(
                     nameInput,
+                    photoSection.view,
                     avatarLabel,
                     avatarScroll,
                     advancedToggle,
@@ -654,6 +718,13 @@ class SettingsActivity : AppCompatActivity() {
             .setPositiveButton(android.R.string.ok, null)
             .setNegativeButton(android.R.string.cancel, null)
             .create()
+
+        // A photograph that was picked but never saved must not be waiting here
+        // the next time the editor is opened.
+        dialog.setOnDismissListener {
+            pendingPhotoUri = null
+            photoSectionHolder = null
+        }
 
         dialog.setOnShowListener {
             dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
@@ -668,42 +739,107 @@ class SettingsActivity : AppCompatActivity() {
                         Toast.makeText(this, R.string.profile_switch_validation_server, Toast.LENGTH_SHORT).show()
                     ownId.isBlank() -> Toast.makeText(this, R.string.profile_switch_validation_own_id, Toast.LENGTH_SHORT).show()
                     else -> {
-                        val profile = existingProfile?.copy(
+                        val chosenPhoto = pendingPhotoUri
+                        if (chosenPhoto != null) {
+                            it.isEnabled = false
+                            AvatarPhotoSession.uploadChosenPhoto(
+                                context = this@SettingsActivity,
+                                scope = lifecycleScope,
+                                photo = chosenPhoto,
+                                previousAvatarKey = selectedAvatar,
+                                onUploaded = { avatarValue ->
+                                    storeEditedProfile(
+                                        existingProfile = existingProfile,
+                                        name = name,
+                                        serverUrl = serverUrl,
+                                        ownId = ownId,
+                                        parentId = parentId,
+                                        avatarKey = avatarValue
+                                    )
+                                    dialog.dismiss()
+                                },
+                                onFailed = { messageRes ->
+                                    Toast.makeText(
+                                        this@SettingsActivity,
+                                        messageRes,
+                                        Toast.LENGTH_LONG
+                                    ).show()
+                                    it.isEnabled = true
+                                }
+                            )
+                            return@setOnClickListener
+                        }
+                        storeEditedProfile(
+                            existingProfile = existingProfile,
                             name = name,
                             serverUrl = serverUrl,
-                            ownChildDeviceId = ownId,
-                            linkedParentDeviceId = parentId,
-                            avatarKey = selectedAvatar,
-                            updatedAt = System.currentTimeMillis()
-                        ) ?: profileManager.buildProfile(
-                            name,
-                            serverUrl,
-                            ownId,
-                            parentId,
-                            selectedAvatar
+                            ownId = ownId,
+                            parentId = parentId,
+                            avatarKey = selectedAvatar
                         )
-                        profileManager.saveProfile(profile)
-                        if (existingProfile?.id == profileManager.getActiveProfileId()) {
-                            applyProfile(profile)
-                        } else {
-                            updateProfileSummary()
-                        }
-                        Toast.makeText(
-                            this,
-                            if (existingProfile == null) R.string.profile_switch_saved else R.string.profile_switch_updated,
-                            Toast.LENGTH_SHORT
-                        ).show()
                         dialog.dismiss()
-                        // The name and avatar also live in the family on the server,
-                        // so the change is published through the shared helper that
-                        // the home screen editor uses as well.
-                        publishOwnProfile(selectedAvatar, name)
                     }
                 }
             }
         }
 
         dialog.show()
+    }
+
+    /**
+     * Saves the edited profile on this phone and publishes it to the family.
+     *
+     * The name and picture also live in the family on the server, so they are
+     * published through the shared helper that the home screen editor uses as
+     * well; saving only locally let the next directory refresh restore the old
+     * picture.
+     */
+    private fun storeEditedProfile(
+        existingProfile: ChildDeviceProfile?,
+        name: String,
+        serverUrl: String,
+        ownId: String,
+        parentId: String,
+        avatarKey: String?
+    ) {
+        val previousAvatarKey = existingProfile?.avatarKey?.takeIf { it.isNotBlank() }
+            ?: participantNameResolver.resolveChildAvatarKey()
+
+        val profile = existingProfile?.copy(
+            name = name,
+            serverUrl = serverUrl,
+            ownChildDeviceId = ownId,
+            linkedParentDeviceId = parentId,
+            avatarKey = avatarKey,
+            updatedAt = System.currentTimeMillis()
+        ) ?: profileManager.buildProfile(
+            name,
+            serverUrl,
+            ownId,
+            parentId,
+            avatarKey
+        )
+        profileManager.saveProfile(profile)
+        if (existingProfile?.id == profileManager.getActiveProfileId()) {
+            applyProfile(profile)
+        } else {
+            updateProfileSummary()
+        }
+        Toast.makeText(
+            this,
+            if (existingProfile == null) R.string.profile_switch_saved else R.string.profile_switch_updated,
+            Toast.LENGTH_SHORT
+        ).show()
+
+        AvatarPhotoSession.publish(
+            context = this,
+            scope = lifecycleScope,
+            name = name,
+            avatarKey = avatarKey,
+            previousAvatarKey = previousAvatarKey
+        ) {
+            updateProfileSummary()
+        }
     }
 
     /**
