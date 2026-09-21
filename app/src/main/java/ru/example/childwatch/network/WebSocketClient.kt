@@ -1,4 +1,4 @@
-﻿package ru.example.childwatch.network
+package ru.example.childwatch.network
 
 import android.content.Context
 import android.util.Log
@@ -84,6 +84,8 @@ class WebSocketClient(
     private var onChatV2ReceiptCallback: ((JSONObject) -> Unit)? = null
     private var onChatV2ErrorCallback: ((JSONObject) -> Unit)? = null
     private var onChatV2TransportReadyCallback: (() -> Unit)? = null
+    /** Somebody in a conversation is writing; carries who and where. */
+    private var onChatV2TypingCallback: ((JSONObject) -> Unit)? = null
     
     // Track last processed sequence to prevent duplicates
     private var lastProcessedSequence = -1
@@ -838,6 +840,13 @@ class WebSocketClient(
         }
     }
 
+    private val onChatV2Typing = Emitter.Listener { args ->
+        (args.getOrNull(0) as? JSONObject)?.let { payload ->
+            runCatching { onChatV2TypingCallback?.invoke(payload) }
+                .onFailure { Log.e(TAG, "Error handling chat_v2:typing", it) }
+        }
+    }
+
     /**
      * Connect to WebSocket server
      */
@@ -924,6 +933,7 @@ class WebSocketClient(
             socket?.on("chat_v2:message", onChatV2Message)
             socket?.on("chat_v2:receipt_updated", onChatV2ReceiptUpdated)
             socket?.on("chat_v2:error", onChatV2Error)
+            socket?.on("chat_v2:typing", onChatV2Typing)
 
             socket?.connect()
 
@@ -1353,12 +1363,37 @@ class WebSocketClient(
         onMessage: ((JSONObject) -> Unit)?,
         onReceiptUpdated: ((JSONObject) -> Unit)?,
         onError: ((JSONObject) -> Unit)?,
-        onTransportReady: (() -> Unit)? = null
+        onTransportReady: (() -> Unit)? = null,
+        onTyping: ((JSONObject) -> Unit)? = null
     ) {
         onChatV2MessageCallback = onMessage
         onChatV2ReceiptCallback = onReceiptUpdated
         onChatV2ErrorCallback = onError
         onChatV2TransportReadyCallback = onTransportReady
+        onChatV2TypingCallback = onTyping
+    }
+
+    /**
+     * Reports that this device is writing in a conversation.
+     *
+     * The server decides who may take part, so only the conversation and whether
+     * writing started or stopped are sent. A failure is deliberately silent: the
+     * indicator is a courtesy, and writing a message must never depend on it.
+     */
+    fun sendChatV2Typing(conversationId: String, isTyping: Boolean): Boolean {
+        if (!isReady()) return false
+        if (conversationId.isBlank()) return false
+        return try {
+            val payload = JSONObject().apply {
+                put("conversationId", conversationId)
+                put("isTyping", isTyping)
+            }
+            socket?.emit("chat_v2:typing", payload)
+            true
+        } catch (error: Exception) {
+            Log.w(TAG, "Could not report typing", error)
+            false
+        }
     }
 
     /**
@@ -1392,6 +1427,7 @@ class WebSocketClient(
         onAttentionTransportReadyCallback = null
         onChatV2MessageCallback = null
         onChatV2ReceiptCallback = null
+        onChatV2TypingCallback = null
         onChatV2ErrorCallback = null
         onChatV2TransportReadyCallback = null
     }

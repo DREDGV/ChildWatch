@@ -1,4 +1,4 @@
-﻿package ru.example.parentwatch.service
+package ru.example.parentwatch.service
 
 import android.app.*
 import android.Manifest
@@ -59,6 +59,13 @@ class PhotoCaptureService : Service() {
         private val dispatchedRequests = LinkedHashMap<String, Long>()
         @Volatile private var activeInstance: PhotoCaptureService? = null
 
+        /**
+         * Starts the photo service, tolerating a refusal by the system.
+         *
+         * Android 12+ rejects a foreground service start made while the app is
+         * in the background, and an unguarded call would close the application
+         * instead of just failing to capture a photo.
+         */
         fun start(context: Context, serverUrl: String, deviceId: String) {
             val intent = Intent(context, PhotoCaptureService::class.java).apply {
                 action = ACTION_PREPARE_CAMERA_FOREGROUND
@@ -66,10 +73,14 @@ class PhotoCaptureService : Service() {
                 putExtra(EXTRA_DEVICE_ID, deviceId)
             }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "Photo service start refused by the system", error)
             }
         }
 

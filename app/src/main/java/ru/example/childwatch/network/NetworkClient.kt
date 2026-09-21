@@ -120,6 +120,37 @@ class NetworkClient(private val context: Context) {
         }
         return token
     }
+
+    /**
+     * Runs an authenticated request and recovers from a rejected credential.
+     *
+     * The server keeps sessions in memory and persists only token hashes, so a
+     * saved refresh token can become unusable (after a server restart, a
+     * redeploy, or a lost session). The OkHttp interceptor already tries one
+     * refresh; when that also fails the app previously stayed locked out and
+     * every family screen silently degraded - the invite button simply switched
+     * itself off because the family directory answered 401.
+     *
+     * Re-registering the same device id is idempotent on the server and returns
+     * a working credential pair, so the request is retried exactly once with it.
+     */
+    private suspend fun <T> withCredentialRecovery(
+        call: suspend () -> retrofit2.Response<T>
+    ): retrofit2.Response<T> {
+        val first = call()
+        if (first.code() != 401) return first
+
+        Log.w(TAG, "Request rejected with 401; re-registering this device and retrying once")
+        val serverUrl = getConfiguredServerUrl()?.takeIf { it.isNotBlank() } ?: return first
+        val restored = runCatching { registerDevice(serverUrl) }.getOrNull()
+        if (restored.isNullOrBlank()) {
+            Log.e(TAG, "Credential recovery failed: device registration returned no token")
+            return first
+        }
+        // The first response body must be closed before it is discarded.
+        runCatching { first.errorBody()?.close() }
+        return call()
+    }
     
     /**
      * Refresh authentication token
@@ -971,6 +1002,14 @@ class NetworkClient(private val context: Context) {
         }
     }
 
+    /**
+     * This device's own identifier, as the server knows it.
+     *
+     * Exposed so screens can tell their own entry apart from the other side of a
+     * conversation.
+     */
+    fun ownDeviceId(): String = resolveOwnDeviceId()
+
     private fun resolveOwnDeviceId(): String {
         val prefs = context.getSharedPreferences("childwatch_prefs", Context.MODE_PRIVATE)
         val resolvedFromSession = effectiveContextResolver.resolveOwnParentId().trim()
@@ -1335,9 +1374,11 @@ class NetworkClient(private val context: Context) {
                     )
                 }
 
-                createRetrofitClient(serverUrl)
-                    .create(ChildWatchApi::class.java)
-                    .getFamilies()
+                withCredentialRecovery {
+                    createRetrofitClient(serverUrl)
+                        .create(ChildWatchApi::class.java)
+                        .getFamilies()
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting families", e)
                 retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
@@ -1480,8 +1521,10 @@ class NetworkClient(private val context: Context) {
                     okhttp3.ResponseBody.create(null, "Device registration failed")
                 )
             } else {
-                val serverUrl = checkNotNull(getConfiguredServerUrl())
-                call(createRetrofitClient(serverUrl).create(ChildWatchApi::class.java))
+                withCredentialRecovery {
+                    val serverUrl = checkNotNull(getConfiguredServerUrl())
+                    call(createRetrofitClient(serverUrl).create(ChildWatchApi::class.java))
+                }
             }
         } catch (error: Exception) {
             Log.e(TAG, "Family onboarding request failed", error)
@@ -1505,9 +1548,11 @@ class NetworkClient(private val context: Context) {
                     )
                 }
 
-                createRetrofitClient(serverUrl)
-                    .create(ChildWatchApi::class.java)
-                    .getFamilyMembers(familyId.trim())
+                withCredentialRecovery {
+                    createRetrofitClient(serverUrl)
+                        .create(ChildWatchApi::class.java)
+                        .getFamilyMembers(familyId.trim())
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting family members", e)
                 retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
@@ -1564,9 +1609,11 @@ class NetworkClient(private val context: Context) {
                     )
                 }
 
-                createRetrofitClient(serverUrl)
-                    .create(ChildWatchApi::class.java)
-                    .getFamilyDevices(familyId.trim())
+                withCredentialRecovery {
+                    createRetrofitClient(serverUrl)
+                        .create(ChildWatchApi::class.java)
+                        .getFamilyDevices(familyId.trim())
+                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting family devices", e)
                 retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))

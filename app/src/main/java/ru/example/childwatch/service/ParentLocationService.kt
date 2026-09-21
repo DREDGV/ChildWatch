@@ -49,17 +49,34 @@ class ParentLocationService : Service() {
         private const val MOVEMENT_TIME_WINDOW_MS = 45_000L
         private const val TRACKING_MODE_STICKINESS_MS = 45_000L
         
+        /**
+         * Starts tracking, tolerating a refusal by the system.
+         *
+         * On Android 12+ the platform rejects a foreground service start made
+         * while the app is in the background and throws
+         * ForegroundServiceStartNotAllowedException. This is called from places
+         * such as switching the selected child, so an unguarded call could take
+         * the whole application down instead of merely not tracking.
+         */
         fun start(context: Context) {
             val intent = Intent(context, ParentLocationService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "Location service start refused by the system", error)
             }
         }
-        
+
         fun stop(context: Context) {
-            context.stopService(Intent(context, ParentLocationService::class.java))
+            runCatching {
+                context.stopService(Intent(context, ParentLocationService::class.java))
+            }.onFailure { error ->
+                Log.w(TAG, "Location service stop failed", error)
+            }
         }
     }
     

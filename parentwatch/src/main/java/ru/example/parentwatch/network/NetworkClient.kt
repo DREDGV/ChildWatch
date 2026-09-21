@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import ru.example.parentwatch.BuildConfig
 import ru.example.parentwatch.session.ChildActiveSessionStore
+import ru.example.parentwatch.session.ChildDeviceIdentity
 import ru.example.parentwatch.session.ChildEffectiveContextResolver
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -718,20 +719,12 @@ class NetworkClient(private val context: Context) {
     }
     
     /**
-     * Get a proper device identifier using Android ID
+     * Fallback identifier, taken from the single shared source.
+     *
+     * It must agree with what registration uses; deriving a separate value here
+     * was how one phone ended up with two identities on the server.
      */
-    private fun getDeviceId(): String {
-        return try {
-            val androidId = android.provider.Settings.Secure.getString(
-                context.contentResolver,
-                android.provider.Settings.Secure.ANDROID_ID
-            )
-            "device_$androidId"
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to get Android ID, using fallback", e)
-            "device_${System.currentTimeMillis() % 10000}"
-        }
-    }
+    private fun getDeviceId(): String = ChildDeviceIdentity.resolve(context)
 
     suspend fun getLocationPair(parentId: String, childId: String): LocationPairData? = withContext(Dispatchers.IO) {
         try {
@@ -1380,6 +1373,49 @@ class NetworkClient(private val context: Context) {
                     .getFamilyDevices(familyId.trim())
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting family devices", e)
+                retrofit2.Response.error(
+                    404,
+                    okhttp3.ResponseBody.create(null, "Error: ${e.message}")
+                )
+            }
+        }
+    }
+
+    /**
+     * Saves this device's own name or avatar to the family on the server.
+     *
+     * The child previously wrote the choice only into local storage, so the next
+     * family directory refresh replaced it with the server value and the change
+     * appeared to do nothing. The server allows a member to edit their own record.
+     */
+    suspend fun updateOwnFamilyProfile(
+        familyId: String,
+        memberId: String,
+        displayName: String? = null,
+        avatarKey: String? = null
+    ): retrofit2.Response<UpdateFamilyMemberProfileResponse> {
+        return withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()
+                if (serverUrl.isNullOrBlank()) {
+                    Log.w(TAG, "Server URL not configured, cannot update own profile")
+                    return@withContext retrofit2.Response.error(
+                        400,
+                        okhttp3.ResponseBody.create(null, "Server URL not configured")
+                    )
+                }
+                val api = createRetrofitClient(serverUrl)
+                    .create(ChildWatchApi::class.java)
+                api.updateFamilyMemberProfile(
+                    familyId.trim(),
+                    memberId.trim(),
+                    UpdateFamilyMemberProfileRequest(
+                        displayName = displayName?.trim()?.takeIf { it.isNotEmpty() },
+                        avatarKey = avatarKey
+                    )
+                )
+            } catch (e: Exception) {
+                Log.e(TAG, "Error updating own family profile", e)
                 retrofit2.Response.error(
                     404,
                     okhttp3.ResponseBody.create(null, "Error: ${e.message}")

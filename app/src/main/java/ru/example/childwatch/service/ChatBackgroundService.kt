@@ -49,6 +49,14 @@ class ChatBackgroundService : LifecycleService() {
         @Volatile private var lastServerUrl: String? = null
         @Volatile private var lastDeviceId: String? = null
 
+        /**
+         * Starts the background chat, tolerating a refusal by the system.
+         *
+         * Android 12+ rejects a foreground service start made from the
+         * background with ForegroundServiceStartNotAllowedException. This runs
+         * while switching the selected child, so an unguarded call would close
+         * the application instead of merely leaving chat offline.
+         */
         fun start(context: Context, serverUrl: String, childDeviceId: String) {
             val intent = Intent(context, ChatBackgroundService::class.java).apply {
                 action = ACTION_START_SERVICE
@@ -56,10 +64,14 @@ class ChatBackgroundService : LifecycleService() {
                 putExtra("child_device_id", childDeviceId)
             }
 
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                context.startForegroundService(intent)
-            } else {
-                context.startService(intent)
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    context.startForegroundService(intent)
+                } else {
+                    context.startService(intent)
+                }
+            }.onFailure { error ->
+                Log.w(TAG, "Chat service start refused by the system", error)
             }
         }
 
@@ -67,7 +79,9 @@ class ChatBackgroundService : LifecycleService() {
             val intent = Intent(context, ChatBackgroundService::class.java).apply {
                 action = ACTION_STOP_SERVICE
             }
-            context.startService(intent)
+            runCatching { context.startService(intent) }.onFailure { error ->
+                Log.w(TAG, "Chat service stop failed", error)
+            }
         }
     }
 

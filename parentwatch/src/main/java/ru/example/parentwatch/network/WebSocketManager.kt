@@ -57,6 +57,10 @@ object WebSocketManager {
     private val chatV2ReceiptListeners = java.util.Collections.synchronizedSet(
         mutableSetOf<(JSONObject) -> Unit>()
     )
+    /** Screens that show "who is writing" for the conversation they display. */
+    private val chatV2TypingListeners = java.util.Collections.synchronizedSet(
+        mutableSetOf<(JSONObject) -> Unit>()
+    )
     private val chatV2ErrorListeners = java.util.Collections.synchronizedSet(
         mutableSetOf<(JSONObject) -> Unit>()
     )
@@ -509,6 +513,7 @@ object WebSocketManager {
             chatV2MessageListeners.clear()
             chatV2ReceiptListeners.clear()
             chatV2ErrorListeners.clear()
+        chatV2TypingListeners.clear()
             chatV2Subscriptions.clear()
         }
     }
@@ -518,6 +523,7 @@ object WebSocketManager {
             onMessage = { dispatchChatV2(chatV2MessageListeners, it, "message") },
             onReceiptUpdated = { dispatchChatV2(chatV2ReceiptListeners, it, "receipt") },
             onError = { dispatchChatV2(chatV2ErrorListeners, it, "error") },
+            onTyping = { dispatchChatV2(chatV2TypingListeners, it, "typing") },
             onTransportReady = ::restoreChatV2Subscriptions
         )
     }
@@ -559,6 +565,24 @@ object WebSocketManager {
 
     fun removeChatV2ErrorListener(listener: (JSONObject) -> Unit) {
         chatV2ErrorListeners.remove(listener)
+    }
+
+    /**
+     * Reports that this device is writing in a conversation.
+     *
+     * Nothing happens when the transport is down: the indicator is a courtesy and
+     * writing a message must not depend on it.
+     */
+    fun sendChatV2Typing(conversationId: String, isTyping: Boolean): Boolean =
+        webSocketClient?.sendChatV2Typing(conversationId, isTyping) ?: false
+
+    fun addChatV2TypingListener(listener: (JSONObject) -> Unit) {
+        chatV2TypingListeners.add(listener)
+        configureChatV2Callbacks()
+    }
+
+    fun removeChatV2TypingListener(listener: (JSONObject) -> Unit) {
+        chatV2TypingListeners.remove(listener)
     }
 
     fun subscribeChatV2(conversationId: String): Boolean {

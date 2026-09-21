@@ -9,6 +9,7 @@ import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONObject
+import ru.example.parentwatch.session.ChildDeviceIdentity
 import java.io.IOException
 import java.util.concurrent.TimeUnit
 
@@ -309,17 +310,15 @@ class TokenManager(private val context: Context) {
     /**
      * Get device ID
      */
-    private fun getDeviceId(): String {
-        return prefs.getString(KEY_DEVICE_ID, null) ?: run {
-            val androidId = android.provider.Settings.Secure.getString(
-                context.contentResolver,
-                android.provider.Settings.Secure.ANDROID_ID
-            )
-            val deviceId = "device_$androidId"
-            prefs.edit().putString(KEY_DEVICE_ID, deviceId).apply()
-            deviceId
-        }
-    }
+    /**
+     * The identifier used when registering this device.
+     *
+     * Taken from the single shared source instead of being built here: this method
+     * used to derive `device_<androidId>` on its own while the rest of the
+     * application stored a `child-xxxxxxxx` value, so one phone registered under
+     * two identities and the server ended up with two member records for it.
+     */
+    private fun getDeviceId(): String = ChildDeviceIdentity.resolve(context)
     
     /**
      * Get token info for debugging

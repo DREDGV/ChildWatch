@@ -3,13 +3,18 @@ package ru.example.childwatch.network
 import retrofit2.Response
 import retrofit2.http.*
 import ru.childwatch.shared.chat.ChatV2ConversationsResponse
+import ru.childwatch.shared.chat.ChatV2DeleteMessageResponse
 import ru.childwatch.shared.chat.ChatV2DirectConversationRequest
 import ru.childwatch.shared.chat.ChatV2DirectConversationResponse
+import ru.childwatch.shared.chat.ChatV2EditMessageRequest
+import ru.childwatch.shared.chat.ChatV2GroupSettingsResponse
 import ru.childwatch.shared.chat.ChatV2MessagesResponse
 import ru.childwatch.shared.chat.ChatV2ReceiptRequest
 import ru.childwatch.shared.chat.ChatV2ReceiptResponse
 import ru.childwatch.shared.chat.ChatV2SendMessageRequest
 import ru.childwatch.shared.chat.ChatV2SendMessageResponse
+import ru.childwatch.shared.chat.ChatV2UpdateGroupAvatarRequest
+import ru.childwatch.shared.chat.ChatV2UpdateGroupTitleRequest
 import ru.childwatch.shared.onboarding.FamilyBootstrapRequest
 import ru.childwatch.shared.onboarding.FamilyInvitationAcceptRequest
 import ru.childwatch.shared.onboarding.FamilyInvitationCreateRequest
@@ -200,8 +205,48 @@ interface ChildWatchApi {
         @Body request: ChatV2SendMessageRequest
     ): Response<ChatV2SendMessageResponse>
 
-    @POST("api/chat/v2/conversations/{conversationId}/receipts")
-    suspend fun sendChatV2Receipt(
+    /** Rewrites the author's own recent message. */
+    @PATCH("api/chat/v2/conversations/{conversationId}/messages/{messageId}")
+    suspend fun editChatV2Message(
+        @Path("conversationId") conversationId: String,
+        @Path("messageId") messageId: String,
+        @Body request: ChatV2EditMessageRequest
+    ): Response<ChatV2SendMessageResponse>
+
+    /**
+     * Removes a message.
+     *
+     * With `forEveryone=true` it is withdrawn for all participants and only the
+     * author may do it; otherwise it is hidden for this device alone.
+     */
+    @DELETE("api/chat/v2/conversations/{conversationId}/messages/{messageId}")
+    suspend fun deleteChatV2Message(
+        @Path("conversationId") conversationId: String,
+        @Path("messageId") messageId: String,
+        @Query("forEveryone") forEveryone: Boolean
+    ): Response<ChatV2DeleteMessageResponse>
+
+    /** Shared settings of a group conversation, with this device's rights. */
+    @GET("api/chat/v2/conversations/{conversationId}/group")
+    suspend fun getChatV2GroupSettings(
+        @Path("conversationId") conversationId: String
+    ): Response<ChatV2GroupSettingsResponse>
+
+    /** Renames the group for every participant. Only its administrator may. */
+    @PATCH("api/chat/v2/conversations/{conversationId}/group")
+    suspend fun updateChatV2GroupTitle(
+        @Path("conversationId") conversationId: String,
+        @Body request: ChatV2UpdateGroupTitleRequest
+    ): Response<ChatV2GroupSettingsResponse>
+
+    /** Sets the shared picture of the group. Only its administrator may. */
+    @PUT("api/chat/v2/conversations/{conversationId}/group/avatar")
+    suspend fun updateChatV2GroupAvatar(
+        @Path("conversationId") conversationId: String,
+        @Body request: ChatV2UpdateGroupAvatarRequest
+    ): Response<ChatV2GroupSettingsResponse>
+
+    @POST("api/chat/v2/conversations/{conversationId}/receipts")    suspend fun sendChatV2Receipt(
         @Path("conversationId") conversationId: String,
         @Body request: ChatV2ReceiptRequest
     ): Response<ChatV2ReceiptResponse>
