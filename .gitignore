@@ -165,3 +165,22 @@ server/deploy/
 # conversation, not part of the product, and they add megabytes per check.
 /qa/
 
+# Signing keys. The rules above were present but commented out, so an actual
+# release key would have been committed the first time one existed.
+#
+# A signing key is not a secret that can be rotated: Android installs an update
+# only over a build signed by the same key, so losing it or publishing it means
+# every phone has to have the application removed and installed again, losing its
+# data. It belongs outside the repository, in the owner's own folder.
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+release-signing.properties
+
+# The password for that key. It is kept in an encrypted file tied to the owner's
+# Windows account, never here; these patterns exist so a stray copy cannot slip in.
+*.dpapi
+signing-password*
+
