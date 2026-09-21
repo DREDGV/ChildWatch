@@ -31,6 +31,14 @@ data class Conversation(
     val familyId: String,
     val type: ConversationType,
     val title: String,
+    /**
+     * Shared picture of the conversation as a whole.
+     *
+     * A group is not a person, so its picture cannot be borrowed from a member:
+     * the server keeps one picture per family and sends it with every conversation.
+     * Null means the conversation genuinely has no picture and a letter is shown.
+     */
+    val avatarKey: String? = null,
     val members: List<ConversationMember>,
     val lastMessagePreview: String? = null,
     val lastSequence: Long = 0,
@@ -71,6 +79,10 @@ data class ConversationMessage(
     val text: String,
     val clientSentAt: Long,
     val serverCreatedAt: Long? = null,
+    /** Set when the author rewrote the text; null for an untouched message. */
+    val editedAt: Long? = null,
+    /** Set when the message was withdrawn for everyone. */
+    val deletedAt: Long? = null,
     val deliveryState: ChatDeliveryState = ChatDeliveryState.QUEUED,
     val failureCode: String? = null,
     val legacyMessageId: String? = null

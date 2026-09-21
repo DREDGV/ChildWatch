@@ -64,4 +64,33 @@
     <color name="cw_color_diagnostics_surface">#EEF1F3</color>
     <color name="cw_color_diagnostics_text">#4B555C</color>
     <color name="cw_color_diagnostics_outline">#CAD0D4</color>
+
+    <!-- Chat send button: a filled primary circle with a white glyph, the shape
+         people expect in a messenger. Shared by both applications. -->
+    <color name="cw_chat_send_background">@color/cw_color_primary</color>
+    <color name="cw_chat_send_icon">@color/cw_color_on_primary</color>
+
+    <!--
+        Message bubbles. The incoming side is a light surface with a visible edge so
+        it separates from the background; the outgoing side carries the brand
+        gradient and light text. Both applications read these same values, so a
+        message cannot look different depending on which phone shows it.
+    -->
+    <color name="cw_chat_bubble_incoming">#F5F7FA</color>
+    <color name="cw_chat_bubble_incoming_stroke">#E1E8ED</color>
+    <color name="cw_chat_bubble_incoming_text">#212121</color>
+    <color name="cw_chat_bubble_outgoing_start">#5E72E4</color>
+    <color name="cw_chat_bubble_outgoing_end">#4361EE</color>
+    <color name="cw_chat_bubble_outgoing_text">#FFFFFF</color>
+
+    <!-- The time under a message: quiet, but readable in both bubble colours. -->
+    <color name="cw_chat_meta_text">#8A000000</color>
+    <color name="cw_chat_meta_text_on_primary">#B3FFFFFF</color>
+
+    <!-- A quiet line inside a conversation: loading older messages, or typing. -->
+    <color name="cw_chat_notice_text">#757575</color>
+
+    <!-- A conversation row: the preview line and the time are quieter than its title. -->
+    <color name="cw_chat_row_preview">#627D98</color>
+    <color name="cw_chat_row_time">#829AB1</color>
 </resources>

@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    A conversation in the messages list.
+
+    Title, preview and time were written out as literal colours in both
+    applications. Naming them here means the list cannot drift apart, and changing
+    how a row reads is a single edit rather than two.
+
+    The sizes are unchanged from what both applications already used; only the
+    colours move from literals to values that have a name.
+-->
+<resources>
+
+    <!-- Who the conversation is with. -->
+    <style name="TextAppearance.ChildWatch.Chat.Row.Title" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textColor">@color/cw_color_on_surface</item>
+        <item name="android:textSize">17sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- The last message, shown under the title. -->
+    <style name="TextAppearance.ChildWatch.Chat.Row.Preview" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textColor">@color/cw_chat_row_preview</item>
+        <item name="android:textSize">14sp</item>
+    </style>
+
+    <!-- When the last message arrived. -->
+    <style name="TextAppearance.ChildWatch.Chat.Row.Time" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">@color/cw_chat_row_time</item>
+        <item name="android:textSize">12sp</item>
+    </style>
+
+    <!-- The count of unread messages, on a filled badge. -->
+    <style name="TextAppearance.ChildWatch.Chat.Row.Badge" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">@color/cw_color_on_primary</item>
+        <item name="android:textSize">12sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+</resources>

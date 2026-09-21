@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Message bubbles.
+
+    These lived inside each application in two copies that happened to stay equal,
+    which is the arrangement that drifts: one application is edited and the other
+    keeps the old look. They are shared here so both show the same chat.
+
+    The shape is a rounded rectangle with one flattened bottom corner, which points
+    the bubble at its author: the left corner for an incoming message, the right one
+    for an outgoing message.
+-->
+<resources>
+
+    <!--
+        Shared bubble geometry. A message has the same size and spacing whichever
+        side it is on, so the column of speech lines up; only the background and the
+        text colour differ between the two sides.
+    -->
+    <style name="Widget.ChildWatch.ChatBubble" parent="">
+        <item name="android:maxWidth">280dp</item>
+        <item name="android:paddingStart">16dp</item>
+        <item name="android:paddingTop">12dp</item>
+        <item name="android:paddingEnd">16dp</item>
+        <item name="android:paddingBottom">12dp</item>
+        <item name="android:textSize">16sp</item>
+    </style>
+
+    <!-- A message from somebody else: light surface with a visible edge. -->
+    <style name="Widget.ChildWatch.ChatBubble.Incoming" parent="Widget.ChildWatch.ChatBubble">
+        <item name="android:background">@drawable/cw_chat_bubble_incoming</item>
+        <item name="android:textColor">@color/cw_chat_bubble_incoming_text</item>
+    </style>
+
+    <!-- This device's own message: filled with the primary colour. -->
+    <style name="Widget.ChildWatch.ChatBubble.Outgoing" parent="Widget.ChildWatch.ChatBubble">
+        <item name="android:background">@drawable/cw_chat_bubble_outgoing</item>
+        <item name="android:textColor">@color/cw_chat_bubble_outgoing_text</item>
+    </style>
+
+    <!--
+        The name above an incoming message.
+
+        It is drawn in the primary colour so a speaker is recognisable at a glance
+        without reading the text.
+    -->
+    <style name="TextAppearance.ChildWatch.Chat.Sender" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">@color/cw_color_primary</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <!-- The time under a message, and the delivery state beside it. -->
+    <style name="TextAppearance.ChildWatch.Chat.Meta" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">@color/cw_chat_meta_text</item>
+    </style>
+
+    <!-- The same caption on a filled bubble, which needs a light colour. -->
+    <style name="TextAppearance.ChildWatch.Chat.Meta.OnPrimary" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">@color/cw_chat_meta_text_on_primary</item>
+    </style>
+
+    <!--
+        The header of a conversation: who it is with, and the state of the connection.
+
+        Both applications drew this themselves, one with theme colours and the other
+        with literal greys, so the same screen looked different depending on which
+        phone opened it. The sizes are unchanged; only the colours are now shared.
+    -->
+    <style name="TextAppearance.ChildWatch.Chat.Header.Title" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textColor">@color/cw_color_on_surface</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Chat.Header.Status" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">@color/cw_color_on_surface_variant</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+
+    <!-- The line while older messages load, and the typing hint. -->
+    <style name="TextAppearance.ChildWatch.Chat.Notice" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textColor">@color/cw_chat_notice_text</item>
+        <item name="android:textSize">13sp</item>
+    </style>
+</resources>

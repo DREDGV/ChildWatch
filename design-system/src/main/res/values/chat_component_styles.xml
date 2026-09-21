@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Styles shared by the chat composer in both applications.
+
+  The message input was styled separately in ParentMonitor and ChildDevice, so
+  the two chats looked like different products: one used a rectangular field
+  with text buttons, the other a rounded field with a floating action button.
+  Both now inherit these styles, which keeps the composer identical and makes a
+  future change land in one place.
+-->
+<resources>
+
+    <!-- Pill-shaped input, the shape people expect in a messenger. -->
+    <style name="Widget.ChildWatch.Chat.Composer" parent="Widget.ChildWatch.TextInputLayout">
+        <item name="boxCornerRadiusTopStart">@dimen/cw_corner_large</item>
+        <item name="boxCornerRadiusTopEnd">@dimen/cw_corner_large</item>
+        <item name="boxCornerRadiusBottomStart">@dimen/cw_corner_large</item>
+        <item name="boxCornerRadiusBottomEnd">@dimen/cw_corner_large</item>
+        <item name="boxBackgroundColor">@color/cw_color_surface</item>
+        <item name="boxStrokeColor">@color/cw_color_outline_variant</item>
+        <item name="hintTextColor">@color/cw_color_on_surface_variant</item>
+        <item name="android:minHeight">@dimen/cw_chat_composer_min_height</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Chat.Composer.Input" parent="Widget.ChildWatch.TextInputEditText">
+        <item name="android:maxLines">4</item>
+        <item name="android:minLines">1</item>
+        <item name="android:imeOptions">actionSend</item>
+        <item name="android:inputType">textCapSentences|textMultiLine|textNoSuggestions</item>
+        <item name="android:textDirection">anyRtl</item>
+        <item name="android:textLocale">ru_RU</item>
+        <item name="android:paddingTop">@dimen/cw_space_3</item>
+        <item name="android:paddingBottom">@dimen/cw_space_3</item>
+    </style>
+
+    <!-- Round send button, enabled only when there is something to send. -->
+    <style name="Widget.ChildWatch.Chat.Send" parent="Widget.Material3.Button.IconButton">
+        <item name="android:layout_width">@dimen/cw_chat_action_size</item>
+        <item name="android:layout_height">@dimen/cw_chat_action_size</item>
+        <item name="android:minWidth">@dimen/cw_chat_action_size</item>
+        <item name="android:minHeight">@dimen/cw_chat_action_size</item>
+        <item name="android:padding">@dimen/cw_space_3</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="backgroundTint">@color/cw_chat_send_background</item>
+        <item name="iconTint">@color/cw_chat_send_icon</item>
+        <item name="iconGravity">textStart</item>
+        <item name="iconPadding">0dp</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Chat.Action" parent="Widget.ChildWatch.Button.Icon">
+        <item name="android:layout_width">@dimen/cw_chat_action_size</item>
+        <item name="android:layout_height">@dimen/cw_chat_action_size</item>
+    </style>
+
+    <style name="TextAppearance.ChildWatch.Chat.ComposerHint" parent="TextAppearance.ChildWatch.Body">
+        <item name="android:textColor">@color/cw_color_on_surface_variant</item>
+    </style>
+
+</resources>

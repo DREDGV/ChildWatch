@@ -27,6 +27,13 @@ data class ChatV2ConversationDto(
     val familyId: String,
     val type: String,
     val title: String? = null,
+    /**
+     * Shared picture of the conversation itself.
+     *
+     * A group has one picture for everyone; the server stores it on the family and
+     * returns it here. Null for a direct conversation, which has no shared settings.
+     */
+    val avatarKey: String? = null,
     val actorMemberId: String? = null,
     val members: List<ChatV2MemberDto> = emptyList(),
     val lastSequence: Long = 0,
@@ -66,6 +73,43 @@ data class ChatV2SendMessageResponse(
     val message: ChatV2MessageDto? = null
 )
 
+/** Body of a message edit; only the text changes. */
+data class ChatV2EditMessageRequest(
+    val text: String
+)
+
+/**
+ * Shared settings of a group conversation.
+ *
+ * A group is common to its participants, so its name and picture are stored once
+ * and [canManage] tells this device whether it may change them.
+ */
+data class ChatV2GroupSettingsResponse(
+    val success: Boolean = false,
+    val conversationId: String? = null,
+    val familyId: String? = null,
+    val title: String? = null,
+    val avatarKey: String? = null,
+    val adminMemberId: String? = null,
+    val canManage: Boolean = false
+)
+
+data class ChatV2UpdateGroupTitleRequest(
+    val title: String
+)
+
+data class ChatV2UpdateGroupAvatarRequest(
+    val avatarKey: String?
+)
+
+data class ChatV2DeleteMessageResponse(
+    val success: Boolean = false,
+    val messageId: String? = null,
+    /** True when the message was withdrawn for everyone, false when only locally. */
+    val forEveryone: Boolean = false,
+    val message: ChatV2MessageDto? = null
+)
+
 data class ChatV2MessageDto(
     val messageId: String,
     val clientMessageId: String,
@@ -78,6 +122,10 @@ data class ChatV2MessageDto(
     val text: String,
     val clientSentAt: Long,
     val serverCreatedAt: Long,
+    /** Set when the author rewrote the text; null for an untouched message. */
+    val editedAt: Long? = null,
+    /** Set when the message was withdrawn for everyone; its text is empty then. */
+    val deletedAt: Long? = null,
     val legacyMessageId: String? = null,
     val deliveryState: String? = null,
     val receipts: List<ChatV2MessageReceiptDto> = emptyList()
@@ -119,6 +167,8 @@ fun ChatV2ConversationDto.toDomain(): Conversation {
         familyId = familyId,
         type = normalizedType,
         title = resolvedTitle,
+        // The shared picture of the conversation, not of one of its members.
+        avatarKey = avatarKey,
         members = members.map { member ->
             member.toDomain(isLocalUser = member.memberId == actorMemberId)
         },
@@ -150,6 +200,8 @@ fun ChatV2MessageDto.toDomain(): ConversationMessage = ConversationMessage(
     text = text,
     clientSentAt = clientSentAt,
     serverCreatedAt = serverCreatedAt,
+    editedAt = editedAt,
+    deletedAt = deletedAt,
     deliveryState = deliveryState.toChatDeliveryState(),
     legacyMessageId = legacyMessageId
 )

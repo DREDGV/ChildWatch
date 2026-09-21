@@ -29,4 +29,7 @@
     <dimen name="cw_extended_fab_height">56dp</dimen>
     <dimen name="cw_toolbar_height">64dp</dimen>
     <dimen name="cw_text_field_min_height">56dp</dimen>
+    <!-- Chat composer sizes, kept here so both applications match exactly. -->
+    <dimen name="cw_chat_composer_min_height">48dp</dimen>
+    <dimen name="cw_chat_action_size">48dp</dimen>
 </resources>
