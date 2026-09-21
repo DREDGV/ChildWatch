@@ -55,6 +55,8 @@ data class ChatMessageV2Entity(
     @ColumnInfo(name = "delivered_at") val deliveredAt: Long? = null,
     @ColumnInfo(name = "read_at") val readAt: Long? = null,
     @ColumnInfo(name = "edited_at") val editedAt: Long? = null,
+    /** Set when the message was withdrawn for everyone; its text is empty then. */
+    @ColumnInfo(name = "deleted_at") val deletedAt: Long? = null,
     @ColumnInfo(name = "reply_to_message_id") val replyToMessageId: String? = null,
     @ColumnInfo(name = "sync_state") val syncState: String = SYNC_STATE_LOCAL_ONLY
 ) {

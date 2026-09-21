@@ -25,6 +25,13 @@ data class ChatConversationMemberV2Entity(
     @ColumnInfo(name = "device_id") val deviceId: String? = null,
     @ColumnInfo(name = "display_name") val displayName: String? = null,
     @ColumnInfo(name = "role") val role: String,
+    /**
+     * The person's picture, as stored in the family.
+     *
+     * It was missing here, so the picture sent by the server was dropped while
+     * caching a conversation and the chat could only draw a letter instead.
+     */
+    @ColumnInfo(name = "avatar_key") val avatarKey: String? = null,
     @ColumnInfo(name = "is_local_user") val isLocalUser: Boolean = false,
     @ColumnInfo(name = "joined_at") val joinedAt: Long,
     @ColumnInfo(name = "last_active_at") val lastActiveAt: Long? = null,

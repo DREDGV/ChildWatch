@@ -108,6 +108,10 @@ data class ChatMessageV2Entity(
     @ColumnInfo(name = "edited_at")
     val editedAt: Long? = null,
 
+    /** Set when the message was withdrawn for everyone; its text is empty then. */
+    @ColumnInfo(name = "deleted_at")
+    val deletedAt: Long? = null,
+
     @ColumnInfo(name = "reply_to_message_id")
     val replyToMessageId: String? = null,
 

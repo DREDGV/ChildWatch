@@ -50,6 +50,57 @@ object ChatV2Migration {
         }
     }
 
+    /**
+     * Adds the per-device conversation name.
+     *
+     * Existing rows keep the server title, which stays the fallback whenever the
+     * user has not renamed a conversation.
+     */
+    val MIGRATION_8_9 = object : Migration(8, 9) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE chat_conversations_v2 ADD COLUMN custom_title TEXT")
+        }
+    }
+
+    /**
+     * Adds the withdrawal mark for messages.
+     *
+     * This is a separate step because the previous version already reached
+     * devices: a column added inside an existing migration would never run there,
+     * and Room refuses to open a database whose schema does not match its version.
+     */
+    val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE chat_messages_v2 ADD COLUMN deleted_at INTEGER")
+        }
+    }
+
+    /**
+     * Adds the picture of a conversation participant.
+     *
+     * The server has always sent it, but the cached row had nowhere to keep it, so
+     * it was dropped and the chat could only draw a letter in place of a face.
+     */
+    val MIGRATION_10_11 = object : Migration(10, 11) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE chat_conversation_members_v2 ADD COLUMN avatar_key TEXT")
+        }
+    }
+
+    /**
+     * Adds the shared picture of the conversation itself.
+     *
+     * A group is not a person, so its picture cannot be taken from a member. The
+     * server sends it with every conversation, but the cached row had nowhere to
+     * keep it: the family chat therefore fell back to a letter while direct chats
+     * showed a face.
+     */
+    val MIGRATION_11_12 = object : Migration(11, 12) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("ALTER TABLE chat_conversations_v2 ADD COLUMN avatar_key TEXT")
+        }
+    }
+
     private fun createTables(database: SupportSQLiteDatabase) {
         database.execSQL(
             """
@@ -71,6 +122,7 @@ object ChatV2Migration {
                 muted_until INTEGER,
                 muted INTEGER NOT NULL,
                 is_archived INTEGER NOT NULL,
+                custom_title TEXT,
                 sync_state TEXT NOT NULL,
                 PRIMARY KEY(conversation_id)
             )

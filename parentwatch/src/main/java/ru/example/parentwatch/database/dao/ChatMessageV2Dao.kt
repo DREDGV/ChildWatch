@@ -19,6 +19,14 @@ interface ChatMessageV2Dao {
     @Update
     suspend fun update(message: ChatMessageV2Entity): Int
 
+    /** Drops one message locally, used when it is removed for this device. */
+    @Query("DELETE FROM chat_messages_v2 WHERE message_id = :messageId")
+    suspend fun deleteById(messageId: String): Int
+
+    /** How many messages are stored; used when diagnosing a failed lookup. */
+    @Query("SELECT COUNT(*) FROM chat_messages_v2")
+    suspend fun countAll(): Int
+
     @Query("SELECT * FROM chat_messages_v2 WHERE message_id = :messageId LIMIT 1")
     suspend fun getByMessageId(messageId: String): ChatMessageV2Entity?
 

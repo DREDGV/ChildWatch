@@ -19,6 +19,7 @@ fun Conversation.toEntity(legacyChildId: Long? = null): ChatConversationV2Entity
         familyId = familyId,
         type = type.name,
         title = title,
+        avatarKey = avatarKey,
         legacyChildId = legacyChildId,
         createdAt = updatedAt,
         updatedAt = updatedAt,
@@ -38,7 +39,11 @@ fun ChatConversationV2Entity.toModel(
         conversationId = conversationId,
         familyId = familyId ?: conversationId,
         type = enumValueOrDefault(type, ConversationType.FAMILY),
-        title = title ?: conversationId,
+        // A name chosen by the user on this device wins over the server title.
+        title = customTitle?.takeIf { it.isNotBlank() } ?: title ?: conversationId,
+        // The conversation's own picture, so a group no longer has to borrow one
+        // from an arbitrary member.
+        avatarKey = avatarKey,
         members = members,
         lastMessagePreview = lastMessagePreview,
         lastSequence = lastSequence,
@@ -59,6 +64,7 @@ fun ConversationMember.toEntity(
         serverMemberId = memberId,
         displayName = displayName,
         role = role.name,
+        avatarKey = avatarKey,
         isLocalUser = isLocalUser,
         joinedAt = joinedAt
     )
@@ -69,6 +75,7 @@ fun ChatConversationMemberV2Entity.toModel(): ConversationMember {
         memberId = memberId,
         displayName = displayName ?: memberId,
         role = enumValueOrDefault(role, ConversationMemberRole.GUARDIAN),
+        avatarKey = avatarKey,
         isLocalUser = isLocalUser
     )
 }
@@ -91,6 +98,8 @@ fun ConversationMessage.toEntity(legacySender: String? = null): ChatMessageV2Ent
         clientSentAt = clientSentAt,
         createdAt = serverCreatedAt ?: clientSentAt,
         serverCreatedAt = serverCreatedAt,
+        editedAt = editedAt,
+        deletedAt = deletedAt,
         status = state.toLegacyStatus(),
         deliveryState = state.name,
         failureCode = failureCode,
@@ -119,6 +128,8 @@ fun ChatMessageV2Entity.toModel(): ConversationMessage {
         text = text,
         clientSentAt = clientSentAt,
         serverCreatedAt = serverCreatedAt,
+        editedAt = editedAt,
+        deletedAt = deletedAt,
         deliveryState = enumValueOrDefault(deliveryState, status.toDeliveryState()),
         failureCode = failureCode,
         legacyMessageId = legacyMessageId

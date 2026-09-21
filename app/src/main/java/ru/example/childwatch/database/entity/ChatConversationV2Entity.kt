@@ -38,6 +38,27 @@ data class ChatConversationV2Entity(
     @ColumnInfo(name = "title")
     val title: String? = null,
 
+    /**
+     * Name chosen by the user on this device.
+     *
+     * Kept apart from [title], which the server owns and rewrites on every
+     * refresh; without the separation a local rename would be lost the next time
+     * the conversation list synchronised.
+     */
+    @ColumnInfo(name = "custom_title")
+    val customTitle: String? = null,
+
+    /**
+     * Shared picture of the conversation itself.
+     *
+     * Kept apart from the members' pictures: a group has no single peer to borrow
+     * a face from, and the server sends one picture per conversation. Without this
+     * column the picture was dropped while caching and the row could only draw a
+     * letter.
+     */
+    @ColumnInfo(name = "avatar_key")
+    val avatarKey: String? = null,
+
     @ColumnInfo(name = "legacy_child_id")
     val legacyChildId: Long? = null,
 

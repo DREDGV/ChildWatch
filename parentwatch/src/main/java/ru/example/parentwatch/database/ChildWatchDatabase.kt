@@ -33,6 +33,10 @@ import ru.example.parentwatch.database.migration.ChatV2Migration
  * Version 6: Rebuild children table to align schema hash on upgraded installs
  * Version 7: Add stable chat author metadata
  * Version 8: Add conversation/member/message/outbox v2 chat projection
+ * Version 9: Add the per-device conversation name
+ * Version 10: Add the withdrawal mark for messages
+ * Version 11: Add the picture of a conversation participant
+ * Version 12: Add the shared picture of the conversation itself
  */
 @Database(
     entities = [
@@ -47,7 +51,7 @@ import ru.example.parentwatch.database.migration.ChatV2Migration
         LocationPoint::class,
         ParentLocation::class
     ],
-    version = 8,
+    version = 12,
     exportSchema = true
 )
 abstract class ParentWatchDatabase : RoomDatabase() {
@@ -325,6 +329,18 @@ abstract class ParentWatchDatabase : RoomDatabase() {
 
         val MIGRATION_7_8: Migration = ChatV2Migration.MIGRATION_7_8
 
+        /** Adds the per-device conversation name used by rename. */
+        val MIGRATION_8_9: Migration = ChatV2Migration.MIGRATION_8_9
+
+        /** Adds the withdrawal mark for messages. */
+        val MIGRATION_9_10: Migration = ChatV2Migration.MIGRATION_9_10
+
+        /** Adds the picture of a conversation participant. */
+        val MIGRATION_10_11: Migration = ChatV2Migration.MIGRATION_10_11
+
+        /** Adds the shared picture of the conversation itself. */
+        val MIGRATION_11_12: Migration = ChatV2Migration.MIGRATION_11_12
+
         /**
          * Get database instance (Singleton pattern)
          *
@@ -345,7 +361,11 @@ abstract class ParentWatchDatabase : RoomDatabase() {
                         MIGRATION_4_5,
                         MIGRATION_5_6,
                         MIGRATION_6_7,
-                        MIGRATION_7_8
+                        MIGRATION_7_8,
+                        MIGRATION_8_9,
+                        MIGRATION_9_10,
+                        MIGRATION_10_11,
+                        MIGRATION_11_12
                     )
                     // Only allow destructive migration on DOWNGRADE (not upgrade)
                     // This preserves data on upgrades while allowing clean reinstalls
