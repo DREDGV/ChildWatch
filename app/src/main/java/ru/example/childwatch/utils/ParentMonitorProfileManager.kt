@@ -20,6 +20,75 @@ data class ParentMonitorProfile(
     val updatedAt: Long = System.currentTimeMillis()
 )
 
+/**
+ * What the person card on the home screen says about its owner.
+ *
+ * The card carries three different things around it — the family, the person and
+ * the child — and it used to show each of them in the wrong place: the family
+ * name stood where the person's own name belongs and the second line instructed
+ * the reader to choose a child, which is the child card's job.
+ *
+ * @param name the person's own name, never the family name
+ * @param hasLinkedChild whether this profile already points at a child
+ */
+data class ParentOwnProfileCard(
+    val name: String,
+    val hasLinkedChild: Boolean,
+    val linkedChildName: String?
+)
+
+/**
+ * Decides which name may stand on the person card as the owner's own name.
+ *
+ * Kept apart from [ParentMonitorProfileManager] because it holds no Android
+ * state and is therefore where the rule is verified by a plain unit test: the
+ * value stored during onboarding is frequently the family name, and showing it
+ * on a card about a person is what left the owner's own name visible nowhere.
+ */
+object ParentMonitorProfileNameRules {
+
+    /** Returned when no real name is available; callers translate it. */
+    const val FALLBACK = "profile-name-fallback"
+
+    /**
+     * [canonicalName] is the name the family directory holds for this person and
+     * wins, because it is what every other device in the family shows. A stored
+     * name counts only when it really is a person's name. [familyName] is the
+     * one value that must never be presented as somebody's own name: the profile
+     * created during onboarding often carries it, and that is exactly what left
+     * the owner's name unreadable on the card.
+     */
+    fun chooseDisplayName(
+        canonicalName: String?,
+        storedName: String?,
+        familyName: String? = null
+    ): String {
+        return acceptableName(canonicalName, familyName)
+            ?: acceptableName(storedName, familyName)
+            ?: FALLBACK
+    }
+
+    private fun acceptableName(candidate: String?, familyName: String?): String? {
+        val normalized = candidate?.trim()?.takeIf(::isUsablePersonName) ?: return null
+        if (normalized.equals(familyName?.trim(), ignoreCase = true)) return null
+        return normalized
+    }
+
+    /**
+     * Whether a value can honestly stand on the card as a person's own name.
+     *
+     * Device identifiers such as `child-63d15754` and `device_1...906d` are
+     * names only in the technical sense, and a blank value is no name at all.
+     */
+    fun isUsablePersonName(value: String): Boolean {
+        val normalized = value.trim()
+        if (normalized.isEmpty()) return false
+        if (normalized.startsWith("child-", ignoreCase = true)) return false
+        if (normalized.startsWith("device_", ignoreCase = true)) return false
+        return normalized.any(Char::isLetter)
+    }
+}
+
 class ParentMonitorProfileManager(private val context: Context) {
 
     companion object {
@@ -158,6 +227,63 @@ class ParentMonitorProfileManager(private val context: Context) {
             updatedAt = System.currentTimeMillis()
         )
     }
+
+    /**
+     * Decides what the person card shows about its owner.
+     *
+     * The stored profile name was created during onboarding, where a family that
+     * had no name of its own was called after the family ("Семья"), and that
+     * value is what ended up on a card that is about a person. A caller that has
+     * read the authoritative name from the family directory passes it in as
+     * [canonicalName]; a name that is not a name is dropped in favour of the
+     * neutral fallback rather than being presented as somebody's own name.
+     */
+    fun resolveOwnProfileCard(canonicalName: String?, familyName: String? = null): ParentOwnProfileCard {
+        val activeProfile = getActiveProfile()
+        val linkedChildId = activeProfile?.linkedChildDeviceId?.takeIf(String::isNotBlank)
+            ?: resolveCurrentChildId().takeIf(String::isNotBlank)
+        val linkedChildName = activeProfile?.linkedChildDisplayName?.takeIf(String::isNotBlank)
+            ?: resolveLinkedChildDisplayName(
+                childDeviceId = linkedChildId.orEmpty(),
+                serverUrl = activeProfile?.serverUrl?.takeIf(String::isNotBlank)
+                    ?: resolveCurrentServerUrl(),
+                ownParentDeviceId = activeProfile?.ownParentDeviceId?.takeIf(String::isNotBlank)
+                    ?: resolveCurrentParentId()
+            ).takeIf(::isUsablePersonName)
+
+        return ParentOwnProfileCard(
+            name = resolveOwnProfileDisplayName(canonicalName, activeProfile?.name, familyName),
+            hasLinkedChild = linkedChildId != null,
+            linkedChildName = linkedChildName
+        )
+    }
+
+    /**
+     * Picks the name for the person card, in the order of that authority.
+     *
+     * The family directory first, because it is what the server and every other
+     * device in the family show; then the stored profile name, but only when it
+     * really is a person's name; then a neutral label. The rule itself lives in
+     * [ParentMonitorProfileNameRules], where a unit test pins it down.
+     */
+    private fun resolveOwnProfileDisplayName(
+        canonicalName: String?,
+        storedName: String?,
+        familyName: String?
+    ): String {
+        val resolved = ParentMonitorProfileNameRules.chooseDisplayName(
+            canonicalName = canonicalName,
+            storedName = storedName,
+            familyName = familyName
+        )
+        if (resolved != ParentMonitorProfileNameRules.FALLBACK) return resolved
+        // The label is the one string here that must exist as a resource, so the
+        // translated value is used whenever the fallback is the answer.
+        return context.getString(R.string.profile_card_name_fallback)
+    }
+
+    private fun isUsablePersonName(value: String): Boolean =
+        ParentMonitorProfileNameRules.isUsablePersonName(value)
 
     fun buildSuggestedProfileName(
         linkedChildDisplayName: String,

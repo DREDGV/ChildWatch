@@ -9,6 +9,7 @@ import ru.childwatch.shared.family.FamilyDevice
 import ru.childwatch.shared.family.FamilyDirectoryAssembler
 import ru.childwatch.shared.family.FamilyDirectorySnapshot
 import ru.childwatch.shared.family.FamilyMember
+import ru.childwatch.shared.family.FamilyPersonProfile
 import ru.childwatch.shared.family.FamilyRole
 import ru.childwatch.shared.family.StableContextIds
 import ru.example.childwatch.contacts.ContactRoles
@@ -75,6 +76,28 @@ class ParentFamilyDirectoryRepository(context: Context) {
     }
 
     /**
+     * The person this device belongs to, read from an already loaded directory.
+     *
+     * A screen that holds a [FamilyDirectorySnapshot] must not show a different
+     * name from the one the rest of the family sees, so the person is looked up
+     * by this device's own member id — the same identity [loadFromServer] used
+     * when it assembled the snapshot. The fallback keeps the picture when an
+     * older stored family identity no longer matches any member.
+     */
+    fun ownPerson(
+        directory: FamilyDirectorySnapshot,
+        selfMemberId: String?,
+        fallbackSelfDeviceId: String?
+    ): FamilyPersonProfile? {
+        val ownSelfMemberId = contextResolver.resolveSelfMemberId()
+            ?.trim()
+            ?.takeIf(String::isNotBlank)
+            ?: selfMemberId?.trim()?.takeIf(String::isNotBlank)
+            ?: directory.selfMemberId?.trim()?.takeIf(String::isNotBlank)
+        return directory.person(ownSelfMemberId) ?: directory.personByDeviceId(fallbackSelfDeviceId)
+    }
+
+    /**
      * Persist the human profile represented by [deviceId] in the canonical
      * family directory. Device-local content URIs deliberately remain local;
      * only portable preset avatar keys can be shared by another phone.
@@ -100,6 +123,47 @@ class ParentFamilyDirectoryRepository(context: Context) {
         return response.isSuccessful && response.body()?.success == true
     }
 
+    /**
+     * Reads this device's own name and picture from the family.
+     *
+     * The editor needs the picture that is actually stored, otherwise it would open
+     * with nothing selected and a save would clear what the person already had.
+     */
+    suspend fun loadOwnProfile(): Pair<String, String?>? {
+        val identity = runCatching { networkClient.getAuthenticatedIdentity() }
+            .getOrNull()
+            ?.takeIf { it.isSuccessful }
+            ?.body()
+            ?: return null
+        val preferredFamilyId = contextResolver.resolveFamilyId().orEmpty().trim()
+        val membership = identity.memberships.firstOrNull { it.familyId == preferredFamilyId }
+            ?: identity.memberships.firstOrNull()
+            ?: return null
+        return membership.member.displayName to membership.member.avatarKey
+    }
+
+    /**
+     * The member id that this device's own person has in the family directory.
+     *
+     * [loadOwnProfile] reads the same membership but returns only the name and
+     * the picture. A screen that already holds a [FamilyDirectorySnapshot] can
+     * find the same person with this id, which keeps one source of truth for the
+     * person instead of two lookups that could disagree.
+     */
+    suspend fun ownMemberId(): String? {
+        contextResolver.resolveSelfMemberId()?.trim()?.takeIf(String::isNotBlank)?.let { return it }
+        val identity = runCatching { networkClient.getAuthenticatedIdentity() }
+            .getOrNull()
+            ?.takeIf { it.isSuccessful }
+            ?.body()
+            ?: return null
+        val preferredFamilyId = contextResolver.resolveFamilyId().orEmpty().trim()
+        val membership = identity.memberships.firstOrNull { it.familyId == preferredFamilyId }
+            ?: identity.memberships.firstOrNull()
+            ?: return null
+        return membership.memberId.trim().takeIf(String::isNotBlank)
+    }
+
     suspend fun updateOwnProfile(displayName: String, avatarValue: String?): Boolean {
         val normalizedName = displayName.trim()
         if (normalizedName.length < 2) return false
@@ -121,18 +185,18 @@ class ParentFamilyDirectoryRepository(context: Context) {
         return response.isSuccessful && response.body()?.success == true
     }
 
+    /**
+     * Accepts a picture only when it is one of the built-in avatars.
+     *
+     * The list used to be written out here and named six old values, so every one
+     * of the current avatars was silently dropped and the choice appeared not to
+     * save. The shared catalog now decides, which is the same rule the server and
+     * both applications use.
+     */
     private fun String?.toPortableAvatarKey(): String? = this
         ?.trim()
-        ?.takeIf { value ->
-            value in setOf(
-                "preset:sky",
-                "preset:mint",
-                "preset:sun",
-                "preset:coral",
-                "preset:lilac",
-                "preset:ocean"
-            )
-        }
+        ?.takeIf { it.isNotEmpty() }
+        ?.takeIf { FamilyAvatarRenderer.isPreset(it) }
 
     private suspend fun loadFromServer(
         localChildren: List<Child>,

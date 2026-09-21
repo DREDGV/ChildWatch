@@ -11,6 +11,8 @@ data class ChildDeviceProfile(
     val serverUrl: String,
     val ownChildDeviceId: String,
     val linkedParentDeviceId: String,
+    /** Portable avatar preset, for example `preset:corgi`; absent means unset. */
+    val avatarKey: String? = null,
     val updatedAt: Long = System.currentTimeMillis()
 )
 
@@ -71,13 +73,15 @@ class ChildDeviceProfileManager(private val context: Context) {
         name: String,
         serverUrl: String,
         ownChildDeviceId: String,
-        linkedParentDeviceId: String
+        linkedParentDeviceId: String,
+        avatarKey: String? = null
     ): ChildDeviceProfile {
         return sessionStore.buildSession(
             name = name,
             serverUrl = serverUrl,
             ownChildDeviceId = ownChildDeviceId,
-            linkedParentDeviceId = linkedParentDeviceId
+            linkedParentDeviceId = linkedParentDeviceId,
+            avatarKey = avatarKey
         ).toProfile()
     }
 
@@ -94,6 +98,7 @@ class ChildDeviceProfileManager(private val context: Context) {
             serverUrl = serverUrl,
             ownChildDeviceId = ownChildDeviceId,
             linkedParentDeviceId = linkedParentDeviceId,
+            avatarKey = avatarKey,
             updatedAt = updatedAt
         )
     }
@@ -105,6 +110,7 @@ class ChildDeviceProfileManager(private val context: Context) {
             serverUrl = serverUrl,
             ownChildDeviceId = ownChildDeviceId,
             linkedParentDeviceId = linkedParentDeviceId,
+            avatarKey = avatarKey,
             updatedAt = updatedAt
         )
     }

@@ -39,11 +39,22 @@ class ParentOnboardingSyncWorker(
         private const val KEY_AVATAR_VALUE = "avatar_value"
         private const val KEY_SYNC_PENDING = "onboarding_sync_pending"
 
+        /**
+         * Whether the person asked for a new family at setup.
+         *
+         * Kept as an explicit instruction rather than derived from "no membership
+         * found": a phone without a membership is usually a phone that means to
+         * join an existing family, and creating one on its behalf put the person in
+         * a family of their own with no way to reach the real one.
+         */
+        private const val KEY_MAY_CREATE_FAMILY = "may_create_family"
+
         fun enqueue(
             context: Context,
             familyName: String,
             displayName: String,
-            avatarValue: String
+            avatarValue: String,
+            mayCreateFamily: Boolean = false
         ) {
             val request = OneTimeWorkRequestBuilder<ParentOnboardingSyncWorker>()
                 .setInputData(
@@ -67,6 +78,7 @@ class ParentOnboardingSyncWorker(
                 .putString(KEY_FAMILY_NAME, familyName)
                 .putString(KEY_DISPLAY_NAME, displayName)
                 .putString(KEY_AVATAR_VALUE, avatarValue)
+                .putBoolean(KEY_MAY_CREATE_FAMILY, mayCreateFamily)
                 .apply()
             WorkManager.getInstance(context).enqueueUniqueWork(
                 UNIQUE_WORK_NAME,
@@ -119,7 +131,15 @@ class ParentOnboardingSyncWorker(
                 .orEmpty()
                 .ifBlank { parent?.avatarUrl?.trim().orEmpty() }
 
-            enqueue(appContext, familyName, displayName, avatarValue)
+            enqueue(
+                appContext,
+                familyName,
+                displayName,
+                avatarValue,
+                // Restored from the same durable state, so a retry after an outage
+                // cannot create a family the person never asked for.
+                mayCreateFamily = prefs.getBoolean(KEY_MAY_CREATE_FAMILY, false)
+            )
             true
         }
     }
@@ -131,6 +151,7 @@ class ParentOnboardingSyncWorker(
             .ifEmpty { applicationContext.getString(ru.example.childwatch.R.string.parent_setup_default_name) }
         val avatarValue = inputData.getString(KEY_AVATAR_VALUE).orEmpty().trim()
         val portableAvatar = avatarValue.takeIf { it.startsWith("preset:") }
+        val mayCreateFamily = inputData.getBoolean(KEY_MAY_CREATE_FAMILY, false)
 
         try {
             val networkClient = NetworkClient(applicationContext)
@@ -150,6 +171,18 @@ class ParentOnboardingSyncWorker(
                 .firstOrNull()
 
             val member = when {
+                existing == null && !mayCreateFamily -> {
+                    // The phone belongs to no family and nobody asked for a new one.
+                    // Leave it alone: the setup screen offers joining an existing
+                    // family, and nothing here may decide that on the person's behalf.
+                    Log.i(
+                        TAG,
+                        "No family membership and creating one was not requested; " +
+                            "leaving setup to the person"
+                    )
+                    return@withContext Result.success()
+                }
+
                 existing == null -> {
                     val response = networkClient.bootstrapFamily(
                         FamilyBootstrapRequest(
@@ -180,22 +213,46 @@ class ParentOnboardingSyncWorker(
                 }
 
                 else -> {
-                    val response = networkClient.updateFamilyMemberProfile(
-                        familyId = existing.familyId,
-                        memberId = existing.memberId,
-                        displayName = displayName,
-                        avatarKey = portableAvatar
-                    )
-                    if (!response.isSuccessful || response.body()?.success != true) {
-                        return@withContext Result.retry()
+                    // Only what actually differs is sent. An unconditional write used to
+                    // push the name cached on this phone over whatever the family held, so
+                    // a phone carrying an older name silently renamed the person for
+                    // everybody — which is how "Папа" became "Григорий" after a phone move.
+                    val nameChanged = displayName != existing.member.displayName.trim()
+                    val avatarChanged = portableAvatar != null &&
+                        portableAvatar != existing.member.avatarKey
+                    if (!nameChanged && !avatarChanged) {
+                        Log.i(TAG, "Profile already matches the family; nothing to send")
+                        OnboardingMemberData(
+                            id = existing.member.id,
+                            familyId = existing.familyId,
+                            displayName = existing.member.displayName,
+                            role = existing.member.role,
+                            avatarKey = existing.member.avatarKey
+                        )
+                    } else {
+                        val response = networkClient.updateFamilyMemberProfile(
+                            familyId = existing.familyId,
+                            memberId = existing.memberId,
+                            // Sending the name only when it changed keeps a phone with an
+                            // older copy from overwriting a newer one.
+                            displayName = displayName.takeIf { nameChanged },
+                            // The picture follows the same rule, and it has to: this value is
+                            // empty whenever the choice on this phone is a device-local image
+                            // or was never read, and sending that empty value deletes the
+                            // picture the family holds even though nothing changed.
+                            avatarKey = portableAvatar.takeIf { avatarChanged }
+                        )
+                        if (!response.isSuccessful || response.body()?.success != true) {
+                            return@withContext Result.retry()
+                        }
+                        OnboardingMemberData(
+                            id = existing.member.id,
+                            familyId = existing.familyId,
+                            displayName = displayName,
+                            role = existing.member.role,
+                            avatarKey = portableAvatar ?: existing.member.avatarKey
+                        )
                     }
-                    OnboardingMemberData(
-                        id = existing.member.id,
-                        familyId = existing.familyId,
-                        displayName = displayName,
-                        role = existing.member.role,
-                        avatarKey = portableAvatar ?: existing.member.avatarKey
-                    )
                 }
             }
 

@@ -88,14 +88,52 @@ class ParentSetupActivity : AppCompatActivity() {
         val nameLocales = LocaleList.forLanguageTags("ru-RU,en-US")
         binding.nameInput.imeHintLocales = nameLocales
         binding.familyNameInput.imeHintLocales = nameLocales
+        binding.invitationInput.imeHintLocales = nameLocales
         FamilyAvatarRenderer.bind(binding.avatarImage, selectedAvatarValue)
         setupAvatarPresetChoices()
         binding.changeAvatarButton.setOnClickListener {
             showAvatarSourcePicker()
         }
-        binding.continueButton.setOnClickListener { validateAndCreateFamily() }
+        // Which of the two ways in is chosen decides what the button does, so the
+        // person never has to guess whether they are creating a family or joining one.
+        binding.createFamilyRadio.setOnClickListener { applySetupMode() }
+        binding.joinFamilyRadio.setOnClickListener { applySetupMode() }
+        binding.continueButton.setOnClickListener {
+            if (binding.joinFamilyRadio.isChecked) {
+                acceptInvitationValue(binding.invitationInput.text?.toString())
+            } else {
+                validateAndCreateFamily()
+            }
+        }
         binding.configureLaterButton.setOnClickListener { configureLater() }
         binding.skipButton.setOnClickListener { showInvitationEntry() }
+        applySetupMode()
+    }
+
+    /**
+     * Shows only the field the chosen way in needs.
+     *
+     * Creating asks for a family name; joining asks for the code from a member of
+     * the family that already exists.
+     */
+    private fun applySetupMode() {
+        val joining = binding.joinFamilyRadio.isChecked
+        binding.familyNameInputLayout.visibility = if (joining) android.view.View.GONE else android.view.View.VISIBLE
+        binding.invitationInputLayout.visibility = if (joining) android.view.View.VISIBLE else android.view.View.GONE
+        binding.continueButton.text = getString(
+            if (joining) {
+                R.string.parent_setup_join_family
+            } else {
+                R.string.parent_setup_create_family
+            }
+        )
+        binding.skipButton.text = getString(
+            if (joining) {
+                R.string.parent_setup_no_invitation
+            } else {
+                R.string.parent_setup_have_invitation
+            }
+        )
     }
 
     private fun setupAvatarPresetChoices() {
@@ -238,7 +276,15 @@ class ParentSetupActivity : AppCompatActivity() {
             if (phone.isNotEmpty() && phone.length < 10) "Неверный формат телефона" else null
         if (binding.phoneInputLayout.error != null) return
 
-        completeLocallyAndScheduleSync(familyName, name, email, phone)
+        completeLocallyAndScheduleSync(
+            familyName = familyName,
+            name = name,
+            email = email,
+            phone = phone,
+            // The person chose to start a family here, so this is the one place
+            // allowed to create one on the server.
+            createNewFamily = true
+        )
     }
 
     private fun configureLater() {
@@ -255,12 +301,21 @@ class ParentSetupActivity : AppCompatActivity() {
         )
     }
 
+    /**
+     * Saves the setup on this phone and asks for it to be synchronised.
+     *
+     * @param createNewFamily true only when the person asked for a new family. It
+     *        must not be inferred from the absence of a membership: that is how a
+     *        phone used to create a family of its own during setup, leaving the
+     *        person in the wrong family with no way back.
+     */
     private fun completeLocallyAndScheduleSync(
         familyName: String,
         name: String,
         email: String,
         phone: String,
-        completionMessage: String? = null
+        completionMessage: String? = null,
+        createNewFamily: Boolean = false
     ) {
         val avatarValue = selectedAvatarValue
         getSharedPreferences(PREFS_NAME, MODE_PRIVATE).edit()
@@ -297,7 +352,8 @@ class ParentSetupActivity : AppCompatActivity() {
                     context = applicationContext,
                     familyName = familyName,
                     displayName = name,
-                    avatarValue = avatarValue
+                    avatarValue = avatarValue,
+                    mayCreateFamily = createNewFamily
                 )
             } catch (error: Exception) {
                 Log.e(TAG, "Deferred family setup failed", error)

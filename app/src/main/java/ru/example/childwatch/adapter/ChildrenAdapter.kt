@@ -186,7 +186,7 @@ class ChildrenAdapter(
             FamilyAvatarRenderer.bind(
                 view = childAvatar,
                 avatarValue = avatar,
-                fallbackRes = ContactIcons.resolve(option?.markerIconId ?: child.iconId, child.role)
+                displayName = option?.displayName ?: child.name
             )
         }
 

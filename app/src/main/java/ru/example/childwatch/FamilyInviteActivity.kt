@@ -9,11 +9,14 @@ import android.os.Bundle
 import android.os.LocaleList
 import android.view.View
 import android.widget.ArrayAdapter
+import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.imageview.ShapeableImageView
+import com.google.android.material.shape.ShapeAppearanceModel
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import kotlinx.coroutines.launch
@@ -39,9 +42,17 @@ class FamilyInviteActivity : AppCompatActivity() {
     private var legacyCandidates: List<FamilyLegacyMigrationCandidateData> = emptyList()
     private var selectedExistingIndex = 0
     private var selectedLegacyIndex = 0
-    private var selectedRoleIndex = 0
-    private var selectedAvatarValue = FamilyAvatarRenderer.presets.first().storageValue
+    /**
+     * Which role the invitation offers.
+     *
+     * Starts on «Родитель»: an adult inviting somebody is usually inviting another
+     * adult, and the list used to start on «Ребёнок», so a second parent was easily
+     * created as a child. Any role can still be chosen.
+     */
+    private var selectedRoleIndex = 1
+    private var selectedAvatarValue = FamilyAvatarRenderer.selectableValues().first()
     private var invitationUri: String? = null
+    private var avatarViews: List<ShapeableImageView> = emptyList()
     private val roleLabels = listOf("Ребёнок", "Родитель", "Родственник")
     private val roleValues = listOf("CHILD", "PARENT", "GUARDIAN")
 
@@ -59,26 +70,14 @@ class FamilyInviteActivity : AppCompatActivity() {
         binding.inviteRoleInput.setAdapter(
             ArrayAdapter(this, android.R.layout.simple_dropdown_item_1line, roleLabels)
         )
-        binding.inviteRoleInput.setText(roleLabels.first(), false)
+        binding.inviteRoleInput.setText(roleLabels[selectedRoleIndex], false)
         binding.inviteRoleInput.setOnItemClickListener { _, _, position, _ ->
             selectedRoleIndex = position
         }
         setupAvatarChoices()
-        binding.inviteModeGroup.setOnCheckedChangeListener { _, checkedId ->
-            val existing = checkedId == R.id.inviteExistingPersonRadio
-            val legacy = checkedId == R.id.inviteLegacyProfileRadio
-            binding.inviteExistingLayout.visibility = if (existing) View.VISIBLE else View.GONE
-            binding.inviteLegacyCandidateLayout.visibility =
-                if (legacy) View.VISIBLE else View.GONE
-            binding.inviteNameLayout.visibility = if (existing) View.GONE else View.VISIBLE
-            binding.inviteRoleLayout.visibility = if (existing) View.GONE else View.VISIBLE
-            binding.inviteAvatarSection.visibility = if (existing) View.GONE else View.VISIBLE
-            binding.createInvitationButton.text =
-                if (legacy) "Подтвердить профиль" else "Создать приглашение"
-            if (legacy) applySelectedLegacyCandidate()
-            clearResult()
-        }
+        binding.inviteModeGroup.setOnCheckedChangeListener { _, _ -> applyModeState() }
         binding.createInvitationButton.setOnClickListener { createInvitation() }
+        binding.retryLoadButton.setOnClickListener { loadFamily() }
         binding.manageInvitationsButton.setOnClickListener { showActiveInvitations() }
         binding.transferDeviceButton.setOnClickListener { showDeviceTransferWizard() }
         binding.copyInvitationButton.setOnClickListener {
@@ -87,6 +86,31 @@ class FamilyInviteActivity : AppCompatActivity() {
             clipboard.setPrimaryClip(ClipData.newPlainText("ChildWatch invitation", value))
             Toast.makeText(this, "Приглашение скопировано", Toast.LENGTH_SHORT).show()
         }
+        // The checked state declared in the XML is not reported to the listener
+        // when it is attached, so the form could show one mode while the other
+        // was actually selected. The state is applied explicitly here.
+        applyModeState()
+    }
+
+    /**
+     * The single place that decides what the mode-dependent fields show.
+     *
+     * Reading the live checked state instead of a callback argument keeps the
+     * screen consistent even when the selection was restored by the framework
+     * rather than made by the user.
+     */
+    private fun applyModeState() {
+        val legacy = binding.inviteLegacyProfileRadio.isChecked
+        val existing = binding.inviteExistingPersonRadio.isChecked
+        binding.inviteExistingLayout.visibility = if (existing) View.VISIBLE else View.GONE
+        binding.inviteLegacyCandidateLayout.visibility = if (legacy) View.VISIBLE else View.GONE
+        binding.inviteNameLayout.visibility = if (existing) View.GONE else View.VISIBLE
+        binding.inviteRoleLayout.visibility = if (existing) View.GONE else View.VISIBLE
+        binding.inviteAvatarSection.visibility = if (existing) View.GONE else View.VISIBLE
+        binding.createInvitationButton.text =
+            if (legacy) "Подтвердить профиль" else "Создать приглашение"
+        if (legacy) applySelectedLegacyCandidate()
+        clearResult()
     }
 
     private fun showActiveInvitations() {
@@ -282,16 +306,14 @@ class FamilyInviteActivity : AppCompatActivity() {
 
     private fun loadFamily() {
         showLoading(true)
+        showLoadFailure(null)
         lifecycleScope.launch {
             val result = runCatching { directoryRepository.load() }.getOrNull()
             if (result == null || result.source != ParentFamilyDirectorySource.SERVER) {
                 showLoading(false)
                 binding.createInvitationButton.isEnabled = false
-                Toast.makeText(
-                    this@FamilyInviteActivity,
-                    "Сначала дождитесь связи с семейным сервером",
-                    Toast.LENGTH_LONG
-                ).show()
+                // A bare disabled button gave no reason and no way forward.
+                showLoadFailure("Нет связи с семейным сервером. Проверьте интернет и повторите.")
                 return@launch
             }
             familyId = result.directory.family.id
@@ -312,7 +334,15 @@ class FamilyInviteActivity : AppCompatActivity() {
             }
             loadLegacyCandidates(result.directory.family.id)
             showLoading(false)
+            applyModeState()
         }
+    }
+
+    /** Shows the reason a load failed, together with a way to try again. */
+    private fun showLoadFailure(message: String?) {
+        binding.inviteStatusText.visibility = if (message == null) View.GONE else View.VISIBLE
+        binding.inviteStatusText.text = message.orEmpty()
+        binding.retryLoadButton.visibility = if (message == null) View.GONE else View.VISIBLE
     }
 
     private suspend fun loadLegacyCandidates(currentFamilyId: String) {
@@ -497,38 +527,50 @@ class FamilyInviteActivity : AppCompatActivity() {
         const val DEBUG_LAST_INVITATION_URI = "last_invitation_uri"
     }
 
+    /**
+     * Builds one avatar view per preset.
+     *
+     * The layout used to hold six fixed slots, so nineteen of the twenty-five
+     * presets the app can render were unreachable, and the six visible ones
+     * happened to be exactly the ones the server used to reject. The row is
+     * filled from the preset list so the two can no longer disagree, and each
+     * view gets enough spacing that the last one is fully visible.
+     */
     private fun setupAvatarChoices() {
-        val views = listOf(
-            binding.inviteAvatarPreset1,
-            binding.inviteAvatarPreset2,
-            binding.inviteAvatarPreset3,
-            binding.inviteAvatarPreset4,
-            binding.inviteAvatarPreset5,
-            binding.inviteAvatarPreset6
-        )
-        FamilyAvatarRenderer.presets.zip(views).forEach { (preset, view) ->
-            FamilyAvatarRenderer.bind(view, preset.storageValue)
-            view.setOnClickListener {
-                selectedAvatarValue = preset.storageValue
-                refreshAvatarChoices()
-                clearResult()
+        val row = binding.inviteAvatarRow
+        row.removeAllViews()
+        val density = resources.displayMetrics.density
+        val size = (56 * density).toInt()
+        val spacing = (10 * density).toInt()
+        avatarViews = FamilyAvatarRenderer.presets.mapIndexed { index, preset ->
+            val view = ShapeableImageView(this).apply {
+                layoutParams = LinearLayout.LayoutParams(size, size).apply {
+                    if (index > 0) marginStart = spacing
+                }
+                shapeAppearanceModel = ShapeAppearanceModel.builder()
+                    .setAllCornerSizes(size / 2f)
+                    .build()
+                contentDescription = getString(
+                    R.string.family_profile_avatar_preset_description,
+                    index + 1
+                )
+                setOnClickListener {
+                    selectedAvatarValue = preset.storageValue
+                    refreshAvatarChoices()
+                    clearResult()
+                }
             }
+            FamilyAvatarRenderer.bind(view, preset.storageValue)
+            row.addView(view)
+            view
         }
         refreshAvatarChoices()
     }
 
     private fun refreshAvatarChoices() {
-        val views = listOf(
-            binding.inviteAvatarPreset1,
-            binding.inviteAvatarPreset2,
-            binding.inviteAvatarPreset3,
-            binding.inviteAvatarPreset4,
-            binding.inviteAvatarPreset5,
-            binding.inviteAvatarPreset6
-        )
         val primary = ContextCompat.getColor(this, R.color.cw_color_primary)
         val outline = ContextCompat.getColor(this, R.color.cw_color_outline_variant)
-        FamilyAvatarRenderer.presets.zip(views).forEach { (preset, view) ->
+        FamilyAvatarRenderer.presets.zip(avatarViews).forEach { (preset, view) ->
             val selected = preset.storageValue == selectedAvatarValue
             view.strokeColor = ColorStateList.valueOf(if (selected) primary else outline)
             view.strokeWidth = (if (selected) 3f else 1f) * resources.displayMetrics.density

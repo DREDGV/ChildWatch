@@ -7,12 +7,23 @@ import android.widget.ImageView
 import androidx.annotation.DrawableRes
 import androidx.core.content.ContextCompat
 import ru.example.childwatch.designsystem.AvatarPresetCatalog
+import ru.example.childwatch.designsystem.LetterAvatarFactory
 import ru.example.childwatch.R
 
 data class FamilyAvatarPreset(val storageValue: String, @DrawableRes val drawableRes: Int)
 
 /** Renders one stored avatar value consistently in every parent feature. */
 object FamilyAvatarRenderer {
+    /**
+     * The avatars offered for choosing, in the order they are shown.
+     *
+     * Held as plain values rather than as drawable resources: the artwork comes
+     * from the shared sheet through [drawable]. An earlier version associated each
+     * value with one of six legacy images, so a picker built from that list showed
+     * six repeated pictures instead of the twenty-five actual avatars.
+     */
+    fun selectableValues(): List<String> = AvatarPresetCatalog.keys()
+
     private val legacyPresets = listOf(
         FamilyAvatarPreset("preset:sky", R.drawable.avatar_family_sky),
         FamilyAvatarPreset("preset:mint", R.drawable.avatar_family_mint),
@@ -50,35 +61,36 @@ object FamilyAvatarRenderer {
         FamilyAvatarPreset("preset:cloud", R.drawable.avatar_family_sky)
     )
 
-    fun bind(view: ImageView, avatarValue: String?, @DrawableRes fallbackRes: Int = R.drawable.avatar_family_mint) {
+    /**
+     * Renders [avatarValue] when it resolves to a picture, otherwise a letter
+     * avatar for [displayName].
+     *
+     * The letter fallback replaces the previous behaviour of drawing one of the
+     * legacy preset images (or a blank silhouette) for every person, which is
+     * why chat rows looked like a row of identical figures.
+     */
+    fun bind(
+        view: ImageView,
+        avatarValue: String?,
+        displayName: String? = null,
+        @DrawableRes fallbackRes: Int = R.drawable.avatar_family_mint
+    ) {
         view.imageTintList = null
-        val value = avatarValue?.trim().orEmpty()
-        AvatarPresetCatalog.createDrawable(view.context, value)?.let { view.setImageDrawable(it); return }
-        preset(value)?.let { view.setImageResource(it.drawableRes); return }
-        legacyPreset(value)?.let { view.setImageResource(it.drawableRes); return }
-        if (value.isNotBlank()) {
-            runCatching {
-                view.setImageDrawable(null)
-                view.setImageURI(Uri.parse(value))
-                checkNotNull(view.drawable)
-            }.onSuccess { return }
-        }
-        view.setImageResource(fallbackRes)
+        drawable(view.context, avatarValue)?.let { view.setImageDrawable(it); return }
+        view.setImageDrawable(LetterAvatarFactory.create(view.context, displayName))
     }
 
-    fun drawable(context: Context, avatarValue: String?, @DrawableRes fallbackRes: Int): Drawable? {
+    /** Preset picture for a stored value, or null when the value is not one. */
+    fun drawable(context: Context, avatarValue: String?): Drawable? {
         val value = avatarValue?.trim().orEmpty()
+        if (value.isBlank()) return null
         AvatarPresetCatalog.createDrawable(context, value)?.let { return it }
-        preset(value)?.let { return ContextCompat.getDrawable(context, it.drawableRes) }
         legacyPreset(value)?.let { return ContextCompat.getDrawable(context, it.drawableRes) }
-        if (value.isNotBlank()) {
-            runCatching {
-                context.contentResolver.openInputStream(Uri.parse(value))?.use { stream ->
-                    Drawable.createFromStream(stream, value)
-                }
-            }.getOrNull()?.let { return it }
-        }
-        return ContextCompat.getDrawable(context, fallbackRes)
+        return runCatching {
+            context.contentResolver.openInputStream(Uri.parse(value))?.use { stream ->
+                Drawable.createFromStream(stream, value)
+            }
+        }.getOrNull()
     }
 
     fun isPreset(value: String?): Boolean = AvatarPresetCatalog.isPreset(value) || legacyPreset(value.orEmpty()) != null
