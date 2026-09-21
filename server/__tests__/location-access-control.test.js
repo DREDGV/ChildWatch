@@ -215,6 +215,43 @@ describe("location access control", () => {
     expect(spoofed.status).toBe(403);
   });
 
+  test("accepts the parent position written under the bare android id", async () => {
+    // ParentMonitor uploads its own position as "<androidId>" while its device
+    // token is registered as "device_<androidId>". Refusing that stopped the
+    // parent position from being stored.
+    //
+    // The row is stored under the id from the request on purpose: the parent map
+    // reads its own position back with that same id, so rewriting it to the
+    // token spelling would make the write and the read disagree again.
+    const bareAndroidId = "15e991bb5d8f906d";
+    const prefixedToken = `device_${bareAndroidId}`;
+    await db.registerDevice(prefixedToken, {
+      device_name: "Parent",
+      device_type: "android",
+      app_version: "7.3.0",
+    });
+
+    const upload = await requestJson(server, `/api/location/parent/${bareAndroidId}`, prefixedToken, {
+      method: "POST",
+      body: { latitude: 55.9, longitude: 92.8, accuracy: 12, timestamp: Date.now() },
+    });
+    expect(upload.status).toBe(200);
+
+    const stored = await db.get(
+      "SELECT parent_id FROM parent_locations ORDER BY timestamp DESC LIMIT 1"
+    );
+    expect(stored.parent_id).toBe(bareAndroidId);
+
+    // And the same spelling reads it back, which is what the map relies on.
+    const latest = await requestJson(
+      server,
+      `/api/location/parent/latest/${bareAndroidId}`,
+      prefixedToken
+    );
+    expect(latest.status).toBe(200);
+    expect(latest.body.location).toMatchObject({ latitude: 55.9, longitude: 92.8 });
+  });
+
   test("lets a linked parent read the parent position it uploaded", async () => {
     await db.upsertDeviceLink({ parentDeviceId, childDeviceId });
 

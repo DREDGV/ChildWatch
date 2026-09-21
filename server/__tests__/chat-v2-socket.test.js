@@ -1,4 +1,4 @@
-const ChatConversationService = require("../services/ChatConversationService");
+﻿const ChatConversationService = require("../services/ChatConversationService");
 const ChatV2SocketService = require("../services/ChatV2SocketService");
 const WebSocketManager = require("../managers/WebSocketManager");
 
@@ -468,5 +468,138 @@ describe("chat v2 WebSocket protocol", () => {
     expect(bridge.registerSocket).toHaveBeenCalledWith(socket);
     expect(socket.handlers.has("chat_message")).toBe(true);
     expect(socket.handlers.has("chat_message_status")).toBe(true);
+  });
+
+  /**
+   * The typing indicator could never appear: both applications sent
+   * `typing_start` / `typing_stop`, but nothing on the server listened for them.
+   * These cover the relay that now carries it.
+   */
+  describe("typing indicator", () => {
+    let sockets;
+    let io;
+    let chatService;
+    let socketService;
+    let parent;
+    let child;
+    let third;
+    let errorSpy;
+    let logSpy;
+
+    beforeEach(() => {
+      errorSpy = jest.spyOn(console, "error").mockImplementation(() => {});
+      logSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+      sockets = new Map();
+      io = { sockets: { sockets } };
+      chatService = createFakeChatService();
+      socketService = new ChatV2SocketService(io, chatService);
+      parent = new FakeSocket("parent-socket", "parent-device");
+      child = new FakeSocket("child-socket", "child-device");
+      third = new FakeSocket("third-socket", "third-device");
+      for (const socket of [parent, child, third]) {
+        sockets.set(socket.id, socket);
+        socketService.registerSocket(socket);
+      }
+    });
+
+    afterEach(() => {
+      errorSpy.mockRestore();
+      logSpy.mockRestore();
+    });
+
+    async function subscribe(socket, conversationId) {
+      await socket.trigger("chat_v2:subscribe", { conversationId });
+    }
+
+    function clearOutgoing(...targetSockets) {
+      for (const socket of targetSockets) socket.emit.mockClear();
+    }
+
+    it("tells the other participant that somebody is writing", async () => {
+      await subscribe(parent, "direct-conversation");
+      await subscribe(child, "direct-conversation");
+      clearOutgoing(parent, child);
+
+      await parent.trigger("chat_v2:typing", {
+        conversationId: "direct-conversation",
+        isTyping: true,
+      });
+      const toChild = child.payloads("chat_v2:typing");
+      expect(toChild).toHaveLength(1);
+      expect(toChild[0].isTyping).toBe(true);
+      expect(toChild[0].conversationId).toBe("direct-conversation");
+      // The sender does not need to be told that they themselves are typing.
+      expect(parent.payloads("chat_v2:typing")).toHaveLength(0);
+    });
+
+    it("reports who is writing from the stored membership", async () => {
+      await subscribe(parent, "direct-conversation");
+      await subscribe(child, "direct-conversation");
+      clearOutgoing(parent, child);
+
+      await parent.trigger("chat_v2:typing", {
+        conversationId: "direct-conversation",
+        isTyping: true,
+        // A claim in the payload must not decide who appears to be writing.
+        actorDisplayName: "Somebody Else",
+        actorDeviceId: "child-device",
+      });
+
+      const toChild = child.payloads("chat_v2:typing");
+      expect(toChild).toHaveLength(1);
+      expect(toChild[0].actorDeviceId).toBe("parent-device");
+      expect(toChild[0].actorMemberId).toBe("parent-member");
+    });
+
+    it("relays when writing stops", async () => {
+      await subscribe(parent, "direct-conversation");
+      await subscribe(child, "direct-conversation");
+      clearOutgoing(parent, child);
+
+      await parent.trigger("chat_v2:typing", {
+        conversationId: "direct-conversation",
+        isTyping: false,
+      });
+
+      const toChild = child.payloads("chat_v2:typing");
+      expect(toChild).toHaveLength(1);
+      expect(toChild[0].isTyping).toBe(false);
+    });
+
+    it("does not reach somebody who is not in the conversation", async () => {
+      await subscribe(parent, "direct-conversation");
+      await subscribe(child, "direct-conversation");
+      await subscribe(third, "family-conversation");
+      clearOutgoing(parent, child, third);
+
+      await parent.trigger("chat_v2:typing", {
+        conversationId: "direct-conversation",
+        isTyping: true,
+      });
+
+      expect(third.payloads("chat_v2:typing")).toHaveLength(0);
+    });
+
+    it("refuses a device that is not a participant", async () => {
+      await subscribe(third, "direct-conversation").catch(() => {});
+      clearOutgoing(parent, child, third);
+
+      await third.trigger("chat_v2:typing", {
+        conversationId: "direct-conversation",
+        isTyping: true,
+      });
+
+      expect(parent.payloads("chat_v2:typing")).toHaveLength(0);
+      expect(child.payloads("chat_v2:typing")).toHaveLength(0);
+    });
+
+    it("ignores a report without a conversation", async () => {
+      clearOutgoing(parent, child);
+
+      await parent.trigger("chat_v2:typing", { isTyping: true });
+
+      expect(parent.payloads("chat_v2:typing")).toHaveLength(0);
+      expect(child.payloads("chat_v2:typing")).toHaveLength(0);
+    });
   });
 });

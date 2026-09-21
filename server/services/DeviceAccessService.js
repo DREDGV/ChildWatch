@@ -35,6 +35,42 @@ class DeviceAccessService {
   }
 
   /**
+   * True when two identifiers name the same physical device.
+   *
+   * The installed clients are inconsistent: a device token is registered as
+   * `device_<androidId>` while ParentMonitor still uploads its own position as
+   * `<androidId>`. Both spellings have been receiving writes in production, so
+   * treating them as different devices does not protect anything - it only
+   * refuses the device's own request.
+   *
+   * The equivalence is deliberately narrow: the prefix is only ignored when the
+   * remainder looks like a raw Android id (16 hex characters). Invented ids
+   * such as `child-c7d50e08` are never collapsed, so this cannot be used to
+   * reach a device that merely has a similar name.
+   */
+  isSameDevice(firstDeviceId, secondDeviceId) {
+    const first = this.normalizeDeviceId(firstDeviceId);
+    const second = this.normalizeDeviceId(secondDeviceId);
+    if (!first || !second) return false;
+    if (first === second) return true;
+
+    const firstBare = this.rawAndroidId(first);
+    const secondBare = this.rawAndroidId(second);
+    if (firstBare && firstBare === second) return true;
+    if (secondBare && secondBare === first) return true;
+    if (firstBare && secondBare && firstBare === secondBare) return true;
+    return false;
+  }
+
+  /** Returns the bare Android id behind `device_<androidId>`, or "" otherwise. */
+  rawAndroidId(deviceId) {
+    const normalized = this.normalizeDeviceId(deviceId);
+    if (!normalized.startsWith("device_")) return "";
+    const remainder = normalized.slice("device_".length);
+    return /^[0-9a-fA-F]{16}$/.test(remainder) ? remainder.toLowerCase() : "";
+  }
+
+  /**
    * @returns {Promise<{allowed: boolean, deviceId: string, code?: string}>}
    *   `deviceId` is the verified target, safe to act on.
    */
@@ -48,13 +84,43 @@ class DeviceAccessService {
     if (!requested) {
       return { allowed: false, deviceId: "", code: "MISSING_DEVICE_ID" };
     }
-    if (requested === caller) {
+    if (this.isSameDevice(requested, caller)) {
       return { allowed: true, deviceId: requested };
     }
-    if (await this.hasActiveLink(caller, requested)) {
+    if (await this.sharesLinkWithAnySpelling(caller, requested)) {
       return { allowed: true, deviceId: requested };
     }
     return { allowed: false, deviceId: "", code: "DEVICE_ACCESS_DENIED" };
+  }
+
+  /**
+   * Link lookup that tolerates the two identifier spellings on either side of
+   * the relationship, so an existing link keeps working regardless of which
+   * form each client sends.
+   */
+  async sharesLinkWithAnySpelling(callerDeviceId, requestedDeviceId) {
+    const callerForms = this.idForms(callerDeviceId);
+    const requestedForms = this.idForms(requestedDeviceId);
+    for (const caller of callerForms) {
+      for (const requested of requestedForms) {
+        if (caller === requested) continue;
+        if (await this.hasActiveLink(caller, requested)) return true;
+        if (await this.hasActiveLink(requested, caller)) return true;
+      }
+    }
+    return false;
+  }
+
+  /** All spellings of one device id that may appear in stored rows. */
+  idForms(deviceId) {
+    const normalized = this.normalizeDeviceId(deviceId);
+    if (!normalized) return [];
+    const bare = this.rawAndroidId(normalized);
+    if (bare) return [normalized, bare];
+    if (/^[0-9a-fA-F]{16}$/.test(normalized)) {
+      return [normalized, `device_${normalized.toLowerCase()}`];
+    }
+    return [normalized];
   }
 
   /**
@@ -92,21 +158,13 @@ class DeviceAccessService {
     if (!requested) {
       return { allowed: false, deviceId: "", code: "MISSING_DEVICE_ID" };
     }
-    if (requested === caller) {
+    if (this.isSameDevice(requested, caller)) {
       return { allowed: true, deviceId: requested };
     }
-    if (await this.hasAnyActiveLink(caller, requested)) {
+    if (await this.sharesLinkWithAnySpelling(caller, requested)) {
       return { allowed: true, deviceId: requested };
     }
     return { allowed: false, deviceId: "", code: "DEVICE_ACCESS_DENIED" };
-  }
-
-  /** True when either device is an active parent of the other. */
-  async hasAnyActiveLink(firstDeviceId, secondDeviceId) {
-    if (await this.hasActiveLink(firstDeviceId, secondDeviceId)) {
-      return true;
-    }
-    return this.hasActiveLink(secondDeviceId, firstDeviceId);
   }
 
   /** Express-friendly wrapper for {@link authorizeRelatedDeviceRead}. */

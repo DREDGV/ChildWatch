@@ -1,9 +1,9 @@
 const crypto = require("crypto");
+const { AVATAR_PATTERN } = require("./AvatarPresetCatalog");
 
 const FAMILY_ROLES = new Set(["PARENT", "CHILD", "GUARDIAN"]);
 const INVITATION_MODES = new Set(["NEW_MEMBER", "EXISTING_MEMBER"]);
 const CLIENT_KINDS = new Set(["PARENT_MONITOR", "CHILD_DEVICE"]);
-const AVATAR_PATTERN = /^preset:(sky|mint|sun|coral|lilac|ocean)$/;
 const DEFAULT_INVITATION_TTL_MS = 15 * 60 * 1000;
 const MAX_INVITATION_TTL_MS = 60 * 60 * 1000;
 

@@ -71,8 +71,92 @@ function createChatV2Routes(
     }
   });
 
-  router.post("/conversations/:id/receipts", async (req, res) => {
+  // Rewrites the caller's own recent message. Only the author may do this.
+  router.patch("/conversations/:id/messages/:messageId", async (req, res) => {
     try {
+      const result = await chatService.editMessage(
+        req.deviceId,
+        req.params.id,
+        req.params.messageId,
+        req.body
+      );
+      res.json({ success: true, ...result });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  /**
+   * Removes a message.
+   *
+   * `forEveryone=true` withdraws it for all participants and is limited to the
+   * author; without it the message is hidden for this device only, which is what
+   * "delete for me" means.
+   */
+  router.delete("/conversations/:id/messages/:messageId", async (req, res) => {
+    try {
+      const forEveryone =
+        String(req.query.forEveryone || "").toLowerCase() === "true";
+      const result = await chatService.deleteMessage(
+        req.deviceId,
+        req.params.id,
+        req.params.messageId,
+        { forEveryone }
+      );
+      res.json({ success: true, ...result });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  /**
+   * Shared settings of a group chat.
+   *
+   * A group is shared, so its name and picture come from the family and are the
+   * same for every participant. `canManage` tells the client whether to offer the
+   * editing actions at all.
+   */
+  router.get("/conversations/:id/group", async (req, res) => {
+    try {
+      const result = await chatService.getGroupSettings(
+        req.deviceId,
+        req.params.id
+      );
+      res.json({ success: true, ...result });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  // Renames the group for everyone. Only the administrator may do this.
+  router.patch("/conversations/:id/group", async (req, res) => {
+    try {
+      const result = await chatService.updateGroupTitle(
+        req.deviceId,
+        req.params.id,
+        req.body
+      );
+      res.json({ success: true, ...result });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  // Sets the shared picture of the group. Only the administrator may do this.
+  router.put("/conversations/:id/group/avatar", async (req, res) => {
+    try {
+      const result = await chatService.updateGroupAvatar(
+        req.deviceId,
+        req.params.id,
+        req.body
+      );
+      res.json({ success: true, ...result });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  router.post("/conversations/:id/receipts", async (req, res) => {    try {
       const result = await chatService.advanceReceipt(
         req.deviceId,
         req.params.id,

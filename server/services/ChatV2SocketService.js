@@ -10,6 +10,15 @@ const EVENTS = Object.freeze({
   MESSAGE: "chat_v2:message",
   RECEIPT: "chat_v2:receipt",
   RECEIPT_UPDATED: "chat_v2:receipt_updated",
+  /**
+   * Somebody is writing in a conversation.
+   *
+   * Both applications already sent `typing_start` / `typing_stop`, but nothing on
+   * the server listened for them, so the indicator could never appear. This is the
+   * event that actually travels; it is broadcast to the conversation's subscribers,
+   * so every participant of that conversation sees it and nobody outside it does.
+   */
+  TYPING: "chat_v2:typing",
   ERROR: "chat_v2:error",
 });
 
@@ -231,10 +240,19 @@ class ChatV2SocketService {
     return authorized.filter(Boolean);
   }
 
-  async broadcast(conversationId, eventName, payload) {
+  /**
+   * Sends an event to every subscriber of a conversation.
+   *
+   * @param options.exceptSocketId a socket that must not receive this event, used
+   *        when the event describes that socket's own action — telling somebody
+   *        that they themselves are writing would be noise, not information.
+   */
+  async broadcast(conversationId, eventName, payload, options = {}) {
     const sockets = await this.getAuthorizedSubscribers(conversationId);
     const deliveredSocketIds = new Set();
+    const exceptSocketId = options?.exceptSocketId || null;
     for (const socket of sockets) {
+      if (exceptSocketId && socket.id === exceptSocketId) continue;
       try {
         socket.emit(eventName, payload);
         deliveredSocketIds.add(socket.id);
@@ -403,6 +421,61 @@ class ChatV2SocketService {
     }
   }
 
+  /**
+   * Passes "somebody is writing" to the other participants of a conversation.
+   *
+   * The person is taken from the authenticated device, never from the payload, so
+   * a participant cannot make the indicator appear as somebody else. The event is
+   * only relayed when the sender is entitled to that conversation, and it is fanned
+   * out through the same subscriber list as messages, so a participant of another
+   * conversation never receives it.
+   *
+   * A failure here is not worth interrupting the person who is typing, so nothing is
+   * reported back as an error: sending a message must not depend on it.
+   */
+  async handleTyping(socket, raw, acknowledgement) {
+    const conversationId = this.normalizeId(raw?.conversationId);
+    const context = { operation: "typing", conversationId };
+
+    try {
+      const deviceId = this.requireAuthenticatedDeviceId(socket);
+      if (!conversationId) {
+        throw new Error("Conversation is required to report typing");
+      }
+
+      // Reading the conversation is what proves this device may take part in it.
+      // The identifier comes from the stored conversation, exactly as the
+      // subscription path does, so the event reaches the same subscriber list.
+      const actor = await this.chatService.resolveConversationActor(
+        deviceId,
+        conversationId
+      );
+      const canonicalConversationId = this.normalizeId(actor?.conversation?.id);
+      if (!canonicalConversationId) {
+        throw new Error("Conversation is not available to this device");
+      }
+
+      const payload = {
+        success: true,
+        conversationId: canonicalConversationId,
+        isTyping: raw?.isTyping === true,
+        // Who is writing, so the receiver can show the right name. The identity
+        // comes from the stored membership, not from what the sender claimed.
+        actorDeviceId: deviceId,
+        actorMemberId: this.normalizeId(actor?.memberId),
+        actorDisplayName: this.normalizeId(actor?.displayName),
+        at: Date.now(),
+      };
+      await this.broadcast(canonicalConversationId, EVENTS.TYPING, payload, {
+        exceptSocketId: socket.id,
+      });
+      this.acknowledge(acknowledgement, payload);
+      return payload;
+    } catch (error) {
+      return this.emitError(socket, error, context, acknowledgement);
+    }
+  }
+
   registerSocket(socket) {
     if (!socket?.id || typeof socket.on !== "function") return false;
     if (this.registeredSockets.has(socket)) return true;
@@ -419,6 +492,9 @@ class ChatV2SocketService {
     });
     socket.on(EVENTS.RECEIPT, (raw, acknowledgement) => {
       return this.handleReceipt(socket, raw, acknowledgement);
+    });
+    socket.on(EVENTS.TYPING, (raw, acknowledgement) => {
+      return this.handleTyping(socket, raw, acknowledgement);
     });
     socket.on("disconnect", () => {
       this.removeSocket(socket);

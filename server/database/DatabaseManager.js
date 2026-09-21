@@ -3,6 +3,9 @@ const path = require("path");
 const fs = require("fs");
 const crypto = require("crypto");
 const { AsyncLocalStorage } = require("async_hooks");
+const {
+  defaultAvatarKeyFor,
+} = require("../services/AvatarPresetCatalog");
 
 const DEFAULT_PARENT_TO_CHILD_FEATURES = Object.freeze([
   "CHAT",
@@ -216,6 +219,7 @@ class DatabaseManager {
       `CREATE TABLE IF NOT EXISTS families (
                 id TEXT PRIMARY KEY,
                 name TEXT NOT NULL,
+                avatar_key TEXT,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 created_at INTEGER DEFAULT (strftime('%s', 'now')),
                 updated_at INTEGER DEFAULT (strftime('%s', 'now'))
@@ -340,10 +344,23 @@ class DatabaseManager {
                 legacy_delivered INTEGER,
                 legacy_read INTEGER,
                 created_at INTEGER NOT NULL,
+                edited_at INTEGER,
+                deleted_at INTEGER,
                 UNIQUE (conversation_id, sequence),
                 UNIQUE (sender_member_id, client_message_id),
                 FOREIGN KEY (conversation_id) REFERENCES chat_conversations (id),
                 FOREIGN KEY (sender_member_id) REFERENCES family_members (id)
+            )`,
+
+      // "Delete for me" is per device, so hiding a message must not change the
+      // message row itself. A row here records that one device no longer wants
+      // to see that message.
+      `CREATE TABLE IF NOT EXISTS chat_message_deletions_v2 (
+                message_id TEXT NOT NULL,
+                device_id TEXT NOT NULL,
+                deleted_at INTEGER NOT NULL,
+                PRIMARY KEY (message_id, device_id),
+                FOREIGN KEY (message_id) REFERENCES chat_messages_v2 (id)
             )`,
 
       `CREATE TABLE IF NOT EXISTS chat_message_receipts (
@@ -594,6 +611,14 @@ class DatabaseManager {
       "sender_display_name",
       "TEXT"
     );
+
+    // Message editing and withdrawal, added after the tables already existed in
+    // production, so the columns have to be brought in separately.
+    await this.addColumnIfNotExists("chat_messages_v2", "edited_at", "INTEGER");
+    await this.addColumnIfNotExists("chat_messages_v2", "deleted_at", "INTEGER");
+
+    // Shared picture of the group chat.
+    await this.addColumnIfNotExists("families", "avatar_key", "TEXT");
   }
 
   createStableFamilyId(parts) {
@@ -982,16 +1007,19 @@ class DatabaseManager {
             // Legacy evidence proves a device identity, not that two devices
             // represent the same person. Keep one provisional member per
             // device until attachFamilyDeviceToMember is called explicitly.
+            // A picture is chosen from the member id so the person has a face from
+            // the start; the update deliberately leaves an existing choice alone.
             await this.run(
               `INSERT INTO family_members (
-                 id, family_id, display_name, role, is_active
-               ) VALUES (?, ?, ?, ?, 1)
+                 id, family_id, display_name, role, avatar_key, is_active
+               ) VALUES (?, ?, ?, ?, ?, 1)
                ON CONFLICT(id) DO UPDATE SET
                  display_name = excluded.display_name,
                  role = excluded.role,
+                 avatar_key = COALESCE(family_members.avatar_key, excluded.avatar_key),
                  is_active = 1,
                  updated_at = strftime('%s', 'now')`,
-              [memberId, familyId, displayName, role]
+              [memberId, familyId, displayName, role, defaultAvatarKeyFor(memberId)]
             );
           }
           await this.run(
@@ -1381,7 +1409,9 @@ class DatabaseManager {
             invitation.familyId,
             invitation.proposedDisplayName,
             invitation.proposedRole,
-            invitation.proposedAvatarKey || null,
+            // An invitation usually carries no picture; without this the person
+            // joined as an empty circle until they happened to change it.
+            invitation.proposedAvatarKey || defaultAvatarKeyFor(memberId),
             now,
             now,
           ]
@@ -1623,6 +1653,7 @@ class DatabaseManager {
       `SELECT
          id,
          name,
+         avatar_key AS avatarKey,
          is_active AS isActive,
          created_at AS createdAt,
          updated_at AS updatedAt
@@ -1630,6 +1661,35 @@ class DatabaseManager {
        WHERE id = ? AND is_active = 1`,
       [familyId]
     );
+  }
+
+  /**
+   * Changes the shared name of the family group chat.
+   *
+   * The name lives on the family, so every participant reads the same value and a
+   * rename is visible to all of them.
+   */
+  async updateFamilyGroupName(familyId, name, updatedAt = Date.now()) {
+    const normalized = String(name || "").trim();
+    if (!normalized) throw new Error("Family group name must not be empty");
+    const result = await this.run(
+      `UPDATE families SET name = ?, updated_at = ? WHERE id = ? AND is_active = 1`,
+      [normalized, updatedAt, familyId]
+    );
+    return result && result.changes ? result.changes > 0 : false;
+  }
+
+  /** Changes the shared picture of the family group chat. */
+  async updateFamilyGroupAvatar(familyId, avatarKey, updatedAt = Date.now()) {
+    const normalized =
+      typeof avatarKey === "string" && avatarKey.trim()
+        ? avatarKey.trim()
+        : null;
+    const result = await this.run(
+      `UPDATE families SET avatar_key = ?, updated_at = ? WHERE id = ? AND is_active = 1`,
+      [normalized, updatedAt, familyId]
+    );
+    return result && result.changes ? result.changes > 0 : false;
   }
 
   async getFamilyMembers(familyId) {
@@ -1671,6 +1731,40 @@ class DatabaseManager {
                 fm.id`,
       [familyId, LEGACY_FAMILY_LINK_ACTIVE_WINDOW_SECONDS]
     );
+  }
+
+  /**
+   * Member who may manage the shared group chat.
+   *
+   * The creator is the natural admin. When that is unknown - a family chat that
+   * was only bootstrapped, for instance - the longest-standing active member
+   * takes over, so the group is never left without someone able to rename it.
+   */
+  async getFamilyAdminMemberId(familyId, preferredMemberId = null) {
+    const preferred = String(preferredMemberId || "").trim();
+    if (preferred) {
+      const known = await this.get(
+        `SELECT id
+         FROM family_members
+         WHERE id = ? AND family_id = ? AND is_active = 1
+         LIMIT 1`,
+        [preferred, familyId]
+      );
+      if (known) return known.id;
+    }
+
+    const fallback = await this.get(
+      `SELECT id
+       FROM family_members
+       WHERE family_id = ? AND is_active = 1
+       ORDER BY
+         CASE role WHEN 'PARENT' THEN 0 WHEN 'GUARDIAN' THEN 1 ELSE 2 END,
+         created_at ASC,
+         id ASC
+       LIMIT 1`,
+      [familyId]
+    );
+    return fallback ? fallback.id : null;
   }
 
   async updateFamilyMemberProfile({
@@ -2972,6 +3066,8 @@ class DatabaseManager {
       text: row.text,
       clientSentAt: row.client_sent_at || null,
       serverCreatedAt: row.server_created_at,
+      editedAt: row.edited_at || null,
+      deletedAt: row.deleted_at || null,
       legacyMessageId: row.legacy_message_id || null,
       legacyDelivered:
         row.legacy_delivered === null || row.legacy_delivered === undefined
@@ -2984,8 +3080,52 @@ class DatabaseManager {
     };
   }
 
-  async getChatMessageV2ById(messageId) {
-    const row = await this.get(
+  /**
+   * Changes the text of an existing message.
+   *
+   * Editing keeps the original position in the conversation: the sequence is not
+   * touched, so nobody sees the message jump to the end.
+   */
+  async updateChatMessageV2Text(messageId, text, editedAt = Date.now()) {
+    const result = await this.run(
+      `UPDATE chat_messages_v2 SET text = ?, edited_at = ? WHERE id = ?`,
+      [String(text), editedAt, messageId]
+    );
+    return result && result.changes ? result.changes > 0 : false;
+  }
+
+  /** Withdraws a message for every participant, keeping a tombstone row. */
+  async markChatMessageV2Deleted(messageId, deletedAt = Date.now()) {
+    const result = await this.run(
+      `UPDATE chat_messages_v2 SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`,
+      [deletedAt, messageId]
+    );
+    return result && result.changes ? result.changes > 0 : false;
+  }
+
+  /** Hides a message for one device only. Idempotent. */
+  async hideChatMessageV2ForDevice(messageId, deviceId, deletedAt = Date.now()) {
+    await this.run(
+      `INSERT OR IGNORE INTO chat_message_deletions_v2 (message_id, device_id, deleted_at)
+       VALUES (?, ?, ?)`,
+      [messageId, deviceId, deletedAt]
+    );
+    return true;
+  }
+
+  /** Ids of the messages this device has hidden inside one conversation. */
+  async getChatMessageDeletionsForDevice(conversationId, deviceId) {
+    const rows = await this.all(
+      `SELECT d.message_id
+       FROM chat_message_deletions_v2 d
+       JOIN chat_messages_v2 m ON m.id = d.message_id
+       WHERE m.conversation_id = ? AND d.device_id = ?`,
+      [conversationId, deviceId]
+    );
+    return (rows || []).map((row) => row.message_id);
+  }
+
+  async getChatMessageV2ById(messageId) {    const row = await this.get(
       `SELECT * FROM chat_messages_v2 WHERE id = ? LIMIT 1`,
       [messageId]
     );

@@ -1,8 +1,8 @@
 const express = require("express");
+const { AVATAR_PATTERN: PROFILE_AVATAR_PATTERN } = require("../services/AvatarPresetCatalog");
 
 const FAMILY_ID_PATTERN = /^[A-Za-z0-9_-]{8,100}$/;
 const MEMBER_ID_PATTERN = /^[A-Za-z0-9_-]{8,160}$/;
-const PROFILE_AVATAR_PATTERN = /^preset:(sky|mint|sun|coral|lilac|ocean)$/;
 
 function createFamilyRoutes(dbManager, permissionService, identityService) {
   if (!dbManager || !permissionService || !identityService) {

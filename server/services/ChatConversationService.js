@@ -1,8 +1,20 @@
+const AvatarPresetCatalog = require("./AvatarPresetCatalog");
 const MAX_CHAT_TEXT_BYTES = 16 * 1024;
 const MAX_CLIENT_MESSAGE_ID_LENGTH = 200;
 const MAX_IDENTIFIER_LENGTH = 200;
 const DEFAULT_PAGE_LIMIT = 50;
 const MAX_PAGE_LIMIT = 200;
+
+/** Shared name of a group chat, kept short enough for the chat list. */
+const MAX_GROUP_TITLE_LENGTH = 64;
+
+/**
+ * How long after sending the author may still rewrite a message.
+ *
+ * Editing is meant to fix a mistake, not to change history the others have
+ * already read, so the window is deliberately short.
+ */
+const EDIT_WINDOW_MS = 30 * 60 * 1000;
 
 class ChatConversationError extends Error {
   constructor(status, code, message) {
@@ -179,12 +191,140 @@ class ChatConversationService {
     return activeMembers.filter((member) => directMemberIds.has(member.memberId));
   }
 
-  formatConversation(conversation, { members = [], actorMemberId = null } = {}) {
+  /**
+   * Builds the conversation DTO.
+   *
+   * A group conversation is shared, so its name and picture come from the family
+   * and are the same for everyone; a direct conversation has no shared settings.
+   * [adminMemberId] tells the clients who may change the shared values.
+   */
+  /**
+   * Who may change the shared settings of a family group chat.
+   *
+   * The creator is preferred. When that is unknown, the longest-standing active
+   * member takes over, so a group is never left without an administrator.
+   */
+  async resolveFamilyAdmin(familyId, familyConversation = null) {
+    if (!familyId) return null;
+    const preferred =
+      familyConversation?.createdByMemberId ||
+      familyConversation?.created_by_member_id ||
+      null;
+    return this.dbManager.getFamilyAdminMemberId(familyId, preferred);
+  }
+
+  /** Group settings plus whether the caller may change them. */
+  async getGroupSettings(deviceId, conversationId) {
+    const actor = await this.resolveConversationActor(deviceId, conversationId);
+    if (actor.conversation.type === "DIRECT") {
+      throw new ChatConversationError(
+        400,
+        "NOT_A_GROUP_CONVERSATION",
+        "A direct conversation has no shared group settings"
+      );
+    }
+    const family = await this.dbManager.getFamilyById(actor.conversation.familyId);
+    const adminMemberId = await this.resolveFamilyAdmin(
+      actor.conversation.familyId,
+      actor.conversation
+    );
+    return {
+      conversationId: actor.conversation.id,
+      familyId: actor.conversation.familyId,
+      title: family?.name || actor.conversation.title || null,
+      avatarKey: family?.avatarKey || null,
+      adminMemberId,
+      canManage: Boolean(adminMemberId && adminMemberId === actor.memberId),
+    };
+  }
+
+  /**
+   * Renames the group chat for every participant.
+   *
+   * Only the administrator may do this, and the value is stored on the family so
+   * all members read the same name.
+   */
+  async updateGroupTitle(deviceId, conversationId, payload) {
+    const actor = await this.requireGroupAdmin(deviceId, conversationId);
+    const title = typeof payload?.title === "string" ? payload.title.trim() : "";
+    if (!title) {
+      throw new ChatConversationError(
+        400,
+        "GROUP_TITLE_REQUIRED",
+        "Group title must not be empty"
+      );
+    }
+    if (title.length > MAX_GROUP_TITLE_LENGTH) {
+      throw new ChatConversationError(
+        400,
+        "GROUP_TITLE_TOO_LONG",
+        `Group title must be at most ${MAX_GROUP_TITLE_LENGTH} characters`
+      );
+    }
+    await this.dbManager.updateFamilyGroupName(
+      actor.conversation.familyId,
+      title
+    );
+    return this.getGroupSettings(deviceId, conversationId);
+  }
+
+  /** Sets the shared picture of the group chat. Only the administrator may. */
+  async updateGroupAvatar(deviceId, conversationId, payload) {
+    const actor = await this.requireGroupAdmin(deviceId, conversationId);
+    const raw = payload?.avatarKey;
+    const avatarKey = typeof raw === "string" ? raw.trim() : "";
+    if (avatarKey && !AvatarPresetCatalog.isValidAvatarKey(avatarKey)) {
+      throw new ChatConversationError(
+        400,
+        "UNSUPPORTED_GROUP_AVATAR",
+        "Unsupported group avatar"
+      );
+    }
+    await this.dbManager.updateFamilyGroupAvatar(
+      actor.conversation.familyId,
+      avatarKey || null
+    );
+    return this.getGroupSettings(deviceId, conversationId);
+  }
+
+  /** Loads the conversation and asserts that the caller administers its group. */
+  async requireGroupAdmin(deviceId, conversationId) {
+    const actor = await this.resolveConversationActor(deviceId, conversationId);
+    if (actor.conversation.type === "DIRECT") {
+      throw new ChatConversationError(
+        400,
+        "NOT_A_GROUP_CONVERSATION",
+        "A direct conversation has no shared group settings"
+      );
+    }
+    const adminMemberId = await this.resolveFamilyAdmin(
+      actor.conversation.familyId,
+      actor.conversation
+    );
+    if (!adminMemberId || adminMemberId !== actor.memberId) {
+      throw new ChatConversationError(
+        403,
+        "GROUP_ADMIN_REQUIRED",
+        "Only the group administrator can change this"
+      );
+    }
+    return actor;
+  }
+
+  formatConversation(
+    conversation,
+    { members = [], actorMemberId = null, family = null, adminMemberId = null } = {}
+  ) {
     if (!conversation) return null;
     const otherMembers = members.filter(
       (member) => member.memberId !== actorMemberId
     );
+    const isGroup = conversation.type !== "DIRECT";
+    // The family name is what everyone sees, so a group rename by the admin
+    // reaches all participants through this value.
+    const sharedTitle = family?.name ? String(family.name).trim() : "";
     const resolvedTitle =
+      (isGroup ? sharedTitle : "") ||
       conversation.title ||
       (conversation.type === "DIRECT"
         ? otherMembers.map((member) => member.displayName).join(", ") ||
@@ -195,6 +335,11 @@ class ChatConversationService {
       familyId: conversation.familyId,
       type: conversation.type,
       title: resolvedTitle,
+      avatarKey: isGroup ? family?.avatarKey || null : null,
+      adminMemberId: isGroup ? adminMemberId || null : null,
+      canManageGroup: Boolean(
+        isGroup && adminMemberId && actorMemberId && adminMemberId === actorMemberId
+      ),
       actorMemberId,
       members,
       lastSequence: Number(conversation.nextSequence) || 0,
@@ -210,6 +355,9 @@ class ChatConversationService {
 
   formatMessage(message) {
     if (!message) return null;
+    // A withdrawn message keeps its place but loses its text, so clients can
+    // render "message deleted" instead of the content.
+    const withdrawn = Boolean(message.deletedAt);
     return {
       messageId: message.id,
       clientMessageId: message.clientMessageId,
@@ -218,7 +366,9 @@ class ChatConversationService {
       senderMemberId: message.senderMemberId || null,
       senderDisplayName: message.senderDisplayName,
       senderRole: message.senderRoleSnapshot || null,
-      text: message.text,
+      text: withdrawn ? "" : message.text,
+      editedAt: message.editedAt || null,
+      deletedAt: message.deletedAt || null,
       clientSentAt: message.clientSentAt || message.serverCreatedAt,
       serverCreatedAt: message.serverCreatedAt,
       legacyMessageId:
@@ -275,6 +425,12 @@ class ChatConversationService {
           membership.memberId,
           MAX_PAGE_LIMIT
         );
+      // Shared group settings are looked up once per family, not per conversation.
+      const family = await this.dbManager.getFamilyById(membership.familyId);
+      const adminMemberId = await this.resolveFamilyAdmin(
+        membership.familyId,
+        familyConversation
+      );
       for (const conversation of conversations || []) {
         if (conversation.familyId !== membership.familyId) continue;
         const members = this.conversationMembers(conversation, familyMembers);
@@ -283,6 +439,8 @@ class ChatConversationService {
           this.formatConversation(conversation, {
             members,
             actorMemberId: membership.memberId,
+            family,
+            adminMemberId,
           })
         );
       }
@@ -515,14 +673,139 @@ class ChatConversationService {
       actor.conversation.id,
       { beforeSequence, limit }
     );
+    // Messages this device removed for itself are skipped entirely, so a page
+    // stays consistent for that device.
+    const hidden = new Set(
+      await this.dbManager.getChatMessageDeletionsForDevice(
+        actor.conversation.id,
+        actor.deviceId
+      )
+    );
+    const visible = (page.messages || []).filter(
+      (message) => !hidden.has(message.id)
+    );
     const messages = await Promise.all(
-      (page.messages || []).map((message) => this.withReceipts(message))
+      visible.map((message) => this.withReceipts(message))
     );
     return {
       ...page,
       conversationId: actor.conversation.id,
       messages,
     };
+  }
+
+  /**
+   * Changes the text of the caller's own message.
+   *
+   * Only the author may edit, and only within a short window: rewriting an old
+   * message after the others have read it would silently change what they saw.
+   */
+  async editMessage(deviceId, conversationId, messageId, payload) {
+    const actor = await this.resolveConversationActor(deviceId, conversationId);
+    const message = await this.requireOwnMessage(actor, messageId);
+    if (message.deletedAt) {
+      throw new ChatConversationError(
+        409,
+        "MESSAGE_DELETED",
+        "A withdrawn message cannot be edited"
+      );
+    }
+    const age = Date.now() - Number(message.serverCreatedAt || 0);
+    if (age > EDIT_WINDOW_MS) {
+      throw new ChatConversationError(
+        409,
+        "EDIT_WINDOW_EXPIRED",
+        "The message is too old to edit"
+      );
+    }
+    const text = this.validateMessageText(payload?.text);
+    await this.dbManager.updateChatMessageV2Text(message.id, text);
+    const updated = await this.dbManager.getChatMessageV2ById(message.id);
+    return { message: await this.withReceipts(updated) };
+  }
+
+  /**
+   * Withdraws a message either for everyone or only for this device.
+   *
+   * Withdrawing for everyone is limited to the author; removing it from one's own
+   * list is always allowed, because it only affects that device.
+   */
+  async deleteMessage(deviceId, conversationId, messageId, options = {}) {
+    const actor = await this.resolveConversationActor(deviceId, conversationId);
+    const message = await this.dbManager.getChatMessageV2ById(messageId);
+    if (!message || message.conversationId !== actor.conversation.id) {
+      throw new ChatConversationError(
+        404,
+        "MESSAGE_NOT_FOUND",
+        "Message not found in this conversation"
+      );
+    }
+
+    const forEveryone = options.forEveryone === true;
+    if (!forEveryone) {
+      await this.dbManager.hideChatMessageV2ForDevice(
+        message.id,
+        actor.deviceId
+      );
+      return { messageId: message.id, forEveryone: false };
+    }
+
+    if (message.senderMemberId && message.senderMemberId !== actor.memberId) {
+      throw new ChatConversationError(
+        403,
+        "MESSAGE_NOT_OWNED",
+        "Only the author can withdraw a message for everyone"
+      );
+    }
+    await this.dbManager.markChatMessageV2Deleted(message.id);
+    const updated = await this.dbManager.getChatMessageV2ById(message.id);
+    return {
+      messageId: message.id,
+      forEveryone: true,
+      message: await this.withReceipts(updated),
+    };
+  }
+
+  /** Loads a message and asserts that the caller wrote it. */
+  async requireOwnMessage(actor, messageId) {
+    const message = await this.dbManager.getChatMessageV2ById(messageId);
+    if (!message || message.conversationId !== actor.conversation.id) {
+      throw new ChatConversationError(
+        404,
+        "MESSAGE_NOT_FOUND",
+        "Message not found in this conversation"
+      );
+    }
+    if (!message.senderMemberId || message.senderMemberId !== actor.memberId) {
+      throw new ChatConversationError(
+        403,
+        "MESSAGE_NOT_OWNED",
+        "Only the author can change this message"
+      );
+    }
+    return message;
+  }
+
+  /** Message text rules shared by sending and editing. */
+  validateMessageText(rawText) {
+    const text = typeof rawText === "string" ? rawText.trim() : "";
+    if (!text) {
+      throw new ChatConversationError(
+        400,
+        "INVALID_MESSAGE_TEXT",
+        "Message text must not be empty"
+      );
+    }
+    // The same byte limit as sending. The previous character check referenced a
+    // constant that does not exist, which would have thrown on a long message.
+    if (Buffer.byteLength(text, "utf8") > MAX_CHAT_TEXT_BYTES) {
+      throw new ChatConversationError(
+        413,
+        "MESSAGE_TEXT_TOO_LARGE",
+        "Message text exceeds 16 KiB"
+      );
+    }
+    return text;
   }
 
   async advanceReceipt(deviceId, conversationId, payload) {
