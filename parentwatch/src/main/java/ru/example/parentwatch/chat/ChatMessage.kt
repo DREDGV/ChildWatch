@@ -12,7 +12,13 @@ data class ChatMessage(
     val authorDisplayName: String? = null,
     val timestamp: Long,
     val isRead: Boolean = false,
-    val status: MessageStatus = MessageStatus.SENT
+    val status: MessageStatus = MessageStatus.SENT,
+    /** True when this device's member wrote the message. */
+    val isMine: Boolean = false,
+    /** Set when the author rewrote the text. */
+    val editedAt: Long? = null,
+    /** Set when the message was withdrawn for everyone. */
+    val deletedAt: Long? = null
 ) {
     enum class MessageStatus {
         SENDING,

@@ -1,4 +1,4 @@
-﻿package ru.example.childwatch
+package ru.example.childwatch
 
 import android.content.Intent
 import android.graphics.Color
@@ -238,8 +238,8 @@ class ChatActivity : AppCompatActivity() {
             sendMessage()
         }
 
-        // Hide clear chat button (removed feature)
-        binding.clearButton.visibility = View.GONE
+        // The clear-chat button was removed from the layout: it had no handler,
+        // and clearing is not offered in a family conversation.
 
         setupEmojiPicker()
         

@@ -15,6 +15,7 @@ import ru.childwatch.shared.chat.ConversationMember
 import ru.childwatch.shared.chat.ConversationType
 import ru.example.childwatch.chat.v2.ChatConversationListAdapter
 import ru.example.childwatch.chat.v2.ChatV2Repository
+import ru.example.childwatch.chat.v2.GroupSettingsDialog
 import ru.example.childwatch.databinding.ActivityChatConversationsBinding
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.profile.ParentEffectiveContextProvider
@@ -46,10 +47,102 @@ class ChatConversationsActivity : AppCompatActivity() {
             return
         }
         repository = ChatV2Repository.create(this, serverUrl)
-        adapter = ChatConversationListAdapter(::openConversation)
+        adapter = ChatConversationListAdapter(
+            onClick = ::openConversation,
+            onEdit = ::showConversationActions
+        )
         binding.conversationsRecyclerView.layoutManager = LinearLayoutManager(this)
         binding.conversationsRecyclerView.adapter = adapter
         binding.newDirectChatButton.setOnClickListener { chooseDirectChatMember() }
+        // Returns to the home screen; the toolbar is built in this layout, so the
+        // arrow needs its own listener.
+        binding.backButton.setOnClickListener { finish() }
+    }
+
+    /**
+     * Rename or remove a conversation.
+     *
+     * There was no way to correct a name or to get rid of an accidental
+     * duplicate, so a wrongly created chat stayed in the list forever.
+     */
+    private fun showConversationActions(conversation: Conversation) {
+        val isGroup = conversation.type != ConversationType.DIRECT
+        val labels = mutableListOf<String>()
+        // A group's name and picture are common to everyone, so they are managed
+        // separately from the personal name this device may give the chat.
+        if (isGroup) labels += getString(R.string.chat_action_group_settings)
+        labels += getString(R.string.chat_action_rename)
+        labels += getString(R.string.chat_action_remove)
+        val actions = labels.toTypedArray()
+
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(conversation.title)
+            .setItems(actions) { _, which ->
+                when (actions[which]) {
+                    getString(R.string.chat_action_group_settings) ->
+                        GroupSettingsDialog.show(
+                            activity = this,
+                            scope = lifecycleScope,
+                            repository = repository,
+                            conversation = conversation
+                        ) { refresh() }
+                    getString(R.string.chat_action_rename) ->
+                        promptRenameConversation(conversation)
+                    else -> confirmRemoveConversation(conversation)
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun promptRenameConversation(conversation: Conversation) {
+        val input = android.widget.EditText(this).apply {
+            setText(conversation.title)
+            hint = getString(R.string.chat_rename_hint)
+            setSelection(text.length)
+        }
+        val container = android.widget.FrameLayout(this).apply {
+            val pad = (20 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad / 2, pad, 0)
+            addView(input)
+        }
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.chat_action_rename)
+            .setView(container)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                lifecycleScope.launch {
+                    repository.renameConversation(conversation.conversationId, input.text?.toString())
+                    refresh()
+                }
+            }
+            .setNeutralButton(R.string.chat_rename_reset) { _, _ ->
+                lifecycleScope.launch {
+                    // Clearing the local name restores the title from the server.
+                    repository.renameConversation(conversation.conversationId, null)
+                    refresh()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun confirmRemoveConversation(conversation: Conversation) {
+        androidx.appcompat.app.AlertDialog.Builder(this)
+            .setTitle(R.string.chat_action_remove)
+            .setMessage(getString(R.string.chat_remove_confirm, conversation.title))
+            .setPositiveButton(R.string.chat_action_remove) { _, _ ->
+                lifecycleScope.launch {
+                    repository.removeConversationFromList(conversation.conversationId)
+                    Toast.makeText(
+                        this@ChatConversationsActivity,
+                        R.string.chat_removed,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    refresh()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     override fun onStart() {

@@ -8,13 +8,17 @@ import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import ru.childwatch.shared.chat.Conversation
 import ru.childwatch.shared.chat.ConversationType
+import com.google.android.material.shape.ShapeAppearanceModel
 import ru.example.parentwatch.databinding.ItemChatConversationBinding
+import ru.example.parentwatch.profile.FamilyAvatarRenderer
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
 class ChatConversationListAdapter(
-    private val onClick: (Conversation) -> Unit
+    private val onClick: (Conversation) -> Unit,
+    /** Long press opens rename and remove; null keeps the row read-only. */
+    private val onEdit: ((Conversation) -> Unit)? = null
 ) : ListAdapter<Conversation, ChatConversationListAdapter.Holder>(Diff) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): Holder = Holder(
@@ -38,11 +42,24 @@ class ChatConversationListAdapter(
                 } else {
                     "Личный диалог"
                 }
-            avatarText.text = if (item.type == ConversationType.FAMILY) {
-                "С"
+            // A group is not a person: use the picture the conversation itself
+            // carries. A direct chat has no shared picture, so it borrows the
+            // peer's. Only a genuinely pictureless conversation falls back to the
+            // letter, which FamilyAvatarRenderer draws from the last value.
+            val peer = item.members.firstOrNull { !it.isLocalUser }
+            avatarImage.shapeAppearanceModel = ShapeAppearanceModel.builder()
+                .setAllCornerSizes(avatarImage.layoutParams.height / 2f)
+                .build()
+            val avatarKey = if (item.type == ConversationType.FAMILY) {
+                item.avatarKey
             } else {
-                item.title.trim().firstOrNull()?.uppercaseChar()?.toString() ?: "Л"
+                item.avatarKey ?: peer?.avatarKey
             }
+            FamilyAvatarRenderer.bind(
+                avatarImage,
+                avatarKey,
+                peer?.displayName ?: item.title
+            )
             timeText.text = item.updatedAt.takeIf { it > 0 }?.let {
                 SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(it))
             }.orEmpty()
@@ -50,6 +67,11 @@ class ChatConversationListAdapter(
             unreadText.visibility = if (unread > 0) View.VISIBLE else View.GONE
             unreadText.text = if (unread > 99) "99+" else unread.toString()
             root.setOnClickListener { onClick(item) }
+            // Long press is the standard way to reach rename and delete.
+            root.setOnLongClickListener {
+                onEdit?.invoke(item)
+                onEdit != null
+            }
         }
     }
 

@@ -1,6 +1,7 @@
 package ru.example.parentwatch.chat.v2
 
 import android.content.Context
+import android.util.Log
 import androidx.room.withTransaction
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
@@ -12,6 +13,8 @@ import ru.childwatch.shared.chat.ChatTextPolicy
 import ru.childwatch.shared.chat.ChatTextValidation
 import ru.childwatch.shared.chat.ChatV2ConversationDto
 import ru.childwatch.shared.chat.ChatV2DirectConversationRequest
+import ru.childwatch.shared.chat.ChatV2EditMessageRequest
+import ru.childwatch.shared.chat.ChatV2GroupSettingsResponse
 import ru.childwatch.shared.chat.ChatV2LegacyReconcilePolicy
 import ru.childwatch.shared.chat.ChatV2MessageDto
 import ru.childwatch.shared.chat.ChatV2PagingPolicy
@@ -19,6 +22,8 @@ import ru.childwatch.shared.chat.ChatV2ReceiptDto
 import ru.childwatch.shared.chat.ChatV2ReceiptRequest
 import ru.childwatch.shared.chat.ChatV2RetryPolicy
 import ru.childwatch.shared.chat.ChatV2SendMessageRequest
+import ru.childwatch.shared.chat.ChatV2UpdateGroupAvatarRequest
+import ru.childwatch.shared.chat.ChatV2UpdateGroupTitleRequest
 import ru.childwatch.shared.chat.Conversation
 import ru.childwatch.shared.chat.ConversationMemberRole
 import ru.childwatch.shared.chat.ConversationMessage
@@ -55,6 +60,7 @@ class ChatV2Repository(
     private val outbox = database.chatOutboxV2Dao()
 
     companion object {
+        private const val TAG = "ChatV2Repository"
         private const val DEFAULT_PAGE_SIZE = ChatV2PagingPolicy.DEFAULT_SERVER_PAGE_SIZE
         private const val OUTBOX_BATCH_SIZE = 50
         private const val OUTBOX_LEASE_MS = 60_000L
@@ -288,10 +294,192 @@ class ChatV2Repository(
         return ChatV2FlushResult(ready.size, sent, retryScheduled, permanentlyFailed)
     }
 
+    /**
+     * Rewrites the author's own message.
+     *
+     * The server returns the stored message, which is cached so the new text and
+     * the "edited" mark survive the next synchronisation.
+     */
+    /**
+     * Finds a message by any of its identifiers.
+     *
+     * The list gives the UI the client identifier, while the stored row is keyed by
+     * the identifier the server assigned once it accepted the message. Looking in
+     * only one column made a removal fail with "no local row" while the message was
+     * plainly on screen, because the two identifiers are different values.
+     */
+    private suspend fun findMessage(messageId: String): ChatMessageV2Entity? =
+        messages.getByMessageId(messageId)
+            ?: messages.getByServerMessageId(messageId)
+            ?: messages.getByClientMessageId(messageId)
+
+    suspend fun editMessage(messageId: String, newText: String): Boolean {
+        val existing = findMessage(messageId)
+        if (existing == null) {
+            Log.w(
+                TAG,
+                "editMessage: no local row for id=$messageId (stored=${messages.countAll()})"
+            )
+            return false
+        }
+        val text = newText.trim()
+        if (text.isEmpty()) return false
+
+        val response = runCatching {
+            api.editChatV2Message(
+                existing.conversationId,
+                // The server knows the message by its own identifier; a locally
+                // created row still carries a UUID in the id column.
+                existing.serverMessageId ?: existing.messageId,
+                ChatV2EditMessageRequest(text)
+            )
+        }.getOrNull()
+        val updated = response?.takeIf { it.isSuccessful }?.body()?.message
+            ?: return false
+
+        messages.update(
+            updated.toDomain().toEntity().copy(
+                localId = existing.localId,
+                syncState = ChatMessageV2Entity.SYNC_STATE_SYNCED
+            )
+        )
+        return true
+    }
+
+    /**
+     * Removes a message from this device's list.
+     *
+     * The row is deleted locally and hidden on the server for this device only,
+     * so the other participants keep their copy.
+     */
+    suspend fun deleteMessageForMe(messageId: String): Boolean {
+        val existing = findMessage(messageId)
+        if (existing == null) {
+            Log.w(
+                TAG,
+                "deleteMessageForMe: no local row for id=$messageId (stored=${messages.countAll()})"
+            )
+            return false
+        }
+
+        val response = runCatching {
+            // The server identifier is the one the server knows; a message this
+            // device sent carries a local UUID until the server answers.
+            api.deleteChatV2Message(
+                existing.conversationId,
+                existing.serverMessageId ?: existing.messageId,
+                false
+            )
+        }.getOrNull()
+        if (response?.isSuccessful != true) return false
+
+        messages.deleteById(existing.messageId)
+        return true
+    }
+
+    /**
+     * Withdraws a message for every participant.
+     *
+     * Only the author may do this; the server enforces it. The cached row keeps
+     * its place but loses its text, matching what the others now see.
+     */
+    suspend fun deleteMessageForEveryone(messageId: String): Boolean {
+        val existing = findMessage(messageId)
+        if (existing == null) {
+            Log.w(
+                TAG,
+                "deleteMessageForEveryone: no local row for id=$messageId (stored=${messages.countAll()})"
+            )
+            return false
+        }
+
+        val response = runCatching {
+            api.deleteChatV2Message(
+                existing.conversationId,
+                existing.serverMessageId ?: existing.messageId,
+                true
+            )
+        }.getOrNull()
+        val updated = response?.takeIf { it.isSuccessful }?.body()?.message
+            ?: return false
+
+        messages.update(
+            updated.toDomain().toEntity().copy(
+                localId = existing.localId,
+                syncState = ChatMessageV2Entity.SYNC_STATE_SYNCED
+            )
+        )
+        return true
+    }
+
+    /**
+     * Reads the shared settings of a group conversation.
+     *
+     * These live on the server, not in the local cache, so they are fetched when
+     * needed; the answer also says whether this device may change them.
+     */
+    suspend fun loadGroupSettings(conversationId: String): ChatV2GroupSettingsResponse? {
+        val response = runCatching { api.getChatV2GroupSettings(conversationId) }.getOrNull()
+        return response?.takeIf { it.isSuccessful }?.body()
+    }
+
+    /** Renames the group for everyone. The server refuses a non-administrator. */
+    suspend fun renameGroup(conversationId: String, title: String): ChatV2GroupSettingsResponse? {
+        val trimmed = title.trim()
+        if (trimmed.isEmpty()) return null
+        val response = runCatching {
+            api.updateChatV2GroupTitle(conversationId, ChatV2UpdateGroupTitleRequest(trimmed))
+        }.getOrNull()
+        return response?.takeIf { it.isSuccessful }?.body()
+    }
+
+    /** Sets the shared picture of the group. The server refuses a non-administrator. */
+    suspend fun updateGroupAvatar(
+        conversationId: String,
+        avatarKey: String?
+    ): ChatV2GroupSettingsResponse? {
+        val response = runCatching {
+            api.updateChatV2GroupAvatar(conversationId, ChatV2UpdateGroupAvatarRequest(avatarKey))
+        }.getOrNull()
+        return response?.takeIf { it.isSuccessful }?.body()
+    }
+
     suspend fun retryFailed(clientMessageId: String): Boolean = database.withTransaction {
         val changed = outbox.retryFailed(clientMessageId, clock()) == 1
         if (changed) setLocalMessageState(clientMessageId, ChatDeliveryState.QUEUED, null)
         changed
+    }
+
+    /**
+     * Renames a conversation on this device.
+     *
+     * The name is local on purpose: it is a personal label, and the server has
+     * no concept of a per-device title. A blank name clears it, so the original
+     * title from the server is shown again.
+     */
+    suspend fun renameConversation(conversationId: String, title: String?): Boolean {
+        val normalized = title?.trim()?.takeIf { it.isNotEmpty() }
+        return conversations.updateTitle(conversationId, normalized, clock()) == 1
+    }
+
+    /**
+     * Removes a conversation from this device's list.
+     *
+     * Messages are kept: the row is archived rather than deleted, so an
+     * accidental removal can be undone and history survives if the same
+     * conversation is opened again.
+     */
+    suspend fun removeConversationFromList(conversationId: String): Boolean =
+        conversations.setArchived(conversationId, archived = true, updatedAt = clock()) == 1
+
+    /** Brings every removed conversation back into the list. */
+    suspend fun restoreAllConversations(): Int {
+        val hidden = conversations.getAllIncludingArchived().filter { it.isArchived }
+        var restored = 0
+        hidden.forEach { row ->
+            restored += conversations.setArchived(row.conversationId, archived = false, updatedAt = clock())
+        }
+        return restored
     }
 
     suspend fun markDeliveredThrough(conversationId: String, sequence: Long): ChatV2ReceiptDto =
@@ -384,6 +572,9 @@ class ChatV2Repository(
                     deviceId = old?.deviceId,
                     displayName = model.displayName,
                     role = model.role.name,
+                    // Carried from the server like every other field here; without it
+                    // a refresh wrote an empty picture over the stored one.
+                    avatarKey = model.avatarKey,
                     isLocalUser = memberDto.memberId == dto.actorMemberId,
                     joinedAt = old?.joinedAt ?: clock(),
                     lastActiveAt = old?.lastActiveAt,
@@ -529,6 +720,12 @@ class ChatV2Repository(
                 ChatConversationV2Entity.TYPE_FAMILY
             },
             title = title,
+            // The conversation's own picture; the server sends it for a group and
+            // null for a direct chat, which has no shared settings.
+            avatarKey = avatarKey,
+            // A local rename must survive a server refresh, so the user's own
+            // name is carried over rather than overwritten by the server title.
+            customTitle = existing?.customTitle,
             legacyChildId = existing?.legacyChildId,
             createdAt = existing?.createdAt ?: updated,
             updatedAt = updated,

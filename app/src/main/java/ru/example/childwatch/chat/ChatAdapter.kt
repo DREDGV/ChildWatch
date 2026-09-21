@@ -12,7 +12,9 @@ import ru.example.childwatch.R
 class ChatAdapter(
     private val currentUser: String,
     private val currentUserDeviceId: String? = null,
-    private val onRetryMessage: ((ChatMessage) -> Unit)? = null
+    private val onRetryMessage: ((ChatMessage) -> Unit)? = null,
+    /** Long press opens the edit and delete actions for that message. */
+    private val onMessageLongPress: ((ChatMessage) -> Unit)? = null
 ) : ListAdapter<ChatMessage, ChatAdapter.MessageViewHolder>(MessageDiffCallback()) {
 
     private fun isOutgoing(message: ChatMessage) =
@@ -54,8 +56,30 @@ class ChatAdapter(
         private val retryButton: TextView? = itemView.findViewById(R.id.retryButton)
 
         fun bind(message: ChatMessage) {
-            messageText.text = message.text
-            timestampText.text = message.getFormattedTime()
+            val withdrawn = message.deletedAt != null
+            // A withdrawn message keeps its place but shows no text, matching
+            // what the other participants see.
+            messageText.text = if (withdrawn) {
+                itemView.context.getString(R.string.chat_message_deleted)
+            } else {
+                message.text
+            }
+            messageText.alpha = if (withdrawn) 0.6f else 1f
+            // An edited message says so, the way messengers mark a rewrite.
+            timestampText.text = if (!withdrawn && message.editedAt != null) {
+                itemView.context.getString(
+                    R.string.chat_message_edited_time,
+                    message.getFormattedTime()
+                )
+            } else {
+                message.getFormattedTime()
+            }
+
+            // Long press is how a message is edited or deleted.
+            itemView.setOnLongClickListener {
+                onMessageLongPress?.invoke(message)
+                onMessageLongPress != null
+            }
 
             val senderName = message.getSenderName().trim()
             if (senderName.isNotEmpty()) {

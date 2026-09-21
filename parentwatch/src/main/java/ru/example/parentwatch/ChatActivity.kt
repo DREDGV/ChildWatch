@@ -1,4 +1,4 @@
-﻿package ru.example.parentwatch
+package ru.example.parentwatch
 
 import android.content.Intent
 import android.os.Bundle
@@ -149,9 +149,12 @@ class ChatActivity : AppCompatActivity() {
             partnerDeviceId
         }
         val childDisplayName = participantNameResolver.resolveChildDisplayName()
+        // The partner's name is passed as well, otherwise a partner without a
+        // stored picture falls back to the app icon instead of an initial.
         FamilyAvatarRenderer.bind(
             binding.chatAvatar,
-            participantNameResolver.resolveParentAvatarKey(partnerDeviceId)
+            participantNameResolver.resolveParentAvatarKey(partnerDeviceId),
+            participantNameResolver.resolveActiveParentDisplayName().ifBlank { childDisplayName }
         )
         binding.chatPartnerName.text = getString(R.string.chat_header_participants_title)
         binding.chatPartnerMeta.text = getString(R.string.chat_partner_meta_family)
