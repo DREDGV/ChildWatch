@@ -40,6 +40,13 @@ android {
         viewBinding true
         buildConfig true
     }
+
+    // When this build was made, so the application can show it on the main screen.
+    // The version name encodes the moment too, but in a form nobody reads at a glance.
+    defaultConfig {
+        buildConfigField "String", "BUILD_STAMP",
+            "\"${rootProject.ext.cwBuildDate} ${rootProject.ext.cwBuildTime}\""
+    }
     composeOptions {
         kotlinCompilerExtensionVersion '1.5.15'
     }

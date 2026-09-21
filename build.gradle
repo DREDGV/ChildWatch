@@ -15,6 +15,11 @@ def nameStamp = buildMoment.format("yyDDD.HHmmss")
 
 ext.cwVersionCode = (findProperty("cwVersionCode") ?: codeStamp).toString().toInteger()
 ext.cwVersionName = (findProperty("cwVersionName") ?: "${versionBase}.${nameStamp}").toString()
+// The moment of the build, published into the application so a phone can say which
+// build it is running. The version name alone carries it in a compact form that
+// nobody can read at a glance.
+ext.cwBuildDate = buildMoment.format("dd.MM.yyyy")
+ext.cwBuildTime = buildMoment.format("HH:mm")
 
 // Optional isolated output directory for unattended/CI builds on Windows.
 // Android Studio keeps using the regular module build directories unless the

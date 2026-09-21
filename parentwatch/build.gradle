@@ -47,6 +47,12 @@ android {
         buildConfig true
     }
 
+    // When this build was made, so the application can show it on the main screen.
+    defaultConfig {
+        buildConfigField "String", "BUILD_STAMP",
+            "\"${rootProject.ext.cwBuildDate} ${rootProject.ext.cwBuildTime}\""
+    }
+
     // Room schema export location
     ksp {
         arg("room.schemaLocation", "$projectDir/schemas")
