@@ -156,7 +156,17 @@ $manifest = [ordered]@{
 }
 
 $manifestPath = Join-Path $releaseDirectory "manifest.json"
-$manifest | ConvertTo-Json -Depth 6 | Set-Content -Path $manifestPath -Encoding UTF8
+
+# Written as UTF-8 WITHOUT a byte order mark. PowerShell's -Encoding UTF8 writes one
+# by default, and a leading mark makes JSON.parse throw, so the manifest would be
+# unreadable to the server that serves it. Found by testing the route rather than
+# by reading the code.
+$manifestJson = $manifest | ConvertTo-Json -Depth 6
+[System.IO.File]::WriteAllText(
+    $manifestPath,
+    $manifestJson,
+    (New-Object System.Text.UTF8Encoding($false))
+)
 
 Step "manifest written: $manifestPath"
 Write-Host ""

@@ -1,4 +1,4 @@
-# Built application files
+﻿# Built application files
 *.apk
 *.aar
 *.ap_
@@ -184,3 +184,6 @@ release-signing.properties
 *.dpapi
 signing-password*
 
+# Released packages staged for publishing. Large binaries, and they belong on the
+# server rather than in the repository.
+/updates/

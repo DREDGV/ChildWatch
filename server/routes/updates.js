@@ -28,13 +28,22 @@ const path = require("path");
  * Deliberately outside the application directory: released builds are not source
  * and must not be wiped by deploying a new version of the server. Set
  * CW_UPDATE_DIR to place them elsewhere.
+ *
+ * Read on each call rather than once at import: resolving it once made the module
+ * impossible to point somewhere else, which was discovered by trying to test it
+ * against a temporary directory. Re-reading a string costs nothing and keeps the
+ * setting a setting.
  */
-const UPDATE_DIRECTORY = path.resolve(
-  process.env.CW_UPDATE_DIR || path.join(__dirname, "..", "..", "updates")
-);
+function updateDirectory() {
+  return path.resolve(
+    process.env.CW_UPDATE_DIR || path.join(__dirname, "..", "..", "updates")
+  );
+}
 
 /** The manifest written by the release step. */
-const MANIFEST_FILE = path.join(UPDATE_DIRECTORY, "manifest.json");
+function manifestFile() {
+  return path.join(updateDirectory(), "manifest.json");
+}
 
 /**
  * The manifest must never be cached.
@@ -54,10 +63,15 @@ const MANIFEST_CACHE_CONTROL = "no-store";
  * exists to remove. The file is small and read rarely.
  */
 function readManifest() {
-  if (!fs.existsSync(MANIFEST_FILE)) {
+  const file = manifestFile();
+  if (!fs.existsSync(file)) {
     return { missing: true };
   }
-  const raw = fs.readFileSync(MANIFEST_FILE, "utf8");
+  // A byte order mark at the start of the file makes JSON.parse throw, and the
+  // release script writes this file with a tool that adds one by default. The
+  // manifest is produced outside this process, so the mark is stripped here
+  // rather than trusted not to appear.
+  const raw = fs.readFileSync(file, "utf8").replace(/^\uFEFF/, "");
   const parsed = JSON.parse(raw);
   if (!parsed || typeof parsed !== "object" || !parsed.apps) {
     throw new Error("manifest has no apps section");
@@ -129,8 +143,9 @@ router.get("/files/:fileName", (req, res) => {
     });
   }
 
-  const resolved = path.resolve(path.join(UPDATE_DIRECTORY, fileName));
-  if (!resolved.startsWith(UPDATE_DIRECTORY + path.sep)) {
+  const directory = updateDirectory();
+  const resolved = path.resolve(path.join(directory, fileName));
+  if (!resolved.startsWith(directory + path.sep)) {
     return res.status(400).json({
       error: "Not a release file name",
       code: "UPDATE_FILE_NAME_INVALID",
@@ -156,6 +171,6 @@ router.get("/files/:fileName", (req, res) => {
 });
 
 module.exports = router;
-module.exports.UPDATE_DIRECTORY = UPDATE_DIRECTORY;
-module.exports.MANIFEST_FILE = MANIFEST_FILE;
+module.exports.updateDirectory = updateDirectory;
+module.exports.manifestFile = manifestFile;
 module.exports.readManifest = readManifest;
