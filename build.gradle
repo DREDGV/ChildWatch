@@ -21,6 +21,48 @@ ext.cwVersionName = (findProperty("cwVersionName") ?: "${versionBase}.${nameStam
 ext.cwBuildDate = buildMoment.format("dd.MM.yyyy")
 ext.cwBuildTime = buildMoment.format("HH:mm")
 
+// ---------------------------------------------------------------------------
+// Release signing.
+//
+// A release build is signed with the project's permanent key, so an update can be
+// installed over the application already on a phone. Android only accepts an
+// update signed by the same key, which is why the key is created once and kept
+// outside the repository.
+//
+// The password is never stored here. scripts\build-release.ps1 reads it from the
+// encrypted file tied to the owner's Windows account and passes it in the
+// environment for the length of one build, so the secret exists in memory only
+// and never in a file a person or an agent can read.
+//
+// With no key configured the debug build still works; only signing a release
+// requires it.
+// ---------------------------------------------------------------------------
+def signingSettingsPath = new File(
+    System.getenv("LOCALAPPDATA") ?: "",
+    "ChildWatch/signing.properties"
+)
+def signingKeyPath = null
+def signingAlias = null
+def signingPassword = System.getenv("CW_SIGNING_PASSWORD")
+
+if (signingSettingsPath.isFile()) {
+    signingSettingsPath.eachLine { line ->
+        def trimmed = line.trim()
+        if (trimmed.startsWith("keyPath=")) { signingKeyPath = trimmed.substring(8).trim() }
+        if (trimmed.startsWith("alias=")) { signingAlias = trimmed.substring(6).trim() }
+    }
+}
+
+ext.cwReleaseSigningReady = signingKeyPath != null &&
+    new File(signingKeyPath).isFile() &&
+    signingAlias != null &&
+    signingPassword != null &&
+    !signingPassword.isEmpty()
+
+ext.cwSigningKeyPath = signingKeyPath
+ext.cwSigningAlias = signingAlias
+ext.cwSigningPassword = signingPassword
+
 // Optional isolated output directory for unattended/CI builds on Windows.
 // Android Studio keeps using the regular module build directories unless the
 // cwIsolatedBuildRoot property is explicitly supplied by the build script.

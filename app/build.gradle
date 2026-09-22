@@ -22,10 +22,29 @@ android {
         }
     }
 
+    // When a key exists, signing happens automatically: nobody has to remember to
+    // pass anything, and a release cannot be published unsigned by accident.
+    if (rootProject.ext.cwReleaseSigningReady) {
+        signingConfigs {
+            release {
+                storeFile file(rootProject.ext.cwSigningKeyPath)
+                storePassword rootProject.ext.cwSigningPassword
+                keyAlias rootProject.ext.cwSigningAlias
+                keyPassword rootProject.ext.cwSigningPassword
+                storeType "PKCS12"
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+            // Signed with the project's permanent key when one is configured, so
+            // this build can be installed over the one already on a phone.
+            if (rootProject.ext.cwReleaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
         }
     }
     compileOptions {
