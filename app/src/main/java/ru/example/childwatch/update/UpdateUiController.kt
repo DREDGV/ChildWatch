@@ -1,4 +1,4 @@
-package ru.example.childwatch.update
+﻿package ru.example.childwatch.update
 
 import android.content.Context
 import android.content.Intent
@@ -389,7 +389,7 @@ class UpdateUiController(
         // "Try again" is offered only where another attempt could work. A checksum
         // mismatch is the clearest case of one that cannot: the same request would
         // produce the same mismatch.
-        if (failure.retryable && failure.reason != DownloadFailure.METERED_CONNECTION) {
+        if (failure.retryable && failure.reason != DownloadFailure.NO_CONNECTION) {
             builder.setPositiveButton(context.getString(R.string.update_retry)) { _, _ ->
                 startDownload(release)
             }
@@ -412,7 +412,7 @@ class UpdateUiController(
             DownloadFailure.SIZE_UNREASONABLE -> R.string.update_error_size_unreasonable
             DownloadFailure.SIZE_NOT_ANNOUNCED -> R.string.update_error_size_unknown
             DownloadFailure.SIZE_MISMATCH -> R.string.update_error_size_mismatch
-            DownloadFailure.METERED_CONNECTION -> R.string.update_error_metered
+            DownloadFailure.NO_CONNECTION -> R.string.update_error_no_connection
             DownloadFailure.PACKAGE_REFUSED -> when (failure.detail) {
                 ApkVerification.PackageNameMismatch -> R.string.update_error_wrong_package
                 ApkVerification.VersionCodeMismatch,

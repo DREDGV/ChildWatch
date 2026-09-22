@@ -87,12 +87,29 @@ class UpdateResultReceiver : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        val sessionId = intent.getIntExtra(EXTRA_SESSION_ID, -1)
+
+        // A message WITHOUT a status is the system asking for the confirmation to be
+        // shown, not a result.
+        //
+        // This is what made the update repeat for ever. Android announces "user
+        // action required" by sending this receiver a message that carries no status
+        // at all, and only the identifier of the session. Reading the status with a
+        // default turned that request into "the installation failed", so the
+        // confirmation window was thrown away, the person saw nothing, and the
+        // application offered the same update again. The system log said it plainly:
+        // "status of session: pending, User action required".
+        if (!intent.hasExtra(PackageInstaller.EXTRA_STATUS)) {
+            Log.i(TAG, "The installer is asking for the confirmation to be shown")
+            onConfirmationNeeded(context, intent)
+            return
+        }
+
         val status = intent.getIntExtra(
             PackageInstaller.EXTRA_STATUS,
             PackageInstaller.STATUS_FAILURE
         )
         val statusMessage = intent.getStringExtra(PackageInstaller.EXTRA_STATUS_MESSAGE).orEmpty()
-        val sessionId = intent.getIntExtra(EXTRA_SESSION_ID, -1)
 
         Log.i(TAG, "Install result: status=$status session=$sessionId message=$statusMessage")
 

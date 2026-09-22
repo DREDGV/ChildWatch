@@ -40,36 +40,84 @@ function Get-ApkSigner {
     return $candidates | Select-Object -First 1
 }
 
-function Get-BuildStamp($apkPath) {
-    # The build writes its own version into the application; the file name carries
-    # the same version, which avoids depending on aapt for a single string.
-    $name = [System.IO.Path]::GetFileNameWithoutExtension($apkPath)
-    if ($name -match "v(\d+\.\d+\.\d+\.\d+)$") { return $Matches[1] }
-    return $null
-}
+<#
+    Finds a Java runtime the signing tools can actually start.
 
-function Get-VersionCode($apkPath) {
-    # Prefer the build outputs metadata Gradle writes: it needs no extra tool.
-    $meta = Join-Path (Split-Path -Parent $apkPath) "output-metadata.json"
-    if (Test-Path $meta) {
-        try {
-            $parsed = Get-Content $meta -Raw | ConvertFrom-Json
-            $element = $parsed.elements | Select-Object -First 1
-            if ($element -and $element.versionCode) { return [int64]$element.versionCode }
-        } catch { }
+    JAVA_HOME points at the runtime bundled with Android Studio, which is not a
+    full JDK: apksigner started under it fails with a message about jvm.cfg that
+    says nothing about the cause. Checking for that file is the reliable test.
+#>
+function Find-JavaHome {
+    $roots = @(
+        "C:\Program Files\Eclipse Adoptium",
+        "C:\Program Files\Java",
+        "C:\Program Files\Microsoft",
+        "C:\Program Files\Amazon Corretto",
+        "C:\Program Files\Zulu",
+        (Join-Path $env:USERPROFILE ".jdks"),
+        (Join-Path $env:LOCALAPPDATA "Programs\Eclipse Adoptium")
+    )
+    foreach ($root in $roots) {
+        if (-not (Test-Path $root)) { continue }
+        $found = Get-ChildItem $root -Directory -ErrorAction SilentlyContinue |
+            Sort-Object Name -Descending |
+            Where-Object { Test-Path (Join-Path $_.FullName "lib\jvm.cfg") } |
+            Select-Object -First 1
+        if ($found) { return $found.FullName }
     }
     return $null
 }
 
-function Get-SignerFingerprint($apkPath, $apksigner) {
+<#
+    Reads what Gradle recorded about a build.
+
+    Taken from the build's own metadata rather than parsed out of the file name:
+    the name carries a "-debug" or "-release" suffix, so a pattern that worked for
+    one variant silently produced an empty version for the other.
+#>
+function Get-BuildInfo($apkPath) {
+    $meta = Join-Path (Split-Path -Parent $apkPath) "output-metadata.json"
+    $info = [ordered]@{ versionCode = $null; versionName = $null; packageName = $null }
+    if (-not (Test-Path $meta)) { return $info }
+    try {
+        $parsed = Get-Content $meta -Raw | ConvertFrom-Json
+        $element = $parsed.elements | Select-Object -First 1
+        if ($element) {
+            if ($element.versionCode) { $info.versionCode = [int64]$element.versionCode }
+            if ($element.versionName) { $info.versionName = [string]$element.versionName }
+        }
+        if ($parsed.applicationId) { $info.packageName = [string]$parsed.applicationId }
+    } catch { }
+    return $info
+}
+
+function Get-SignerFingerprint($apkPath, $apksigner, $javaHome) {
     if (-not $apksigner) { return $null }
+    $previousJavaHome = $env:JAVA_HOME
+    if ($javaHome) { $env:JAVA_HOME = $javaHome }
     try {
         $output = & $apksigner verify --print-certs $apkPath 2>&1
-        $line = $output | Where-Object { $_ -match "SHA-256 digest" } | Select-Object -First 1
-        if ($line -and $line -match "([0-9a-fA-F:]{95})") {
-            return ($Matches[1] -replace ":", "").ToLowerInvariant()
+        $line = $output | Where-Object { "$_" -match "Signer #1 certificate SHA-256 digest" } |
+            Select-Object -First 1
+        if (-not $line) {
+            $line = $output | Where-Object { "$_" -match "SHA-256 digest" } | Select-Object -First 1
         }
-    } catch { }
+        if ($line) {
+            # apksigner prints the digest as plain lower-case hex, while keytool
+            # separates the pairs with colons. Both shapes are accepted rather than
+            # assuming the one that happened to be seen first: the earlier assumption
+            # made the fingerprint silently come out empty.
+            $text = "$line"
+            if ($text -match "([0-9a-fA-F]{64})") {
+                return $Matches[1].ToLowerInvariant()
+            }
+            if ($text -match "([0-9a-fA-F:]{95})") {
+                return ($Matches[1] -replace ":", "").ToLowerInvariant()
+            }
+        }
+    } catch { } finally {
+        $env:JAVA_HOME = $previousJavaHome
+    }
     return $null
 }
 
@@ -81,8 +129,14 @@ $releaseDirectory = if ($OutputDirectory) {
 New-Item -ItemType Directory -Force -Path $releaseDirectory | Out-Null
 
 $apksigner = Get-ApkSigner
+$signingJavaHome = Find-JavaHome
 if (-not $apksigner) {
     Step "WARNING: apksigner not found; the signing certificate will be omitted"
+} elseif (-not $signingJavaHome) {
+    Step "WARNING: no full JDK found; the signing certificate will be omitted"
+    Step "         apksigner needs one, the runtime bundled with Android Studio is not enough"
+} else {
+    Step "Signing tools will use: $signingJavaHome"
 }
 
 # The parent application is the one that can ask for an update on the owner's
@@ -112,10 +166,16 @@ foreach ($target in $targets) {
         continue
     }
 
-    $versionName = Get-BuildStamp $apk.FullName
-    $versionCode = Get-VersionCode $apk.FullName
+    $build = Get-BuildInfo $apk.FullName
+    $versionName = $build.versionName
+    $versionCode = $build.versionCode
     if (-not $versionCode) {
         Step "SKIP $($target.Label): the build did not report a version code"
+        continue
+    }
+    if (-not $versionName) {
+        # Never publish a nameless version: it is what the person sees in the notice.
+        Step "SKIP $($target.Label): the build did not report a version name"
         continue
     }
 
@@ -124,6 +184,14 @@ foreach ($target in $targets) {
     $publishedName = "$($target.Label)-$versionName.apk"
     $publishedPath = Join-Path $releaseDirectory $publishedName
     Copy-Item $apk.FullName $publishedPath -Force
+
+    # The size of the FILE, taken from the file itself.
+    #
+    # $publishedPath.Length is the length of the path STRING - 72 characters here -
+    # and using it published a manifest claiming the package was 72 bytes. The phone
+    # then told the person "about 0.0 MB" and refused the download as too small, so
+    # no update could ever have installed.
+    $publishedSize = (Get-Item -LiteralPath $publishedPath).Length
 
     $hash = (Get-FileHash -Path $publishedPath -Algorithm SHA256).Hash.ToLowerInvariant()
 
@@ -135,10 +203,10 @@ foreach ($target in $targets) {
         versionCode    = $versionCode
         versionName    = $versionName
         buildType      = $buildType
-        sizeBytes      = [int64]$publishedPath.Length
+        sizeBytes      = [int64]$publishedSize
         sha256         = $hash
         file           = $publishedName
-        signingCertSha256 = Get-SignerFingerprint $publishedPath $apksigner
+        signingCertSha256 = Get-SignerFingerprint $publishedPath $apksigner $signingJavaHome
         notes          = ""
     }
 }

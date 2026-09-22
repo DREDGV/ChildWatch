@@ -104,6 +104,22 @@ class UpdateInstaller(private val context: Context) {
             ).apply {
                 setAppPackageName(context.packageName)
                 setSize(apk.length())
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    // Declares that the person has already agreed, in this
+                    // application's own window, to installing this update.
+                    //
+                    // Without it Android cancels the session the moment it is
+                    // committed and reports the installation as aborted, before any
+                    // system window can appear. That is what made the update repeat
+                    // for ever: download, hand over, cancelled, offer again.
+                    //
+                    // The application is updating itself, so Android accepts this
+                    // declaration; the person is never asked twice for one decision
+                    // they already made.
+                    setRequireUserAction(
+                        PackageInstaller.SessionParams.USER_ACTION_NOT_REQUIRED
+                    )
+                }
             }
 
             val sessionId = installer.createSession(parameters)

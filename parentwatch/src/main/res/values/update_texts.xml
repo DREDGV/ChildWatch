@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <!--
     Everything the update feature says to a person.
 
@@ -44,7 +44,7 @@
     <!-- Reported only when nothing was installed. -->
     <string name="update_error_title">Обновление не установлено</string>
     <string name="update_error_network">Не удалось скачать обновление. Проверьте связь и попробуйте ещё раз.</string>
-    <string name="update_error_metered">Обновление не скачивается по мобильной сети, чтобы не расходовать трафик. Подключите Wi-Fi и нажмите «Обновить» снова.</string>
+    <string name="update_error_no_connection">Нет связи с интернетом. Проверьте подключение и нажмите «Обновить» снова.</string>
     <string name="update_error_checksum">Скачанный файл повреждён или подменён: его контрольная сумма не совпала с указанной сервером. Файл удалён, установка отменена. Повторять скачивание бессмысленно — напишите тому, кто отвечает за сервер.</string>
     <string name="update_error_size_unknown">Сервер не сообщил размер файла, поэтому обновление не скачивалось.</string>
     <string name="update_error_size_unreasonable">Сервер объявил неправдоподобный размер файла — такой файл не скачивался.</string>

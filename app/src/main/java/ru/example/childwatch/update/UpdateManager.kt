@@ -1,4 +1,4 @@
-package ru.example.childwatch.update
+﻿package ru.example.childwatch.update
 
 import android.content.Context
 import android.content.Intent
@@ -161,11 +161,16 @@ class UpdateManager(
                 )
             }
 
-            if (!isUnmetered()) {
-                // Tens of megabytes on a metered connection is not something to do
-                // silently on somebody's behalf.
+            // The connection is no longer a reason to refuse.
+            //
+            // This used to stop on any metered connection to avoid spending somebody's
+            // data allowance. In practice that made the update impossible for anyone
+            // without Wi-Fi, and the person had already pressed "update" and seen the
+            // size - they made the decision. The size is shown in the confirmation,
+            // and the connection only has to work.
+            if (!hasUsableConnection()) {
                 return@withContext DownloadResult.Failure(
-                    DownloadFailure.METERED_CONNECTION,
+                    DownloadFailure.NO_CONNECTION,
                     retryable = true
                 )
             }
@@ -273,18 +278,23 @@ class UpdateManager(
      * An unknown connection is treated as metered: the cautious answer costs a
      * person a moment, the permissive one can cost them money.
      */
-    private fun isUnmetered(): Boolean {
+    /**
+     * Whether there is a connection that actually reaches the internet.
+     *
+     * Being metered is deliberately not part of this: see where it is used for why.
+     * An unknown answer is treated as no connection, which only delays the attempt.
+     */
+    private fun hasUsableConnection(): Boolean {
         return try {
             val manager = context.getSystemService(Context.CONNECTIVITY_SERVICE)
                 as? ConnectivityManager ?: return false
             val network = manager.activeNetwork ?: return false
             val capabilities = manager.getNetworkCapabilities(network) ?: return false
 
-            val usable = capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+            capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
                 capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-            usable && !manager.isActiveNetworkMetered
         } catch (error: Throwable) {
-            Log.w(TAG, "Could not tell whether the connection is metered", error)
+            Log.w(TAG, "Could not tell whether the connection is usable", error)
             false
         }
     }
@@ -427,7 +437,7 @@ class UpdateManager(
 /** Why a download did not produce an installable file. */
 enum class DownloadFailure {
     CANCELLED,
-    METERED_CONNECTION,
+    NO_CONNECTION,
     SIZE_NOT_ANNOUNCED,
     SIZE_UNREASONABLE,
     SIZE_MISMATCH,
