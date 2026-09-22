@@ -81,9 +81,29 @@ router.get("/manifest", (req, res) => {
         code: "UPDATE_MANIFEST_MISSING",
       });
     }
+
+    // Each entry is answered with a ready-to-use address as well as the file name.
+    //
+    // A client that builds the address itself has to agree with the server on two
+    // things forever: the route and the file name. The ruvia project made exactly
+    // that mistake — its client hardcodes the file name and never reads the one in
+    // the announcement, so renaming it would have to be done in three places with
+    // nothing to catch a disagreement. Handing over the address leaves one place.
+    const withUrls = {
+      ...manifest,
+      apps: Object.fromEntries(
+        Object.entries(manifest.apps || {}).map(([key, app]) => [
+          key,
+          app && app.file
+            ? { ...app, url: `${req.baseUrl}/files/${app.file}` }
+            : app,
+        ])
+      ),
+    };
+
     res.set("Cache-Control", MANIFEST_CACHE_CONTROL);
     res.set("X-Content-Type-Options", "nosniff");
-    return res.json(manifest);
+    return res.json(withUrls);
   } catch (error) {
     return res.status(500).json({
       error: "The release manifest could not be read",
