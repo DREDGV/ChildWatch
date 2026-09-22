@@ -1,0 +1,65 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Everything the update feature says to a person.
+
+    All of it lives here rather than in the Kotlin source for the same reason the
+    rest of the application does: a sentence belongs with the other sentences, and a
+    screen that builds its own text cannot be translated or reworded without
+    touching code.
+
+    The wording is deliberately flat. Nothing here congratulates anybody, and
+    nothing accuses anybody: a person is being told that a newer version exists, or
+    that something did not work, and both are facts rather than events.
+-->
+<resources>
+    <!-- The quiet notice on the home screen. -->
+    <string name="update_notice_title">Доступно обновление</string>
+    <string name="update_notice_message">Вышла версия %1$s. Установить можно в любой момент.</string>
+    <string name="update_notice_message_plain">Вышла новая версия. Установить можно в любой момент.</string>
+    <string name="update_notice_action">Обновить</string>
+    <string name="update_notice_dismiss">Позже</string>
+
+    <!-- Before anything is downloaded. -->
+    <string name="update_download_title">Обновление до версии %1$s</string>
+    <string name="update_download_message">Потребуется скачать %1$s. Установку подтвердит система — обновление не ставится без вашего согласия.</string>
+    <string name="update_download_size">около %1$.1f МБ</string>
+    <string name="update_download_confirm">Скачать</string>
+    <string name="update_cancel">Отмена</string>
+    <string name="update_close">Закрыть</string>
+    <string name="update_retry">Повторить</string>
+
+    <!-- While the download runs. -->
+    <string name="update_download_running_title">Скачивание обновления</string>
+    <string name="update_download_starting">Подготовка…</string>
+    <string name="update_download_progress">Скачано %1$.1f МБ</string>
+
+    <!--
+        Android's own switch. Named as the system names it, because the person has
+        to recognise the screen this button opens.
+    -->
+    <string name="update_permission_title">Нужно разрешение</string>
+    <string name="update_permission_message">Android не разрешает этому приложению устанавливать обновления. Включите «Установка неизвестных приложений» для ChildWatch и нажмите «Обновить» снова.</string>
+    <string name="update_permission_open_settings">Открыть настройки</string>
+    <string name="update_permission_settings_unavailable">Этот телефон не даёт открыть нужный экран настроек. Найдите «Установка неизвестных приложений» в настройках вручную.</string>
+
+    <!-- Reported only when nothing was installed. -->
+    <string name="update_error_title">Обновление не установлено</string>
+    <string name="update_error_network">Не удалось скачать обновление. Проверьте связь и попробуйте ещё раз.</string>
+    <string name="update_error_metered">Обновление не скачивается по мобильной сети, чтобы не расходовать трафик. Подключите Wi-Fi и нажмите «Обновить» снова.</string>
+    <string name="update_error_checksum">Скачанный файл повреждён или подменён: его контрольная сумма не совпала с указанной сервером. Файл удалён, установка отменена. Повторять скачивание бессмысленно — напишите тому, кто отвечает за сервер.</string>
+    <string name="update_error_size_unknown">Сервер не сообщил размер файла, поэтому обновление не скачивалось.</string>
+    <string name="update_error_size_unreasonable">Сервер объявил неправдоподобный размер файла — такой файл не скачивался.</string>
+    <string name="update_error_size_mismatch">Файл скачался не полностью. Скачайте обновление ещё раз.</string>
+    <string name="update_error_wrong_package">Скачанный файл — другое приложение. Файл удалён, установка отменена.</string>
+    <string name="update_error_wrong_version">В скачанном файле другая версия, а не объявленная. Файл удалён, установка отменена.</string>
+    <string name="update_error_wrong_signature">Скачанный файл подписан другим ключом, а не тем же, что установленное приложение. Файл удалён, установка отменена.</string>
+    <string name="update_error_refused">Скачанный файл не подходит для установки. Файл удалён, установка отменена.</string>
+    <string name="update_error_confirmation_missing">Система не передала подтверждение установки, поэтому обновление не установлено. Нажмите «Обновить» и попробуйте снова.</string>
+    <string name="update_error_install_failed">Установка не завершилась: %1$s</string>
+    <string name="update_error_install_unknown">причина не сообщена</string>
+
+    <!-- The notification shown when the confirmation arrives with no screen running. -->
+    <string name="update_notification_channel">Обновления приложения</string>
+    <string name="update_notification_title">Обновление готово к установке</string>
+    <string name="update_notification_text">Нажмите, чтобы открыть ChildWatch и подтвердить установку.</string>
+</resources>

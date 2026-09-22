@@ -63,6 +63,21 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!--
+            Updates go here, under the protection card and above the profile and the
+            menu cards.
+
+            The card itself is added in code: it is identical in both applications, and
+            building it once means the two cannot drift apart. Nothing appears in this
+            space until a check has actually succeeded and found a version this phone
+            does not have — an empty slot is not worth showing a child.
+        -->
+        <LinearLayout
+            android:id="@+id/updateNoticeContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
         <com.google.android.material.card.MaterialCardView
             android:id="@+id/activeProfileCard"
             style="@style/Widget.ChildWatch.PersonCard.Selected"

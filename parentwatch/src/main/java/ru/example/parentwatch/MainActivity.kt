@@ -44,6 +44,9 @@ import ru.example.parentwatch.session.ChildProfileRuntimeCoordinator
 import ru.example.parentwatch.profile.AvatarPhotoSession
 import ru.example.parentwatch.profile.FamilyAvatarRenderer
 import ru.example.parentwatch.profile.ProfileEditDialog
+import ru.example.parentwatch.update.UpdateManager
+import ru.example.parentwatch.update.UpdateResultReceiver
+import ru.example.parentwatch.update.UpdateUiController
 import ru.childwatch.shared.onboarding.FamilyOnboardingEntryDecision
 import ru.childwatch.shared.onboarding.FamilyOnboardingEntryPolicy
 import android.view.MotionEvent
@@ -103,6 +106,41 @@ class MainActivity : AppCompatActivity() {
     private val familyOnboardingStore by lazy { ChildFamilyOnboardingStore(this) }
     private var badgeRefreshJob: Job? = null
     private var familyOnboardingCheckStarted = false
+
+    /**
+     * Updates over the air: the quiet check, the notice, the download and the request
+     * to the system installer.
+     *
+     * It is built here rather than inside the update package because a notice needs a
+     * screen to appear on and a coroutine scope tied to this screen's lifetime. The work
+     * itself stays in that package — this class only says where the notice goes and
+     * which server address to use.
+     */
+    private val updateUi by lazy {
+        UpdateUiController(
+            context = this,
+            scope = lifecycleScope,
+            noticeContainer = findViewById(R.id.updateNoticeContainer),
+            // The very address the network client talks to, so the manifest and the
+            // file can never be looked for on two different hosts.
+            serverUrlProvider = { networkClient.resolveConfiguredServerUrl() }
+        )
+    }
+
+    /**
+     * Whether this screen is on top right now.
+     *
+     * The installer's confirmation may only be opened from a visible screen, and a
+     * screen that is merely stopped is not visible — so this is a flag of its own
+     * rather than a guess from the activity's state.
+     */
+    private var screenVisible = false
+
+    /** True when an installation confirmation is waiting for a visible screen. */
+    private var resumeConfirmationOnStart = false
+
+    /** True while this screen is the place an installer confirmation may be opened from. */
+    private var updateUiAttached = false
 
     // Permission launchers
     private val locationPermissionLauncher = registerForActivityResult(
@@ -165,6 +203,12 @@ class MainActivity : AppCompatActivity() {
         updateQuickProfileSummary()
         updateUI()
         updateChatBadge()
+
+        // Updates are the last thing this screen deals with, and deliberately so: the
+        // check cannot block anything, and a child opening the application must not be
+        // held up by it.
+        attachUpdateUi()
+        updateUi.checkAndShowNotice()
         
         // PhotoIntegration is deprecated - RemotePhotoService now handles this via WebSocketManager
         // initializePhotoIntegration()
@@ -926,6 +970,13 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         prefs.edit().putBoolean("chat_open", false).apply()
+        screenVisible = true
+        // A notification may have opened this screen exactly to finish an installation;
+        // the confirmation is opened again as soon as the screen is visible.
+        if (resumeConfirmationOnStart || updateUi.wasOpenedToContinue(intent)) {
+            resumeConfirmationOnStart = false
+            UpdateManager.deliverPendingConfirmation()
+        }
         recoverMonitoringServiceIfNeeded()
         if (LocationService.isServiceAlive) {
             LocationService.retryAudioAfterForeground(this)
@@ -942,6 +993,50 @@ class MainActivity : AppCompatActivity() {
         }
         updateChatBadge()
         startBadgeRefreshLoop()
+        // Returning to the foreground is the other moment an update is checked for. At
+        // most once a day, and only after a check that succeeded: the limit is recorded
+        // by the update package, never by this screen.
+        updateUi.checkAndShowNotice()
+    }
+
+    /**
+     * Gives the update feature what it needs from this screen.
+     *
+     * The screen is registered as the place an installer confirmation may be opened
+     * from — while it is visible that is allowed, and while it is not the notification
+     * the receiver posts takes over, which is why the sink checks [screenVisible]. The
+     * note about a previous installation is read here, exactly once, so a failure that
+     * happened while the application was being replaced is still explained to whoever
+     * uses this phone.
+     */
+    private fun attachUpdateUi() {
+        updateUiAttached = true
+        UpdateManager.attachSink { confirmation ->
+            if (screenVisible) {
+                updateUi.openConfirmation(confirmation)
+            } else {
+                // Kept for the next resume instead of being dropped: opening a window
+                // from a stopped screen is refused by the system and would lose it.
+                resumeConfirmationOnStart = true
+                UpdateManager.publishPendingConfirmation(confirmation)
+            }
+        }
+        UpdateResultReceiver.attach(this)
+        updateUi.showPendingFailureNote()
+    }
+
+    /**
+     * Handles the notification that continues an installation.
+     *
+     * The screen is usually still in memory when its own notification is tapped, so
+     * Android reuses it and `onResume` never runs again. Without this the confirmation
+     * would be held but never shown, which looks exactly like an update that quietly did
+     * nothing.
+     */
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        UpdateManager.deliverPendingConfirmation()
     }
 
     private fun recoverMonitoringServiceIfNeeded() {
@@ -965,6 +1060,10 @@ class MainActivity : AppCompatActivity() {
 
     override fun onPause() {
         badgeRefreshJob?.cancel()
+        // The screen is no longer visible, so it is no longer the place the installer's
+        // confirmation may be opened from. The claim itself is kept: the receiver may
+        // deliver while this screen is stopped, and it has to have somewhere to put it.
+        screenVisible = false
         super.onPause()
     }
 
@@ -1293,5 +1392,12 @@ class MainActivity : AppCompatActivity() {
         badgeRefreshJob?.cancel()
         photoIntegration?.unregister()
         photoIntegration = null
+        // The screen is going away for good, so it stops being the place the installer's
+        // confirmation may be opened from.
+        if (updateUiAttached) {
+            updateUiAttached = false
+            UpdateManager.attachSink(null)
+            UpdateResultReceiver.detach()
+        }
     }
 }

@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
@@ -16,6 +16,16 @@
     <!-- Internet permission -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <!--
+        Installing an update.
+
+        Android requires this to hand a downloaded package to the installer. The
+        application never installs anything by itself: the request always passes
+        through the system installer, which shows the person what is about to be
+        installed and lets them refuse.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <!-- Foreground service permissions -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -196,6 +206,18 @@
             </intent-filter>
         </receiver>
 
-    </application>
+        <!--
+        Reports how an installation ended.
+
+        When an update replaces the application, Android kills this process, so the
+        screen that started the installation is gone and cannot receive the result.
+        A receiver declared here is started for that one message instead, which is
+        the only way the outcome survives the replacement.
+    -->
+    <receiver
+        android:name=".update.UpdateResultReceiver"
+        android:exported="false" />
+
+</application>
 
 </manifest>

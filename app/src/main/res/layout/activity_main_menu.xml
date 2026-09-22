@@ -91,6 +91,20 @@
         </com.google.android.material.card.MaterialCardView>
 
         <!--
+            Updates go here, directly under the child and above everything else.
+
+            The card itself is added in code: it is identical in both applications, and
+            building it once means the two cannot drift apart. Nothing appears in this
+            space until a check has actually succeeded and found a version this phone
+            does not have — an empty slot is not worth showing.
+        -->
+        <LinearLayout
+            android:id="@+id/updateNoticeContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical" />
+
+        <!--
             The monitoring switch. It used to sit fourth, below the family card, so
             the one control a parent comes for was the hardest thing to reach.
 

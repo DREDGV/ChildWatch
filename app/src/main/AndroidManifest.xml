@@ -19,6 +19,16 @@
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!--
+        Installing an update.
+
+        Android requires this to hand a downloaded package to the installer. The
+        application never installs anything by itself: the request always passes
+        through the system installer, which shows the person what is about to be
+        installed and lets them refuse.
+    -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+
     <!-- OSMdroid map tile caching -->
     <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"
         tools:ignore="ScopedStorage" />
@@ -294,6 +304,18 @@
                 android:value="ru.example.childwatch.AudioStreamingActivity" />
         </activity>
 
-    </application>
+        <!--
+        Reports how an installation ended.
+
+        When an update replaces the application, Android kills this process, so the
+        screen that started the installation is gone and cannot receive the result.
+        A receiver declared here is started for that one message instead, which is
+        the only way the outcome survives the replacement.
+    -->
+    <receiver
+        android:name=".update.UpdateResultReceiver"
+        android:exported="false" />
+
+</application>
 
 </manifest>

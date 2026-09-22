@@ -1645,6 +1645,65 @@ class NetworkClient(private val context: Context) {
     }
 
     /**
+     * The server address this client is actually configured to talk to.
+     *
+     * Exposed so a caller that needs an address can use the same one the rest of the
+     * application uses, instead of reading the setting again: two readers of one
+     * setting are two chances to disagree about which server the family is on.
+     */
+    fun resolveConfiguredServerUrl(): String? = getConfiguredServerUrl()
+
+    /**
+     * The release manifest: what the server has published for this application.
+     *
+     * [serverBase] is the address the caller already resolved — the same one the rest
+     * of the application talks to. It is passed in rather than read again here,
+     * because a second reader of the server setting is a second chance to disagree
+     * about which server the family is on.
+     *
+     * Nothing is interpreted: the body is handed back as it arrived and the update
+     * package decides what it means, which keeps version comparison in one readable
+     * place. Failure is answered rather than thrown, because a check that cannot be
+     * made must stay invisible to the person.
+     */
+    suspend fun fetchUpdateManifest(serverBase: String): Result<String> = withContext(Dispatchers.IO) {
+        try {
+            if (serverBase.isBlank()) {
+                return@withContext Result.failure<String>(
+                    IOException("Server URL is not configured")
+                )
+            }
+
+            val url = ensureHttpsUrl(serverBase.trim()).trimEnd('/') + "/updates/manifest"
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext Result.failure<String>(
+                        IOException("Manifest request answered ${response.code}")
+                    )
+                }
+                val body = response.body?.string()
+                if (body.isNullOrBlank()) {
+                    return@withContext Result.failure<String>(
+                        IOException("Manifest response was empty")
+                    )
+                }
+                Result.success(body)
+            }
+        } catch (e: IOException) {
+            Log.w(TAG, "Could not read the release manifest", e)
+            Result.failure<String>(e)
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not read the release manifest", e)
+            Result.failure<String>(e)
+        }
+    }
+
+    /**
      * Removes a picture this device uploaded earlier.
      *
      * Only a path the server stored itself is accepted, so a stale value can
