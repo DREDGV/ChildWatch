@@ -519,6 +519,72 @@ class NetworkClient(private val context: Context) {
     }
 
     /**
+     * One authenticated snapshot of the whole family map.
+     *
+     * The per-device routes answer "where is this endpoint"; this one answers
+     * "who is in my family and where are they", which is what the map draws.
+     * Names, roles and pictures come from the family record, so a rename or a
+     * new photograph reaches this screen without a reinstall.
+     */
+    suspend fun getFamilyLiveLocations(familyId: String): List<FamilyLiveLocation>? = withContext(Dispatchers.IO) {
+        try {
+            val requestedFamily = familyId.trim()
+            if (requestedFamily.isBlank()) return@withContext null
+            val serverUrl = getConfiguredServerUrl()?.takeIf(String::isNotBlank)
+                ?: return@withContext null
+            val encodedFamilyId = java.net.URLEncoder.encode(requestedFamily, "UTF-8")
+            val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}/api/location/family/latest?familyId=$encodedFamilyId"
+
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Family locations request failed: ${response.code}")
+                    return@withContext null
+                }
+                val responseBody = response.body?.string() ?: return@withContext null
+                val jsonResponse = JSONObject(responseBody)
+                if (!jsonResponse.optBoolean("success")) {
+                    Log.w(TAG, "Family locations request returned success=false")
+                    return@withContext null
+                }
+                val locations = jsonResponse.optJSONArray("locations") ?: return@withContext emptyList()
+                buildList {
+                    for (index in 0 until locations.length()) {
+                        val item = locations.optJSONObject(index) ?: continue
+                        val memberId = item.optString("memberId").trim()
+                        val deviceId = item.optString("deviceId").trim()
+                        if (memberId.isBlank() || deviceId.isBlank()) continue
+                        add(
+                            FamilyLiveLocation(
+                                memberId = memberId,
+                                deviceId = deviceId,
+                                displayName = item.optString("displayName").trim(),
+                                role = item.optString("role").trim(),
+                                avatarKey = item.optString("avatarKey").trim().takeIf(String::isNotBlank),
+                                latitude = item.getDouble("latitude"),
+                                longitude = item.getDouble("longitude"),
+                                accuracy = if (item.isNull("accuracy")) null else item.optDouble("accuracy").toFloat(),
+                                timestamp = item.getLong("timestamp")
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (e: IOException) {
+            Log.e(TAG, "Network error getting family locations", e)
+            null
+        } catch (e: Exception) {
+            Log.e(TAG, "Unexpected error getting family locations", e)
+            null
+        }
+    }
+
+    /**
      * Get latest child location from server
      */
     suspend fun getLatestLocation(deviceId: String): ParentLocationData? = withContext(Dispatchers.IO) {
@@ -2154,6 +2220,24 @@ data class LocationPairData(
     val parent: ParentLocationData?,
     val child: ParentLocationData?,
     val serverTimestamp: Long
+)
+
+/**
+ * One person on the shared family map, as the server describes them right now.
+ *
+ * [memberId] identifies the person and is what the map groups by: one phone can
+ * be replaced without the person becoming a second marker.
+ */
+data class FamilyLiveLocation(
+    val memberId: String,
+    val deviceId: String,
+    val displayName: String,
+    val role: String,
+    val avatarKey: String?,
+    val latitude: Double,
+    val longitude: Double,
+    val accuracy: Float?,
+    val timestamp: Long
 )
 
 private fun JSONObject.toParentLocationData(fallbackId: String, idKey: String): ParentLocationData {

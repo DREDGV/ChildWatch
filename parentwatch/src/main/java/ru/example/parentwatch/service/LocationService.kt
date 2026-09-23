@@ -50,6 +50,23 @@ class LocationService : Service() {
         private const val LOCATION_UPLOAD_DISTANCE_BALANCED_METERS = 35f
         private const val LOCATION_UPLOAD_DISTANCE_TRANSIT_METERS = 10f
         private const val LOCATION_UPLOAD_DISTANCE_ACTIVE_METERS = 10f
+
+        /**
+         * A fix worse than this is treated as a guess rather than a position.
+         *
+         * A hundred and fifty metres is generous for a real fix and far below what a
+         * cell-tower estimate produces indoors, so it separates the two without
+         * discarding anything a GPS reading would deliver.
+         */
+        private const val LOCATION_MAX_UPLOAD_ACCURACY_METERS = 150f
+
+        /**
+         * How long a good fix stays worth preferring over a coarse one.
+         *
+         * Beyond this a rough position is sent anyway: an approximate answer that is
+         * current beats an exact one from ten minutes ago.
+         */
+        private const val LOCATION_GOOD_FIX_MAX_AGE_MS = 5 * 60 * 1000L
         private const val COMMAND_CHECK_INTERVAL_WS_HEALTHY = 60_000L
         private const val COMMAND_CHECK_INTERVAL_WS_DEGRADED = 10_000L
         private const val CHAT_SERVICE_RECOVERY_COOLDOWN_MS = 20_000L
@@ -1049,6 +1066,30 @@ class LocationService : Service() {
     }
 
     private fun shouldUploadLocationLocked(location: Location): Boolean {
+        // A coarse fix is not worth sending while a good one is still recent.
+        //
+        // Without a phone nearby to scan, Android falls back to estimating a position
+        // from the mobile cell alone, which indoors is out by hundreds of metres and
+        // reports that as its accuracy. Sending such a point puts the child half a
+        // kilometre from home on the parent's map, and it looks exactly like a real
+        // position - which is worse than showing nothing, because the parent believes
+        // it.
+        //
+        // The rule is not to discard coarse fixes outright: if nothing good has
+        // arrived for a while, a rough position is better than a stale one.
+        if (!isAccurateEnough(location)) {
+            val previous = lastUploadedLocation
+            val previousAge = System.currentTimeMillis() - lastLocationUploadAt
+            if (previous != null && previousAge < LOCATION_GOOD_FIX_MAX_AGE_MS) {
+                Log.d(
+                    TAG,
+                    "Skipping a coarse fix (accuracy=${location.accuracy}m) while a " +
+                        "good one is ${previousAge / 1000}s old"
+                )
+                return false
+            }
+        }
+
         val lastLocation = lastUploadedLocation ?: return true
         val trackingMode = effectiveTrackingMode()
         val minInterval = when (trackingMode) {
@@ -1075,6 +1116,18 @@ class LocationService : Service() {
         val currentAccuracy = location.accuracy.takeIf { it > 0f } ?: Float.MAX_VALUE
         val previousAccuracy = lastLocation.accuracy.takeIf { it > 0f } ?: Float.MAX_VALUE
         return elapsed >= (minInterval / 2) && currentAccuracy + 15f < previousAccuracy
+    }
+
+    /**
+     * Whether a fix is a position rather than a guess.
+     *
+     * An accuracy of zero or less means the provider did not state one, which is
+     * treated as unknown rather than as perfect.
+     */
+    private fun isAccurateEnough(location: Location): Boolean {
+        val accuracy = location.accuracy
+        if (accuracy <= 0f) return true
+        return accuracy <= LOCATION_MAX_UPLOAD_ACCURACY_METERS
     }
 
     private fun finishLocationUpload(location: Location, success: Boolean) {

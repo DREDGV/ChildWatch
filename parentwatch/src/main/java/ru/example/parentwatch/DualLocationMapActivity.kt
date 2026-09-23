@@ -50,6 +50,7 @@ import ru.example.parentwatch.databinding.ActivityDualLocationMapBinding
 import ru.example.parentwatch.location.LocationManager
 import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.contacts.ContactIcons
+import ru.example.parentwatch.profile.FamilyAvatarRenderer
 import ru.example.parentwatch.session.ChildEffectiveContextResolver
 import ru.example.parentwatch.session.ChildEffectiveContextProvider
 import ru.example.parentwatch.session.ChildFamilyDirectoryRepository
@@ -169,7 +170,15 @@ class DualLocationMapActivity : AppCompatActivity() {
         val latitude: Double,
         val longitude: Double,
         val timestamp: Long?,
-        val iconId: Int
+        val iconId: Int,
+        /**
+         * The person behind the phone. Markers are keyed by this, so replacing a
+         * handset renames the marker instead of adding a second one.
+         */
+        val memberId: String = "",
+        val role: String = ROLE_PARENT,
+        val avatarValue: String? = null,
+        val accuracy: Float? = null
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -881,7 +890,8 @@ class DualLocationMapActivity : AppCompatActivity() {
             icon = createParticipantMarkerDrawable(
                 iconRes = myIcon,
                 accentColor = if (myRole == ROLE_CHILD) selfChildAccentColor() else childAccentColor(),
-                title = selfMarkerTitle()
+                title = selfMarkerTitle(),
+                stale = isStale(myTimestamp)
             )
         }
         otherMarker = Marker(mapView).apply {
@@ -892,7 +902,8 @@ class DualLocationMapActivity : AppCompatActivity() {
             icon = createParticipantMarkerDrawable(
                 iconRes = otherIcon,
                 accentColor = if (myRole == ROLE_CHILD) participantAccentColor(otherId, ROLE_PARENT) else childAccentColor(),
-                title = otherMarkerTitle()
+                title = otherMarkerTitle(),
+                stale = isStale(otherTimestamp)
             )
             setOnMarkerClickListener { marker, _ ->
                 marker.showInfoWindow()
@@ -948,7 +959,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                 } else {
                     participantAccentColor(title, ROLE_PARENT, emphasizeSelf = myRole == ROLE_CHILD)
                 },
-                title = title
+                title = title,
+                stale = isStale(timestamp)
             )
         }
         mapView.overlays.add(myMarker)
@@ -1054,6 +1066,43 @@ class DualLocationMapActivity : AppCompatActivity() {
         // One canonical family member produces one marker even when the
         // person has reinstalled the app or owns several phones.
         val canonicalDirectory = ChildFamilyDirectoryRepository(this@DualLocationMapActivity).loadCached()
+        val selfMemberId = canonicalDirectory?.selfMemberId?.trim().orEmpty()
+        val familyId = ChildEffectiveContextResolver(this@DualLocationMapActivity)
+            .resolveFamilyId()
+            ?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: canonicalDirectory?.family?.id?.trim()?.takeIf { it.isNotBlank() }
+
+        // The family answer comes first: it carries the current name, role and
+        // picture of every person, so a rename or a new photograph appears here
+        // without waiting for the phone to be reinstalled.
+        if (!familyId.isNullOrBlank()) {
+            val liveLocations = runCatching { networkClient.getFamilyLiveLocations(familyId) }
+                .onFailure { Log.w(TAG, "Family map request failed", it) }
+                .getOrNull()
+            if (!liveLocations.isNullOrEmpty()) {
+                val fromFamily = liveLocations
+                    .filter { it.deviceId != childDeviceId }
+                    .filter { selfMemberId.isBlank() || it.memberId != selfMemberId }
+                    .filter { it.deviceId !in excludedParentIds }
+                    .map { location ->
+                        FamilyMarkerCandidate(
+                            deviceId = location.deviceId,
+                            title = location.displayName.ifBlank { getString(R.string.family_member_name_missing) },
+                            latitude = location.latitude,
+                            longitude = location.longitude,
+                            timestamp = location.timestamp,
+                            iconId = ContactIcons.resolve(0, location.role),
+                            memberId = location.memberId,
+                            role = location.role.ifBlank { ROLE_PARENT },
+                            avatarValue = location.avatarKey,
+                            accuracy = location.accuracy
+                        )
+                    }
+                if (fromFamily.isNotEmpty()) return@withContext fromFamily
+            }
+        }
+
         val canonicalMarkers = mutableListOf<FamilyMarkerCandidate>()
         canonicalDirectory?.people.orEmpty()
             .asSequence()
@@ -1075,7 +1124,11 @@ class DualLocationMapActivity : AppCompatActivity() {
                     latitude = location.latitude,
                     longitude = location.longitude,
                     timestamp = location.timestamp,
-                    iconId = ContactIcons.PARENT
+                    iconId = ContactIcons.PARENT,
+                    memberId = person.member.id,
+                    role = person.member.role.name,
+                    avatarValue = person.member.avatarKey,
+                    accuracy = location.accuracy
                 )
             }
         if (canonicalMarkers.isNotEmpty()) return@withContext canonicalMarkers
@@ -1101,7 +1154,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                     latitude = location.latitude,
                     longitude = location.longitude,
                     timestamp = location.timestamp,
-                    iconId = link.parentMarkerIconId?.takeIf(ContactIcons::isKnown) ?: ContactIcons.PARENT
+                    iconId = link.parentMarkerIconId?.takeIf(ContactIcons::isKnown) ?: ContactIcons.PARENT,
+                    accuracy = location.accuracy
                 )
             }
         markers
@@ -1115,22 +1169,45 @@ class DualLocationMapActivity : AppCompatActivity() {
             return
         }
 
+        // A pairing can outlive the phone it names: the saved linked id may belong
+        // to a handset that left the family months ago. Once the family answers
+        // with real people, a legacy marker for a phone the family does not know
+        // is a ghost standing next to that same person's real marker, so it goes.
+        if (otherId.isNotBlank() && markers.none { it.deviceId == otherId }) {
+            otherMarker?.let { mapView.overlays.remove(it) }
+            otherMarker = null
+            otherAccuracyOverlay?.let { mapView.overlays.remove(it) }
+            otherAccuracyOverlay = null
+            connectionLine?.let { mapView.overlays.remove(it) }
+            connectionLine = null
+        }
+
         val points = mutableListOf<GeoPoint>()
         markers.forEach { candidate ->
             if (!isValidCoordinate(candidate.latitude, candidate.longitude)) return@forEach
+            val markerKey = candidate.memberId.ifBlank { candidate.deviceId }
+            // Not named "title": inside apply { } a local of that name shadows the
+            // marker's own property, and the assignment then targets the val.
+            val markerTitle = candidate.title.ifBlank { getString(R.string.family_member_name_missing) }
             val marker = Marker(mapView).apply {
                 position = GeoPoint(candidate.latitude, candidate.longitude)
-                title = candidate.title.ifBlank { candidate.deviceId }
-                snippet = formatMarkerSnippet(title, candidate.timestamp)
+                title = markerTitle
+                snippet = formatMarkerSnippet(markerTitle, candidate.timestamp)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                 icon = createParticipantMarkerDrawable(
-                    iconRes = ContactIcons.resolve(candidate.iconId, ROLE_PARENT),
-                    accentColor = participantAccentColor(candidate.deviceId, ROLE_PARENT, emphasizeSelf = candidate.deviceId == otherId),
-                    title = title
+                    iconRes = ContactIcons.resolve(candidate.iconId, candidate.role),
+                    accentColor = participantAccentColor(candidate.deviceId, candidate.role, emphasizeSelf = false),
+                    title = markerTitle,
+                    avatarValue = candidate.avatarValue,
+                    subtitle = candidate.timestamp?.let {
+                        getString(R.string.map_stats_meta_updated, formatTimestamp(it))
+                    },
+                    stale = isStale(candidate.timestamp)
                 )
             }
-            familyMarkers[candidate.deviceId] = marker
+            familyMarkers[markerKey] = marker
             mapView.overlays.add(marker)
+            candidate.accuracy?.let { addAccuracyOverlay(marker.position, it) }
             points += marker.position
         }
 
@@ -1366,7 +1443,17 @@ class DualLocationMapActivity : AppCompatActivity() {
     private fun createParticipantMarkerDrawable(
         @DrawableRes iconRes: Int,
         accentColor: Int,
-        title: String
+        title: String,
+        avatarValue: String? = null,
+        subtitle: String? = null,
+        /**
+         * True when the position is old enough that it may no longer be true.
+         *
+         * The marker is drawn faded with a clock beside it. Tapping already
+         * revealed the time, but a marker that looks the same whether it is ten
+         * seconds or ten hours old invites reading an old position as a current one.
+         */
+        stale: Boolean = false
     ): Drawable? {
         val density = resources.displayMetrics.density
         val label = shortMarkerLabel(title)
@@ -1376,11 +1463,20 @@ class DualLocationMapActivity : AppCompatActivity() {
             typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
             textAlign = Paint.Align.CENTER
         }
-        val chipHeight = 22f * density
+        val subtitlePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            color = accentColor
+            textSize = 10f * density
+            textAlign = Paint.Align.CENTER
+        }
+        val chipHeight = (if (subtitle.isNullOrBlank()) 22f else 36f) * density
         val chipPadding = 10f * density
         val iconSize = 34f * density
         val outerCircle = iconSize / 2f + 5f * density
-        val textWidth = maxOf(24f * density, textPaint.measureText(label))
+        val textWidth = maxOf(
+            24f * density,
+            textPaint.measureText(label),
+            subtitle?.let(subtitlePaint::measureText) ?: 0f
+        )
         val width = maxOf((iconSize + 18f * density).toInt(), (textWidth + chipPadding * 2f).toInt())
         val height = (chipHeight + outerCircle * 2f + 6f * density).toInt()
 
@@ -1410,8 +1506,14 @@ class DualLocationMapActivity : AppCompatActivity() {
             10f * density,
             chipStroke
         )
-        val textY = chipHeight / 2f - ((textPaint.descent() + textPaint.ascent()) / 2f)
+        val textY = (if (subtitle.isNullOrBlank()) chipHeight / 2f else 11f * density) -
+            ((textPaint.descent() + textPaint.ascent()) / 2f)
         canvas.drawText(label, width / 2f, textY, textPaint)
+        if (!subtitle.isNullOrBlank()) {
+            val subtitleY = 27f * density -
+                ((subtitlePaint.descent() + subtitlePaint.ascent()) / 2f)
+            canvas.drawText(subtitle, width / 2f, subtitleY, subtitlePaint)
+        }
 
         val circleCx = width / 2f
         val circleCy = chipHeight + outerCircle
@@ -1424,10 +1526,20 @@ class DualLocationMapActivity : AppCompatActivity() {
         canvas.drawCircle(circleCx, circleCy, outerCircle, circleFill)
         canvas.drawCircle(circleCx, circleCy, outerCircle, circleStroke)
 
-        val iconDrawable = ContextCompat.getDrawable(this, iconRes)?.mutate()
-            ?: return BitmapDrawable(resources, bitmap)
-        DrawableCompat.setTint(iconDrawable, accentColor)
+        // A stored picture wins; otherwise the marker keeps the contact icon.
+        val iconDrawable = if (avatarValue.isNullOrBlank()) {
+            ContextCompat.getDrawable(this, iconRes)?.mutate()
+        } else {
+            FamilyAvatarRenderer.drawable(this, avatarValue)?.mutate()
+        } ?: return BitmapDrawable(resources, bitmap)
+        if (avatarValue.isNullOrBlank()) {
+            DrawableCompat.setTint(iconDrawable, accentColor)
+        }
         val halfIcon = iconSize / 2f
+        val saveCount = canvas.save()
+        canvas.clipPath(android.graphics.Path().apply {
+            addCircle(circleCx, circleCy, halfIcon, android.graphics.Path.Direction.CW)
+        })
         iconDrawable.setBounds(
             (circleCx - halfIcon).toInt(),
             (circleCy - halfIcon).toInt(),
@@ -1435,6 +1547,30 @@ class DualLocationMapActivity : AppCompatActivity() {
             (circleCy + halfIcon).toInt()
         )
         iconDrawable.draw(canvas)
+        canvas.restoreToCount(saveCount)
+
+        if (stale) {
+            val faded = Paint(Paint.ANTI_ALIAS_FLAG).apply { color = Color.WHITE }
+            faded.alpha = 150
+            canvas.drawCircle(circleCx, circleCy, outerCircle - 1f * density, faded)
+
+            val clockRadius = 7f * density
+            val clockCx = circleCx + outerCircle - clockRadius
+            val clockCy = circleCy + outerCircle - clockRadius
+            val clockFill = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.parseColor("#6B7280")
+            }
+            val clockMark = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = Color.WHITE
+                style = Paint.Style.STROKE
+                strokeWidth = 1.4f * density
+                strokeCap = Paint.Cap.ROUND
+            }
+            canvas.drawCircle(clockCx, clockCy, clockRadius, clockFill)
+            canvas.drawLine(clockCx, clockCy, clockCx, clockCy - clockRadius * 0.5f, clockMark)
+            canvas.drawLine(clockCx, clockCy, clockCx + clockRadius * 0.45f, clockCy, clockMark)
+        }
+
         return BitmapDrawable(resources, bitmap)
     }
 
@@ -1444,7 +1580,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         return drawable
     }
 
-    private fun isStale(timestamp: Long): Boolean {
+    private fun isStale(timestamp: Long?): Boolean {
         val normalized = normalizeTimestampMillis(timestamp) ?: return false
         return System.currentTimeMillis() - normalized > STALE_THRESHOLD_MS
     }
