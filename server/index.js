@@ -18,6 +18,7 @@ const AttentionSignalManager = require("./managers/AttentionSignalManager");
 const FamilyPermissionService = require("./services/FamilyPermissionService");
 const FamilyIdentityService = require("./services/FamilyIdentityService");
 const FamilyOnboardingService = require("./services/FamilyOnboardingService");
+const DeviceAccessService = require("./services/DeviceAccessService");
 
 // Import route modules
 const createChatRoutes = require("./routes/chat");
@@ -62,6 +63,7 @@ const wsManager = new WebSocketManager(io, commandManager, dbManager);
 const familyPermissionService = new FamilyPermissionService(dbManager);
 const familyIdentityService = new FamilyIdentityService(dbManager);
 const familyOnboardingService = new FamilyOnboardingService(dbManager);
+const deviceAccessService = new DeviceAccessService(dbManager);
 const attentionSignalManager = new AttentionSignalManager({
   wsManager,
   dbManager,
@@ -346,6 +348,16 @@ app.post(
         return res.status(400).json({
           error: "Invalid app version format",
           code: "INVALID_APP_VERSION",
+        });
+      }
+
+      // A device whose access was taken away must not be able to walk back in by
+      // registering again. The applications re-register themselves on any 401, so
+      // without this check a revocation lasted about a minute.
+      if (await deviceAccessService.isDeviceRevoked(deviceId)) {
+        return res.status(403).json({
+          error: "This device's access was revoked",
+          code: "DEVICE_REVOKED",
         });
       }
 

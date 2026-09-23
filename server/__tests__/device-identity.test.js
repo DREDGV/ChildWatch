@@ -101,4 +101,44 @@ describe("device identity equivalence", () => {
     expect(service.idForms(parentBare).sort()).toEqual([parentBare, parentPrefixed].sort());
     expect(service.idForms(childId)).toEqual([childId]);
   });
+
+  describe("revoked devices", () => {
+    async function register(deviceId, isActive = 1) {
+      await db.registerDevice(deviceId, {
+        device_name: "Phone",
+        device_type: "android",
+        app_version: "7.3.0",
+      });
+      if (isActive !== 1) {
+        await db.run("UPDATE devices SET is_active = ? WHERE device_id = ?", [
+          isActive,
+          deviceId,
+        ]);
+      }
+    }
+
+    test("a device the server never saw is not revoked", async () => {
+      expect(await service.isDeviceRevoked(parentPrefixed)).toBe(false);
+      expect(await service.isDeviceRevoked("")).toBe(false);
+    });
+
+    test("an active device is not revoked", async () => {
+      await register(parentPrefixed);
+      expect(await service.isDeviceRevoked(parentPrefixed)).toBe(false);
+    });
+
+    test("a flagged device is revoked in every spelling", async () => {
+      await register(parentPrefixed, 0);
+      expect(await service.isDeviceRevoked(parentPrefixed)).toBe(true);
+      // The bare spelling names the same phone: clearing one row only would
+      // leave the device a way back in.
+      expect(await service.isDeviceRevoked(parentBare)).toBe(true);
+    });
+
+    test("revoking one device leaves the others alone", async () => {
+      await register(parentPrefixed, 0);
+      await register(childId);
+      expect(await service.isDeviceRevoked(childId)).toBe(false);
+    });
+  });
 });

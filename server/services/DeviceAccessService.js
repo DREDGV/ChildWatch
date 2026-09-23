@@ -71,6 +71,36 @@ class DeviceAccessService {
   }
 
   /**
+   * True when this device's access has been taken away.
+   *
+   * Revoking a session on its own lasted about a minute: the installed clients
+   * register themselves again whenever a request comes back 401, so a phone
+   * whose access was revoked walked straight back in with a fresh token.
+   * Registration asks this first. The device row is only flagged, never deleted,
+   * so the decision stays visible and can be undone.
+   *
+   * Every spelling of the identifier has to be revoked before the device counts
+   * as revoked: a row written under `device_<androidId>` and one under the bare
+   * id describe the same phone, and clearing only one of them would leave a way
+   * back in.
+   */
+  async isDeviceRevoked(deviceId) {
+    const normalized = this.normalizeDeviceId(deviceId);
+    if (!normalized) return false;
+    const forms = this.idForms(normalized);
+    const placeholders = forms.map(() => "?").join(", ");
+    const row = await this.dbManager.get(
+      `SELECT COUNT(*) AS total,
+              SUM(CASE WHEN is_active = 0 THEN 1 ELSE 0 END) AS revoked
+       FROM devices WHERE device_id IN (${placeholders})`,
+      forms
+    );
+    const total = Number(row?.total || 0);
+    if (total === 0) return false;
+    return Number(row?.revoked || 0) === total;
+  }
+
+  /**
    * @returns {Promise<{allowed: boolean, deviceId: string, code?: string}>}
    *   `deviceId` is the verified target, safe to act on.
    */

@@ -9,6 +9,7 @@
 
 const ChatConversationService = require("../services/ChatConversationService");
 const ChatV2SocketService = require("../services/ChatV2SocketService");
+const DeviceAccessService = require("../services/DeviceAccessService");
 
 class WebSocketManager {
   constructor(io, commandManager = null, dbManager = null) {
@@ -16,6 +17,7 @@ class WebSocketManager {
     this.commandManager = commandManager;
     this.dbManager = dbManager;
     this.attentionSignalManager = null;
+    this.deviceAccess = dbManager ? new DeviceAccessService(dbManager) : null;
     this.chatV2SocketService = dbManager
       ? new ChatV2SocketService(io, new ChatConversationService(dbManager))
       : null;
@@ -748,6 +750,24 @@ class WebSocketManager {
             }
           );
           if (!startResult.ok) {
+            // Offer the line to nobody, but tell the person who has it.
+            //
+            // The notification used to be sent only when the request carried an
+            // explicit takeover flag, which the application sets only after the
+            // person is refused once and presses again. Nobody does that: they see
+            // "the line is busy" and give up. The owner was therefore never told
+            // that somebody was waiting, which is the whole point of the message.
+            //
+            // A refused attempt IS the request. Trying to listen while another
+            // parent listens means exactly "may I have the line", so the owner is
+            // told at once and can hand it over.
+            this.notifyStreamTakeoverRequested(
+              targetDeviceId,
+              startResult.session?.ownerParentId,
+              requesterParentId,
+              startResult.session
+            );
+
             socket.emit("stream_busy", {
               code: startResult.code,
               deviceId: targetDeviceId,
@@ -757,14 +777,6 @@ class WebSocketManager {
               durationMs: startResult.session?.durationMs || 0,
               timestamp: Date.now(),
             });
-            if (payload.requestTakeover) {
-              this.notifyStreamTakeoverRequested(
-                targetDeviceId,
-                startResult.session?.ownerParentId,
-                requesterParentId,
-                startResult.session
-              );
-            }
             return;
           }
         } else if (rawType === "stop_audio_stream") {
@@ -1321,6 +1333,19 @@ class WebSocketManager {
   }
 
   /**
+   * True when this device's access was taken away.
+   *
+   * The socket handshake keeps a compatibility mode that accepts a connection
+   * whose token no longer validates, so a phone whose access was revoked could
+   * still register over the socket and receive the child's status and audio.
+   * Registration therefore asks the same question the registration route asks.
+   */
+  async isRevokedDevice(deviceId) {
+    if (!this.deviceAccess) return false;
+    return this.deviceAccess.isDeviceRevoked(deviceId);
+  }
+
+  /**
    * Register child device (ParentWatch)
    */
   async handleChildRegistration(socket, data) {
@@ -1354,6 +1379,16 @@ class WebSocketManager {
     if (!deviceId) {
       console.error("[ws] Child registration failed: missing deviceId");
       socket.emit("error", { message: "Missing deviceId" });
+      return;
+    }
+
+    if (await this.isRevokedDevice(deviceId)) {
+      console.warn(`[ws] Refusing child registration for revoked device ${deviceId}`);
+      socket.emit("registration_error", {
+        code: "DEVICE_REVOKED",
+        message: "This device's access was revoked",
+      });
+      socket.disconnect(true);
       return;
     }
 
@@ -1469,6 +1504,16 @@ class WebSocketManager {
     if (!requestedDeviceId) {
       console.error("[ws] Parent registration failed: missing deviceId");
       socket.emit("error", { message: "Missing deviceId" });
+      return;
+    }
+
+    if (await this.isRevokedDevice(parentDeviceId)) {
+      console.warn(`[ws] Refusing parent registration for revoked device ${parentDeviceId}`);
+      socket.emit("registration_error", {
+        code: "DEVICE_REVOKED",
+        message: "This device's access was revoked",
+      });
+      socket.disconnect(true);
       return;
     }
 
