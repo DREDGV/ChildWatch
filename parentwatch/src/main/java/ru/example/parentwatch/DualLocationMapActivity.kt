@@ -129,6 +129,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var loadLocationsJob: Job? = null
     private var autoFitEnabled = true
     private var isStatsCardCollapsed = false
+    private var isPersonDetailsExpanded = false
     private var liveModeUntilMs: Long = 0L
     private var lastLinkedSourceRes: Int? = null
     private var lastMyPoint: GeoPoint? = null
@@ -293,6 +294,52 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * The picture of every person this phone knows, keyed by device id.
+     *
+     * Read once per refresh on a background thread: the cached family directory is
+     * parsed there, so drawing a marker never parses it again on the main thread.
+     */
+    private var familyAvatarByDevice: Map<String, String> = emptyMap()
+
+    /** Every device the family directory knows, so a pairing can be checked against it. */
+    private var familyDeviceIds: Set<String> = emptySet()
+
+    /**
+     * Decodes the avatars this screen is about to draw, and remembers them.
+     *
+     * Cropping a preset needs the whole sheet decoded, and that decode used to
+     * happen on the main thread while the first marker was drawn - about a second
+     * of skipped frames on the child phone.
+     */
+    private suspend fun refreshFamilyAvatars() = withContext(Dispatchers.IO) {
+        val directory = ChildFamilyDirectoryRepository(this@DualLocationMapActivity).loadCached()
+        val byDevice = mutableMapOf<String, String>()
+        val values = mutableListOf<String>()
+        directory?.people.orEmpty().forEach { person ->
+            val avatar = person.member.avatarKey?.trim().orEmpty()
+            if (avatar.isBlank()) return@forEach
+            values += avatar
+            person.activeDevices.forEach { device -> byDevice[device.deviceId] = avatar }
+        }
+        participantNameResolver.resolveChildAvatarKey()?.let { values += it }
+        FamilyAvatarRenderer.warmUp(this@DualLocationMapActivity, values)
+        familyAvatarByDevice = byDevice
+        familyDeviceIds = byDevice.keys.toSet()
+    }
+
+    /** The picture of the person this phone belongs to. */
+    private fun ownAvatarValue(): String? =
+        familyAvatarByDevice[myId.trim()] ?: participantNameResolver.resolveChildAvatarKey()
+
+    /** The picture of the linked person, whoever the two applications call them. */
+    private fun linkedAvatarValue(deviceId: String): String? {
+        val normalized = deviceId.trim()
+        if (normalized.isBlank()) return null
+        return familyAvatarByDevice[normalized]
+            ?: participantNameResolver.resolveParentAvatarKey(normalized)
+    }
+
     private fun setupToolbar() {
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
@@ -358,6 +405,14 @@ class DualLocationMapActivity : AppCompatActivity() {
 
     private fun setupStatsCard() {
         binding.collapseStatsButton.setOnClickListener { collapseStatsCard() }
+        // Tapping the card reveals the details instead of hiding the card, which
+        // is what the parent application does: the compact part stays over the
+        // map and the person can look closer without losing the view.
+        binding.statsCard.setOnClickListener {
+            isPersonDetailsExpanded = !isPersonDetailsExpanded
+            binding.mapPersonDetails.visibility =
+                if (isPersonDetailsExpanded) View.VISIBLE else View.GONE
+        }
     }
 
     private fun collapseStatsCard() {
@@ -729,9 +784,13 @@ class DualLocationMapActivity : AppCompatActivity() {
         binding.errorCard.visibility = View.GONE
         loadLocationsJob = lifecycleScope.launch {
             try {
+                refreshFamilyAvatars()
                 if (myRole == ROLE_CHILD) {
                     runCatching { participantNameResolver.refreshCanonicalDirectory() }
                         .onFailure { Log.w(TAG, "Canonical family directory refresh failed", it) }
+                    // The refresh above can bring a new picture; decode it now rather
+                    // than in the middle of drawing.
+                    refreshFamilyAvatars()
                 }
                 val cachedMy = loadCachedLocation(cacheKeyMy())?.takeIfUsable()
                 val cachedOther = if (limitedMode) null else loadCachedLocation(cacheKeyOther())?.takeIfUsable()
@@ -757,7 +816,13 @@ class DualLocationMapActivity : AppCompatActivity() {
                 var localResolvedOtherId = resolvedOtherId.ifBlank { otherId }
                 val pairSnapshot = fetchResolvedPairSnapshot { parentId, childId ->
                     localResolvedParentId = parentId
-                    localResolvedOtherId = childId
+                    // "The other device" is the one on the far end of the pair, and
+                    // which end that is depends on who is looking. On the child phone
+                    // the pair arrives as (parent, this phone), so taking childId here
+                    // pointed every "other" reading - name, picture, distance - at the
+                    // phone itself. That is why the card showed the child's own face
+                    // and a distance of zero.
+                    localResolvedOtherId = if (myRole == ROLE_CHILD) parentId else childId
                 }
                 if (localResolvedParentId.isNotBlank()) {
                     resolvedParentId = localResolvedParentId
@@ -891,6 +956,7 @@ class DualLocationMapActivity : AppCompatActivity() {
                 iconRes = myIcon,
                 accentColor = if (myRole == ROLE_CHILD) selfChildAccentColor() else childAccentColor(),
                 title = selfMarkerTitle(),
+                avatarValue = ownAvatarValue(),
                 stale = isStale(myTimestamp)
             )
         }
@@ -903,6 +969,7 @@ class DualLocationMapActivity : AppCompatActivity() {
                 iconRes = otherIcon,
                 accentColor = if (myRole == ROLE_CHILD) participantAccentColor(otherId, ROLE_PARENT) else childAccentColor(),
                 title = otherMarkerTitle(),
+                avatarValue = linkedAvatarValue(resolvedOtherId.ifBlank { otherId }),
                 stale = isStale(otherTimestamp)
             )
             setOnMarkerClickListener { marker, _ ->
@@ -934,7 +1001,15 @@ class DualLocationMapActivity : AppCompatActivity() {
         mapView.invalidate()
     }
 
-    private fun displaySingleLocation(lat: Double, lon: Double, title: String, iconRes: Int, timestamp: Long?, snippetLabel: String) {
+    private fun displaySingleLocation(
+        lat: Double,
+        lon: Double,
+        title: String,
+        iconRes: Int,
+        timestamp: Long?,
+        snippetLabel: String,
+        avatarValue: String? = null
+    ) {
         if (!isMapReady || !::mapView.isInitialized || isFinishing || isDestroyed) return
         if (!isValidCoordinate(lat, lon)) {
             binding.errorCard.visibility = View.VISIBLE
@@ -960,6 +1035,7 @@ class DualLocationMapActivity : AppCompatActivity() {
                     participantAccentColor(title, ROLE_PARENT, emphasizeSelf = myRole == ROLE_CHILD)
                 },
                 title = title,
+                avatarValue = avatarValue,
                 stale = isStale(timestamp)
             )
         }
@@ -992,9 +1068,9 @@ class DualLocationMapActivity : AppCompatActivity() {
                 sanitizedOther.timestamp,
                 sanitizedOther
             )
-            sanitizedMy != null -> displaySingleLocation(sanitizedMy.latitude, sanitizedMy.longitude, selfMarkerTitle(), myIcon, sanitizedMy.timestamp, getString(R.string.map_my_location))
+            sanitizedMy != null -> displaySingleLocation(sanitizedMy.latitude, sanitizedMy.longitude, selfMarkerTitle(), myIcon, sanitizedMy.timestamp, getString(R.string.map_my_location), ownAvatarValue())
             sanitizedOther != null -> {
-                displaySingleLocation(sanitizedOther.latitude, sanitizedOther.longitude, otherMarkerTitle(), otherIcon, sanitizedOther.timestamp, getString(R.string.map_other_location))
+                displaySingleLocation(sanitizedOther.latitude, sanitizedOther.longitude, otherMarkerTitle(), otherIcon, sanitizedOther.timestamp, getString(R.string.map_other_location), linkedAvatarValue(resolvedOtherId.ifBlank { otherId }))
                 otherAccuracyOverlay = addAccuracyOverlay(
                     GeoPoint(sanitizedOther.latitude, sanitizedOther.longitude),
                     sanitizedOther.accuracy
@@ -1084,7 +1160,6 @@ class DualLocationMapActivity : AppCompatActivity() {
                 val fromFamily = liveLocations
                     .filter { it.deviceId != childDeviceId }
                     .filter { selfMemberId.isBlank() || it.memberId != selfMemberId }
-                    .filter { it.deviceId !in excludedParentIds }
                     .map { location ->
                         FamilyMarkerCandidate(
                             deviceId = location.deviceId,
@@ -1169,17 +1244,23 @@ class DualLocationMapActivity : AppCompatActivity() {
             return
         }
 
-        // A pairing can outlive the phone it names: the saved linked id may belong
-        // to a handset that left the family months ago. Once the family answers
-        // with real people, a legacy marker for a phone the family does not know
-        // is a ghost standing next to that same person's real marker, so it goes.
-        if (otherId.isNotBlank() && markers.none { it.deviceId == otherId }) {
-            otherMarker?.let { mapView.overlays.remove(it) }
-            otherMarker = null
-            otherAccuracyOverlay?.let { mapView.overlays.remove(it) }
-            otherAccuracyOverlay = null
-            connectionLine?.let { mapView.overlays.remove(it) }
-            connectionLine = null
+        // The family answer wins for the person it describes. Its marker for the
+        // linked device replaces the legacy "linked device" marker, so nobody is
+        // drawn twice; a pairing that names a phone the family does not know at all
+        // is a ghost and goes as well. A phone the family knows but has no fresh
+        // position for keeps its legacy marker, so nothing is lost.
+        val linkedDeviceId = resolvedOtherId.ifBlank { otherId }
+        if (linkedDeviceId.isNotBlank()) {
+            val coveredByFamily = markers.any { it.deviceId == linkedDeviceId }
+            val knownToFamily = linkedDeviceId in familyDeviceIds
+            if (coveredByFamily || !knownToFamily) {
+                otherMarker?.let { mapView.overlays.remove(it) }
+                otherMarker = null
+                otherAccuracyOverlay?.let { mapView.overlays.remove(it) }
+                otherAccuracyOverlay = null
+                connectionLine?.let { mapView.overlays.remove(it) }
+                connectionLine = null
+            }
         }
 
         val points = mutableListOf<GeoPoint>()
@@ -1227,24 +1308,92 @@ class DualLocationMapActivity : AppCompatActivity() {
         distanceMeters: Float? = null,
         etaText: String? = null
     ) {
+        val linkedDeviceId = resolvedOtherId.ifBlank { otherId }
         val battery = linkedLocation.battery?.takeIf { it in 0..100 }?.let { "$it%" }
             ?: getString(R.string.map_person_battery_unknown)
         val accuracy = linkedLocation.accuracy.takeIf { it.isFinite() && it > 0f }?.let {
             getString(R.string.map_person_accuracy_meters, it.toInt().coerceAtLeast(1))
         } ?: getString(R.string.map_person_accuracy_unknown)
-        val updated = normalizeTimestampMillis(linkedLocation.timestamp)?.let(::formatRelativeTimestamp) ?: "нет данных"
-        binding.mapPersonNameText.text = otherMarkerTitle()
+        val updated = normalizeTimestampMillis(linkedLocation.timestamp)?.let(::formatRelativeTimestamp)
+            ?: getString(R.string.map_location_unavailable)
+        // The card names the person and shows their picture, as it does in the
+        // parent application: a card without a face reads as a stranger's card.
+        binding.mapPersonName.text = otherMarkerTitle()
+        FamilyAvatarRenderer.bind(
+            binding.mapPersonAvatar,
+            linkedAvatarValue(linkedDeviceId),
+            otherMarkerTitle()
+        )
+        binding.mapPersonStatus.text = getString(resolveMovementStatusText(linkedLocation))
         binding.mapPersonSummaryText.text = getString(
             R.string.map_person_summary,
             battery,
             accuracy,
             updated
         )
+        binding.mapPersonCoordinatesText.text = if (
+            isValidCoordinate(linkedLocation.latitude, linkedLocation.longitude)
+        ) {
+            getString(
+                R.string.map_person_coordinates,
+                linkedLocation.latitude,
+                linkedLocation.longitude
+            )
+        } else {
+            getString(R.string.map_person_coordinates_waiting)
+        }
+        loadPersonAddress(linkedLocation)
         binding.distanceText.text = distanceMeters?.let { formatEtaDistance(it) } ?: "--"
         binding.etaText.text = etaText ?: "--"
         binding.movementStatusText.text = getString(resolveMovementStatusText(linkedLocation))
         binding.pointMetaText.text = buildPointMetaText(linkedLocation)
         binding.statsCard.visibility = if (isStatsCardCollapsed) View.GONE else View.VISIBLE
+    }
+
+    private var personAddressJob: Job? = null
+    private var personAddressLocationKey: String? = null
+
+    /**
+     * The street address of a point, asked for once per place.
+     *
+     * The lookup goes to the system geocoder, which can be slow or absent, so it
+     * runs off the main thread and only fills the line it owns.
+     */
+    private fun loadPersonAddress(location: ParentLocationData) {
+        if (!isValidCoordinate(location.latitude, location.longitude)) {
+            personAddressJob?.cancel()
+            personAddressLocationKey = null
+            binding.mapPersonAddressText.text = getString(R.string.map_person_address_unavailable)
+            return
+        }
+
+        val key = String.format(
+            java.util.Locale.US,
+            "%.5f,%.5f",
+            location.latitude,
+            location.longitude
+        )
+        if (personAddressLocationKey == key && personAddressJob?.isActive == true) return
+        personAddressLocationKey = key
+        personAddressJob?.cancel()
+        binding.mapPersonAddressText.text = getString(R.string.map_person_address_waiting)
+        personAddressJob = lifecycleScope.launch {
+            val address = withContext(Dispatchers.IO) {
+                runCatching {
+                    if (!android.location.Geocoder.isPresent()) return@runCatching null
+                    android.location.Geocoder(this@DualLocationMapActivity, java.util.Locale.getDefault())
+                        .getFromLocation(location.latitude, location.longitude, 1)
+                        ?.firstOrNull()
+                        ?.getAddressLine(0)
+                        ?.trim()
+                        ?.takeIf(String::isNotBlank)
+                }.getOrNull()
+            }
+            if (personAddressLocationKey == key) {
+                binding.mapPersonAddressText.text = address
+                    ?: getString(R.string.map_person_address_unavailable)
+            }
+        }
     }
 
     private fun resolveMovementStatusText(linkedLocation: ParentLocationData): Int {

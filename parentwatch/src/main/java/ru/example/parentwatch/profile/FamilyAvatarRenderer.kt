@@ -125,6 +125,18 @@ object FamilyAvatarRenderer {
         AvatarImageLoader.preload(context, avatarValues)
     }
 
+    /**
+     * Decodes the preset sheet and [avatarValues] before anything is drawn.
+     *
+     * Cropping a preset needs the whole sheet decoded, and doing that on the main
+     * thread cost about a second of skipped frames on the first map that drew
+     * avatars. Callers run this on a background thread while the positions are
+     * still being fetched, so the drawing itself only crops what is ready.
+     */
+    fun warmUp(context: Context, avatarValues: Collection<String?>) {
+        AvatarPresetCatalog.warmUp(context, avatarValues.filterNotNull())
+    }
+
     fun isPreset(value: String?): Boolean {
         val normalized = value?.trim().orEmpty()
         return normalized.isNotBlank() && AvatarPresetCatalog.isPreset(normalized)

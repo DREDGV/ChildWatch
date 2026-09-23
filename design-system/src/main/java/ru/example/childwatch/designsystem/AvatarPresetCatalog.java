@@ -10,6 +10,7 @@ import android.graphics.drawable.Drawable;
 import androidx.annotation.Nullable;
 
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -108,6 +109,41 @@ public final class AvatarPresetCatalog {
     }
 
     /**
+     * Decodes the sheet and the named avatars ahead of time, off the caller's thread.
+     *
+     * <p>Cropping a preset needs the whole sheet in memory, and that decode plus the
+     * per-cell artwork scan is far too slow for the main thread: the first screen that
+     * drew avatars on a map skipped about a second of frames. A screen that knows it is
+     * about to draw avatars calls this on a background thread first, and the drawing
+     * calls that follow only crop from what is already decoded.</p>
+     */
+    public static void warmUp(@Nullable Context context, @Nullable Collection<String> values) {
+        if (context == null) return;
+        Context appContext = context.getApplicationContext();
+        ensureSheet(appContext);
+        if (values == null) return;
+        for (String value : values) {
+            if (value == null || value.trim().isEmpty()) continue;
+            createDrawable(appContext, value);
+        }
+    }
+
+    /** The sheet itself, decoded once and kept. */
+    @Nullable
+    private static Bitmap ensureSheet(Context context) {
+        synchronized (BITMAP_CACHE) {
+            Bitmap sheet = sheetCache;
+            if (sheet != null && !sheet.isRecycled()) return sheet;
+            sheet = BitmapFactory.decodeResource(
+                    context.getApplicationContext().getResources(),
+                    R.drawable.avatar_presets_sheet
+            );
+            sheetCache = sheet;
+            return sheet;
+        }
+    }
+
+    /**
      * The offered preset a stored value stands for, or null when it is not a built-in picture.
      *
      * <p>A legacy key resolves to the offered preset it is drawn from, so callers only ever have
@@ -136,14 +172,7 @@ public final class AvatarPresetCatalog {
      */
     @Nullable
     private static Bitmap crop(Context context, int index) {
-        Bitmap sheet = sheetCache;
-        if (sheet == null || sheet.isRecycled()) {
-            sheet = BitmapFactory.decodeResource(
-                    context.getApplicationContext().getResources(),
-                    R.drawable.avatar_presets_sheet
-            );
-            sheetCache = sheet;
-        }
+        Bitmap sheet = ensureSheet(context);
         if (sheet == null) return null;
 
         int row = index / COLUMNS;

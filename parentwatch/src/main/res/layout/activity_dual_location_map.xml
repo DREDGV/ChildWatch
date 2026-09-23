@@ -39,9 +39,9 @@
         android:layout_gravity="bottom"
         android:layout_margin="16dp"
         android:layout_marginBottom="88dp"
-        android:layout_marginEnd="120dp"
         android:visibility="gone"
-        app:cardCornerRadius="12dp"
+        app:cardBackgroundColor="@color/cw_color_surface"
+        app:cardCornerRadius="24dp"
         app:cardElevation="8dp"
         tools:visibility="visible">
 
@@ -49,7 +49,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="12dp">
+            android:padding="16dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -57,17 +57,44 @@
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
-                <TextView
-                    android:id="@+id/mapPersonNameText"
+                <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/mapPersonAvatar"
+                    android:layout_width="58dp"
+                    android:layout_height="58dp"
+                    android:contentDescription="@string/family_profile_avatar_description"
+                    android:scaleType="centerCrop"
+                    android:src="@drawable/ic_brand_childdevice"
+                    app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.ChildWatch.Avatar"
+                    app:strokeColor="@color/cw_color_outline_variant"
+                    app:strokeWidth="1dp" />
+
+                <LinearLayout
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
                     android:layout_weight="1"
-                    android:ellipsize="end"
-                    android:maxLines="1"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="@color/text_primary"
-                    android:textStyle="bold"
-                    tools:text="Мама" />
+                    android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/mapPersonName"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="1"
+                        android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                        android:textColor="@color/cw_color_on_surface"
+                        android:textStyle="bold"
+                        tools:text="Мама" />
+
+                    <TextView
+                        android:id="@+id/mapPersonStatus"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="2dp"
+                        android:text="@string/map_location_unavailable"
+                        android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                        android:textColor="@color/cw_color_on_surface_variant" />
+                </LinearLayout>
 
                 <ImageButton
                     android:id="@+id/collapseStatsButton"
@@ -77,20 +104,47 @@
                     android:contentDescription="@string/map_hide_details"
                     android:padding="10dp"
                     android:src="@android:drawable/ic_menu_close_clear_cancel"
-                    app:tint="@color/text_secondary" />
+                    app:tint="@color/cw_color_on_surface_variant" />
 
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/mapPersonAddressText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="@string/map_person_address_waiting"
+                android:textAppearance="@style/TextAppearance.Material3.TitleSmall"
+                android:textColor="@color/cw_color_on_surface" />
 
             <TextView
                 android:id="@+id/mapPersonSummaryText"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:ellipsize="end"
-                android:maxLines="2"
-                android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                android:textColor="@color/text_secondary"
-                tools:text="Заряд: 62% · ±18 м · обновлено 40 сек назад" />
+                android:layout_marginTop="6dp"
+                android:text="@string/map_person_summary_waiting"
+                android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                android:textColor="@color/cw_color_on_surface"
+                tools:text="Заряд: 62% · Точность: ±18 м · Обновлено: 40 сек назад" />
+
+            <!-- The compact part above stays visible over the map. Details are
+                 revealed only after tapping the card, so they do not hide the
+                 actual location. Same behaviour as the parent application. -->
+            <LinearLayout
+                android:id="@+id/mapPersonDetails"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/mapPersonCoordinatesText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="3dp"
+                    android:text="@string/map_person_coordinates_waiting"
+                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                    android:textColor="@color/cw_color_on_surface_variant" />
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -223,6 +277,8 @@
                 android:minHeight="40dp"
                 android:text="@string/map_timeline_button"
                 app:icon="@drawable/ic_history" />
+
+            </LinearLayout>
 
         </LinearLayout>
 

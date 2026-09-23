@@ -20,4 +20,12 @@
     <string name="map_timeline_start">&#x0421;&#x0442;&#x0430;&#x0440;&#x0442; &#x043C;&#x0430;&#x0440;&#x0448;&#x0440;&#x0443;&#x0442;&#x0430; | %1$s</string>
     <string name="map_timeline_end">&#x041F;&#x043E;&#x0441;&#x043B;&#x0435;&#x0434;&#x043D;&#x044F;&#x044F; &#x0442;&#x043E;&#x0447;&#x043A;&#x0430; | %1$s</string>
     <string name="map_timeline_stop">&#x041E;&#x0441;&#x0442;&#x0430;&#x043D;&#x043E;&#x0432;&#x043A;&#x0430; %1$s | %2$s</string>
+    <!-- The person card is the same card in both applications, so it says the
+         same things. Only the wording that names the child differs elsewhere. -->
+    <string name="family_profile_avatar_description">Фото участника семьи</string>
+    <string name="map_person_summary_waiting">Заряд и точность появятся после получения геолокации</string>
+    <string name="map_person_coordinates_waiting">Координаты пока недоступны</string>
+    <string name="map_person_coordinates">Координаты: %1$.5f, %2$.5f</string>
+    <string name="map_person_address_waiting">Определяем место…</string>
+    <string name="map_person_address_unavailable">Адрес пока не определён</string>
 </resources>

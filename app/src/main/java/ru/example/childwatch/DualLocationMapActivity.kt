@@ -375,6 +375,15 @@ class DualLocationMapActivity : AppCompatActivity() {
                     }
                 }
             }
+            // Decode the pictures before the main thread has to draw them. Cropping
+            // a preset needs the whole sheet in memory, and doing that while the
+            // first marker was drawn cost about a second of skipped frames.
+            withContext(Dispatchers.IO) {
+                FamilyAvatarRenderer.warmUp(
+                    this@DualLocationMapActivity,
+                    directory.people.map { it.member.avatarKey }
+                )
+            }
             bindSelectedPersonIdentity()
             if (otherMarker != null && dependenciesReady) loadLocations()
         }
@@ -1777,7 +1786,11 @@ class DualLocationMapActivity : AppCompatActivity() {
                 val pairSnapshot = fetchResolvedPairSnapshot(
                     onResolved = { parentId, childId ->
                         resolvedPairParentId = parentId
-                        resolvedPairOtherId = childId
+                        // "The other device" is the far end of the pair, and which end
+                        // that is depends on who is looking. Taking childId
+                        // unconditionally pointed every "other" reading at the wrong
+                        // person whenever this screen ran in the child role.
+                        resolvedPairOtherId = if (myRole == ROLE_CHILD) parentId else childId
                     }
                 )
                 if (resolvedPairParentId.isNotBlank()) {
