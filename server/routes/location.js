@@ -78,8 +78,82 @@ function formatLocationTimestamp(timestamp) {
   }
 }
 
-async function ensureParentLocationTables(dbManager) {
-  await dbManager.run(`
+const LIVE_SHARING_AGE_MS = 3 * 60 * 1000;
+const LAST_KNOWN_AGE_MS = 24 * 60 * 60 * 1000;
+
+function locationTimeMillis(value) {
+  const timestamp = Number(value);
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return null;
+  return timestamp < 100_000_000_000 ? timestamp * 1000 : timestamp;
+}
+
+/** Read both upload paths and both historical spellings of one device id. */
+async function latestDevicePosition(db, deviceId) {
+  const forms = deviceAccess.idForms(deviceId);
+  if (!forms.length) return null;
+  const placeholders = forms.map(() => "?").join(", ");
+  const [child, parent] = await Promise.all([
+    db.get(
+      `SELECT latitude, longitude, accuracy, timestamp
+       FROM locations WHERE device_id IN (${placeholders})
+       ORDER BY timestamp DESC LIMIT 1`,
+      forms
+    ),
+    db.get(
+      `SELECT latitude, longitude, accuracy, timestamp
+       FROM parent_locations WHERE parent_id IN (${placeholders})
+       ORDER BY timestamp DESC LIMIT 1`,
+      forms
+    ),
+  ]);
+  return [child, parent]
+    .filter(Boolean)
+    .map((row) => ({
+      latitude: Number(row.latitude),
+      longitude: Number(row.longitude),
+      accuracy: row.accuracy == null ? null : Number(row.accuracy),
+      timestamp: locationTimeMillis(row.timestamp),
+    }))
+    .filter((row) =>
+      Number.isFinite(row.latitude) && Math.abs(row.latitude) <= 90 &&
+      Number.isFinite(row.longitude) && Math.abs(row.longitude) <= 180 &&
+      row.timestamp !== null
+    )
+    .sort((first, second) => second.timestamp - first.timestamp)[0] || null;
+}
+
+/**
+ * One stored parent row, whichever spelling of the identifier wrote it.
+ *
+ * The installed clients upload the same phone's position as both
+ * `device_<androidId>` and `<androidId>`. A lookup that names a single spelling
+ * therefore returns only the half of the history that matches it, and a phone
+ * reporting every thirty seconds looked four hours old to the child application
+ * while its fresh rows sat under the other spelling.
+ */
+async function latestParentPositionRow(db, parentId) {
+  const forms = deviceAccess.idForms(parentId);
+  if (!forms.length) return null;
+  const placeholders = forms.map(() => "?").join(", ");
+  return db.get(
+    `SELECT * FROM parent_locations
+     WHERE parent_id IN (${placeholders})
+     ORDER BY timestamp DESC LIMIT 1`,
+    forms
+  );
+}
+
+/** The same equivalence, as an SQL fragment and its parameters. */
+function parentIdFilter(parentId) {
+  const forms = deviceAccess.idForms(parentId);
+  const list = forms.length ? forms : [parentId];
+  return {
+    clause: `parent_id IN (${list.map(() => "?").join(", ")})`,
+    params: list,
+  };
+}
+
+async function ensureParentLocationTables(dbManager) {  await dbManager.run(`
         CREATE TABLE IF NOT EXISTS parent_locations (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             parent_id TEXT NOT NULL,
@@ -110,6 +184,91 @@ async function ensureParentLocationTables(dbManager) {
  * Handles location history and tracking data
  */
 
+/**
+ * One current point per person on the shared family map. A fresh upload is a
+ * location-sharing signal inside this family; an explicit LOCATION denial still
+ * wins. Existing granted relationships may see a last known point for 24 hours,
+ * while an ungranted adult disappears three minutes after uploads stop.
+ */
+router.get("/family/latest", async (req, res) => {
+  try {
+    const familyId = String(req.query.familyId || "").trim();
+    if (!familyId) {
+      return res.status(400).json({ error: "familyId is required", code: "FAMILY_ID_REQUIRED" });
+    }
+    if (!req.deviceId) {
+      return res.status(401).json({ error: "Authentication required", code: "AUTH_REQUIRED" });
+    }
+    const memberships = (await Promise.all(
+      deviceAccess.idForms(req.deviceId).map((id) =>
+        sharedDatabase.getFamilyIdentityMembershipsForDevice(id)
+      )
+    )).flat();
+    const actor = memberships.find((membership) => membership.familyId === familyId);
+    if (!actor) {
+      return res.status(403).json({
+        error: "Device is not a member of this family",
+        code: "FAMILY_ACCESS_DENIED",
+      });
+    }
+
+    await ensureSharedParentLocationTables();
+    const [members, devices] = await Promise.all([
+      sharedDatabase.getFamilyMembers(familyId),
+      sharedDatabase.getFamilyDevices(familyId),
+    ]);
+    const devicesByMember = new Map();
+    for (const device of devices) {
+      const group = devicesByMember.get(device.memberId) || [];
+      group.push(device);
+      devicesByMember.set(device.memberId, group);
+    }
+
+    const now = Date.now();
+    const locations = (await Promise.all(members.map(async (member) => {
+      const positions = await Promise.all(
+        (devicesByMember.get(member.id) || []).map(async (device) => ({
+          deviceId: device.deviceId,
+          point: await latestDevicePosition(sharedDatabase, device.deviceId),
+        }))
+      );
+      const latest = positions
+        .filter(({ point }) => point && point.timestamp <= now + 60_000)
+        .sort((first, second) => second.point.timestamp - first.point.timestamp)[0];
+      if (!latest || now - latest.point.timestamp > LAST_KNOWN_AGE_MS) return null;
+
+      if (member.id !== actor.memberId) {
+        const permission = await sharedDatabase.getFamilyPermission({
+          familyId,
+          actorMemberId: actor.memberId,
+          targetMemberId: member.id,
+          feature: "LOCATION",
+        });
+        if (permission?.allowed === 0) return null;
+        if (permission?.allowed !== 1 && now - latest.point.timestamp > LIVE_SHARING_AGE_MS) {
+          return null;
+        }
+      }
+      return {
+        memberId: member.id,
+        displayName: member.displayName,
+        role: member.role,
+        avatarKey: member.avatarKey,
+        deviceId: latest.deviceId,
+        ...latest.point,
+      };
+    }))).filter(Boolean);
+
+    return res.json({ success: true, familyId, serverTimestamp: now, locations });
+  } catch (error) {
+    console.error("Get family live locations error:", error);
+    return res.status(500).json({
+      error: "Failed to get family locations",
+      code: "FAMILY_LOCATION_ERROR",
+    });
+  }
+});
+
 // Get current parent+child snapshot in one response
 router.get("/pair", async (req, res) => {
   try {
@@ -137,15 +296,7 @@ router.get("/pair", async (req, res) => {
 
     const [parentLocation, childLocation] = await withDatabase((db) =>
       Promise.all([
-        db.get(
-          `
-            SELECT * FROM parent_locations
-            WHERE parent_id = ?
-            ORDER BY timestamp DESC
-            LIMIT 1
-        `,
-          [authorizedParentId]
-        ),
+        latestParentPositionRow(db, authorizedParentId),
         db.getLatestLocation(authorizedChildId),
       ])
     );
@@ -485,15 +636,7 @@ router.get("/parent/latest/:parentId", async (req, res) => {
     await ensureSharedParentLocationTables();
 
     const location = await withDatabase((db) =>
-      db.get(
-        `
-            SELECT * FROM parent_locations 
-            WHERE parent_id = ? 
-            ORDER BY timestamp DESC 
-            LIMIT 1
-        `,
-        [authorizedParentId]
-      )
+      latestParentPositionRow(db, authorizedParentId)
     );
 
     if (!location) {
@@ -559,8 +702,9 @@ router.get("/parent/history/:parentId", async (req, res) => {
     const parsedFrom = from !== undefined ? parseInt(from, 10) : null;
     const parsedTo = to !== undefined ? parseInt(to, 10) : null;
 
-    const filters = ["parent_id = ?"];
-    const params = [authorizedParentId];
+    const parentFilter = parentIdFilter(authorizedParentId);
+    const filters = [parentFilter.clause];
+    const params = [...parentFilter.params];
 
     if (parsedFrom !== null && !Number.isNaN(parsedFrom)) {
       filters.push("timestamp >= ?");
