@@ -11,8 +11,12 @@
     <string name="home_child_chat_hint">Написать семье</string>
     <string name="home_child_map">Семья на карте</string>
     <string name="home_child_map_hint">Посмотреть местоположение</string>
-    <string name="home_child_signal">Позвать родителя</string>
-    <string name="home_child_signal_hint">Отправить сигнал внимания</string>
+    <string name="home_child_signal">Позвать</string>
+    <string name="home_child_signal_hint">Сигнал внимания — любому в семье</string>
     <string name="home_child_settings">Настройки</string>
     <string name="home_child_settings_hint">Доступ по PIN-коду</string>
+    <!-- The child chooses whom to call, so the sheet is never limited to one name. -->
+    <string name="child_signal_choose_recipient">Кому позвать?</string>
+    <string name="child_signal_choose_cancel">Отмена</string>
+    <string name="child_signal_profile_missing">Сначала подключите профиль родителя</string>
 </resources>
