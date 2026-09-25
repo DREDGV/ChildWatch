@@ -12,6 +12,13 @@ import com.bumptech.glide.load.engine.DiskCacheStrategy
 import ru.example.childwatch.R
 
 class RemotePhotoThumbnailAdapter(
+    /**
+     * Supplies the token the server demands for a picture.
+     *
+     * Without it every thumbnail came back 401 and the grid showed placeholders
+     * although the server held the photographs.
+     */
+    private val tokenProvider: () -> String? = { null },
     private val onPhotoClick: ((RemotePhotoItem) -> Unit)? = null
 ) : ListAdapter<RemotePhotoItem, RemotePhotoThumbnailAdapter.ThumbnailViewHolder>(DiffCallback) {
 
@@ -30,7 +37,7 @@ class RemotePhotoThumbnailAdapter(
 
         fun bind(item: RemotePhotoItem) {
             Glide.with(imgThumbnail)
-                .load(item.previewUrl)
+                .load(AuthenticatedMedia.url(item.previewUrl, tokenProvider))
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
                 .skipMemoryCache(false)
                 .placeholder(R.drawable.ic_photo_placeholder)

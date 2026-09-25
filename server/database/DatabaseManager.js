@@ -3320,6 +3320,21 @@ class DatabaseManager {
         [now, normalizedConversationId]
       );
 
+      // A person has read what they wrote.
+      //
+      // Without this the sender's own read pointer stays behind their own
+      // messages, and every counter derived from it counts those messages as
+      // unread: two messages sent to a child put a badge of two beside that
+      // child's name in the sender's own conversation list.
+      await this.run(
+        `UPDATE chat_conversation_members
+         SET last_delivered_sequence = MAX(last_delivered_sequence, ?),
+             last_read_sequence = MAX(last_read_sequence, ?),
+             updated_at = MAX(updated_at, ?)
+         WHERE conversation_id = ? AND member_id = ?`,
+        [sequence, sequence, now, normalizedConversationId, normalizedSenderMemberId]
+      );
+
       return {
         created: true,
         deduplicated: false,

@@ -12,6 +12,11 @@ import androidx.recyclerview.widget.RecyclerView
 import androidx.lifecycle.lifecycleScope
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.bumptech.glide.load.DataSource
+import com.bumptech.glide.load.engine.GlideException
+import com.bumptech.glide.request.RequestListener
+import com.bumptech.glide.request.target.Target
+import android.graphics.drawable.Drawable
 import com.google.android.material.appbar.MaterialToolbar
 import com.google.android.material.progressindicator.CircularProgressIndicator
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
@@ -37,6 +42,7 @@ import ru.example.childwatch.profile.ParentLinkedChildOption
 import ru.example.childwatch.profile.ParentTargetSelector
 import ru.example.childwatch.profile.FamilyAvatarRenderer
 import ru.example.childwatch.remote.RemotePhotoThumbnailAdapter
+import ru.example.childwatch.remote.AuthenticatedMedia
 import ru.example.childwatch.remote.SelectChildBottomSheet
 import ru.example.childwatch.service.AudioPlaybackService
 
@@ -82,6 +88,7 @@ class RemoteCameraActivity : AppCompatActivity() {
     // Новые элементы видоискателя
     private lateinit var imgLastPhoto: ImageView
     private lateinit var imgViewfinderPlaceholder: ImageView
+    private lateinit var tvViewfinderHint: TextView
     private lateinit var pillChildSelector: View
     private lateinit var childAvatarImage: ImageView
     private lateinit var imgOnlineDot: ImageView
@@ -166,6 +173,7 @@ class RemoteCameraActivity : AppCompatActivity() {
             // Новые элементы видоискателя
             imgLastPhoto = findViewById(R.id.imgLastPhoto)
             imgViewfinderPlaceholder = findViewById(R.id.imgViewfinderPlaceholder)
+            tvViewfinderHint = findViewById(R.id.tvViewfinderHint)
             pillChildSelector = findViewById(R.id.pillChildSelector)
             childAvatarImage = findViewById(R.id.imgChildAvatar)
             imgOnlineDot = findViewById(R.id.imgOnlineDot)
@@ -181,6 +189,7 @@ class RemoteCameraActivity : AppCompatActivity() {
             childNameText = findViewById(R.id.tvChildName)
 
             thumbnailAdapter = RemotePhotoThumbnailAdapter(
+                tokenProvider = { networkClient.getAuthToken() },
                 onPhotoClick = { photoItem -> openRemotePhotoPreview(photoItem) }
             )
             rvRecentPhotos.apply {
@@ -1084,11 +1093,28 @@ class RemoteCameraActivity : AppCompatActivity() {
     private fun showViewfinderPhoto(photo: RemotePhotoItem) {
         imgLastPhoto.visibility = View.VISIBLE
         imgViewfinderPlaceholder.visibility = View.GONE
+        tvViewfinderHint.visibility = View.GONE
         Glide.with(this)
-            .load(photo.previewUrl)
+            .load(AuthenticatedMedia.url(photo.previewUrl) { networkClient.getAuthToken() })
             .diskCacheStrategy(DiskCacheStrategy.ALL)
-            .placeholder(R.drawable.ic_photo_placeholder)
-            .error(R.drawable.ic_photo_placeholder)
+            .listener(object : RequestListener<Drawable> {
+                override fun onLoadFailed(
+                    e: GlideException?, model: Any?, target: Target<Drawable>, isFirstResource: Boolean
+                ): Boolean {
+                    imgLastPhoto.post {
+                        imgLastPhoto.visibility = View.GONE
+                        imgViewfinderPlaceholder.visibility = View.VISIBLE
+                        tvViewfinderHint.visibility = View.VISIBLE
+                        tvViewfinderHint.setText(R.string.remote_camera_preview_unavailable)
+                    }
+                    return false
+                }
+
+                override fun onResourceReady(
+                    resource: Drawable, model: Any, target: Target<Drawable>,
+                    dataSource: DataSource, isFirstResource: Boolean
+                ): Boolean = false
+            })
             .centerCrop()
             .into(imgLastPhoto)
     }
@@ -1097,6 +1123,8 @@ class RemoteCameraActivity : AppCompatActivity() {
         Glide.with(this).clear(imgLastPhoto)
         imgLastPhoto.visibility = View.GONE
         imgViewfinderPlaceholder.visibility = View.VISIBLE
+        tvViewfinderHint.visibility = View.VISIBLE
+        tvViewfinderHint.setText(R.string.remote_camera_empty_preview)
         tvTimestamp.text = ""
     }
 }
