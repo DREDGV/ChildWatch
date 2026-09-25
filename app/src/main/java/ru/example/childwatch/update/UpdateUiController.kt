@@ -1,4 +1,4 @@
-﻿package ru.example.childwatch.update
+package ru.example.childwatch.update
 
 import android.content.Context
 import android.content.Intent
@@ -78,6 +78,17 @@ class UpdateUiController(
      * [UpdateManager] is what stops that from being a request per resume.
      */
     fun checkAndShowNotice() {
+        // An offer found earlier is still true, and the daily check limit must not be
+        // what hides it: a person who missed the notice once had no way to see it
+        // again until the next day. Shown first, then refreshed by the check below.
+        manager.previouslyOfferedRelease()?.let { earlier ->
+            if (manager.shouldOffer(earlier)) {
+                showNotice(earlier)
+            } else {
+                manager.forgetOfferedRelease()
+            }
+        }
+
         // Read through the caller's resolver, which is the same setting the rest of the
         // application talks to. A phone that has not been set up yet is asked nothing:
         // there is no server to ask.
@@ -123,6 +134,7 @@ class UpdateUiController(
                 // is asked again on the next resume, which is what "dismissable"
                 // has to mean to be worth offering.
                 manager.dismiss(release.versionCode)
+                manager.forgetOfferedRelease()
                 notice.hide()
                 offered = null
             }

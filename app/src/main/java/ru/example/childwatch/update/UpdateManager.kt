@@ -1,4 +1,4 @@
-﻿package ru.example.childwatch.update
+package ru.example.childwatch.update
 
 import android.content.Context
 import android.content.Intent
@@ -118,7 +118,39 @@ class UpdateManager(
             "Update available: ${release.versionName} (${release.versionCode}) " +
                 "over installed ${currentVersionCode}"
         )
+        // Remembered before it is shown: the offer must outlive the session that
+        // found it, because the next check is a day away.
+        preferences.rememberOffered(raw, release.versionCode)
         return release
+    }
+
+    /**
+     * The release found earlier that is still worth offering.
+     *
+     * Answers without any network call, so a person who missed the notice sees it
+     * again on the next launch instead of waiting for the daily check.
+     */
+    fun previouslyOfferedRelease(): UpdateRelease? {
+        val (raw, versionCode) = preferences.offeredManifest() ?: return null
+        if (versionCode <= currentVersionCode) {
+            // It was installed, or a newer release has taken its place.
+            preferences.forgetOffered()
+            return null
+        }
+        val release = UpdateManifest.parse(raw, packageName) ?: run {
+            preferences.forgetOffered()
+            return null
+        }
+        if (release.versionCode != versionCode) {
+            preferences.forgetOffered()
+            return null
+        }
+        return release
+    }
+
+    /** The offer is no longer worth showing: it was installed or closed. */
+    fun forgetOfferedRelease() {
+        preferences.forgetOffered()
     }
 
     /**

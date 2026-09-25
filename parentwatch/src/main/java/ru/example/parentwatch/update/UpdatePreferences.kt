@@ -20,10 +20,51 @@ class UpdatePreferences(context: Context) {
         private const val KEY_LAST_CHECK = "last_successful_check_at"
         private const val KEY_DISMISSED_VERSION = "dismissed_version_code"
         private const val KEY_PENDING_NOTE = "pending_failure_note"
+        private const val KEY_OFFERED_MANIFEST = "offered_manifest_json"
+        private const val KEY_OFFERED_VERSION = "offered_version_code"
     }
 
     private val prefs = context.applicationContext
         .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /**
+     * The release found earlier and neither installed nor dismissed.
+     *
+     * The check runs at most once a day, so without this the offer lived only in the
+     * session that discovered it: the next launch skipped the check, showed nothing,
+     * and a person who missed the notice had no way to see it again until the
+     * following day. The release is known, so it stays offered.
+     *
+     * @return the manifest that produced the offer, and the version it named.
+     */
+    fun offeredManifest(): Pair<String, Int>? {
+        val raw = prefs.getString(KEY_OFFERED_MANIFEST, null)?.takeIf { it.isNotBlank() }
+            ?: return null
+        val versionCode = prefs.getInt(KEY_OFFERED_VERSION, 0)
+        if (versionCode <= 0) return null
+        return raw to versionCode
+    }
+
+    fun rememberOffered(manifestRaw: String, versionCode: Int) {
+        if (manifestRaw.isBlank() || versionCode <= 0) return
+        prefs.edit()
+            .putString(KEY_OFFERED_MANIFEST, manifestRaw)
+            .putInt(KEY_OFFERED_VERSION, versionCode)
+            .apply()
+    }
+
+    /**
+     * Forgets the offer, because it was installed or closed.
+     *
+     * Closing it is remembered separately as a dismissal: an update that is no
+     * longer offered must not come back on the next launch either.
+     */
+    fun forgetOffered() {
+        prefs.edit()
+            .remove(KEY_OFFERED_MANIFEST)
+            .remove(KEY_OFFERED_VERSION)
+            .apply()
+    }
 
     /**
      * When the release manifest was last read successfully.
