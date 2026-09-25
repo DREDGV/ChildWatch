@@ -2,15 +2,42 @@ package ru.example.childwatch.attention
 
 import android.app.Activity
 import android.widget.Toast
+import androidx.activity.ComponentActivity
+import androidx.lifecycle.lifecycleScope
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ru.childwatch.shared.attention.android.AttentionSignalSheet
 import ru.childwatch.shared.attention.android.AttentionSignalTarget
+import ru.childwatch.shared.family.FamilyRole
 import ru.childwatch.shared.family.FeatureTargetResult
+import ru.example.childwatch.R
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.profile.ParentEffectiveContextProvider
 import ru.example.childwatch.profile.FamilyAvatarRenderer
+import ru.example.childwatch.profile.ParentFamilyDirectoryRepository
 import ru.example.childwatch.profile.ParentParticipantNameResolver
 
+/**
+ * Sends the attention signal from an adult's phone.
+ *
+ * The recipient used to be whoever happened to be focused, so an adult could not
+ * ring a particular person — a second parent was unreachable, and the child was
+ * the only practical target. When nobody is named, the adult now chooses from the
+ * family first, the same way the child's phone does.
+ */
 object ParentAttentionSignalLauncher {
+
+    /** One person the signal can reach, with the phone it must ring. */
+    private data class SignalCandidate(
+        val deviceId: String,
+        val memberId: String,
+        val displayName: String,
+        val avatarValue: String?,
+        val role: FamilyRole
+    )
+
     fun show(
         activity: Activity,
         explicitTargetDeviceId: String? = null,
@@ -18,6 +45,105 @@ object ParentAttentionSignalLauncher {
         explicitTargetAvatarValue: String? = null,
         explicitTargetMemberId: String? = null,
         explicitFamilyId: String? = null
+    ) {
+        // A caller who named somebody — a tap on a particular person — is obeyed.
+        val named = !explicitTargetDeviceId.isNullOrBlank() || !explicitTargetMemberId.isNullOrBlank()
+        val component = activity as? ComponentActivity
+        if (named || component == null) {
+            openSheet(
+                activity,
+                explicitTargetDeviceId,
+                explicitTargetName,
+                explicitTargetAvatarValue,
+                explicitTargetMemberId,
+                explicitFamilyId
+            )
+            return
+        }
+
+        component.lifecycleScope.launch {
+            val candidates = loadCandidates(activity)
+            val only = candidates.singleOrNull()
+            when {
+                candidates.size > 1 -> chooseCandidate(activity, candidates) { chosen ->
+                    openSheet(
+                        activity,
+                        explicitTargetDeviceId = chosen.deviceId,
+                        explicitTargetName = chosen.displayName,
+                        explicitTargetAvatarValue = chosen.avatarValue,
+                        explicitTargetMemberId = chosen.memberId,
+                        explicitFamilyId = explicitFamilyId
+                    )
+                }
+
+                else -> openSheet(
+                    activity,
+                    explicitTargetDeviceId = only?.deviceId,
+                    explicitTargetName = only?.displayName,
+                    explicitTargetAvatarValue = only?.avatarValue,
+                    explicitTargetMemberId = only?.memberId,
+                    explicitFamilyId = explicitFamilyId
+                )
+            }
+        }
+    }
+
+    /**
+     * Everyone in the family except this phone, adults first.
+     *
+     * The family directory is the only source that knows both the person and the
+     * phone the signal has to ring. A person without a known phone is left out
+     * rather than offered and then failing.
+     */
+    private suspend fun loadCandidates(activity: Activity): List<SignalCandidate> =
+        withContext(Dispatchers.IO) {
+            val directory = runCatching {
+                ParentFamilyDirectoryRepository(activity).load()
+            }.getOrNull()?.directory ?: return@withContext emptyList()
+
+            directory.people
+                .asSequence()
+                .filter { it.member.id != directory.selfMemberId }
+                .mapNotNull { person ->
+                    val device = person.primaryDevice() ?: return@mapNotNull null
+                    SignalCandidate(
+                        deviceId = device.deviceId,
+                        memberId = person.member.id,
+                        displayName = person.member.displayName.trim()
+                            .ifBlank { activity.getString(R.string.attention_signal_member_name_missing) },
+                        avatarValue = person.member.avatarKey,
+                        role = person.member.role
+                    )
+                }
+                .sortedWith(
+                    compareBy<SignalCandidate> { if (it.role == FamilyRole.CHILD) 1 else 0 }
+                        .thenBy { it.displayName.lowercase() }
+                )
+                .toList()
+        }
+
+    private fun chooseCandidate(
+        activity: Activity,
+        candidates: List<SignalCandidate>,
+        onChosen: (SignalCandidate) -> Unit
+    ) {
+        val names = candidates.map { it.displayName }.toTypedArray()
+        MaterialAlertDialogBuilder(activity)
+            .setTitle(R.string.attention_signal_choose_recipient)
+            .setItems(names) { _, index ->
+                candidates.getOrNull(index)?.let(onChosen)
+            }
+            .setNegativeButton(R.string.attention_signal_choose_cancel, null)
+            .show()
+    }
+
+    private fun openSheet(
+        activity: Activity,
+        explicitTargetDeviceId: String?,
+        explicitTargetName: String?,
+        explicitTargetAvatarValue: String?,
+        explicitTargetMemberId: String?,
+        explicitFamilyId: String?
     ) {
         val contextProvider = ParentEffectiveContextProvider.get(activity)
         val result = contextProvider.resolveFeatureTarget(
@@ -33,7 +159,7 @@ object ParentAttentionSignalLauncher {
         if (context == null || targetDeviceId.isBlank() || requesterDeviceId.isBlank() || context.serverUrl.isBlank()) {
             Toast.makeText(
                 activity,
-                "Сначала выберите участника и восстановите связь",
+                R.string.attention_signal_choose_unavailable,
                 Toast.LENGTH_LONG
             ).show()
             return

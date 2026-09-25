@@ -8,13 +8,43 @@ plugins {
     id 'com.google.gms.google-services' version '4.3.15' apply false
 }
 
-def versionBase = (findProperty("cwVersionBase") ?: "7.3").toString()
+def versionBase = (findProperty("cwVersionBase") ?: "7.4").toString()
 def buildMoment = new Date()
-def codeStamp = (System.currentTimeMillis() / 1000L).toLong()
-def nameStamp = buildMoment.format("yyDDD.HHmmss")
 
-ext.cwVersionCode = (findProperty("cwVersionCode") ?: codeStamp).toString().toInteger()
-ext.cwVersionName = (findProperty("cwVersionName") ?: "${versionBase}.${nameStamp}").toString()
+// ---------------------------------------------------------------------------
+// Version identity
+//
+// The NAME is what a person reads: 7.4.312 - short, and it only grows, because
+// the third number is how many commits the project has. The moment of the build
+// is still shown next to it on the main screens, so precision is not lost by
+// shortening the name.
+//
+// The CODE is what Android compares, and it must only ever grow. It used to be
+// the build moment in seconds, which broke as soon as one build was given a
+// hand-raised code: the phones then carried a larger number than this scheme
+// could produce for days, refused every later build as a downgrade, and no
+// update could be offered. A fixed high base plus the same growing number can
+// never collide with those codes again.
+// ---------------------------------------------------------------------------
+def gitBuildNumber = {
+    try {
+        def text = providers.exec {
+            commandLine 'git', 'rev-list', '--count', 'HEAD'
+            ignoreExitValue = true
+        }.standardOutput.asText.get().trim()
+        return text.isInteger() ? text.toInteger() : 0
+    } catch (Exception ignored) {
+        return 0
+    }
+}()
+// Without git (a copy of the tree, a CI checkout without history) fall back to
+// the day and hour, which is still monotonic within any realistic release.
+def fallbackBuildNumber =
+    buildMoment.format("yyDDD").toInteger() * 100 + buildMoment.format("HH").toInteger()
+def buildNumber = gitBuildNumber > 0 ? gitBuildNumber : fallbackBuildNumber
+
+ext.cwVersionCode = (findProperty("cwVersionCode") ?: (2_000_000_000L + buildNumber)).toString().toInteger()
+ext.cwVersionName = (findProperty("cwVersionName") ?: "${versionBase}.${buildNumber}").toString()
 // The moment of the build, published into the application so a phone can say which
 // build it is running. The version name alone carries it in a compact form that
 // nobody can read at a glance.
@@ -76,12 +106,16 @@ if (isolatedBuildRoot) {
     }
 }
 
+// The values are read here, not inside the action: inside a task action `ext`
+// means the task's own extra properties, which is why this reported nothing.
+def reportedVersionName = ext.cwVersionName
+def reportedVersionCode = ext.cwVersionCode
 tasks.register('printVersionInfo') {
     group = 'help'
     description = 'Shows resolved ChildWatch versionName/versionCode for this build session.'
     doLast {
-        println "ChildWatch versionName=${ext.cwVersionName}"
-        println "ChildWatch versionCode=${ext.cwVersionCode}"
+        println "ChildWatch versionName=${reportedVersionName}"
+        println "ChildWatch versionCode=${reportedVersionCode}"
     }
 }
 

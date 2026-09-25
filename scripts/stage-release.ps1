@@ -142,6 +142,11 @@ if (-not $apksigner) {
 # The parent application is the one that can ask for an update on the owner's
 # behalf, but the child application needs it just as much: it is the one that is
 # hard to reach with a cable.
+#
+# The package here is only the fallback. A debug build carries a different
+# application id from its release build (for the child application that is
+# ru.example.parentwatch.debug), and a manifest naming the other one is refused
+# by the phone, so the real id is read from the build's own metadata below.
 $targets = @(
     @{ Key = "parent"; Package = "ru.example.childwatch"; Project = "app"; Label = "ParentMonitor" },
     @{ Key = "child";  Package = "ru.example.parentwatch"; Project = "parentwatch"; Label = "ChildDevice" }
@@ -198,8 +203,15 @@ foreach ($target in $targets) {
     # Never overwrite a published file that has a different content under the same
     # name: a phone may already have downloaded it, and the manifest must describe
     # exactly one file for one version.
+    # The id the build actually carries wins over the expected one, so a debug
+    # build is published under the id the phone has installed.
+    $publishedPackage = if ($build.packageName) { $build.packageName } else { $target.Package }
+    if ($publishedPackage -ne $target.Package) {
+        Step ("{0}: published as {1} (the build's own id, not {2})" -f `
+            $target.Label, $publishedPackage, $target.Package)
+    }
     $apps[$target.Key] = [ordered]@{
-        packageName    = $target.Package
+        packageName    = $publishedPackage
         versionCode    = $versionCode
         versionName    = $versionName
         buildType      = $buildType

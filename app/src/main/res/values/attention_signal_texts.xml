@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- An adult chooses whom the signal rings, so a second parent is reachable too. -->
+    <string name="attention_signal_choose_recipient">Кому отправить сигнал?</string>
+    <string name="attention_signal_choose_cancel">Отмена</string>
+    <string name="attention_signal_choose_unavailable">Сначала выберите участника и восстановите связь</string>
+    <!-- A person the server knows without a name still needs something to show. -->
+    <string name="attention_signal_member_name_missing">Имя не указано</string>
+</resources>
