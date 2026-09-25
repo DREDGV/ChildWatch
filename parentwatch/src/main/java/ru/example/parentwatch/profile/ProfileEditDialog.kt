@@ -60,6 +60,17 @@ object ProfileEditDialog {
         initial: ChildDeviceProfile?,
         currentAvatarKey: String?,
         canChoosePhoto: Boolean = false,
+        /**
+         * Asks the host activity to open the system photo picker.
+         *
+         * The picker's contract must be registered before the activity is STARTED,
+         * and this dialog opens from a tap on an already resumed screen. Registering
+         * it here therefore threw `IllegalStateException: LifecycleOwner … is
+         * attempting to register while current state is RESUMED` and closed the
+         * application the moment the profile was opened. The activity registers it
+         * once, before it is started, and answers through this callback.
+         */
+        requestPhoto: ((onPicked: (Uri) -> Unit) -> Unit)? = null,
         onSave: (name: String, choice: AvatarChoice, done: (stored: Boolean) -> Unit) -> Unit
     ) {
         val context: Context = activity
@@ -82,14 +93,6 @@ object ProfileEditDialog {
         // to a built-in picture is a choice and not an accident.
         var pendingPhoto: Uri? = null
         var photoSection: AvatarPhotoSection.Section? = null
-
-        val photoPicker = activity.registerForActivityResult(
-            ActivityResultContracts.PickVisualMedia()
-        ) { picked ->
-            if (picked == null) return@registerForActivityResult
-            pendingPhoto = picked
-            photoSection?.refresh(picked)
-        }
 
         val avatarValues = FamilyAvatarRenderer.selectableValues()
 
@@ -150,14 +153,15 @@ object ProfileEditDialog {
         }
         refreshAvatars()
 
-        val section = if (canChoosePhoto) {
+        val section = if (canChoosePhoto && requestPhoto != null) {
             AvatarPhotoSection.create(
                 context = context,
                 storedAvatarValue = initialAvatar,
                 onPick = {
-                    photoPicker.launch(
-                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-                    )
+                    requestPhoto.invoke { picked ->
+                        pendingPhoto = picked
+                        photoSection?.refresh(picked)
+                    }
                 },
                 onRemove = {
                     // Taking the photograph away returns the profile to a built-in

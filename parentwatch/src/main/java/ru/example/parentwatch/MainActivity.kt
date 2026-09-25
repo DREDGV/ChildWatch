@@ -81,6 +81,24 @@ class MainActivity : AppCompatActivity() {
     private lateinit var prefs: SharedPreferences
     private var isServiceRunning = false
     private val appVersion: String by lazy { BuildConfig.VERSION_NAME.replace("-debug", "") }
+
+    /**
+     * Who is waiting for a picture the person picks.
+     *
+     * The result contract is registered here, while the screen is still being
+     * created, because a contract cannot be registered once the activity is
+     * STARTED — the profile dialog opens from a tap on a resumed screen, so
+     * registering it there closed the application.
+     */
+    private var profilePhotoCallback: ((android.net.Uri) -> Unit)? = null
+
+    private val profilePhotoPicker = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { picked ->
+        val callback = profilePhotoCallback
+        profilePhotoCallback = null
+        if (picked != null) callback?.invoke(picked)
+    }
     
     
     // Photo integration for remote photo capture
@@ -530,6 +548,14 @@ class MainActivity : AppCompatActivity() {
             currentAvatarKey = participantNameResolver.resolveChildAvatarKey(),
             // This screen can upload a photograph, so the editor offers one.
             canChoosePhoto = true,
+            requestPhoto = { onPicked ->
+                profilePhotoCallback = onPicked
+                profilePhotoPicker.launch(
+                    androidx.activity.result.PickVisualMediaRequest(
+                        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                    )
+                )
+            },
             onSave = { name, choice, done ->
                 when (choice) {
                     is ProfileEditDialog.AvatarChoice.Photo -> {

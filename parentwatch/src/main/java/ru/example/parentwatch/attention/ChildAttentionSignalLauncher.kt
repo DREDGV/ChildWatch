@@ -23,6 +23,8 @@ import ru.example.parentwatch.session.ChildParticipantNameResolver
  */
 object ChildAttentionSignalLauncher {
 
+    private const val TAG = "ChildAttentionSignal"
+
     /** One person the child may call, with the phone the signal must reach. */
     private data class SignalRecipient(
         val deviceId: String,
@@ -51,6 +53,11 @@ object ChildAttentionSignalLauncher {
         }
 
         val recipients = familyRecipients(activity, requesterDeviceId)
+        android.util.Log.d(
+            TAG,
+            "signal recipients: ${recipients.size} " +
+                recipients.joinToString { "${it.displayName}@${it.deviceId}" }
+        )
         when {
             recipients.isEmpty() -> openSheet(
                 activity,
