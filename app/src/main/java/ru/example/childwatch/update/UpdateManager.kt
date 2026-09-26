@@ -52,8 +52,18 @@ class UpdateManager(
     @Volatile
     private var serverBaseUrl: String? = null
 
-    /** True when a successful check happened recently, so asking now is wasteful. */
+    /**
+     * True when a successful check happened recently, so asking now is wasteful.
+     *
+     * A new installation has never been checked **as this version**. An installed
+     * update carries the update preferences along with it, so a build put on the
+     * phone by cable inherits the previous build's "checked an hour ago" and then
+     * stays silent for the rest of the day — which is exactly when somebody is most
+     * likely to be watching for the next release. The recorded time belongs to the
+     * version that recorded it.
+     */
     fun checkedRecently(now: Long = System.currentTimeMillis()): Boolean {
+        if (preferences.lastSuccessfulCheckVersionCode() != currentVersionCode) return false
         val last = preferences.lastSuccessfulCheckAt()
         return last > 0L && now - last < CHECK_INTERVAL_MS
     }
@@ -72,16 +82,23 @@ class UpdateManager(
      * apart, and should not: none of them deserves a message.
      */
     suspend fun checkForUpdate(serverBase: String): UpdateRelease? {
-        if (checkedRecently()) {
-            Log.d(TAG, "An update was checked for less than a day ago; skipping")
-            return null
-        }
         val base = serverBase.trim().trimEnd('/')
         if (base.isBlank()) {
             Log.d(TAG, "The update check is skipped: no server address is configured")
             return null
         }
+        // Remembered BEFORE the daily limit can return early. The address is not only
+        // for asking: it is what the download resolves a relative file path against,
+        // and a release found by an earlier session is downloaded in a session where no
+        // check is made at all. While this line sat below the early return, the stored
+        // notice was shown, the person tapped "update", and the download failed with
+        // "Server URL is not configured" — seen on the owner's phone, not in theory.
         serverBaseUrl = base
+
+        if (checkedRecently()) {
+            Log.d(TAG, "An update was checked for less than a day ago; skipping")
+            return null
+        }
 
         val raw = NetworkClient(context).fetchUpdateManifest(base).getOrElse { error ->
             // Deliberately no timestamp here. One failed attempt must not buy a day
@@ -96,14 +113,14 @@ class UpdateManager(
             // application of the family — so it is not an error and, more
             // importantly, it is not a failure of the check.
             Log.d(TAG, "The manifest describes nothing usable for $packageName")
-            preferences.recordSuccessfulCheck(System.currentTimeMillis())
+            preferences.recordSuccessfulCheck(System.currentTimeMillis(), currentVersionCode)
             return null
         }
 
         // From this point the manifest was read successfully and names this very
         // application, so the wait until the next check starts now. This is the one
         // and only place the timestamp moves.
-        preferences.recordSuccessfulCheck(System.currentTimeMillis())
+        preferences.recordSuccessfulCheck(System.currentTimeMillis(), currentVersionCode)
 
         if (release.versionCode <= currentVersionCode) {
             Log.d(
