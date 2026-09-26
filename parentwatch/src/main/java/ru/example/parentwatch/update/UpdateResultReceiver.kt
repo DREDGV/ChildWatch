@@ -146,7 +146,7 @@ class UpdateResultReceiver : BroadcastReceiver() {
      * system's own window and decides.
      */
     private fun onConfirmationNeeded(context: Context, intent: Intent) {
-        val confirmation = parcelableIntent(intent, EXTRA_INTENT)
+        val confirmation = confirmationIntent(intent)
 
         if (confirmation == null) {
             // Nothing to show. This is the one case where the package cannot be offered
@@ -296,6 +296,60 @@ class UpdateResultReceiver : BroadcastReceiver() {
             NotificationManager.IMPORTANCE_HIGH
         )
         manager.createNotificationChannel(channel)
+    }
+
+    /**
+     * The confirmation the installer wants shown, found rather than assumed.
+     *
+     * What this looks like when it goes wrong is the worst shape a failure can take:
+     * the package downloads completely, the progress bar reaches the end, and then
+     * **nothing happens at all** — no window, no message, no installation. The cause
+     * is silent, because the name the platform uses for this extra is not part of the
+     * public SDK: reading it under the wrong name returns null without an error, and
+     * the application then behaves as if the installer had said nothing.
+     *
+     * So the name is not trusted on its own. The spelling written out by hand is tried
+     * first, then the one `Intent` itself defines, and finally every extra is searched
+     * for an intent whatever its key is called. When nothing is found, the names that
+     * **were** present are logged, so the next attempt is informed instead of being
+     * another guess. Seen on the owner's phone on 2026-09-27: the download finished and
+     * the screen stayed empty.
+     */
+    private fun confirmationIntent(intent: Intent): Intent? {
+        parcelableIntent(intent, EXTRA_INTENT)?.let { found ->
+            Log.i(TAG, "The installer's confirmation arrived as $EXTRA_INTENT")
+            return found
+        }
+        parcelableIntent(intent, Intent.EXTRA_INTENT)?.let { found ->
+            Log.i(TAG, "The installer's confirmation arrived as Intent.EXTRA_INTENT")
+            return found
+        }
+
+        val extras = try {
+            intent.extras
+        } catch (error: Throwable) {
+            Log.w(TAG, "The installer's message could not be read at all", error)
+            null
+        } ?: run {
+            Log.w(TAG, "The installer's message carried no extras")
+            return null
+        }
+
+        for (key in extras.keySet()) {
+            val value = try {
+                extras.get(key)
+            } catch (error: Throwable) {
+                // One unreadable value must not hide the others.
+                null
+            }
+            if (value is Intent) {
+                Log.i(TAG, "The installer's confirmation arrived under the name $key")
+                return value
+            }
+        }
+
+        Log.w(TAG, "No confirmation in the installer's message; it carried: ${extras.keySet()}")
+        return null
     }
 
     /** Reads a nested intent the way the running Android version requires. */

@@ -317,7 +317,12 @@ class UpdateUiController(
                 Log.i(TAG, "Installation session ${request.sessionId} was committed")
                 // The package is deleted by the result receiver, which is the only
                 // part of this that outlives the application being replaced.
-                UpdateManager.attachSink { intent -> openConfirmation(intent) }
+                // The screen's own sink stays in place. It used to be replaced here with
+                // one that opens the confirmation unconditionally, which bypassed the
+                // screen's own check of whether it is visible: a confirmation arriving
+                // while the screen was stopped was opened anyway, refused by the system
+                // without a word, and lost. The screen knows how to hold it instead and
+                // show it on the next resume.
                 UpdateManager.deliverPendingConfirmation()
             }
             InstallRequest.PermissionRequired -> showInstallPermissionExplanation()
