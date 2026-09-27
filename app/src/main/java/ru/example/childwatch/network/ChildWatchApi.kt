@@ -3,17 +3,22 @@ package ru.example.childwatch.network
 import okhttp3.MultipartBody
 import retrofit2.Response
 import retrofit2.http.*
+import ru.childwatch.shared.chat.ChatV2CloseGroupResponse
 import ru.childwatch.shared.chat.ChatV2ConversationsResponse
+import ru.childwatch.shared.chat.ChatV2CreateGroupRequest
 import ru.childwatch.shared.chat.ChatV2DeleteMessageResponse
 import ru.childwatch.shared.chat.ChatV2DirectConversationRequest
 import ru.childwatch.shared.chat.ChatV2DirectConversationResponse
 import ru.childwatch.shared.chat.ChatV2EditMessageRequest
+import ru.childwatch.shared.chat.ChatV2GroupMembersRequest
 import ru.childwatch.shared.chat.ChatV2GroupSettingsResponse
+import ru.childwatch.shared.chat.ChatV2LeaveGroupResponse
 import ru.childwatch.shared.chat.ChatV2MessagesResponse
 import ru.childwatch.shared.chat.ChatV2ReceiptRequest
 import ru.childwatch.shared.chat.ChatV2ReceiptResponse
 import ru.childwatch.shared.chat.ChatV2SendMessageRequest
 import ru.childwatch.shared.chat.ChatV2SendMessageResponse
+import ru.childwatch.shared.chat.ChatV2TransferGroupAdminRequest
 import ru.childwatch.shared.chat.ChatV2UpdateGroupAvatarRequest
 import ru.childwatch.shared.chat.ChatV2UpdateGroupTitleRequest
 import ru.childwatch.shared.onboarding.FamilyBootstrapRequest
@@ -213,6 +218,50 @@ interface ChildWatchApi {
     suspend fun createChatV2DirectConversation(
         @Body request: ChatV2DirectConversationRequest
     ): Response<ChatV2DirectConversationResponse>
+
+    /** Creates a group with a chosen name and membership. */
+    @POST("api/chat/v2/conversations/group")
+    suspend fun createChatV2Group(
+        @Body request: ChatV2CreateGroupRequest
+    ): Response<ChatV2DirectConversationResponse>
+
+    /** Adds people to a group. Only its administrator may. */
+    @POST("api/chat/v2/conversations/{conversationId}/group/members")
+    suspend fun addChatV2GroupMembers(
+        @Path("conversationId") conversationId: String,
+        @Body request: ChatV2GroupMembersRequest
+    ): Response<ChatV2GroupSettingsResponse>
+
+    /** Takes one person out of a group. Only its administrator may. */
+    @DELETE("api/chat/v2/conversations/{conversationId}/group/members/{memberId}")
+    suspend fun removeChatV2GroupMember(
+        @Path("conversationId") conversationId: String,
+        @Path("memberId") memberId: String
+    ): Response<ChatV2GroupSettingsResponse>
+
+    /** Hands administration of the group to another member. Only the administrator may. */
+    @POST("api/chat/v2/conversations/{conversationId}/group/admin")
+    suspend fun transferChatV2GroupAdmin(
+        @Path("conversationId") conversationId: String,
+        @Body request: ChatV2TransferGroupAdminRequest
+    ): Response<ChatV2GroupSettingsResponse>
+
+    /**
+     * Leaves the group.
+     *
+     * The administrator is refused: the group would be left with a name and a
+     * membership nobody could change. They hand it over or close it instead.
+     */
+    @POST("api/chat/v2/conversations/{conversationId}/group/leave")
+    suspend fun leaveChatV2Group(
+        @Path("conversationId") conversationId: String
+    ): Response<ChatV2LeaveGroupResponse>
+
+    /** Closes the group for everybody. Only its administrator may. */
+    @DELETE("api/chat/v2/conversations/{conversationId}/group")
+    suspend fun closeChatV2Group(
+        @Path("conversationId") conversationId: String
+    ): Response<ChatV2CloseGroupResponse>
 
     @GET("api/chat/v2/conversations/{conversationId}/messages")
     suspend fun getChatV2Messages(

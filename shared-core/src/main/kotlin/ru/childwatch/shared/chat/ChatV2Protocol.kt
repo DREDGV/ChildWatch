@@ -22,6 +22,48 @@ data class ChatV2DirectConversationResponse(
     val conversation: ChatV2ConversationDto? = null
 )
 
+/**
+ * A group being created with a chosen name and membership.
+ *
+ * The caller is put in it by the server and becomes its administrator, so they are
+ * not named here; [memberIds] is everybody else who is being asked in.
+ */
+data class ChatV2CreateGroupRequest(
+    val title: String,
+    val memberIds: List<String> = emptyList()
+)
+
+data class ChatV2GroupMembersRequest(
+    val memberIds: List<String> = emptyList()
+)
+
+/** Hands administration to somebody who is already in the group. */
+data class ChatV2TransferGroupAdminRequest(
+    val memberId: String
+)
+
+/**
+ * The outcome of leaving a group.
+ *
+ * [remainingMembers] and [adminMemberId] are answered so the screen can say what
+ * happened to the group rather than guessing: a group that fewer than two people are
+ * left in is closed by the server, and administration moves only when the person who
+ * had it handed it over.
+ */
+data class ChatV2LeaveGroupResponse(
+    val success: Boolean = false,
+    val conversationId: String? = null,
+    val left: Boolean = false,
+    val remainingMembers: Int = 0,
+    val adminMemberId: String? = null
+)
+
+data class ChatV2CloseGroupResponse(
+    val success: Boolean = false,
+    val conversationId: String? = null,
+    val closed: Boolean = false
+)
+
 data class ChatV2ConversationDto(
     val conversationId: String,
     val familyId: String,
@@ -88,10 +130,15 @@ data class ChatV2GroupSettingsResponse(
     val success: Boolean = false,
     val conversationId: String? = null,
     val familyId: String? = null,
+    /** FAMILY or GROUP: a family chat and a group share this shape. */
+    val type: String? = null,
     val title: String? = null,
     val avatarKey: String? = null,
     val adminMemberId: String? = null,
-    val canManage: Boolean = false
+    val canManage: Boolean = false,
+    /** Who this answer is about, so the screen can tell "me" from the administrator. */
+    val actorMemberId: String? = null,
+    val members: List<ChatV2MemberDto> = emptyList()
 )
 
 data class ChatV2UpdateGroupTitleRequest(

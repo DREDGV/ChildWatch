@@ -12,8 +12,10 @@ import ru.childwatch.shared.chat.ChatDeliveryStateReducer
 import ru.childwatch.shared.chat.ChatTextPolicy
 import ru.childwatch.shared.chat.ChatTextValidation
 import ru.childwatch.shared.chat.ChatV2ConversationDto
+import ru.childwatch.shared.chat.ChatV2CreateGroupRequest
 import ru.childwatch.shared.chat.ChatV2DirectConversationRequest
 import ru.childwatch.shared.chat.ChatV2EditMessageRequest
+import ru.childwatch.shared.chat.ChatV2GroupMembersRequest
 import ru.childwatch.shared.chat.ChatV2GroupSettingsResponse
 import ru.childwatch.shared.chat.ChatV2LegacyReconcilePolicy
 import ru.childwatch.shared.chat.ChatV2MessageDto
@@ -22,6 +24,7 @@ import ru.childwatch.shared.chat.ChatV2ReceiptDto
 import ru.childwatch.shared.chat.ChatV2ReceiptRequest
 import ru.childwatch.shared.chat.ChatV2RetryPolicy
 import ru.childwatch.shared.chat.ChatV2SendMessageRequest
+import ru.childwatch.shared.chat.ChatV2TransferGroupAdminRequest
 import ru.childwatch.shared.chat.ChatV2UpdateGroupAvatarRequest
 import ru.childwatch.shared.chat.ChatV2UpdateGroupTitleRequest
 import ru.childwatch.shared.chat.Conversation
@@ -154,6 +157,80 @@ class ChatV2Repository(
             ?: throw ChatV2RepositoryException("CREATE_DIRECT_REJECTED")
         database.withTransaction { cacheConversation(dto, null, null, null) }
         return dto.toDomain()
+    }
+
+    /**
+     * Creates a group with a chosen name and membership.
+     *
+     * The caller is put in it by the server and becomes its administrator; everybody
+     * named here has to belong to the family, which the server enforces so a group
+     * cannot reach outside it.
+     */
+    suspend fun createGroup(title: String, memberIds: List<String>): Conversation {
+        val name = title.trim()
+        require(name.isNotEmpty()) { "title must not be empty" }
+        val members = memberIds.map(String::trim).filter(String::isNotEmpty).distinct()
+        require(members.isNotEmpty()) { "A group needs at least one other member" }
+        val response = api.createChatV2Group(ChatV2CreateGroupRequest(name, members))
+        val body = requireSuccessful(response, "CREATE_GROUP")
+        val dto = body.conversation
+            ?.takeIf { body.success }
+            ?: throw ChatV2RepositoryException("CREATE_GROUP_REJECTED")
+        database.withTransaction { cacheConversation(dto, null, null, null) }
+        return dto.toDomain()
+    }
+
+    /**
+     * Adds people to a group. Only its administrator may.
+     *
+     * Answers only whether it worked: the caller refreshes the conversation list
+     * afterwards, which is the one source of the group's membership on the device.
+     */
+    suspend fun addGroupMembers(conversationId: String, memberIds: List<String>): Boolean {
+        val members = memberIds.map(String::trim).filter(String::isNotEmpty).distinct()
+        require(members.isNotEmpty()) { "No members to add" }
+        val response = api.addChatV2GroupMembers(
+            conversationId,
+            ChatV2GroupMembersRequest(members)
+        )
+        return requireSuccessful(response, "ADD_GROUP_MEMBERS").success
+    }
+
+    /** Takes one person out of a group. Only its administrator may. */
+    suspend fun removeGroupMember(conversationId: String, memberId: String): Boolean {
+        val target = memberId.trim()
+        require(target.isNotEmpty()) { "memberId must not be empty" }
+        val response = api.removeChatV2GroupMember(conversationId, target)
+        return requireSuccessful(response, "REMOVE_GROUP_MEMBER").success
+    }
+
+    /** Hands administration of the group to another member. Only the administrator may. */
+    suspend fun transferGroupAdmin(conversationId: String, memberId: String): Boolean {
+        val target = memberId.trim()
+        require(target.isNotEmpty()) { "memberId must not be empty" }
+        val response = api.transferChatV2GroupAdmin(
+            conversationId,
+            ChatV2TransferGroupAdminRequest(target)
+        )
+        return requireSuccessful(response, "TRANSFER_GROUP_ADMIN").success
+    }
+
+    /**
+     * Leaves a group.
+     *
+     * An administrator is refused by the server: they hand the group over or close
+     * it, because a group whose administrator walked away would have a name and a
+     * membership nobody could change.
+     */
+    suspend fun leaveGroup(conversationId: String): Boolean {
+        val response = api.leaveChatV2Group(conversationId)
+        return requireSuccessful(response, "LEAVE_GROUP").left
+    }
+
+    /** Closes the group for everybody. Only its administrator may. */
+    suspend fun closeGroup(conversationId: String): Boolean {
+        val response = api.closeChatV2Group(conversationId)
+        return requireSuccessful(response, "CLOSE_GROUP").closed
     }
 
     suspend fun syncMessagesPage(
