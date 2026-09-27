@@ -46,6 +46,21 @@ function createChatV2Routes(
     }
   });
 
+  /**
+   * Creates a group with a chosen name and membership.
+   *
+   * The caller is always in it and becomes its administrator, and everybody named
+   * must belong to the caller's family: a group is a conversation inside one family.
+   */
+  router.post("/conversations/group", async (req, res) => {
+    try {
+      const result = await chatService.createGroup(req.deviceId, req.body);
+      res.status(result.created ? 201 : 200).json({ success: true, ...result });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
   router.get("/conversations/:id/messages", async (req, res) => {
     try {
       const result = await chatService.getMessages(req.deviceId, req.params.id, {
@@ -162,6 +177,74 @@ function createChatV2Routes(
         req.params.id,
         req.body
       );
+      res.json({ success: true, ...result });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  // Adds people to a group. Only its administrator may.
+  router.post("/conversations/:id/group/members", async (req, res) => {
+    try {
+      const result = await chatService.addGroupMembers(
+        req.deviceId,
+        req.params.id,
+        req.body
+      );
+      res.json({ success: true, ...result });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  // Takes one person out of a group. Only its administrator may.
+  router.delete("/conversations/:id/group/members/:memberId", async (req, res) => {
+    try {
+      const result = await chatService.removeGroupMember(
+        req.deviceId,
+        req.params.id,
+        req.params.memberId
+      );
+      res.json({ success: true, ...result });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  /**
+   * Leaves the group.
+   *
+   * Any member may leave; the administrator is told to hand the group over or close
+   * it instead, because a group whose administrator walked away would have a name
+   * nobody can change and a membership nobody can change either.
+   */
+  router.post("/conversations/:id/group/leave", async (req, res) => {
+    try {
+      const result = await chatService.leaveGroup(req.deviceId, req.params.id);
+      res.json({ success: true, ...result });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  // Hands administration to another member of the group. Only the administrator may.
+  router.post("/conversations/:id/group/admin", async (req, res) => {
+    try {
+      const result = await chatService.transferGroupAdmin(
+        req.deviceId,
+        req.params.id,
+        req.body?.memberId
+      );
+      res.json({ success: true, ...result });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  // Closes the group for everybody. Only the administrator may.
+  router.delete("/conversations/:id/group", async (req, res) => {
+    try {
+      const result = await chatService.closeGroup(req.deviceId, req.params.id);
       res.json({ success: true, ...result });
     } catch (error) {
       handleError(res, error);

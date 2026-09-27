@@ -598,11 +598,191 @@ async function checkGroupService() {
   }
 }
 
+async function checkGroupRoutes() {
+  console.log("\n6. the routes: the same rules over HTTP");
+  if (typeof fetch !== "function") {
+    check("this Node has fetch, which this section needs", false, process.version);
+    return;
+  }
+
+  const temporary = makeTemporaryDatabase("cw-group-routes-");
+  const db = new DatabaseManager(temporary.file);
+  const realLog = console.log;
+  const quiet = () => {};
+  let server = null;
+  try {
+    console.log = quiet;
+    await db.initialize();
+    console.log = realLog;
+
+    const { memberByDevice } = await registerFamily(db);
+    const service = new ChatConversationService(db);
+    const express = require("express");
+    const createChatV2Routes = require("../routes/chat-v2");
+
+    const parentOne = "verify-parent-0001";
+    const parentTwo = "verify-parent-0002";
+    const child = "verify-child-0001";
+    const first = memberByDevice.get(parentOne);
+    const second = memberByDevice.get(parentTwo);
+    const third = memberByDevice.get(child);
+
+    const app = express();
+    app.use(express.json());
+    // The device is normally put on the request by the authentication layer; here it
+    // comes from a header, so the routes can be exercised without tokens.
+    app.use((req, _res, next) => {
+      req.deviceId = req.header("x-test-device") || null;
+      next();
+    });
+    app.use("/api/chat", createChatV2Routes(db, service));
+
+    server = await new Promise((resolve) => {
+      const listening = app.listen(0, () => resolve(listening));
+    });
+    const base = `http://127.0.0.1:${server.address().port}/api/chat`;
+
+    const call = async (method, path, { device = parentOne, body = null } = {}) => {
+      const headers = { "content-type": "application/json" };
+      if (device) headers["x-test-device"] = device;
+      const response = await fetch(`${base}${path}`, {
+        method,
+        headers,
+        body: body ? JSON.stringify(body) : undefined,
+      });
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (error) {
+        payload = null;
+      }
+      return { status: response.status, payload };
+    };
+
+    const anonymous = await call("GET", "/conversations", { device: "" });
+    check(
+      "a request without a device is refused",
+      anonymous.status === 401 &&
+        anonymous.payload?.code === "AUTHENTICATED_DEVICE_REQUIRED",
+      `${anonymous.status} ${anonymous.payload?.code || ""}`
+    );
+
+    const created = await call("POST", "/conversations/group", {
+      body: { title: "Поход", memberIds: [second] },
+    });
+    const groupId = created.payload?.conversation?.conversationId;
+    check(
+      "a group is created over HTTP",
+      created.status === 201 && created.payload?.conversation?.type === "GROUP",
+      `${created.status} ${created.payload?.conversation?.type || ""}`
+    );
+
+    const listed = await call("GET", "/conversations");
+    check(
+      "it appears in the conversation list",
+      listed.status === 200 &&
+        listed.payload?.conversations?.some(
+          (conversation) => conversation.conversationId === groupId
+        )
+    );
+
+    const added = await call("POST", `/conversations/${groupId}/group/members`, {
+      body: { memberIds: [third] },
+    });
+    check(
+      "the administrator adds a member over HTTP",
+      added.status === 200 && added.payload?.members?.length === 3,
+      `${added.status} ${added.payload?.members?.length ?? "?"}`
+    );
+
+    const removed = await call(
+      "DELETE",
+      `/conversations/${groupId}/group/members/${third}`
+    );
+    check(
+      "the administrator removes a member over HTTP",
+      removed.status === 200 && removed.payload?.members?.length === 2,
+      `${removed.status}`
+    );
+
+    const adminLeft = await call("POST", `/conversations/${groupId}/group/leave`);
+    check(
+      "the administrator is refused when leaving",
+      adminLeft.status === 409 &&
+        adminLeft.payload?.code === "GROUP_ADMIN_CANNOT_LEAVE",
+      `${adminLeft.status} ${adminLeft.payload?.code || ""}`
+    );
+
+    // Three people in the group again, so the leave below does not end it.
+    const restored = await call("POST", `/conversations/${groupId}/group/members`, {
+      body: { memberIds: [third] },
+    });
+    check(
+      "the removed member can be added back",
+      restored.status === 200 && restored.payload?.members?.length === 3,
+      `${restored.status}`
+    );
+
+    const handover = await call("POST", `/conversations/${groupId}/group/admin`, {
+      body: { memberId: second },
+    });
+    check(
+      "administration is handed over over HTTP",
+      handover.status === 200 && handover.payload?.adminMemberId === second,
+      `${handover.status} ${handover.payload?.adminMemberId || ""}`
+    );
+
+    const oldAdminLeave = await call("POST", `/conversations/${groupId}/group/leave`);
+    check(
+      "the former administrator may leave once the group is handed over",
+      oldAdminLeave.status === 200 && oldAdminLeave.payload?.left === true,
+      `${oldAdminLeave.status}`
+    );
+
+    const closed = await call("DELETE", `/conversations/${groupId}/group`, {
+      device: parentTwo,
+    });
+    check(
+      "the new administrator closes the group over HTTP",
+      closed.status === 200 && closed.payload?.closed === true,
+      `${closed.status}`
+    );
+
+    const afterClose = await call("GET", "/conversations", { device: parentTwo });
+    check(
+      "a closed group is gone from the list over HTTP",
+      afterClose.status === 200 &&
+        !afterClose.payload?.conversations?.some(
+          (conversation) => conversation.conversationId === groupId
+        )
+    );
+
+    const writeAfterClose = await call(
+      "POST",
+      `/conversations/${groupId}/messages`,
+      { device: parentTwo, body: { clientMessageId: "after-close-0001", text: "?" } }
+    );
+    check(
+      "nobody writes in a closed group over HTTP",
+      writeAfterClose.status === 404 || writeAfterClose.status === 403,
+      `${writeAfterClose.status} ${writeAfterClose.payload?.code || ""}`
+    );
+  } finally {
+    console.log = realLog;
+    if (server) {
+      await new Promise((resolve) => server.close(() => resolve()));
+    }
+    await db.close();
+    temporary.cleanup();
+  }
+}
+
 async function main() {
   // Each check mutes the manager's own startup chatter around itself; nothing here
   // may mute the report.
   await checkGroupsAndMembership();
   await checkGroupService();
+  await checkGroupRoutes();
   await checkMigration();
 
   console.log("");
