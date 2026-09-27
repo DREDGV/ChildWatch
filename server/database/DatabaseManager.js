@@ -300,7 +300,7 @@ class DatabaseManager {
       `CREATE TABLE IF NOT EXISTS chat_conversations (
                 id TEXT PRIMARY KEY,
                 family_id TEXT,
-                type TEXT NOT NULL CHECK (type IN ('FAMILY', 'DIRECT', 'LEGACY')),
+                type TEXT NOT NULL CHECK (type IN ('FAMILY', 'DIRECT', 'GROUP', 'LEGACY')),
                 title TEXT,
                 direct_pair_key TEXT,
                 created_by_member_id TEXT,
@@ -600,6 +600,11 @@ class DatabaseManager {
       );
       console.log("✅ Migration completed: current_app columns added");
     }
+
+    // A group with a chosen membership is a third kind of conversation. The kind is
+    // fixed by a constraint on the table, so widening it is a migration of its own
+    // rather than one more line in the table definition.
+    await this.ensureChatConversationGroupType();
 
     await this.addColumnIfNotExists(
       "chat_messages",
@@ -2625,6 +2630,182 @@ class DatabaseManager {
     );
   }
 
+  /**
+   * Widens the kind of a conversation so a group with a chosen membership can exist.
+   *
+   * The kinds were fixed by a CHECK constraint, and SQLite cannot widen one in
+   * place: the table is rebuilt and its rows copied. Three details are what stand
+   * between this and quietly losing every conversation on a family's server:
+   *
+   * - foreign keys are switched off for the rebuild. The message, member and legacy
+   *   tables all reference this one, and with enforcement on, dropping it would be
+   *   refused — or worse, the child rows would be removed with it;
+   * - the new table is built under a temporary name and renamed to the real name
+   *   only after the old table is gone. Renaming the *old* table instead would make
+   *   SQLite rewrite other tables' foreign keys to point at the temporary name,
+   *   which is how a rebuild like this turns into "the chat history is gone";
+   * - the row count is compared before and after, and `PRAGMA foreign_key_check` is
+   *   run at the end. A rebuild that loses a row or leaves a broken reference has to
+   *   fail here, loudly, rather than be discovered by a person whose messages
+   *   disappeared.
+   *
+   * The result is recorded in `schema_migrations`, so it runs once. A database
+   * created after this change already has the wider constraint and is only marked
+   * as done.
+   */
+  async ensureChatConversationGroupType() {
+    const migrationName = "chat_group_conversation_type_v1";
+    const alreadyApplied = await this.get(
+      `SELECT 1 AS applied FROM schema_migrations WHERE name = ? LIMIT 1`,
+      [migrationName]
+    );
+    if (alreadyApplied) return { skipped: "already applied" };
+
+    const table = await this.get(
+      `SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'chat_conversations'`
+    );
+    const definition = String(table?.sql || "");
+    if (!definition) {
+      return { skipped: "the conversations table does not exist yet" };
+    }
+
+    const now = Date.now();
+    const recordMigration = async (details) => {
+      await this.run(
+        `INSERT INTO schema_migrations (
+           name,
+           applied_at,
+           last_run_at,
+           details_json
+         ) VALUES (?, ?, ?, ?)
+         ON CONFLICT(name) DO UPDATE SET
+           last_run_at = excluded.last_run_at,
+           details_json = excluded.details_json`,
+        [migrationName, now, now, JSON.stringify(details)]
+      );
+    };
+
+    if (definition.includes("'GROUP'")) {
+      const details = { skipped: "the table already allows GROUP" };
+      await recordMigration(details);
+      return details;
+    }
+
+    const before = Number(
+      (await this.get(`SELECT COUNT(*) AS total FROM chat_conversations`))?.total
+    ) || 0;
+
+    // The database may already contain rows that point at a parent which is not
+    // there — the live one does, in `chat_conversation_members`. Demanding a clean
+    // `foreign_key_check` would refuse to start the server over damage this
+    // migration did not cause, so the violations are recorded first and the check
+    // afterwards is "nothing new appeared", not "there are none".
+    const violationKey = (violation) =>
+      `${violation.table}|${violation.rowid}|${violation.parent}|${violation.fkid}`;
+    const brokenBefore = new Set(
+      (await this.all("PRAGMA foreign_key_check")).map(violationKey)
+    );
+
+    let copied = -1;
+    await this.run("PRAGMA foreign_keys = OFF");
+    try {
+      await this.withTransaction(async () => {
+        await this.run(
+          `CREATE TABLE chat_conversations_group_type (
+                    id TEXT PRIMARY KEY,
+                    family_id TEXT,
+                    type TEXT NOT NULL CHECK (type IN ('FAMILY', 'DIRECT', 'GROUP', 'LEGACY')),
+                    title TEXT,
+                    direct_pair_key TEXT,
+                    created_by_member_id TEXT,
+                    next_sequence INTEGER NOT NULL DEFAULT 0,
+                    is_active INTEGER NOT NULL DEFAULT 1,
+                    created_at INTEGER NOT NULL,
+                    updated_at INTEGER NOT NULL,
+                    FOREIGN KEY (family_id) REFERENCES families (id),
+                    FOREIGN KEY (created_by_member_id) REFERENCES family_members (id)
+                )`
+        );
+        await this.run(
+          `INSERT INTO chat_conversations_group_type (
+             id,
+             family_id,
+             type,
+             title,
+             direct_pair_key,
+             created_by_member_id,
+             next_sequence,
+             is_active,
+             created_at,
+             updated_at
+           )
+           SELECT
+             id,
+             family_id,
+             type,
+             title,
+             direct_pair_key,
+             created_by_member_id,
+             next_sequence,
+             is_active,
+             created_at,
+             updated_at
+           FROM chat_conversations`
+        );
+        copied = Number(
+          (
+            await this.get(
+              `SELECT COUNT(*) AS total FROM chat_conversations_group_type`
+            )
+          )?.total
+        ) || 0;
+        await this.run(`DROP TABLE chat_conversations`);
+        await this.run(
+          `ALTER TABLE chat_conversations_group_type RENAME TO chat_conversations`
+        );
+        // The indexes are recreated from the same definitions as at creation: an
+        // index lost in a rebuild is not noticed until two families end up with the
+        // same conversation, or a conversation list quietly gets slower.
+        await this.run(
+          "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_family_conversation ON chat_conversations (family_id) WHERE type = 'FAMILY' AND is_active = 1"
+        );
+        await this.run(
+          "CREATE UNIQUE INDEX IF NOT EXISTS idx_chat_direct_conversation ON chat_conversations (family_id, direct_pair_key) WHERE type = 'DIRECT' AND is_active = 1"
+        );
+      });
+    } finally {
+      await this.run("PRAGMA foreign_keys = ON");
+    }
+
+    if (copied !== before) {
+      throw new Error(
+        `Conversation rebuild copied ${copied} row(s) of ${before}; refusing to continue`
+      );
+    }
+
+    const violationsAfter = await this.all("PRAGMA foreign_key_check");
+    const introduced = violationsAfter.filter(
+      (violation) => !brokenBefore.has(violationKey(violation))
+    );
+    if (introduced.length) {
+      throw new Error(
+        `Conversation rebuild introduced ${introduced.length} broken reference(s)`
+      );
+    }
+    if (brokenBefore.size) {
+      console.warn(
+        `⚠️  ${brokenBefore.size} broken reference(s) were already present and were left untouched`
+      );
+    }
+
+    const details = { movedRows: copied };
+    await recordMigration(details);
+    console.log(
+      `✅ Migration completed: group conversations allowed, ${copied} conversation(s) kept`
+    );
+    return details;
+  }
+
   createFamilyConversationId(familyId) {
     const normalizedFamilyId = String(familyId || "").trim();
     if (!normalizedFamilyId) {
@@ -2656,6 +2837,23 @@ class DatabaseManager {
       String(familyId || "").trim(),
       "DIRECT",
       pairKey
+    );
+  }
+
+  /**
+   * A name for a new group conversation.
+   *
+   * Unlike a family or direct conversation, a group is not identified by the
+   * people in it: the same set of people may belong to two groups with different
+   * names, and a member may be added to one and removed from another. So the id is
+   * random rather than derived, and it carries no meaning that a later change of
+   * the name or the members could contradict.
+   */
+  createGroupConversationId() {
+    return this.createStableScopedId(
+      "chat_conversation",
+      "GROUP",
+      crypto.randomBytes(16).toString("hex")
     );
   }
 
@@ -2696,7 +2894,7 @@ class DatabaseManager {
            ON fm.id = ? AND fm.family_id = c.family_id AND fm.is_active = 1
          WHERE c.id = ?
            AND c.is_active = 1
-           AND c.type IN ('FAMILY', 'DIRECT')
+           AND c.type IN ('FAMILY', 'DIRECT', 'GROUP')
          LIMIT 1`,
         [memberId, conversationId]
       );
@@ -2949,6 +3147,234 @@ class DatabaseManager {
       }
       return this.getChatConversationById(conversationId);
     });
+  }
+
+  /**
+   * Creates a group conversation with a chosen membership.
+   *
+   * Unlike the family chat, whose members are the whole family, a group has the
+   * members somebody picked. That list is written explicitly and is the only source
+   * of truth for who is in the group: a later change to the family must not silently
+   * add people to somebody's conversation, and removing a person from the family
+   * must not silently take them out of it either.
+   *
+   * The creator is recorded as the administrator. Membership is checked against the
+   * family here as well as in the service, because this method is also reachable
+   * from tests and future callers.
+   */
+  async createGroupConversation({
+    familyId,
+    title,
+    memberIds,
+    createdByMemberId,
+  }) {
+    const normalizedFamilyId = String(familyId || "").trim();
+    const normalizedTitle = String(title || "").trim();
+    const normalizedCreator = String(createdByMemberId || "").trim() || null;
+    const requested = Array.from(
+      new Set(
+        (memberIds || []).map((id) => String(id || "").trim()).filter(Boolean)
+      )
+    );
+    if (!normalizedFamilyId) {
+      throw new Error("Family id is required");
+    }
+    if (!normalizedTitle) {
+      throw new Error("Group conversation title is required");
+    }
+    // One person talking to themselves is not a group; the smallest useful group is
+    // two people, and the screen refuses to create anything smaller.
+    if (requested.length < 2) {
+      throw new Error("Group conversation needs at least two members");
+    }
+    if (normalizedCreator && !requested.includes(normalizedCreator)) {
+      throw new Error("Conversation creator must be a participant");
+    }
+
+    return this.withTransaction(async () => {
+      const placeholders = requested.map(() => "?").join(",");
+      const members = await this.all(
+        `SELECT id
+         FROM family_members
+         WHERE family_id = ?
+           AND is_active = 1
+           AND id IN (${placeholders})`,
+        [normalizedFamilyId, ...requested]
+      );
+      if (members.length !== requested.length) {
+        throw new Error("Group conversation members must belong to the family");
+      }
+
+      const now = Date.now();
+      const conversationId = this.createGroupConversationId();
+      await this.run(
+        `INSERT INTO chat_conversations (
+           id,
+           family_id,
+           type,
+           title,
+           direct_pair_key,
+           created_by_member_id,
+           next_sequence,
+           is_active,
+           created_at,
+           updated_at
+         ) VALUES (?, ?, 'GROUP', ?, NULL, ?, 0, 1, ?, ?)`,
+        [
+          conversationId,
+          normalizedFamilyId,
+          normalizedTitle,
+          normalizedCreator,
+          now,
+          now,
+        ]
+      );
+      for (const memberId of requested) {
+        await this.ensureConversationMemberRecord(conversationId, memberId, now);
+      }
+      return this.getChatConversationById(conversationId);
+    });
+  }
+
+  /** Who is in a group right now. A person who left keeps their messages, not a seat. */
+  async getGroupConversationMemberIds(conversationId) {
+    const rows = await this.all(
+      `SELECT member_id AS memberId
+       FROM chat_conversation_members
+       WHERE conversation_id = ?
+         AND is_active = 1
+         AND left_at IS NULL
+       ORDER BY joined_at ASC, member_id ASC`,
+      [conversationId]
+    );
+    return (rows || []).map((row) => row.memberId);
+  }
+
+  /**
+   * Who administers a group.
+   *
+   * The creator is preferred, and is answered only while they are still in the
+   * group: an administrator who has left cannot be asked to manage anything, and
+   * leaving the group without an administrator would freeze its name and its
+   * membership for ever. When the creator is gone, the longest-standing remaining
+   * member takes over.
+   */
+  async getGroupAdminMemberId(conversationId, preferredMemberId = null) {
+    const preferred = String(preferredMemberId || "").trim() || null;
+    const row = await this.get(
+      `SELECT member_id AS memberId
+       FROM chat_conversation_members
+       WHERE conversation_id = ?
+         AND is_active = 1
+         AND left_at IS NULL
+       ORDER BY (member_id = ?) DESC, joined_at ASC, member_id ASC
+       LIMIT 1`,
+      [conversationId, preferred]
+    );
+    return row?.memberId || null;
+  }
+
+  /** Adds people to a group. Members are re-checked against the active family. */
+  async addGroupConversationMembers(conversationId, memberIds) {
+    const normalizedConversationId = String(conversationId || "").trim();
+    const requested = Array.from(
+      new Set(
+        (memberIds || []).map((id) => String(id || "").trim()).filter(Boolean)
+      )
+    );
+    if (!normalizedConversationId) {
+      throw new Error("Conversation id is required");
+    }
+    if (!requested.length) {
+      throw new Error("No members to add");
+    }
+
+    return this.withTransaction(async () => {
+      const conversation = await this.get(
+        `SELECT id, family_id AS familyId, type, is_active AS isActive
+         FROM chat_conversations
+         WHERE id = ?
+         LIMIT 1`,
+        [normalizedConversationId]
+      );
+      if (!conversation || conversation.isActive !== 1) {
+        throw new Error("Conversation not found");
+      }
+      if (conversation.type !== "GROUP") {
+        throw new Error("Only a group conversation has a chosen membership");
+      }
+
+      const placeholders = requested.map(() => "?").join(",");
+      const members = await this.all(
+        `SELECT id
+         FROM family_members
+         WHERE family_id = ?
+           AND is_active = 1
+           AND id IN (${placeholders})`,
+        [conversation.familyId, ...requested]
+      );
+      if (members.length !== requested.length) {
+        throw new Error("Group conversation members must belong to the family");
+      }
+
+      const now = Date.now();
+      for (const memberId of requested) {
+        await this.ensureConversationMemberRecord(
+          normalizedConversationId,
+          memberId,
+          now
+        );
+      }
+      return this.getGroupConversationMemberIds(normalizedConversationId);
+    });
+  }
+
+  /**
+   * Takes one person out of a group.
+   *
+   * The row is deactivated rather than deleted: the messages that person wrote stay
+   * in the conversation with their author, because removing the membership must not
+   * rewrite what was already said to the others.
+   */
+  async removeGroupConversationMember(conversationId, memberId) {
+    const normalizedConversationId = String(conversationId || "").trim();
+    const normalizedMemberId = String(memberId || "").trim();
+    if (!normalizedConversationId || !normalizedMemberId) {
+      throw new Error("Conversation id and member id are required");
+    }
+    const now = Date.now();
+    await this.run(
+      `UPDATE chat_conversation_members
+       SET is_active = 0,
+           left_at = COALESCE(left_at, ?),
+           updated_at = ?
+       WHERE conversation_id = ?
+         AND member_id = ?
+         AND is_active = 1`,
+      [now, now, normalizedConversationId, normalizedMemberId]
+    );
+    return this.getGroupConversationMemberIds(normalizedConversationId);
+  }
+
+  /** Renames a group. The family chat keeps its name on the family instead. */
+  async updateGroupConversationTitle(conversationId, title) {
+    const normalizedConversationId = String(conversationId || "").trim();
+    const normalizedTitle = String(title || "").trim();
+    if (!normalizedConversationId) {
+      throw new Error("Conversation id is required");
+    }
+    if (!normalizedTitle) {
+      throw new Error("Group conversation title is required");
+    }
+    await this.run(
+      `UPDATE chat_conversations
+       SET title = ?,
+           updated_at = ?
+       WHERE id = ?
+         AND type = 'GROUP'`,
+      [normalizedTitle, Date.now(), normalizedConversationId]
+    );
+    return this.getChatConversationById(normalizedConversationId);
   }
 
   async getChatConversationById(conversationId) {
