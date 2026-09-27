@@ -37,10 +37,10 @@ class ChatConversationListAdapter(
         fun bind(item: Conversation) = with(binding) {
             titleText.text = item.title
             previewText.text = item.lastMessagePreview?.takeIf { it.isNotBlank() }
-                ?: if (item.type == ConversationType.FAMILY) {
-                    "Общий чат семьи"
-                } else {
-                    "Личный диалог"
+                ?: when (item.type) {
+                    ConversationType.FAMILY -> "Общий чат семьи"
+                    ConversationType.GROUP -> "Группа"
+                    ConversationType.DIRECT -> "Личный диалог"
                 }
             // A group is not a person: use the picture the conversation itself
             // carries. A direct chat has no shared picture, so it borrows the
@@ -50,15 +50,22 @@ class ChatConversationListAdapter(
             avatarImage.shapeAppearanceModel = ShapeAppearanceModel.builder()
                 .setAllCornerSizes(avatarImage.layoutParams.height / 2f)
                 .build()
-            val avatarKey = if (item.type == ConversationType.FAMILY) {
-                item.avatarKey
-            } else {
+            val avatarKey = if (item.type == ConversationType.DIRECT) {
                 item.avatarKey ?: peer?.avatarKey
+            } else {
+                item.avatarKey
+            }
+            // The letter stands for the conversation, so a group without a picture
+            // is lettered with its own name and never with one member's.
+            val letterFrom = if (item.type == ConversationType.DIRECT) {
+                peer?.displayName ?: item.title
+            } else {
+                item.title
             }
             FamilyAvatarRenderer.bind(
                 avatarImage,
                 avatarKey,
-                peer?.displayName ?: item.title
+                letterFrom
             )
             timeText.text = item.updatedAt.takeIf { it > 0 }?.let {
                 SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(it))

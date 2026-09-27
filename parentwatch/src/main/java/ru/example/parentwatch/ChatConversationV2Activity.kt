@@ -323,15 +323,22 @@ class ChatConversationV2Activity : AppCompatActivity() {
         // it drew before the conversation was known. A direct chat has no shared
         // picture and borrows the peer's instead.
         val otherMember = current.members.firstOrNull { !it.isLocalUser }
-        val headerAvatarKey = if (current.type == ConversationType.FAMILY) {
-            current.avatarKey
-        } else {
+        val headerAvatarKey = if (current.type == ConversationType.DIRECT) {
             current.avatarKey ?: otherMember?.avatarKey
+        } else {
+            current.avatarKey
+        }
+        // A group's header is lettered with the group's name: a group is not a
+        // person, and one member's face or name would misrepresent who is there.
+        val headerLetterFrom = if (current.type == ConversationType.DIRECT) {
+            otherMember?.displayName ?: current.title
+        } else {
+            current.title
         }
         FamilyAvatarRenderer.bind(
             binding.chatAvatar,
             headerAvatarKey,
-            otherMember?.displayName ?: current.title
+            headerLetterFrom
         )
         binding.loadingIndicator.visibility = View.GONE
 
