@@ -20,6 +20,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const DatabaseManager = require("../database/DatabaseManager");
+const ChatConversationService = require("../services/ChatConversationService");
 
 const failures = [];
 
@@ -337,10 +338,193 @@ async function checkMigration() {
   }
 }
 
+async function checkGroupService() {
+  console.log("\n5. the service: creating, managing and leaving a group");
+  const temporary = makeTemporaryDatabase("cw-group-service-");
+  const db = new DatabaseManager(temporary.file);
+  const realLog = console.log;
+  const quiet = () => {};
+  try {
+    console.log = quiet;
+    await db.initialize();
+    console.log = realLog;
+
+    const { memberByDevice } = await registerFamily(db);
+    const service = new ChatConversationService(db);
+    const [parentOne, parentTwo, child] = [
+      "verify-parent-0001",
+      "verify-parent-0002",
+      "verify-child-0001",
+    ];
+    const first = memberByDevice.get(parentOne);
+    const second = memberByDevice.get(parentTwo);
+    const third = memberByDevice.get(child);
+
+    const created = await service.createGroup(parentOne, {
+      title: "Кружок",
+      memberIds: [second],
+    });
+    const groupId = created.conversation.conversationId;
+    check(
+      "the group is created with the caller and the person chosen",
+      created.created === true && created.conversation.members.length === 2,
+      `${created.conversation.members.length} member(s)`
+    );
+    check(
+      "it carries its own name, not the family's",
+      created.conversation.title === "Кружок",
+      created.conversation.title
+    );
+    check(
+      "the caller administers it",
+      created.conversation.canManageGroup === true,
+      String(created.conversation.adminMemberId)
+    );
+
+    let refusedAdd = false;
+    try {
+      await service.addGroupMembers(parentTwo, groupId, { memberIds: [third] });
+    } catch (error) {
+      refusedAdd = error.code === "GROUP_ADMIN_REQUIRED";
+    }
+    check("only the administrator adds people", refusedAdd);
+
+    let refusedRemove = false;
+    try {
+      await service.removeGroupMember(parentTwo, groupId, first);
+    } catch (error) {
+      refusedRemove = error.code === "GROUP_ADMIN_REQUIRED";
+    }
+    check("only the administrator removes people", refusedRemove);
+
+    const added = await service.addGroupMembers(parentOne, groupId, {
+      memberIds: [third],
+    });
+    check(
+      "the administrator adds a third member",
+      added.members.length === 3,
+      `${added.members.length}`
+    );
+
+    let refusedSelf = false;
+    try {
+      await service.removeGroupMember(parentOne, groupId, first);
+    } catch (error) {
+      refusedSelf = error.code === "GROUP_ADMIN_CANNOT_REMOVE_SELF";
+    }
+    check(
+      "the administrator is told to leave rather than remove themselves",
+      refusedSelf
+    );
+
+    const removed = await service.removeGroupMember(parentOne, groupId, second);
+    check(
+      "the administrator removes a member",
+      removed.members.length === 2 &&
+        !removed.members.some((member) => member.memberId === second),
+      `${removed.members.length} left`
+    );
+
+    let refusedRead = false;
+    try {
+      await service.getMessages(parentTwo, groupId, {});
+    } catch (error) {
+      refusedRead = error.code === "CONVERSATION_ACCESS_DENIED";
+    }
+    check("somebody taken out can no longer read the group", refusedRead);
+
+    let leftOwnGroup = false;
+    try {
+      await service.leaveGroup(child, groupId);
+      leftOwnGroup = true;
+    } catch (error) {
+      leftOwnGroup = false;
+    }
+    check("a member leaves a group they are in", leftOwnGroup);
+
+    // One person is left, so the group is over: it must stop being listed.
+    const afterLastLeave = await service.listConversations(parentOne);
+    check(
+      "a group with one person left is closed and disappears from the list",
+      !afterLastLeave.conversations.some(
+        (conversation) => conversation.conversationId === groupId
+      )
+    );
+
+    // A fresh group, where the administrator leaves while others remain: somebody
+    // has to take over, or the group could never be renamed or managed again.
+    const secondGroup = await service.createGroup(parentOne, {
+      title: "Дача",
+      memberIds: [second, third],
+    });
+    const handoverId = secondGroup.conversation.conversationId;
+    const adminLeft = await service.leaveGroup(parentOne, handoverId);
+    check(
+      "the administrator can leave",
+      adminLeft.left === true && adminLeft.remainingMembers === 2,
+      `${adminLeft.remainingMembers} left`
+    );
+    check(
+      "administration passes to the longest-standing remaining member",
+      adminLeft.adminMemberId === second,
+      String(adminLeft.adminMemberId)
+    );
+    const settingsAfterHandover = await service.getGroupSettings(
+      parentTwo,
+      handoverId
+    );
+    check(
+      "the new administrator may manage the group",
+      settingsAfterHandover.canManage === true
+    );
+
+    let refusedDirection = false;
+    const direct = await service.createDirectConversation(parentOne, second);
+    try {
+      await service.leaveGroup(parentOne, direct.conversation.conversationId);
+    } catch (error) {
+      refusedDirection = error.code === "NOT_A_GROUP_CONVERSATION";
+    }
+    check("a personal conversation is not 'left'", refusedDirection);
+
+    let refusedStrangerGroup = false;
+    try {
+      await service.createGroup(parentOne, {
+        title: "Чужие",
+        memberIds: ["member_other_family"],
+      });
+    } catch (error) {
+      refusedStrangerGroup = error.code === "GROUP_TARGET_NOT_AVAILABLE";
+    }
+    check("a group cannot be made with somebody outside the family", refusedStrangerGroup);
+
+    let refusedNamelessGroup = false;
+    try {
+      await service.createGroup(parentOne, { title: "   ", memberIds: [second] });
+    } catch (error) {
+      refusedNamelessGroup = error.code === "GROUP_TITLE_REQUIRED";
+    }
+    check("a nameless group is refused", refusedNamelessGroup);
+
+    let refusedAlone = false;
+    try {
+      await service.createGroup(parentOne, { title: "Один", memberIds: [] });
+    } catch (error) {
+      refusedAlone = error.code === "GROUP_MEMBERS_REQUIRED";
+    }
+    check("a group of one person is refused", refusedAlone);
+  } finally {
+    console.log = realLog;
+    await db.close();
+    temporary.cleanup();
+  }
+}
+
 async function main() {
   // Each check mutes the manager's own startup chatter around itself; nothing here
   // may mute the report.
   await checkGroupsAndMembership();
+  await checkGroupService();
   await checkMigration();
 
   console.log("");

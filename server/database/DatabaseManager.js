@@ -3258,6 +3258,11 @@ class DatabaseManager {
    * leaving the group without an administrator would freeze its name and its
    * membership for ever. When the creator is gone, the longest-standing remaining
    * member takes over.
+   *
+   * The order is `joined_at`, then insertion order. The second part is not
+   * decoration: everybody in a group that was created in one transaction shares the
+   * same millisecond, and without a tie-breaker the successor was decided by the
+   * alphabet — which is how the wrong person ended up administering a group.
    */
   async getGroupAdminMemberId(conversationId, preferredMemberId = null) {
     const preferred = String(preferredMemberId || "").trim() || null;
@@ -3267,7 +3272,7 @@ class DatabaseManager {
        WHERE conversation_id = ?
          AND is_active = 1
          AND left_at IS NULL
-       ORDER BY (member_id = ?) DESC, joined_at ASC, member_id ASC
+       ORDER BY (member_id = ?) DESC, joined_at ASC, rowid ASC
        LIMIT 1`,
       [conversationId, preferred]
     );
@@ -3375,6 +3380,29 @@ class DatabaseManager {
       [normalizedTitle, Date.now(), normalizedConversationId]
     );
     return this.getChatConversationById(normalizedConversationId);
+  }
+
+  /**
+   * Ends a conversation nobody is left to have.
+   *
+   * Marked inactive rather than deleted: the messages stay, because one person
+   * leaving must not destroy what the others wrote, and an inactive conversation is
+   * no longer listed by any member.
+   */
+  async deactivateChatConversation(conversationId) {
+    const normalizedConversationId = String(conversationId || "").trim();
+    if (!normalizedConversationId) {
+      throw new Error("Conversation id is required");
+    }
+    const result = await this.run(
+      `UPDATE chat_conversations
+       SET is_active = 0,
+           updated_at = ?
+       WHERE id = ?
+         AND is_active = 1`,
+      [Date.now(), normalizedConversationId]
+    );
+    return { conversationId: normalizedConversationId, changed: result?.changes || 0 };
   }
 
   async getChatConversationById(conversationId) {

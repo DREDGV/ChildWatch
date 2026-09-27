@@ -175,11 +175,28 @@ class ChatConversationService {
     };
   }
 
-  conversationMembers(conversation, familyMembers = []) {
+  /**
+   * Who is in a conversation.
+   *
+   * The family chat holds the whole family and a direct chat holds two people, so
+   * both are derived from something else. A group holds the people somebody picked,
+   * and that list is read from the conversation itself: deriving it from the family
+   * would silently add a new family member to somebody's private group, and silently
+   * remove one who left the family.
+   */
+  async conversationMembers(conversation, familyMembers = []) {
     if (!conversation) return [];
     const activeMembers = (familyMembers || [])
       .map((member) => this.formatMember(member))
       .filter((member) => member?.memberId);
+
+    if (conversation.type === "GROUP") {
+      const groupMemberIds = new Set(
+        await this.dbManager.getGroupConversationMemberIds(conversation.id)
+      );
+      return activeMembers.filter((member) => groupMemberIds.has(member.memberId));
+    }
+
     if (conversation.type !== "DIRECT") return activeMembers;
 
     const directMemberIds = new Set(
@@ -213,6 +230,24 @@ class ChatConversationService {
     return this.dbManager.getFamilyAdminMemberId(familyId, preferred);
   }
 
+  /**
+   * Who administers a conversation.
+   *
+   * The family chat is administered by the family's administrator; a group by the
+   * person who created it, and — when that person has left — by the longest-standing
+   * remaining member, so a group is never left without one.
+   */
+  async resolveGroupAdmin(conversation) {
+    if (!conversation || conversation.type === "DIRECT") return null;
+    if (conversation.type === "GROUP") {
+      return this.dbManager.getGroupAdminMemberId(
+        conversation.id,
+        conversation.createdByMemberId || conversation.created_by_member_id || null
+      );
+    }
+    return this.resolveFamilyAdmin(conversation.familyId, conversation);
+  }
+
   /** Group settings plus whether the caller may change them. */
   async getGroupSettings(deviceId, conversationId) {
     const actor = await this.resolveConversationActor(deviceId, conversationId);
@@ -223,18 +258,29 @@ class ChatConversationService {
         "A direct conversation has no shared group settings"
       );
     }
-    const family = await this.dbManager.getFamilyById(actor.conversation.familyId);
-    const adminMemberId = await this.resolveFamilyAdmin(
-      actor.conversation.familyId,
-      actor.conversation
+    const isFamilyConversation = actor.conversation.type === "FAMILY";
+    const family = isFamilyConversation
+      ? await this.dbManager.getFamilyById(actor.conversation.familyId)
+      : null;
+    const adminMemberId = await this.resolveGroupAdmin(actor.conversation);
+    const familyMembers = await this.dbManager.getChatFamilyMembers(
+      actor.conversation.familyId
     );
     return {
       conversationId: actor.conversation.id,
       familyId: actor.conversation.familyId,
-      title: family?.name || actor.conversation.title || null,
-      avatarKey: family?.avatarKey || null,
+      type: actor.conversation.type,
+      // A family chat takes its name and picture from the family, because they are
+      // shared with the rest of the application. A group has its own name and no
+      // picture of its own yet.
+      title: isFamilyConversation
+        ? family?.name || actor.conversation.title || null
+        : actor.conversation.title || null,
+      avatarKey: isFamilyConversation ? family?.avatarKey || null : null,
       adminMemberId,
       canManage: Boolean(adminMemberId && adminMemberId === actor.memberId),
+      actorMemberId: actor.memberId,
+      members: await this.conversationMembers(actor.conversation, familyMembers),
     };
   }
 
@@ -246,25 +292,18 @@ class ChatConversationService {
    */
   async updateGroupTitle(deviceId, conversationId, payload) {
     const actor = await this.requireGroupAdmin(deviceId, conversationId);
-    const title = typeof payload?.title === "string" ? payload.title.trim() : "";
-    if (!title) {
-      throw new ChatConversationError(
-        400,
-        "GROUP_TITLE_REQUIRED",
-        "Group title must not be empty"
+    const title = this.validateGroupTitle(payload?.title);
+    // A family chat keeps its name on the family, where the rest of the application
+    // reads it; a group keeps its own, because two groups in one family may have
+    // different names and neither of them is the family's.
+    if (actor.conversation.type === "GROUP") {
+      await this.dbManager.updateGroupConversationTitle(
+        actor.conversation.id,
+        title
       );
+    } else {
+      await this.dbManager.updateFamilyGroupName(actor.conversation.familyId, title);
     }
-    if (title.length > MAX_GROUP_TITLE_LENGTH) {
-      throw new ChatConversationError(
-        400,
-        "GROUP_TITLE_TOO_LONG",
-        `Group title must be at most ${MAX_GROUP_TITLE_LENGTH} characters`
-      );
-    }
-    await this.dbManager.updateFamilyGroupName(
-      actor.conversation.familyId,
-      title
-    );
     return this.getGroupSettings(deviceId, conversationId);
   }
 
@@ -297,10 +336,7 @@ class ChatConversationService {
         "A direct conversation has no shared group settings"
       );
     }
-    const adminMemberId = await this.resolveFamilyAdmin(
-      actor.conversation.familyId,
-      actor.conversation
-    );
+    const adminMemberId = await this.resolveGroupAdmin(actor.conversation);
     if (!adminMemberId || adminMemberId !== actor.memberId) {
       throw new ChatConversationError(
         403,
@@ -320,11 +356,14 @@ class ChatConversationService {
       (member) => member.memberId !== actorMemberId
     );
     const isGroup = conversation.type !== "DIRECT";
+    const isFamilyConversation = conversation.type === "FAMILY";
     // The family name is what everyone sees, so a group rename by the admin
-    // reaches all participants through this value.
-    const sharedTitle = family?.name ? String(family.name).trim() : "";
+    // reaches all participants through this value. A group of one's own keeps its
+    // own name, which is not the family's.
+    const sharedTitle =
+      isFamilyConversation && family?.name ? String(family.name).trim() : "";
     const resolvedTitle =
-      (isGroup ? sharedTitle : "") ||
+      sharedTitle ||
       conversation.title ||
       (conversation.type === "DIRECT"
         ? otherMembers.map((member) => member.displayName).join(", ") ||
@@ -335,7 +374,7 @@ class ChatConversationService {
       familyId: conversation.familyId,
       type: conversation.type,
       title: resolvedTitle,
-      avatarKey: isGroup ? family?.avatarKey || null : null,
+      avatarKey: isFamilyConversation ? family?.avatarKey || null : null,
       adminMemberId: isGroup ? adminMemberId || null : null,
       canManageGroup: Boolean(
         isGroup && adminMemberId && actorMemberId && adminMemberId === actorMemberId
@@ -425,15 +464,26 @@ class ChatConversationService {
           membership.memberId,
           MAX_PAGE_LIMIT
         );
-      // Shared group settings are looked up once per family, not per conversation.
+      // The family's administrator is looked up once per family; a group has its
+      // own, which is not the family's.
       const family = await this.dbManager.getFamilyById(membership.familyId);
-      const adminMemberId = await this.resolveFamilyAdmin(
+      const familyAdminMemberId = await this.resolveFamilyAdmin(
         membership.familyId,
         familyConversation
       );
       for (const conversation of conversations || []) {
         if (conversation.familyId !== membership.familyId) continue;
-        const members = this.conversationMembers(conversation, familyMembers);
+        const members = await this.conversationMembers(
+          conversation,
+          familyMembers
+        );
+        const adminMemberId =
+          conversation.type === "GROUP"
+            ? await this.dbManager.getGroupAdminMemberId(
+                conversation.id,
+                conversation.createdByMemberId || null
+              )
+            : familyAdminMemberId;
         byId.set(
           conversation.id,
           this.formatConversation(conversation, {
@@ -505,7 +555,7 @@ class ChatConversationService {
         if (!scopedConversation) {
           throw new Error("Created direct conversation is not member-scoped");
         }
-        const members = this.conversationMembers(
+        const members = await this.conversationMembers(
           scopedConversation,
           familyMembers
         );
@@ -532,6 +582,254 @@ class ChatConversationService {
       "DIRECT_TARGET_NOT_AVAILABLE",
       "Target member is not available for a direct conversation"
     );
+  }
+
+  /** A group name, checked the same way whether it is chosen or changed. */
+  validateGroupTitle(rawTitle) {
+    const title = typeof rawTitle === "string" ? rawTitle.trim() : "";
+    if (!title) {
+      throw new ChatConversationError(
+        400,
+        "GROUP_TITLE_REQUIRED",
+        "Group title must not be empty"
+      );
+    }
+    if (title.length > MAX_GROUP_TITLE_LENGTH) {
+      throw new ChatConversationError(
+        400,
+        "GROUP_TITLE_TOO_LONG",
+        `Group title must be at most ${MAX_GROUP_TITLE_LENGTH} characters`
+      );
+    }
+    return title;
+  }
+
+  /**
+   * Resolves the people a group is being made of, inside the caller's own family.
+   *
+   * Only members of the family are accepted: a group is a conversation inside one
+   * family, and somebody outside it has neither the right to read it nor a way to
+   * be reached by it.
+   */
+  async resolveGroupTargets(familyId, memberIds, { requireAll = true } = {}) {
+    const requested = Array.from(
+      new Set(
+        (memberIds || []).map((id) => String(id || "").trim()).filter(Boolean)
+      )
+    );
+    const familyMembers = await this.dbManager.getChatFamilyMembers(familyId);
+    const available = new Set(
+      (familyMembers || []).map((member) => String(member.id || ""))
+    );
+    const unknown = requested.filter((memberId) => !available.has(memberId));
+    if (unknown.length && requireAll) {
+      throw new ChatConversationError(
+        403,
+        "GROUP_TARGET_NOT_AVAILABLE",
+        "Everybody in a group must be a member of the family"
+      );
+    }
+    return {
+      accepted: requested.filter((memberId) => available.has(memberId)),
+      unknown,
+      familyMembers,
+    };
+  }
+
+  /**
+   * Creates a group with a chosen name and membership.
+   *
+   * The caller is always in the group and becomes its administrator: a group made on
+   * somebody's behalf, which they do not belong to, is not something a person can
+   * mean. The name is required, because a nameless group is indistinguishable from
+   * every other nameless group in the list.
+   */
+  async createGroup(deviceId, payload) {
+    const title = this.validateGroupTitle(payload?.title);
+    const memberships = await this.resolveDeviceMemberships(deviceId);
+    let lastRefusal = null;
+
+    for (const membership of memberships) {
+      const { accepted, unknown } = await this.resolveGroupTargets(
+        membership.familyId,
+        payload?.memberIds,
+        { requireAll: false }
+      );
+      const wanted = Array.from(new Set([membership.memberId, ...accepted]));
+      if (unknown.length) {
+        lastRefusal = new ChatConversationError(
+          403,
+          "GROUP_TARGET_NOT_AVAILABLE",
+          "Everybody in a group must be a member of the family"
+        );
+        continue;
+      }
+      if (wanted.length < 2) {
+        throw new ChatConversationError(
+          400,
+          "GROUP_MEMBERS_REQUIRED",
+          "A group needs at least one other member"
+        );
+      }
+
+      const conversation = await this.dbManager.createGroupConversation({
+        familyId: membership.familyId,
+        title,
+        memberIds: wanted,
+        createdByMemberId: membership.memberId,
+      });
+      const familyMembers = await this.dbManager.getChatFamilyMembers(
+        membership.familyId
+      );
+      const scoped = await this.dbManager.getChatConversationForMember(
+        conversation.id,
+        membership.memberId
+      );
+      return {
+        created: true,
+        conversation: this.formatConversation(scoped || conversation, {
+          members: await this.conversationMembers(
+            scoped || conversation,
+            familyMembers
+          ),
+          actorMemberId: membership.memberId,
+          family: null,
+          adminMemberId: membership.memberId,
+        }),
+      };
+    }
+
+    throw (
+      lastRefusal ||
+      new ChatConversationError(
+        403,
+        "GROUP_TARGET_NOT_AVAILABLE",
+        "Nobody in the request shares a family with this device"
+      )
+    );
+  }
+
+  /** Adds people to a group. Only the administrator may. */
+  async addGroupMembers(deviceId, conversationId, payload) {
+    const actor = await this.requireGroupAdmin(deviceId, conversationId);
+    if (actor.conversation.type !== "GROUP") {
+      throw new ChatConversationError(
+        400,
+        "NOT_A_GROUP_CONVERSATION",
+        "Only a group has a membership that can be changed"
+      );
+    }
+    const { accepted } = await this.resolveGroupTargets(
+      actor.conversation.familyId,
+      payload?.memberIds
+    );
+    if (!accepted.length) {
+      throw new ChatConversationError(
+        400,
+        "GROUP_MEMBERS_REQUIRED",
+        "No family member was named to add"
+      );
+    }
+    await this.dbManager.addGroupConversationMembers(
+      actor.conversation.id,
+      accepted
+    );
+    return this.getGroupSettings(deviceId, conversationId);
+  }
+
+  /**
+   * Takes one person out of a group. Only the administrator may.
+   *
+   * The administrator cannot remove themselves here. Leaving is a separate decision
+   * with its own consequences, and asking to remove oneself is far more likely to be
+   * a mistake in the interface than a wish to lose the group.
+   */
+  async removeGroupMember(deviceId, conversationId, memberId) {
+    const actor = await this.requireGroupAdmin(deviceId, conversationId);
+    if (actor.conversation.type !== "GROUP") {
+      throw new ChatConversationError(
+        400,
+        "NOT_A_GROUP_CONVERSATION",
+        "Only a group has a membership that can be changed"
+      );
+    }
+    const target = this.requireIdentifier(memberId, {
+      code: "INVALID_TARGET_MEMBER_ID",
+      message: "Invalid target member id",
+    });
+    if (target === actor.memberId) {
+      throw new ChatConversationError(
+        400,
+        "GROUP_ADMIN_CANNOT_REMOVE_SELF",
+        "The administrator leaves a group instead of removing themselves"
+      );
+    }
+
+    const settings = await this.getGroupSettings(deviceId, conversationId);
+    if (!settings.members.some((member) => member.memberId === target)) {
+      throw new ChatConversationError(
+        404,
+        "GROUP_MEMBER_NOT_FOUND",
+        "This person is not in the group"
+      );
+    }
+
+    await this.dbManager.removeGroupConversationMember(
+      actor.conversation.id,
+      target
+    );
+    await this.closeGroupIfTooSmall(actor.conversation.id);
+    return this.getGroupSettings(deviceId, conversationId);
+  }
+
+  /**
+   * Leaves a group.
+   *
+   * Anyone may leave, the administrator included. Refusing that would leave a group
+   * whose administrator has stopped using the application with a name nobody can
+   * change and a membership nobody can change either; when the administrator leaves,
+   * the longest-standing remaining member takes over. Leaving is also how somebody
+   * gets out of a group on a phone they no longer want the notifications on.
+   */
+  async leaveGroup(deviceId, conversationId) {
+    const actor = await this.resolveConversationActor(deviceId, conversationId);
+    if (actor.conversation.type === "DIRECT") {
+      throw new ChatConversationError(
+        400,
+        "NOT_A_GROUP_CONVERSATION",
+        "A direct conversation is not left, it is simply not written in"
+      );
+    }
+    await this.dbManager.removeGroupConversationMember(
+      actor.conversation.id,
+      actor.memberId
+    );
+    const remaining = await this.closeGroupIfTooSmall(actor.conversation.id);
+    const adminMemberId = await this.resolveGroupAdmin(actor.conversation);
+    return {
+      conversationId: actor.conversation.id,
+      left: true,
+      remainingMembers: remaining.length,
+      adminMemberId,
+    };
+  }
+
+  /**
+   * Ends a conversation that too few people are left in.
+   *
+   * A group with one member is not a conversation, and leaving it in the list would
+   * be a permanent reminder of a group that no longer exists. The messages are kept:
+   * the conversation is only marked inactive, so nothing anybody wrote is destroyed
+   * by somebody else's decision to leave.
+   */
+  async closeGroupIfTooSmall(conversationId) {
+    const remaining = await this.dbManager.getGroupConversationMemberIds(
+      conversationId
+    );
+    if (remaining.length < 2) {
+      await this.dbManager.deactivateChatConversation(conversationId);
+    }
+    return remaining;
   }
 
   validateMessageInput(payload) {
