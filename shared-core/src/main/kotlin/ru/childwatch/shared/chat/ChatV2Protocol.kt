@@ -155,13 +155,19 @@ data class ChatV2ReceiptDto(
 )
 
 fun ChatV2ConversationDto.toDomain(): Conversation {
-    val normalizedType = if (type.equals("DIRECT", ignoreCase = true)) {
-        ConversationType.DIRECT
-    } else {
-        ConversationType.FAMILY
+    // Every kind the server sends has a value of its own. Anything unrecognised is
+    // read as the family chat, which is what a build older than the kind it received
+    // can still show without inventing a membership it cannot verify.
+    val normalizedType = when {
+        type.equals("DIRECT", ignoreCase = true) -> ConversationType.DIRECT
+        type.equals("GROUP", ignoreCase = true) -> ConversationType.GROUP
+        else -> ConversationType.FAMILY
     }
-    val resolvedTitle = title?.takeIf { it.isNotBlank() }
-        ?: if (normalizedType == ConversationType.DIRECT) "Личный чат" else "Семейный чат"
+    val resolvedTitle = title?.takeIf { it.isNotBlank() } ?: when (normalizedType) {
+        ConversationType.DIRECT -> "Личный чат"
+        ConversationType.GROUP -> "Группа"
+        ConversationType.FAMILY -> "Семейный чат"
+    }
     return Conversation(
         conversationId = conversationId,
         familyId = familyId,

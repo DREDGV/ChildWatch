@@ -7,8 +7,18 @@ package ru.childwatch.shared.chat
  * endpoints and must never be used as the conversation identity.
  */
 enum class ConversationType {
+    /** The family chat: everybody in the family, one per family. */
     FAMILY,
-    DIRECT
+    /** Two people. */
+    DIRECT,
+    /**
+     * A conversation with a membership somebody chose.
+     *
+     * Its own value rather than "not a direct chat": the family chat is also not a
+     * direct chat, and treating the two alike showed a group with the family's name
+     * and picture and offered the family's settings for it.
+     */
+    GROUP
 }
 
 enum class ConversationMemberRole {
