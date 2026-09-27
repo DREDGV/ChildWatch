@@ -304,6 +304,7 @@ class DatabaseManager {
                 title TEXT,
                 direct_pair_key TEXT,
                 created_by_member_id TEXT,
+                admin_member_id TEXT,
                 next_sequence INTEGER NOT NULL DEFAULT 0,
                 is_active INTEGER NOT NULL DEFAULT 1,
                 created_at INTEGER NOT NULL,
@@ -600,6 +601,16 @@ class DatabaseManager {
       );
       console.log("✅ Migration completed: current_app columns added");
     }
+
+    // Who administers a group is a decision that can be handed over and is therefore
+    // stored, rather than worked out from who created the conversation: the creator
+    // may hand it to somebody else, and after that the creator is no longer the
+    // answer. Created before the rebuild below, which copies this column too.
+    await this.addColumnIfNotExists(
+      "chat_conversations",
+      "admin_member_id",
+      "TEXT"
+    );
 
     // A group with a chosen membership is a third kind of conversation. The kind is
     // fixed by a constraint on the table, so widening it is a migration of its own
@@ -2695,6 +2706,16 @@ class DatabaseManager {
       (await this.get(`SELECT COUNT(*) AS total FROM chat_conversations`))?.total
     ) || 0;
 
+    // The copy below names this column, so the migration makes sure it is there
+    // rather than relying on being called after the statement that adds it: a
+    // migration that depends on the order of the migrations around it breaks the day
+    // somebody reorders them.
+    await this.addColumnIfNotExists(
+      "chat_conversations",
+      "admin_member_id",
+      "TEXT"
+    );
+
     // The database may already contain rows that point at a parent which is not
     // there — the live one does, in `chat_conversation_members`. Demanding a clean
     // `foreign_key_check` would refuse to start the server over damage this
@@ -2718,6 +2739,7 @@ class DatabaseManager {
                     title TEXT,
                     direct_pair_key TEXT,
                     created_by_member_id TEXT,
+                    admin_member_id TEXT,
                     next_sequence INTEGER NOT NULL DEFAULT 0,
                     is_active INTEGER NOT NULL DEFAULT 1,
                     created_at INTEGER NOT NULL,
@@ -2734,6 +2756,7 @@ class DatabaseManager {
              title,
              direct_pair_key,
              created_by_member_id,
+             admin_member_id,
              next_sequence,
              is_active,
              created_at,
@@ -2746,6 +2769,7 @@ class DatabaseManager {
              title,
              direct_pair_key,
              created_by_member_id,
+             admin_member_id,
              next_sequence,
              is_active,
              created_at,
@@ -3215,15 +3239,19 @@ class DatabaseManager {
            title,
            direct_pair_key,
            created_by_member_id,
+           admin_member_id,
            next_sequence,
            is_active,
            created_at,
            updated_at
-         ) VALUES (?, ?, 'GROUP', ?, NULL, ?, 0, 1, ?, ?)`,
+         ) VALUES (?, ?, 'GROUP', ?, NULL, ?, ?, 0, 1, ?, ?)`,
         [
           conversationId,
           normalizedFamilyId,
           normalizedTitle,
+          normalizedCreator,
+          // The creator starts as the administrator; from then on the value is a
+          // decision that can be handed over, not a fact about who created it.
           normalizedCreator,
           now,
           now,
@@ -3253,11 +3281,12 @@ class DatabaseManager {
   /**
    * Who administers a group.
    *
-   * The creator is preferred, and is answered only while they are still in the
-   * group: an administrator who has left cannot be asked to manage anything, and
-   * leaving the group without an administrator would freeze its name and its
-   * membership for ever. When the creator is gone, the longest-standing remaining
-   * member takes over.
+   * The stored administrator is the answer, and the tie-breakers behind it are a
+   * safety net rather than the rule: if the stored member is no longer in the group
+   * — which happens when a person is removed from the family altogether — somebody
+   * has to be able to rename the group and change its membership, or it is frozen
+   * for ever. Groups created before the administrator was stored fall back to the
+   * person who created them.
    *
    * The order is `joined_at`, then insertion order. The second part is not
    * decoration: everybody in a group that was created in one transaction shares the
@@ -3267,16 +3296,60 @@ class DatabaseManager {
   async getGroupAdminMemberId(conversationId, preferredMemberId = null) {
     const preferred = String(preferredMemberId || "").trim() || null;
     const row = await this.get(
-      `SELECT member_id AS memberId
-       FROM chat_conversation_members
-       WHERE conversation_id = ?
-         AND is_active = 1
-         AND left_at IS NULL
-       ORDER BY (member_id = ?) DESC, joined_at ASC, rowid ASC
+      `SELECT cm.member_id AS memberId
+       FROM chat_conversation_members cm
+       JOIN chat_conversations c ON c.id = cm.conversation_id
+       WHERE cm.conversation_id = ?
+         AND cm.is_active = 1
+         AND cm.left_at IS NULL
+       ORDER BY (cm.member_id = COALESCE(c.admin_member_id, ?)) DESC,
+                (cm.member_id = ?) DESC,
+                cm.joined_at ASC,
+                cm.rowid ASC
        LIMIT 1`,
-      [conversationId, preferred]
+      [conversationId, preferred, preferred]
     );
     return row?.memberId || null;
+  }
+
+  /**
+   * Hands administration of a group to somebody in it.
+   *
+   * Written as a decision of its own rather than derived from membership, because
+   * that is what it is: the person who created the group may stop using it, and the
+   * group has to follow whoever does.
+   */
+  async updateGroupConversationAdmin(conversationId, memberId) {
+    const normalizedConversationId = String(conversationId || "").trim();
+    const normalizedMemberId = String(memberId || "").trim();
+    if (!normalizedConversationId) {
+      throw new Error("Conversation id is required");
+    }
+    if (!normalizedMemberId) {
+      throw new Error("The new administrator is required");
+    }
+    const membership = await this.get(
+      `SELECT 1 AS member
+       FROM chat_conversation_members
+       WHERE conversation_id = ?
+         AND member_id = ?
+         AND is_active = 1
+         AND left_at IS NULL
+       LIMIT 1`,
+      [normalizedConversationId, normalizedMemberId]
+    );
+    if (!membership) {
+      throw new Error("The new administrator must be in the group");
+    }
+    await this.run(
+      `UPDATE chat_conversations
+       SET admin_member_id = ?,
+           updated_at = ?
+       WHERE id = ?
+         AND type = 'GROUP'`,
+      [normalizedMemberId, Date.now(), normalizedConversationId]
+    );
+    return this.getChatConversationById(normalizedConversationId);
   }
 
   /** Adds people to a group. Members are re-checked against the active family. */
@@ -3414,6 +3487,7 @@ class DatabaseManager {
          title,
          direct_pair_key AS directPairKey,
          created_by_member_id AS createdByMemberId,
+         admin_member_id AS adminMemberId,
          next_sequence AS nextSequence,
          is_active AS isActive,
          created_at AS createdAt,

@@ -451,32 +451,110 @@ async function checkGroupService() {
       )
     );
 
-    // A fresh group, where the administrator leaves while others remain: somebody
-    // has to take over, or the group could never be renamed or managed again.
+    // A fresh group, where the administrator wants out: the way out is to hand the
+    // group over or to close it, never to walk away from it.
     const secondGroup = await service.createGroup(parentOne, {
       title: "Дача",
       memberIds: [second, third],
     });
     const handoverId = secondGroup.conversation.conversationId;
-    const adminLeft = await service.leaveGroup(parentOne, handoverId);
+
+    let refusedAdminLeave = false;
+    try {
+      await service.leaveGroup(parentOne, handoverId);
+    } catch (error) {
+      refusedAdminLeave = error.code === "GROUP_ADMIN_CANNOT_LEAVE";
+    }
+    check("the administrator cannot leave", refusedAdminLeave);
+
+    let refusedStrangerHandover = false;
+    try {
+      await service.transferGroupAdmin(parentOne, handoverId, "member_other");
+    } catch (error) {
+      refusedStrangerHandover = error.code === "GROUP_MEMBER_NOT_FOUND";
+    }
     check(
-      "the administrator can leave",
-      adminLeft.left === true && adminLeft.remainingMembers === 2,
-      `${adminLeft.remainingMembers} left`
+      "administration is not handed to somebody outside the group",
+      refusedStrangerHandover
+    );
+
+    let refusedSelfHandover = false;
+    try {
+      await service.transferGroupAdmin(parentOne, handoverId, first);
+    } catch (error) {
+      refusedSelfHandover = error.code === "GROUP_ADMIN_ALREADY";
+    }
+    check(
+      "administration is not handed to the current administrator",
+      refusedSelfHandover
+    );
+
+    let refusedMemberHandover = false;
+    try {
+      await service.transferGroupAdmin(parentTwo, handoverId, third);
+    } catch (error) {
+      refusedMemberHandover = error.code === "GROUP_ADMIN_REQUIRED";
+    }
+    check("only the administrator hands the group over", refusedMemberHandover);
+
+    const handover = await service.transferGroupAdmin(
+      parentOne,
+      handoverId,
+      second
     );
     check(
-      "administration passes to the longest-standing remaining member",
-      adminLeft.adminMemberId === second,
-      String(adminLeft.adminMemberId)
+      "administration is handed to the chosen member",
+      handover.adminMemberId === second,
+      String(handover.adminMemberId)
     );
-    const settingsAfterHandover = await service.getGroupSettings(
+    // The settings are always answered for the caller, so the new administrator has
+    // to be asked, not the person who handed the group over.
+    const newAdminSettings = await service.getGroupSettings(
       parentTwo,
       handoverId
     );
     check(
       "the new administrator may manage the group",
-      settingsAfterHandover.canManage === true
+      newAdminSettings.canManage === true
     );
+    const formerAdminSettings = await service.getGroupSettings(
+      parentOne,
+      handoverId
+    );
+    check(
+      "the former administrator may no longer manage it",
+      formerAdminSettings.canManage === false
+    );
+
+    const formerAdminLeft = await service.leaveGroup(parentOne, handoverId);
+    check(
+      "a member who handed the group over can leave",
+      formerAdminLeft.left === true && formerAdminLeft.remainingMembers === 2,
+      `${formerAdminLeft.remainingMembers} left`
+    );
+
+    const closed = await service.closeGroup(parentTwo, handoverId);
+    check("the administrator closes the group", closed.closed === true);
+    const afterClose = await service.listConversations(parentTwo);
+    check(
+      "a closed group is gone from the list",
+      !afterClose.conversations.some(
+        (conversation) => conversation.conversationId === handoverId
+      )
+    );
+
+    let refusedWriteAfterClose = false;
+    try {
+      await service.sendMessage(parentTwo, handoverId, {
+        clientMessageId: "group-after-close-0001",
+        text: "Кто-нибудь здесь?",
+      });
+    } catch (error) {
+      refusedWriteAfterClose =
+        error.code === "CONVERSATION_NOT_FOUND" ||
+        error.code === "CONVERSATION_ACCESS_DENIED";
+    }
+    check("nobody writes in a closed group", refusedWriteAfterClose);
 
     let refusedDirection = false;
     const direct = await service.createDirectConversation(parentOne, second);

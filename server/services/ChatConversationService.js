@@ -785,11 +785,11 @@ class ChatConversationService {
   /**
    * Leaves a group.
    *
-   * Anyone may leave, the administrator included. Refusing that would leave a group
-   * whose administrator has stopped using the application with a name nobody can
-   * change and a membership nobody can change either; when the administrator leaves,
-   * the longest-standing remaining member takes over. Leaving is also how somebody
-   * gets out of a group on a phone they no longer want the notifications on.
+   * Any member may leave except the administrator. The administrator either hands
+   * the group to somebody else or closes it, because a group whose administrator
+   * walked away would have a name nobody can change, a membership nobody can change,
+   * and no way out of that state — the others cannot remove an absent administrator
+   * either.
    */
   async leaveGroup(deviceId, conversationId) {
     const actor = await this.resolveConversationActor(deviceId, conversationId);
@@ -800,18 +800,89 @@ class ChatConversationService {
         "A direct conversation is not left, it is simply not written in"
       );
     }
+    const adminMemberId = await this.resolveGroupAdmin(actor.conversation);
+    if (adminMemberId && adminMemberId === actor.memberId) {
+      throw new ChatConversationError(
+        409,
+        "GROUP_ADMIN_CANNOT_LEAVE",
+        "The administrator hands the group over or closes it instead of leaving"
+      );
+    }
     await this.dbManager.removeGroupConversationMember(
       actor.conversation.id,
       actor.memberId
     );
     const remaining = await this.closeGroupIfTooSmall(actor.conversation.id);
-    const adminMemberId = await this.resolveGroupAdmin(actor.conversation);
+    const nextAdminMemberId = await this.resolveGroupAdmin(actor.conversation);
     return {
       conversationId: actor.conversation.id,
       left: true,
       remainingMembers: remaining.length,
-      adminMemberId,
+      adminMemberId: nextAdminMemberId,
     };
+  }
+
+  /**
+   * Hands administration of the group to another member.
+   *
+   * This is the way out for an administrator who no longer wants the group: the
+   * group keeps working with somebody who does. The new administrator must already
+   * be in the group — handing a group to somebody outside it would add a person to
+   * a conversation they were never part of.
+   */
+  async transferGroupAdmin(deviceId, conversationId, memberId) {
+    const actor = await this.requireGroupAdmin(deviceId, conversationId);
+    if (actor.conversation.type !== "GROUP") {
+      throw new ChatConversationError(
+        400,
+        "NOT_A_GROUP_CONVERSATION",
+        "Only a group has an administrator to hand over"
+      );
+    }
+    const target = this.requireIdentifier(memberId, {
+      code: "INVALID_TARGET_MEMBER_ID",
+      message: "Invalid target member id",
+    });
+    if (target === actor.memberId) {
+      throw new ChatConversationError(
+        400,
+        "GROUP_ADMIN_ALREADY",
+        "Administration is already with this member"
+      );
+    }
+    const settings = await this.getGroupSettings(deviceId, conversationId);
+    if (!settings.members.some((member) => member.memberId === target)) {
+      throw new ChatConversationError(
+        404,
+        "GROUP_MEMBER_NOT_FOUND",
+        "This person is not in the group"
+      );
+    }
+    await this.dbManager.updateGroupConversationAdmin(
+      actor.conversation.id,
+      target
+    );
+    return this.getGroupSettings(deviceId, conversationId);
+  }
+
+  /**
+   * Closes the group for everybody.
+   *
+   * Marked inactive rather than deleted: closing a conversation is not a reason to
+   * destroy what people wrote in it, and an inactive conversation is no longer
+   * listed for anyone.
+   */
+  async closeGroup(deviceId, conversationId) {
+    const actor = await this.requireGroupAdmin(deviceId, conversationId);
+    if (actor.conversation.type !== "GROUP") {
+      throw new ChatConversationError(
+        400,
+        "NOT_A_GROUP_CONVERSATION",
+        "Only a group is closed by its administrator"
+      );
+    }
+    await this.dbManager.deactivateChatConversation(actor.conversation.id);
+    return { conversationId: actor.conversation.id, closed: true };
   }
 
   /**
