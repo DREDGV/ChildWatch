@@ -15,6 +15,7 @@ import ru.childwatch.shared.chat.ConversationMember
 import ru.childwatch.shared.chat.ConversationType
 import ru.example.parentwatch.chat.v2.ChatConversationListAdapter
 import ru.example.parentwatch.chat.v2.ChatV2Repository
+import ru.example.parentwatch.chat.v2.GroupErrorMessages
 import ru.example.parentwatch.chat.v2.GroupSettingsDialog
 import ru.example.parentwatch.databinding.ActivityChatConversationsBinding
 import ru.example.parentwatch.network.WebSocketManager
@@ -45,6 +46,7 @@ class ChatConversationsActivity : AppCompatActivity() {
         if (serverUrl.isBlank()) {
             binding.statusText.setText(R.string.chat_v2_offline)
             binding.newDirectChatButton.isEnabled = false
+            binding.newGroupChatButton.isEnabled = false
             return
         }
         repository = ChatV2Repository.create(this, serverUrl)
@@ -55,6 +57,7 @@ class ChatConversationsActivity : AppCompatActivity() {
         binding.conversationsRecyclerView.layoutManager = LinearLayoutManager(this)
         binding.conversationsRecyclerView.adapter = adapter
         binding.newDirectChatButton.setOnClickListener { chooseDirectChatMember() }
+        binding.newGroupChatButton.setOnClickListener { createGroupChat() }
         // Returns to the home screen; the toolbar is built in this layout, so the
         // arrow needs its own listener.
         binding.backButton.setOnClickListener { finish() }
@@ -230,6 +233,101 @@ class ChatConversationsActivity : AppCompatActivity() {
                         Toast.makeText(
                             this@ChatConversationsActivity,
                             R.string.chat_v2_offline,
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /**
+     * Asks for a name and a membership, then creates the group.
+     *
+     * A group has no single person to name it after, so the name is asked here; and
+     * only the family chat knows who may be invited, because a group can hold nobody
+     * but family members.
+     */
+    private fun createGroupChat() {
+        val family = cachedConversations.firstOrNull { it.type == ConversationType.FAMILY }
+        val candidates = family?.members.orEmpty()
+            .filterNot(ConversationMember::isLocalUser)
+            .distinctBy(ConversationMember::memberId)
+            .sortedBy(ConversationMember::displayName)
+        if (candidates.isEmpty()) {
+            Toast.makeText(this, R.string.chat_v2_no_members, Toast.LENGTH_SHORT).show()
+            return
+        }
+
+        val density = resources.displayMetrics.density
+        val nameInput = android.widget.EditText(this).apply {
+            hint = getString(R.string.chat_v2_group_name_hint)
+        }
+        val ticks = candidates.map { candidate ->
+            android.widget.CheckBox(this).apply { text = candidate.displayName }
+        }
+        val tickList = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            ticks.forEach { addView(it) }
+        }
+        // An open dialog grows past the screen and hides its own buttons, so the list
+        // gets a bounded height of its own and scrolls inside it.
+        val tickScroll = android.widget.ScrollView(this).apply {
+            addView(tickList)
+            layoutParams = android.widget.LinearLayout.LayoutParams(
+                android.widget.LinearLayout.LayoutParams.MATCH_PARENT,
+                (candidates.size.coerceIn(1, 6) * 48 * density).toInt()
+            )
+        }
+        val container = android.widget.LinearLayout(this).apply {
+            orientation = android.widget.LinearLayout.VERTICAL
+            val pad = (20 * density).toInt()
+            setPadding(pad, pad / 2, pad, 0)
+            addView(nameInput)
+            addView(
+                android.widget.TextView(this@ChatConversationsActivity).apply {
+                    setText(R.string.chat_v2_group_members_hint)
+                    setPadding(0, (12 * density).toInt(), 0, (4 * density).toInt())
+                }
+            )
+            addView(tickScroll)
+        }
+
+        MaterialAlertDialogBuilder(this)
+            .setTitle(R.string.chat_v2_new_group_title)
+            .setView(container)
+            .setPositiveButton(R.string.chat_v2_group_create) { _, _ ->
+                val title = nameInput.text?.toString().orEmpty().trim()
+                if (title.isEmpty()) {
+                    Toast.makeText(
+                        this@ChatConversationsActivity,
+                        R.string.chat_v2_group_name_required,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@setPositiveButton
+                }
+                val chosen = candidates
+                    .filterIndexed { index, _ -> ticks[index].isChecked }
+                    .map { it.memberId }
+                if (chosen.isEmpty()) {
+                    Toast.makeText(
+                        this@ChatConversationsActivity,
+                        R.string.chat_v2_group_members_required,
+                        Toast.LENGTH_SHORT
+                    ).show()
+                    return@setPositiveButton
+                }
+                lifecycleScope.launch {
+                    try {
+                        openConversation(repository.createGroup(title, chosen))
+                    } catch (error: Exception) {
+                        // The server refuses a group that is empty, nameless or reaches
+                        // outside the family, and says which; that refusal is what the
+                        // person needs to read.
+                        Toast.makeText(
+                            this@ChatConversationsActivity,
+                            getString(GroupErrorMessages.forFailure(error)),
                             Toast.LENGTH_LONG
                         ).show()
                     }

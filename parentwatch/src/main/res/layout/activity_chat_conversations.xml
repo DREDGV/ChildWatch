@@ -53,12 +53,29 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/newDirectChatButton"
-            style="@style/Widget.Material3.Button.TonalButton"
+        <!-- Two ways to start a chat, stacked so neither is squeezed off a narrow
+             screen by the title beside them. -->
+        <LinearLayout
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="@string/chat_v2_new_direct" />
+            android:gravity="end"
+            android:orientation="vertical">
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/newDirectChatButton"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="@string/chat_v2_new_direct" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/newGroupChatButton"
+                style="@style/Widget.Material3.Button.TonalButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/chat_v2_new_group" />
+        </LinearLayout>
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView

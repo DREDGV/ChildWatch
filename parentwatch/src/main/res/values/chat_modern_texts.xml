@@ -5,6 +5,13 @@
     <string name="chat_v2_ready">Все сообщения синхронизированы</string>
     <string name="chat_v2_offline">Нет связи — сообщения сохранятся и отправятся позже</string>
     <string name="chat_v2_new_direct">+ Личный чат</string>
+    <string name="chat_v2_new_group">+ Группа</string>
+    <string name="chat_v2_new_group_title">Новая группа</string>
+    <string name="chat_v2_group_name_hint">Название группы</string>
+    <string name="chat_v2_group_name_required">Введите название группы</string>
+    <string name="chat_v2_group_members_required">Отметьте хотя бы одного человека</string>
+    <string name="chat_v2_group_members_hint">Кого позвать в группу?</string>
+    <string name="chat_v2_group_create">Создать</string>
     <string name="chat_v2_empty">Семейный чат появится после синхронизации с сервером</string>
     <string name="chat_v2_choose_member">Кому написать?</string>
     <string name="chat_v2_no_members">Нет доступных участников семьи</string>

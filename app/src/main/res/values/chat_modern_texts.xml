@@ -46,4 +46,44 @@
     <string name="chat_v2_direct_meta">Личный чат · %1$s</string>
     <string name="chat_emoji_button_label">Эмодзи</string>
     <string name="chat_emoji_button_content_description">Открыть или закрыть панель эмодзи</string>
+
+    <!-- Группы: создание и управление -->
+    <string name="chat_v2_new_group">+ Группа</string>
+    <string name="group_new_title">Новая группа</string>
+    <string name="group_create_name_label">Название группы</string>
+    <string name="group_create_members_label">Кто в группе</string>
+    <string name="group_create_confirm">Создать</string>
+    <string name="group_create_no_name">Введите название группы</string>
+    <string name="group_create_members_empty">Отметьте хотя бы одного участника</string>
+    <string name="group_action_members_add">Добавить участников</string>
+    <string name="group_members_add_title">Кого добавить в группу</string>
+    <string name="group_members_none_to_add">В группе уже все члены семьи</string>
+    <string name="group_action_member_remove">Убрать участника</string>
+    <string name="group_members_none_to_remove">В группе больше никого нет</string>
+    <string name="group_members_none_to_transfer">Передавать группу больше некому</string>
+    <string name="group_member_remove_confirm">Убрать «%1$s» из группы «%2$s»? Человек больше не будет видеть эту переписку.</string>
+    <string name="group_action_admin_transfer">Передать администрирование</string>
+    <string name="group_admin_transfer_confirm">Передать «%1$s» администрирование группы «%2$s»? После этого вы не сможете менять её название и состав.</string>
+    <string name="group_admin_is">%1$s · администратор группы</string>
+    <string name="group_action_leave">Выйти из группы</string>
+    <string name="group_leave_confirm">Выйти из группы «%1$s»? Она исчезнет из вашего списка, а переписка останется у остальных.</string>
+    <string name="group_left">Вы вышли из группы</string>
+    <string name="group_action_close">Закрыть чат</string>
+    <string name="group_close_confirm">Закрыть группу «%1$s» для всех? Она исчезнет из списка у всех участников, но сообщения сохранятся.</string>
+    <string name="group_closed">Группа закрыта</string>
+    <string name="group_admin_leave_blocked">Вы администратор группы. Передайте администрирование другому участнику или закройте чат.</string>
+
+    <!-- Ответы сервера о группах, сказанные словами -->
+    <string name="group_error_admin_required">Менять группу может только её администратор.</string>
+    <string name="group_error_admin_cannot_leave">Вы администратор группы: передайте администрирование другому участнику или закройте чат.</string>
+    <string name="group_error_admin_already">Этот участник уже администратор группы.</string>
+    <string name="group_error_admin_cannot_remove_self">Администратор не может убрать себя из группы.</string>
+    <string name="group_error_member_not_found">Этого человека нет в группе.</string>
+    <string name="group_error_target_not_available">В группу можно добавлять только членов семьи.</string>
+    <string name="group_error_members_required">В группе нужен хотя бы один участник, кроме вас.</string>
+    <string name="group_error_title_required">Название группы не может быть пустым.</string>
+    <string name="group_error_title_too_long">Название группы — не длиннее 64 символов.</string>
+    <string name="group_error_not_a_group">Это не группа: у личного чата нет состава и администратора.</string>
+    <string name="group_error_access_denied">Нет доступа к этой переписке.</string>
+    <string name="group_error_generic">Не удалось выполнить действие с группой. Проверьте связь.</string>
 </resources>

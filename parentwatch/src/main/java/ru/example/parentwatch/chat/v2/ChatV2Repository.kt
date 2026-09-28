@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
 import com.google.gson.Gson
+import com.google.gson.JsonParser
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 import retrofit2.Response
@@ -12,8 +13,10 @@ import ru.childwatch.shared.chat.ChatDeliveryStateReducer
 import ru.childwatch.shared.chat.ChatTextPolicy
 import ru.childwatch.shared.chat.ChatTextValidation
 import ru.childwatch.shared.chat.ChatV2ConversationDto
+import ru.childwatch.shared.chat.ChatV2CreateGroupRequest
 import ru.childwatch.shared.chat.ChatV2DirectConversationRequest
 import ru.childwatch.shared.chat.ChatV2EditMessageRequest
+import ru.childwatch.shared.chat.ChatV2GroupMembersRequest
 import ru.childwatch.shared.chat.ChatV2GroupSettingsResponse
 import ru.childwatch.shared.chat.ChatV2LegacyReconcilePolicy
 import ru.childwatch.shared.chat.ChatV2MessageDto
@@ -22,6 +25,7 @@ import ru.childwatch.shared.chat.ChatV2ReceiptDto
 import ru.childwatch.shared.chat.ChatV2ReceiptRequest
 import ru.childwatch.shared.chat.ChatV2RetryPolicy
 import ru.childwatch.shared.chat.ChatV2SendMessageRequest
+import ru.childwatch.shared.chat.ChatV2TransferGroupAdminRequest
 import ru.childwatch.shared.chat.ChatV2UpdateGroupAvatarRequest
 import ru.childwatch.shared.chat.ChatV2UpdateGroupTitleRequest
 import ru.childwatch.shared.chat.Conversation
@@ -64,6 +68,15 @@ class ChatV2Repository(
         private const val DEFAULT_PAGE_SIZE = ChatV2PagingPolicy.DEFAULT_SERVER_PAGE_SIZE
         private const val OUTBOX_BATCH_SIZE = 50
         private const val OUTBOX_LEASE_MS = 60_000L
+
+        /**
+         * The kind a group is cached as.
+         *
+         * Stored by name rather than folded into the family kind, which it was: the
+         * list then captioned a group as the family chat, and the group's settings
+         * were read as the family's.
+         */
+        private const val CACHED_TYPE_GROUP = "GROUP"
 
         fun create(
             context: Context,
@@ -413,6 +426,80 @@ class ChatV2Repository(
     }
 
     /**
+     * Creates a group with a chosen name and membership.
+     *
+     * The caller is put in it by the server and becomes its administrator; everybody
+     * named here has to belong to the family, which the server enforces so a group
+     * cannot reach outside it.
+     */
+    suspend fun createGroup(title: String, memberIds: List<String>): Conversation {
+        val name = title.trim()
+        require(name.isNotEmpty()) { "title must not be empty" }
+        val members = memberIds.map(String::trim).filter(String::isNotEmpty).distinct()
+        require(members.isNotEmpty()) { "A group needs at least one other member" }
+        val response = api.createChatV2Group(ChatV2CreateGroupRequest(name, members))
+        val body = requireGroupAnswer(response, "CREATE_GROUP")
+        val dto = body.conversation
+            ?.takeIf { body.success }
+            ?: throw ChatV2RepositoryException("CREATE_GROUP_REJECTED")
+        database.withTransaction { cacheConversation(dto, null, null, null) }
+        return dto.toDomain()
+    }
+
+    /**
+     * Adds people to a group. Only its administrator may.
+     *
+     * Answers only whether it worked: the caller refreshes the conversation list
+     * afterwards, which is the one source of the group's membership on the device.
+     */
+    suspend fun addGroupMembers(conversationId: String, memberIds: List<String>): Boolean {
+        val members = memberIds.map(String::trim).filter(String::isNotEmpty).distinct()
+        require(members.isNotEmpty()) { "No members to add" }
+        val response = api.addChatV2GroupMembers(
+            conversationId,
+            ChatV2GroupMembersRequest(members)
+        )
+        return requireGroupAnswer(response, "ADD_GROUP_MEMBERS").success
+    }
+
+    /** Takes one person out of a group. Only its administrator may. */
+    suspend fun removeGroupMember(conversationId: String, memberId: String): Boolean {
+        val target = memberId.trim()
+        require(target.isNotEmpty()) { "memberId must not be empty" }
+        val response = api.removeChatV2GroupMember(conversationId, target)
+        return requireGroupAnswer(response, "REMOVE_GROUP_MEMBER").success
+    }
+
+    /** Hands administration of the group to another member. Only the administrator may. */
+    suspend fun transferGroupAdmin(conversationId: String, memberId: String): Boolean {
+        val target = memberId.trim()
+        require(target.isNotEmpty()) { "memberId must not be empty" }
+        val response = api.transferChatV2GroupAdmin(
+            conversationId,
+            ChatV2TransferGroupAdminRequest(target)
+        )
+        return requireGroupAnswer(response, "TRANSFER_GROUP_ADMIN").success
+    }
+
+    /**
+     * Leaves a group.
+     *
+     * An administrator is refused by the server: they hand the group over or close
+     * it, because a group whose administrator walked away would have a name and a
+     * membership nobody could change.
+     */
+    suspend fun leaveGroup(conversationId: String): Boolean {
+        val response = api.leaveChatV2Group(conversationId)
+        return requireGroupAnswer(response, "LEAVE_GROUP").left
+    }
+
+    /** Closes the group for everybody. Only its administrator may. */
+    suspend fun closeGroup(conversationId: String): Boolean {
+        val response = api.closeChatV2Group(conversationId)
+        return requireGroupAnswer(response, "CLOSE_GROUP").closed
+    }
+
+    /**
      * Reads the shared settings of a group conversation.
      *
      * These live on the server, not in the local cache, so they are fetched when
@@ -429,8 +516,8 @@ class ChatV2Repository(
         if (trimmed.isEmpty()) return null
         val response = runCatching {
             api.updateChatV2GroupTitle(conversationId, ChatV2UpdateGroupTitleRequest(trimmed))
-        }.getOrNull()
-        return response?.takeIf { it.isSuccessful }?.body()
+        }.getOrNull() ?: return null
+        return requireGroupAnswer(response, "RENAME_GROUP").takeIf { it.success }
     }
 
     /** Sets the shared picture of the group. The server refuses a non-administrator. */
@@ -440,8 +527,8 @@ class ChatV2Repository(
     ): ChatV2GroupSettingsResponse? {
         val response = runCatching {
             api.updateChatV2GroupAvatar(conversationId, ChatV2UpdateGroupAvatarRequest(avatarKey))
-        }.getOrNull()
-        return response?.takeIf { it.isSuccessful }?.body()
+        }.getOrNull() ?: return null
+        return requireGroupAnswer(response, "UPDATE_GROUP_AVATAR").takeIf { it.success }
     }
 
     suspend fun retryFailed(clientMessageId: String): Boolean = database.withTransaction {
@@ -714,10 +801,10 @@ class ChatV2Repository(
             conversationId = conversationId,
             serverConversationId = conversationId,
             familyId = familyId,
-            type = if (type.equals("DIRECT", true)) {
-                ChatConversationV2Entity.TYPE_DIRECT
-            } else {
-                ChatConversationV2Entity.TYPE_FAMILY
+            type = when {
+                type.equals("DIRECT", true) -> ChatConversationV2Entity.TYPE_DIRECT
+                type.equals(CACHED_TYPE_GROUP, true) -> CACHED_TYPE_GROUP
+                else -> ChatConversationV2Entity.TYPE_FAMILY
             },
             title = title,
             // The conversation's own picture; the server sends it for a group and
@@ -774,6 +861,31 @@ class ChatV2Repository(
         }
         return response.body() ?: throw ChatV2RepositoryException("${operation}_EMPTY_BODY")
     }
+
+    /**
+     * Unwraps an answer about a group, keeping the refusal the server named.
+     *
+     * The status alone cannot say whether a group refused because the caller is not
+     * its administrator or because the person named is not in the family; the code
+     * in the body can, and it is what the person is finally told in words.
+     */
+    private fun <T> requireGroupAnswer(response: Response<T>, operation: String): T {
+        if (!response.isSuccessful) {
+            throw ChatV2RepositoryException(
+                serverRefusalCode(response) ?: "${operation}_HTTP_${response.code()}"
+            )
+        }
+        return response.body() ?: throw ChatV2RepositoryException("${operation}_EMPTY_BODY")
+    }
+
+    /** The code the server put in the body of a refused answer, if it named one. */
+    private fun serverRefusalCode(response: Response<*>): String? = runCatching {
+        JsonParser.parseString(response.errorBody()?.string().orEmpty())
+            .asJsonObject
+            .get("code")
+            ?.asString
+            ?.takeIf { it.isNotBlank() }
+    }.getOrNull()
 }
 
 data class ChatV2FlushResult(
@@ -783,4 +895,10 @@ data class ChatV2FlushResult(
     val permanentlyFailed: Int
 )
 
+/**
+ * A refused answer.
+ *
+ * [code] is the server's own code whenever it named one, so a screen can turn a
+ * refusal into words the person understands; it is a synthetic code otherwise.
+ */
 class ChatV2RepositoryException(val code: String) : IllegalStateException(code)

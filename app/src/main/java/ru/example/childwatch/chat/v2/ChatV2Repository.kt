@@ -6,6 +6,7 @@ import androidx.room.withTransaction
 import com.google.gson.Gson
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import org.json.JSONObject
 import retrofit2.Response
 import ru.childwatch.shared.chat.ChatDeliveryState
 import ru.childwatch.shared.chat.ChatDeliveryStateReducer
@@ -96,6 +97,18 @@ class ChatV2Repository(
         val memberModels = members.getForConversation(row.conversationId).map { it.toModel() }
         row.toModel(memberModels)
     }
+
+    /**
+     * One conversation as this device last cached it, members and all.
+     *
+     * A screen that works on a group reads it from here rather than from the answer of
+     * a group route: the same shape then describes a conversation wherever it is used,
+     * and the caller has one place to look for its membership.
+     */
+    suspend fun getCachedConversation(conversationId: String): Conversation? =
+        conversations.getById(conversationId)?.let { row ->
+            row.toModel(members.getForConversation(row.conversationId).map { it.toModel() })
+        }
 
     suspend fun getCachedPage(
         conversationId: String,
@@ -795,10 +808,16 @@ class ChatV2Repository(
             conversationId = conversationId,
             serverConversationId = conversationId,
             familyId = familyId,
-            type = if (type.equals("DIRECT", true)) {
-                ChatConversationV2Entity.TYPE_DIRECT
-            } else {
-                ChatConversationV2Entity.TYPE_FAMILY
+            // Every kind the server sends is stored as itself. Folding everything
+            // that is not a direct chat into FAMILY made a group come back from the
+            // cache as the family chat, and the list then offered the family's
+            // settings for it.
+            type = when {
+                type.equals(ChatConversationV2Entity.TYPE_DIRECT, true) ->
+                    ChatConversationV2Entity.TYPE_DIRECT
+                type.equals(ChatConversationV2Entity.TYPE_GROUP, true) ->
+                    ChatConversationV2Entity.TYPE_GROUP
+                else -> ChatConversationV2Entity.TYPE_FAMILY
             },
             title = title,
             // The conversation's own picture; the server sends it for a group and
@@ -851,9 +870,22 @@ class ChatV2Repository(
 
     private fun <T> requireSuccessful(response: Response<T>, operation: String): T {
         if (!response.isSuccessful) {
-            throw ChatV2RepositoryException("${operation}_HTTP_${response.code()}")
+            // The server explains itself in the body, and the sentence the user
+            // needs is chosen from its code. The failing status is carried along for
+            // the cases that answer with nothing to explain, such as a 500.
+            throw ChatV2RepositoryException(errorCode(response, operation))
         }
         return response.body() ?: throw ChatV2RepositoryException("${operation}_EMPTY_BODY")
+    }
+
+    /** The server's own code from a refused request, or a readable stand-in for it. */
+    private fun <T> errorCode(response: Response<T>, operation: String): String {
+        val body = runCatching { response.errorBody()?.string() }.getOrNull()
+        val code = body
+            ?.takeIf { it.isNotBlank() }
+            ?.let { runCatching { JSONObject(it).optString("code") }.getOrNull() }
+            ?.trim()
+        return if (code.isNullOrEmpty()) "${operation}_HTTP_${response.code()}" else code
     }
 }
 

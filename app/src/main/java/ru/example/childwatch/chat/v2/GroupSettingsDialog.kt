@@ -10,35 +10,43 @@ import com.google.android.material.shape.ShapeAppearanceModel
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import ru.childwatch.shared.chat.ChatV2GroupSettingsResponse
-import ru.childwatch.shared.chat.Conversation
 import ru.example.childwatch.R
 import ru.example.childwatch.profile.FamilyAvatarRenderer
 
 /**
- * Shared settings of a group conversation.
+ * Shared settings of a conversation: its name and its picture.
  *
- * A group belongs to its participants, so its name and picture are changed once
- * for everybody. Only the administrator may do it, and the administrator is the
- * member the server reports; everyone else sees the settings read-only, which is
- * why the dialog re-reads them instead of trusting the local cache.
+ * The settings belong to the conversation and are changed once for everybody, so they
+ * are read from the server rather than from the local cache, which also answers whether
+ * this device may change them at all. Everyone else sees the same two entries and is
+ * told who does the changing.
+ *
+ * A group reaches these settings through the group screen, which also holds the
+ * membership; for the family chat they are the family's own name and picture, and a
+ * rename here renames the family itself.
  */
 object GroupSettingsDialog {
 
+    /** Which of the two settings to open, so the group screen can go straight to one. */
+    enum class Prompt { MENU, TITLE, AVATAR }
+
     /**
-     * Opens the dialog for [conversation].
+     * Opens the settings of [conversationId].
      *
-     * @param onChanged called after the server accepted a change, so the caller
-     *        can refresh the list and the chat header
+     * @param onChanged called after the server accepted a change, so the caller can
+     *        refresh the list and the chat header
      */
     fun show(
         activity: Activity,
         scope: CoroutineScope,
         repository: ChatV2Repository,
-        conversation: Conversation,
+        conversationId: String,
+        contextTitle: String,
+        startWith: Prompt = Prompt.MENU,
         onChanged: () -> Unit
     ) {
         scope.launch {
-            val settings = repository.loadGroupSettings(conversation.conversationId)
+            val settings = repository.loadGroupSettings(conversationId)
             if (settings == null) {
                 android.widget.Toast.makeText(
                     activity,
@@ -48,7 +56,30 @@ object GroupSettingsDialog {
                 return@launch
             }
             activity.runOnUiThread {
-                showLoaded(activity, scope, repository, conversation, settings, onChanged)
+                when (startWith) {
+                    Prompt.TITLE -> if (settings.canManage) {
+                        promptTitle(
+                            activity,
+                            scope,
+                            repository,
+                            conversationId,
+                            settings.title?.takeIf { it.isNotBlank() } ?: contextTitle,
+                            onChanged
+                        )
+                    }
+                    Prompt.AVATAR -> if (settings.canManage) {
+                        promptAvatar(activity, scope, repository, conversationId, settings, onChanged)
+                    }
+                    Prompt.MENU -> showLoaded(
+                        activity,
+                        scope,
+                        repository,
+                        conversationId,
+                        contextTitle,
+                        settings,
+                        onChanged
+                    )
+                }
             }
         }
     }
@@ -57,11 +88,12 @@ object GroupSettingsDialog {
         activity: Activity,
         scope: CoroutineScope,
         repository: ChatV2Repository,
-        conversation: Conversation,
+        conversationId: String,
+        contextTitle: String,
         settings: ChatV2GroupSettingsResponse,
         onChanged: () -> Unit
     ) {
-        val title = settings.title?.takeIf { it.isNotBlank() } ?: conversation.title
+        val title = settings.title?.takeIf { it.isNotBlank() } ?: contextTitle
         val labels = mutableListOf<String>()
         if (settings.canManage) {
             labels += activity.getString(R.string.group_action_rename)
@@ -75,8 +107,15 @@ object GroupSettingsDialog {
             .setItems(labels.toTypedArray()) { _, which ->
                 if (!settings.canManage) return@setItems
                 when (which) {
-                    0 -> promptTitle(activity, scope, repository, conversation, title, onChanged)
-                    1 -> promptAvatar(activity, scope, repository, conversation, settings.avatarKey, onChanged)
+                    0 -> promptTitle(activity, scope, repository, conversationId, title, onChanged)
+                    1 -> promptAvatar(
+                        activity,
+                        scope,
+                        repository,
+                        conversationId,
+                        settings,
+                        onChanged
+                    )
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
@@ -87,7 +126,7 @@ object GroupSettingsDialog {
         activity: Activity,
         scope: CoroutineScope,
         repository: ChatV2Repository,
-        conversation: Conversation,
+        conversationId: String,
         current: String,
         onChanged: () -> Unit
     ) {
@@ -108,22 +147,8 @@ object GroupSettingsDialog {
                 val name = input.text?.toString().orEmpty().trim()
                 if (name.isEmpty() || name == current) return@setPositiveButton
                 scope.launch {
-                    val updated = repository.renameGroup(conversation.conversationId, name)
-                    activity.runOnUiThread {
-                        android.widget.Toast.makeText(
-                            activity,
-                            if (updated != null) {
-                                R.string.group_settings_saved
-                            } else {
-                                R.string.group_settings_failed
-                            },
-                            if (updated != null) {
-                                android.widget.Toast.LENGTH_SHORT
-                            } else {
-                                android.widget.Toast.LENGTH_LONG
-                            }
-                        ).show()
-                    }
+                    val updated = repository.renameGroup(conversationId, name)
+                    report(activity, updated != null)
                     if (updated != null) onChanged()
                 }
             }
@@ -135,10 +160,11 @@ object GroupSettingsDialog {
         activity: Activity,
         scope: CoroutineScope,
         repository: ChatV2Repository,
-        conversation: Conversation,
-        currentAvatarKey: String?,
+        conversationId: String,
+        settings: ChatV2GroupSettingsResponse,
         onChanged: () -> Unit
     ) {
+        val currentAvatarKey = settings.avatarKey
         val density = activity.resources.displayMetrics.density
         var selected = currentAvatarKey
         val avatarValues = FamilyAvatarRenderer.selectableValues()
@@ -206,26 +232,21 @@ object GroupSettingsDialog {
             .setPositiveButton(android.R.string.ok) { _, _ ->
                 if (selected == currentAvatarKey) return@setPositiveButton
                 scope.launch {
-                    val updated = repository.updateGroupAvatar(conversation.conversationId, selected)
-                    activity.runOnUiThread {
-                        android.widget.Toast.makeText(
-                            activity,
-                            if (updated != null) {
-                                R.string.group_settings_saved
-                            } else {
-                                R.string.group_settings_failed
-                            },
-                            if (updated != null) {
-                                android.widget.Toast.LENGTH_SHORT
-                            } else {
-                                android.widget.Toast.LENGTH_LONG
-                            }
-                        ).show()
-                    }
+                    val updated = repository.updateGroupAvatar(conversationId, selected)
+                    report(activity, updated != null)
                     if (updated != null) onChanged()
                 }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
+    }
+
+    /** One answer for both settings: saved, or refused without a reason to quote. */
+    private fun report(activity: Activity, saved: Boolean) {
+        android.widget.Toast.makeText(
+            activity,
+            if (saved) R.string.group_settings_saved else R.string.group_settings_failed,
+            if (saved) android.widget.Toast.LENGTH_SHORT else android.widget.Toast.LENGTH_LONG
+        ).show()
     }
 }

@@ -101,6 +101,14 @@ data class ChatConversationV2Entity(
     companion object {
         const val TYPE_FAMILY = "FAMILY"
         const val TYPE_DIRECT = "DIRECT"
+        /**
+         * A conversation with a membership somebody chose.
+         *
+         * It is a value of its own rather than another spelling of the family chat:
+         * the two are managed by different rules, and a group stored as a family
+         * conversation offered the family's settings for it.
+         */
+        const val TYPE_GROUP = "GROUP"
 
         const val SYNC_STATE_LOCAL_ONLY = "LOCAL_ONLY"
         const val SYNC_STATE_MIGRATED = "MIGRATED"

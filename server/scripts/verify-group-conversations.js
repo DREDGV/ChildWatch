@@ -433,6 +433,20 @@ async function checkGroupService() {
     }
     check("somebody taken out can no longer read the group", refusedRead);
 
+    // A group has no picture of its own yet. Setting "the group's picture" used to
+    // write the FAMILY's picture, which is shown on the family chat and in the family
+    // list — so one group's administrator would have changed it for everybody.
+    let refusedGroupAvatar = false;
+    try {
+      await service.updateGroupAvatar(parentOne, groupId, { avatarKey: "preset-1" });
+    } catch (error) {
+      refusedGroupAvatar = error.code === "GROUP_AVATAR_UNSUPPORTED";
+    }
+    check(
+      "a group's picture is refused instead of changing the family's",
+      refusedGroupAvatar
+    );
+
     let leftOwnGroup = false;
     try {
       await service.leaveGroup(child, groupId);

@@ -307,9 +307,24 @@ class ChatConversationService {
     return this.getGroupSettings(deviceId, conversationId);
   }
 
-  /** Sets the shared picture of the group chat. Only the administrator may. */
+  /**
+   * Sets the shared picture of a conversation. Only the administrator may.
+   *
+   * A family chat keeps its picture on the family, where the rest of the application
+   * reads it. A group has no picture of its own yet, and this is refused rather than
+   * quietly written to the family: the family's picture is shown on the family chat,
+   * in the family list and everywhere else, so a group's administrator changing
+   * "the group picture" would have changed the picture of the whole family.
+   */
   async updateGroupAvatar(deviceId, conversationId, payload) {
     const actor = await this.requireGroupAdmin(deviceId, conversationId);
+    if (actor.conversation.type !== "FAMILY") {
+      throw new ChatConversationError(
+        400,
+        "GROUP_AVATAR_UNSUPPORTED",
+        "A group has no picture of its own yet"
+      );
+    }
     const raw = payload?.avatarKey;
     const avatarKey = typeof raw === "string" ? raw.trim() : "";
     if (avatarKey && !AvatarPresetCatalog.isValidAvatarKey(avatarKey)) {

@@ -53,11 +53,22 @@
                 android:textSize="13sp" />
         </LinearLayout>
 
+        <!-- A group is created from the family's own members, so the two ways of
+             starting a conversation belong side by side. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/newGroupChatButton"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
+            android:text="@string/chat_v2_new_group" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/newDirectChatButton"
             style="@style/Widget.Material3.Button.TonalButton"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_marginStart="8dp"
             android:text="@string/chat_v2_new_direct" />
     </LinearLayout>
 
