@@ -25,6 +25,7 @@ object ChatV2ErrorText {
         "GROUP_TITLE_REQUIRED" -> context.getString(R.string.group_error_title_required)
         "GROUP_TITLE_TOO_LONG" -> context.getString(R.string.group_error_title_too_long)
         "NOT_A_GROUP_CONVERSATION" -> context.getString(R.string.group_error_not_a_group)
+        "GROUP_AVATAR_UNSUPPORTED" -> context.getString(R.string.group_error_avatar_unsupported)
         "CONVERSATION_ACCESS_DENIED" -> context.getString(R.string.group_error_access_denied)
         else -> context.getString(R.string.group_error_generic)
     }
@@ -33,14 +34,23 @@ object ChatV2ErrorText {
      * Answers a failed [ChatV2Repository] call.
      *
      * A call that never reached the server carries no code of the server's, so it is
-     * reported as the missing connection it is; anything else the server refused is
-     * explained by [groupError].
+     * reported as the missing connection it is — and as a change that did not happen,
+     * because a group is only ever changed by the server and never by this phone alone.
      */
     fun failure(context: Context, error: Throwable): String {
-        val code = (error as? ChatV2RepositoryException)?.code
-            ?: return context.getString(R.string.chat_v2_offline)
-        return groupError(context, rawCode(code))
+        val code = codeOf(error) ?: return context.getString(R.string.group_error_offline)
+        return groupError(context, code)
     }
+
+    /**
+     * The server's own code behind a failed call, or null when it never arrived.
+     *
+     * A form needs the code as well as the sentence: the same refusal is shown under
+     * the field it is about, and a call that never reached the server belongs to no
+     * field at all.
+     */
+    fun codeOf(error: Throwable): String? =
+        (error as? ChatV2RepositoryException)?.code?.let(::rawCode)
 
     /**
      * Recovers the server's own code from an exception label.

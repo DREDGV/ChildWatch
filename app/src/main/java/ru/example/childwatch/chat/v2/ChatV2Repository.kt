@@ -517,25 +517,37 @@ class ChatV2Repository(
         return response?.takeIf { it.isSuccessful }?.body()
     }
 
-    /** Renames the group for everyone. The server refuses a non-administrator. */
-    suspend fun renameGroup(conversationId: String, title: String): ChatV2GroupSettingsResponse? {
+    /**
+     * Renames the group for everyone. The server refuses a non-administrator.
+     *
+     * A refusal is raised rather than answered with null: the caller has to be able to
+     * say which rule was broken, and a screen that only learns "it did not work" ends
+     * up with a sentence that fits none of the reasons.
+     */
+    suspend fun renameGroup(conversationId: String, title: String): ChatV2GroupSettingsResponse {
         val trimmed = title.trim()
-        if (trimmed.isEmpty()) return null
-        val response = runCatching {
-            api.updateChatV2GroupTitle(conversationId, ChatV2UpdateGroupTitleRequest(trimmed))
-        }.getOrNull()
-        return response?.takeIf { it.isSuccessful }?.body()
+        require(trimmed.isNotEmpty()) { "title must not be empty" }
+        val response = api.updateChatV2GroupTitle(
+            conversationId,
+            ChatV2UpdateGroupTitleRequest(trimmed)
+        )
+        val body = requireSuccessful(response, "UPDATE_GROUP_TITLE")
+        return body.takeIf { it.success }
+            ?: throw ChatV2RepositoryException("UPDATE_GROUP_TITLE_REJECTED")
     }
 
     /** Sets the shared picture of the group. The server refuses a non-administrator. */
     suspend fun updateGroupAvatar(
         conversationId: String,
         avatarKey: String?
-    ): ChatV2GroupSettingsResponse? {
-        val response = runCatching {
-            api.updateChatV2GroupAvatar(conversationId, ChatV2UpdateGroupAvatarRequest(avatarKey))
-        }.getOrNull()
-        return response?.takeIf { it.isSuccessful }?.body()
+    ): ChatV2GroupSettingsResponse {
+        val response = api.updateChatV2GroupAvatar(
+            conversationId,
+            ChatV2UpdateGroupAvatarRequest(avatarKey)
+        )
+        val body = requireSuccessful(response, "UPDATE_GROUP_AVATAR")
+        return body.takeIf { it.success }
+            ?: throw ChatV2RepositoryException("UPDATE_GROUP_AVATAR_REJECTED")
     }
 
     suspend fun retryFailed(clientMessageId: String): Boolean = database.withTransaction {

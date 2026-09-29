@@ -1,11 +1,22 @@
 package ru.example.childwatch.chat.v2
 
 import android.app.Activity
+import android.view.LayoutInflater
+import android.view.View
+import android.view.ViewGroup
+import android.widget.LinearLayout
+import android.widget.ScrollView
+import android.widget.TextView
+import androidx.appcompat.app.AlertDialog
+import androidx.core.content.ContextCompat
+import androidx.core.widget.TextViewCompat
+import com.google.android.material.button.MaterialButton
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import ru.childwatch.shared.chat.ChatV2GroupSettingsResponse
 import ru.childwatch.shared.chat.ConversationMember
+import ru.childwatch.shared.chat.ConversationMemberRole
 import ru.example.childwatch.R
 
 /**
@@ -15,6 +26,11 @@ import ru.example.childwatch.R
  * the administrator, and it refuses every change from anybody but the administrator.
  * That is why this screen re-reads the group's settings before each action and refreshes
  * the conversation list after it, rather than trusting what the device happens to have.
+ *
+ * The composition comes first and the actions after it, in the order of what they do to
+ * the group: its name, then its people, then the administrator, and only at the end the
+ * two ways of being done with it. What the reader may not do is not shown at all, so a
+ * member is never offered a button that would only be refused.
  *
  * Only a group reaches this screen. The family chat keeps its own settings, where a
  * rename renames the family itself; routing it here would quietly take that away.
@@ -39,24 +55,30 @@ object GroupManagementDialog {
         onRefresh: suspend () -> Unit
     ) {
         scope.launch {
-            val settings = repository.loadGroupSettings(conversationId)
             val group = repository.getCachedConversation(conversationId)
-            if (settings == null || group == null) {
-                GroupDialogs.toast(
+            val settings = repository.loadGroupSettings(conversationId)
+            // A group the server no longer lists was closed or left; a group that cannot
+            // be read is a connection problem. They are said apart, because one of them
+            // means there is nothing left to manage and the other means trying again.
+            when {
+                group == null -> GroupDialogs.toast(
+                    activity,
+                    activity.getString(R.string.group_gone)
+                )
+                settings == null -> GroupDialogs.toast(
                     activity,
                     activity.getString(R.string.group_settings_unavailable)
                 )
-                return@launch
-            }
-            activity.runOnUiThread {
-                Screen(
-                    activity = activity,
-                    scope = scope,
-                    repository = repository,
-                    conversationId = conversationId,
-                    familyMembers = familyMembers,
-                    onRefresh = onRefresh
-                ).showActions(settings, group.members)
+                else -> activity.runOnUiThread {
+                    Screen(
+                        activity = activity,
+                        scope = scope,
+                        repository = repository,
+                        conversationId = conversationId,
+                        familyMembers = familyMembers,
+                        onRefresh = onRefresh
+                    ).show(settings, group.members)
+                }
             }
         }
     }
@@ -64,8 +86,10 @@ object GroupManagementDialog {
     /**
      * One open screen.
      *
-     * The actions are re-listed against freshly loaded settings every time, so what is
-     * offered always matches the group as the server last described it.
+     * The screen is rebuilt from freshly loaded settings after every change, so what is
+     * offered always matches the group as the server last described it. That also means
+     * the previous copy has to go: one screen at a time, or the reader ends up looking
+     * at a description of a group that no longer exists.
      */
     private class Screen(
         private val activity: Activity,
@@ -75,112 +99,162 @@ object GroupManagementDialog {
         private val familyMembers: List<ConversationMember>,
         private val onRefresh: suspend () -> Unit
     ) {
+        private var dialog: AlertDialog? = null
+
         /**
-         * Lists what may be done, given the group as the server last described it.
+         * Draws the group as the server last described it.
          *
          * [members] is the membership of the cached conversation, which the caller has
          * just refreshed; the group's own answer carries the same people but also the
          * question of who may change them, and one shape for a member everywhere keeps
          * this screen and the chat header alike.
          */
-        fun showActions(settings: ChatV2GroupSettingsResponse, members: List<ConversationMember>) {
+        fun show(settings: ChatV2GroupSettingsResponse, members: List<ConversationMember>) {
+            if (dialog?.isShowing == true) dialog?.dismiss()
             val canManage = settings.canManage
-            // The identifier the server recognises this device by, and what it refuses
-            // the administrator's own removal and hand-over by.
+            // The identifier the server recognises this device by; it is what tells the
+            // member marked as this reader from everybody else.
             val localMemberId = settings.actorMemberId.orEmpty()
-            val others = members
-                .filterNot { it.memberId == localMemberId }
+            val title = settings.title?.takeIf { it.isNotBlank() }
+                ?: activity.getString(R.string.group_new_title)
+            val adminName = members
+                .firstOrNull { it.memberId == settings.adminMemberId }
+                ?.displayName
+
+            val density = activity.resources.displayMetrics.density
+            val pad = (24 * density).toInt()
+            val content = LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(pad, pad / 3, pad, pad / 3)
+            }
+
+            // Who administers it comes before the membership: it is the answer to "may I
+            // change this?", which is the first thing somebody opens these settings for.
+            if (!adminName.isNullOrBlank()) {
+                content.addView(
+                    metaLine(activity.getString(R.string.group_admin_line, adminName))
+                )
+            }
+            content.addView(
+                metaLine(
+                    activity.resources.getQuantityString(
+                        R.plurals.group_member_count,
+                        members.size,
+                        members.size
+                    )
+                )
+            )
+            content.addView(spacer((10 * density).toInt()))
+            content.addView(sectionLabel(activity.getString(R.string.group_settings_members)))
+            members
                 .distinctBy(ConversationMember::memberId)
                 .sortedBy(ConversationMember::displayName)
-            val removable = others.map { member ->
-                if (member.memberId == settings.adminMemberId) {
-                    activity.getString(R.string.group_admin_is, member.displayName)
-                } else {
-                    member.displayName
+                .forEach { member ->
+                    content.addView(
+                        memberRow(
+                            member = member,
+                            isAdmin = member.memberId == settings.adminMemberId,
+                            isLocal = localMemberId.isNotEmpty() &&
+                                member.memberId == localMemberId
+                        )
+                    )
                 }
-            }
+
+            // Neither this device's own member nor the administrator is a candidate for
+            // the two actions that name a person: nobody removes themselves, removes the
+            // administrator, or hands the group to the person who already holds it.
+            val others = members
+                .filterNot { it.memberId == localMemberId || it.memberId == settings.adminMemberId }
+                .distinctBy(ConversationMember::memberId)
+                .sortedBy(ConversationMember::displayName)
             val candidates = familyMembers
                 .filterNot(ConversationMember::isLocalUser)
                 .filterNot { familyMember -> members.any { it.memberId == familyMember.memberId } }
                 .distinctBy(ConversationMember::memberId)
                 .sortedBy(ConversationMember::displayName)
-            val title = settings.title?.takeIf { it.isNotBlank() }
-                ?: activity.getString(R.string.group_new_title)
 
-            // The administrator's actions are listed first and leaving or closing comes
-            // last; the positions are what [act] reads, so the two lists below and the
-            // branch in [act] have to be changed together.
-            val labels = mutableListOf<String>()
+            content.addView(spacer((8 * density).toInt()))
+            content.addView(divider())
+            content.addView(spacer((8 * density).toInt()))
+
             if (canManage) {
-                labels += activity.getString(R.string.group_action_rename)
-                labels += activity.getString(R.string.group_action_avatar)
-                labels += activity.getString(R.string.group_action_members_add)
-                labels += activity.getString(R.string.group_action_member_remove)
-                labels += activity.getString(R.string.group_action_admin_transfer)
-                labels += activity.getString(R.string.group_action_close)
+                // In the order of what they do to the group: its name, then its people,
+                // then who administers it, and last the way of ending it.
+                content.addView(
+                    action(activity.getString(R.string.group_action_rename)) {
+                        GroupSettingsDialog.show(
+                            activity = activity,
+                            scope = scope,
+                            repository = repository,
+                            conversationId = conversationId,
+                            contextTitle = title,
+                            startWith = GroupSettingsDialog.Prompt.TITLE,
+                            onChanged = { refreshAndReopen() }
+                        )
+                    }
+                )
+                content.addView(
+                    action(activity.getString(R.string.group_action_members_add)) {
+                        promptAddMembers(candidates)
+                    }
+                )
+                content.addView(
+                    action(activity.getString(R.string.group_action_member_remove)) {
+                        promptRemoveMember(title, others)
+                    }
+                )
+                content.addView(
+                    action(activity.getString(R.string.group_action_admin_transfer)) {
+                        promptTransferAdmin(title, others)
+                    }
+                )
+                content.addView(spacer((8 * density).toInt()))
+                content.addView(divider())
+                content.addView(
+                    action(
+                        label = activity.getString(R.string.group_action_close),
+                        destructive = true
+                    ) { promptClose(title) }
+                )
             } else {
-                labels += activity.getString(R.string.group_action_leave)
+                content.addView(note(activity.getString(R.string.group_read_only)))
+                content.addView(
+                    action(
+                        label = activity.getString(R.string.group_action_leave),
+                        destructive = true
+                    ) { promptLeave(title) }
+                )
             }
 
-            MaterialAlertDialogBuilder(activity)
+            dialog = MaterialAlertDialogBuilder(activity)
                 .setTitle(title)
-                .setItems(labels.toTypedArray()) { _, which ->
-                    act(
-                        which = which,
-                        canManage = canManage,
-                        title = title,
-                        settings = settings,
-                        localMemberId = localMemberId,
-                        others = others,
-                        removable = removable,
-                        candidates = candidates
-                    )
-                }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
+                .setView(scrollable(content))
+                .setNegativeButton(R.string.group_settings_close, null)
+                .create()
+                .also { it.show() }
         }
 
-        private fun act(
-            which: Int,
-            canManage: Boolean,
-            title: String,
-            settings: ChatV2GroupSettingsResponse,
-            localMemberId: String,
-            others: List<ConversationMember>,
-            removable: List<String>,
-            candidates: List<ConversationMember>
+        /**
+         * A list of people to choose from, named by the action that will follow.
+         *
+         * Removing and handing over ask the same question — which person — so they share
+         * this and differ only in what happens to the answer.
+         */
+        private fun pickMember(
+            titleRes: Int,
+            labels: List<String>,
+            emptyMessage: String,
+            onPicked: (Int) -> Unit
         ) {
-            // An administrator manages the group; everybody else may only leave it,
-            // which the server allows and nothing else here would.
-            if (!canManage) {
-                if (which == LEAVE) promptLeave(title, localMemberId) else promptClose(title)
+            if (labels.isEmpty()) {
+                GroupDialogs.toast(activity, emptyMessage)
                 return
             }
-            when (which) {
-                RENAME -> GroupSettingsDialog.show(
-                    activity = activity,
-                    scope = scope,
-                    repository = repository,
-                    conversationId = conversationId,
-                    contextTitle = settings.title.orEmpty(),
-                    startWith = GroupSettingsDialog.Prompt.TITLE,
-                    onChanged = { refreshAndReopen() }
-                )
-                AVATAR -> GroupSettingsDialog.show(
-                    activity = activity,
-                    scope = scope,
-                    repository = repository,
-                    conversationId = conversationId,
-                    contextTitle = settings.title.orEmpty(),
-                    startWith = GroupSettingsDialog.Prompt.AVATAR,
-                    onChanged = { refreshAndReopen() }
-                )
-                ADD_MEMBERS -> promptAddMembers(candidates)
-                REMOVE_MEMBER -> promptRemoveMember(title, others, removable)
-                TRANSFER_ADMIN -> promptTransferAdmin(title, others)
-                // The sixth entry is the administrator's only: closing the group.
-                else -> promptClose(title)
-            }
+            MaterialAlertDialogBuilder(activity)
+                .setTitle(titleRes)
+                .setItems(labels.toTypedArray()) { _, index -> onPicked(index) }
+                .setNegativeButton(android.R.string.cancel, null)
+                .show()
         }
 
         private fun promptAddMembers(candidates: List<ConversationMember>) {
@@ -197,7 +271,18 @@ object GroupManagementDialog {
                 GroupDialogs.request(
                     activity = activity,
                     scope = scope,
-                    onApplied = { refreshAndReopen() }
+                    onApplied = {
+                        // Named, so the answer says who joined and not merely that
+                        // something happened.
+                        GroupDialogs.toast(
+                            activity,
+                            activity.getString(
+                                R.string.group_members_added,
+                                selected.joinToString(", ") { it.displayName }
+                            )
+                        )
+                        refreshAndReopen()
+                    }
                 ) {
                     repository.addGroupMembers(
                         conversationId,
@@ -207,98 +292,91 @@ object GroupManagementDialog {
             }
         }
 
-        private fun promptRemoveMember(
-            title: String,
-            others: List<ConversationMember>,
-            removable: List<String>
-        ) {
-            if (others.isEmpty()) {
-                GroupDialogs.toast(
-                    activity,
-                    activity.getString(R.string.group_members_none_to_remove)
-                )
-                return
-            }
-            MaterialAlertDialogBuilder(activity)
-                .setTitle(R.string.group_action_member_remove)
-                .setItems(removable.toTypedArray()) { _, index ->
-                    val member = others[index]
-                    GroupDialogs.confirm(
+        private fun promptRemoveMember(title: String, candidates: List<ConversationMember>) {
+            pickMember(
+                titleRes = R.string.group_action_member_remove,
+                labels = candidates.map(ConversationMember::displayName),
+                emptyMessage = activity.getString(R.string.group_members_none_to_remove)
+            ) { index ->
+                val member = candidates[index]
+                GroupDialogs.confirm(
+                    activity = activity,
+                    title = activity.getString(R.string.group_action_member_remove),
+                    message = activity.getString(
+                        R.string.group_member_remove_confirm,
+                        member.displayName,
+                        title
+                    ),
+                    confirmLabel = activity.getString(R.string.group_action_member_remove)
+                ) {
+                    GroupDialogs.request(
                         activity = activity,
-                        title = activity.getString(R.string.group_action_member_remove),
-                        message = activity.getString(
-                            R.string.group_member_remove_confirm,
-                            member.displayName,
-                            title
-                        ),
-                        confirmLabel = activity.getString(R.string.group_action_member_remove)
-                    ) {
-                        GroupDialogs.request(
-                            activity = activity,
-                            scope = scope,
-                            onApplied = { refreshAndReopen() }
-                        ) {
-                            repository.removeGroupMember(conversationId, member.memberId)
+                        scope = scope,
+                        onApplied = {
+                            GroupDialogs.toast(
+                                activity,
+                                activity.getString(
+                                    R.string.group_member_removed_done,
+                                    member.displayName
+                                )
+                            )
+                            refreshAndReopen()
                         }
+                    ) {
+                        repository.removeGroupMember(conversationId, member.memberId)
                     }
                 }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
+            }
         }
 
         private fun promptTransferAdmin(title: String, others: List<ConversationMember>) {
-            if (others.isEmpty()) {
-                GroupDialogs.toast(
-                    activity,
-                    activity.getString(R.string.group_members_none_to_transfer)
-                )
-                return
-            }
-            MaterialAlertDialogBuilder(activity)
-                .setTitle(R.string.group_action_admin_transfer)
-                .setItems(others.map(ConversationMember::displayName).toTypedArray()) { _, index ->
-                    val member = others[index]
-                    GroupDialogs.confirm(
+            pickMember(
+                titleRes = R.string.group_action_admin_transfer,
+                labels = others.map(ConversationMember::displayName),
+                emptyMessage = activity.getString(R.string.group_members_none_to_transfer)
+            ) { index ->
+                val member = others[index]
+                GroupDialogs.confirm(
+                    activity = activity,
+                    title = activity.getString(R.string.group_action_admin_transfer),
+                    message = activity.getString(
+                        R.string.group_admin_transfer_confirm,
+                        member.displayName,
+                        title
+                    ),
+                    confirmLabel = activity.getString(R.string.group_action_admin_transfer)
+                ) {
+                    GroupDialogs.request(
                         activity = activity,
-                        title = activity.getString(R.string.group_action_admin_transfer),
-                        message = activity.getString(
-                            R.string.group_admin_transfer_confirm,
-                            member.displayName,
-                            title
-                        ),
-                        confirmLabel = activity.getString(R.string.group_action_admin_transfer)
-                    ) {
-                        GroupDialogs.request(
-                            activity = activity,
-                            scope = scope,
-                            onApplied = { refreshAndReopen() }
-                        ) {
-                            repository.transferGroupAdmin(conversationId, member.memberId)
+                        scope = scope,
+                        onApplied = {
+                            GroupDialogs.toast(
+                                activity,
+                                activity.getString(
+                                    R.string.group_admin_transferred_done,
+                                    member.displayName
+                                )
+                            )
+                            refreshAndReopen()
                         }
+                    ) {
+                        repository.transferGroupAdmin(conversationId, member.memberId)
                     }
                 }
-                .setNegativeButton(android.R.string.cancel, null)
-                .show()
+            }
         }
 
         /**
          * Leaving.
          *
-         * The server refuses an administrator who tries to leave, because a group whose
+         * Only a member who does not administer the group is offered this: the server
+         * refuses an administrator who tries to leave, because a group whose
          * administrator walked away would have a name and a membership nobody could
-         * change. Asking anyway would turn a clear rule into an error message, so the
-         * administrator is shown the rule and the two ways it allows instead.
+         * change. Walking away is the administrator's choice to make through the two
+         * actions they are given instead, so the rule is shown as the shape of the
+         * screen rather than as an error after the fact.
          */
-        private fun promptLeave(title: String, localMemberId: String) {
-            if (localMemberId.isEmpty()) {
-                GroupDialogs.confirm(
-                    activity = activity,
-                    title = activity.getString(R.string.group_action_leave),
-                    message = activity.getString(R.string.group_admin_leave_blocked),
-                    confirmLabel = activity.getString(R.string.group_action_close)
-                ) { promptClose(title) }
-                return
-            }
+        private fun promptLeave(title: String) {
             GroupDialogs.confirm(
                 activity = activity,
                 title = activity.getString(R.string.group_action_leave),
@@ -335,34 +413,180 @@ object GroupManagementDialog {
         /** The group is gone from this device's list; the list is what the user sees. */
         private fun closeWith(messageRes: Int) {
             GroupDialogs.toast(activity, activity.getString(messageRes))
-            scope.launch { onRefresh() }
+            scope.launch {
+                onRefresh()
+                activity.runOnUiThread { if (dialog?.isShowing == true) dialog?.dismiss() }
+            }
         }
 
-        /** Reads the group again after a change, then lists what is left to do. */
+        /** Reads the group again after a change, then draws what is left of it. */
         private fun refreshAndReopen() {
             scope.launch {
                 onRefresh()
                 val settings = repository.loadGroupSettings(conversationId)
                 val group = repository.getCachedConversation(conversationId)
                 activity.runOnUiThread {
-                    // The group may have been closed by the change — the server closes
-                    // one that fewer than two people are left in — and there is then
-                    // nothing left to manage.
-                    if (settings != null && group != null) showActions(settings, group.members)
+                    // The server closes a group that fewer than two people are left in,
+                    // so a change may have ended the group itself. Saying which of the
+                    // two happened is the difference between a mistake and an outcome.
+                    when {
+                        group == null -> {
+                            if (dialog?.isShowing == true) dialog?.dismiss()
+                            GroupDialogs.toast(
+                                activity,
+                                activity.getString(R.string.group_closed)
+                            )
+                        }
+                        settings == null -> GroupDialogs.toast(
+                            activity,
+                            activity.getString(R.string.group_settings_unavailable)
+                        )
+                        else -> show(settings, group.members)
+                    }
                 }
             }
         }
 
-        private companion object {
-            /** The administrator's list, in the order it is built; the rest is "close". */
-            const val RENAME = 0
-            const val AVATAR = 1
-            const val ADD_MEMBERS = 2
-            const val REMOVE_MEMBER = 3
-            const val TRANSFER_ADMIN = 4
+        // The pieces the screen is made of. They are built rather than laid out in XML
+        // because the membership is a list of unknown length, and each piece is one of
+        // the same material components the rest of the application already uses.
 
-            /** Everybody else's list, which is only "leave" and "close". */
-            const val LEAVE = 0
+        private fun metaLine(text: String): TextView = TextView(activity).apply {
+            this.text = text
+            TextViewCompat.setTextAppearance(this, R.style.TextAppearance_Material3_BodyMedium)
+            setTextColor(ContextCompat.getColor(activity, R.color.cw_color_on_surface_variant))
+        }
+
+        private fun sectionLabel(text: String): TextView = TextView(activity).apply {
+            this.text = text
+            TextViewCompat.setTextAppearance(this, R.style.TextAppearance_Material3_LabelLarge)
+            setTextColor(ContextCompat.getColor(activity, R.color.cw_color_on_surface_variant))
+            setPadding(0, (4 * activity.resources.displayMetrics.density).toInt(), 0, 0)
+        }
+
+        private fun note(text: String): TextView = TextView(activity).apply {
+            this.text = text
+            TextViewCompat.setTextAppearance(this, R.style.TextAppearance_Material3_BodySmall)
+            setTextColor(ContextCompat.getColor(activity, R.color.cw_color_on_surface_variant))
+            setPadding(0, 0, 0, (8 * activity.resources.displayMetrics.density).toInt())
+        }
+
+        /**
+         * One person: their name, and what they are in this group.
+         *
+         * The role and the marks are what make the list more than a list of names — they
+         * are how a reader finds the administrator and themselves.
+         */
+        private fun memberRow(
+            member: ConversationMember,
+            isAdmin: Boolean,
+            isLocal: Boolean
+        ): View {
+            val density = activity.resources.displayMetrics.density
+            val marks = mutableListOf(roleLabel(member.role))
+            if (isAdmin) marks += activity.getString(R.string.group_member_admin_mark)
+            if (isLocal) marks += activity.getString(R.string.group_member_you_mark)
+            val name = TextView(activity).apply {
+                text = member.displayName
+                TextViewCompat.setTextAppearance(
+                    this,
+                    R.style.TextAppearance_Material3_BodyLarge
+                )
+                setTextColor(ContextCompat.getColor(activity, R.color.cw_color_on_surface))
+            }
+            val details = TextView(activity).apply {
+                text = marks.joinToString(" · ")
+                TextViewCompat.setTextAppearance(
+                    this,
+                    R.style.TextAppearance_Material3_BodySmall
+                )
+                setTextColor(
+                    ContextCompat.getColor(activity, R.color.cw_color_on_surface_variant)
+                )
+            }
+            return LinearLayout(activity).apply {
+                orientation = LinearLayout.VERTICAL
+                setPadding(0, (6 * density).toInt(), 0, (6 * density).toInt())
+                addView(name)
+                addView(details)
+            }
+        }
+
+        private fun action(
+            label: String,
+            destructive: Boolean = false,
+            onClick: () -> Unit
+        ): MaterialButton = (
+            LayoutInflater.from(activity).inflate(R.layout.item_group_action, null, false)
+                as MaterialButton
+            ).apply {
+            text = label
+            // Inflated without a parent, so the width the screen gives these rows is
+            // stated here instead of being taken from the layout file.
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            )
+            // Destructive actions are coloured as such, so the two ways of leaving a
+            // group are not mistaken for the ordinary ones above them.
+            setTextColor(
+                ContextCompat.getColor(
+                    activity,
+                    if (destructive) R.color.cw_color_error else R.color.cw_color_primary
+                )
+            )
+            setOnClickListener { onClick() }
+        }
+
+        private fun divider(): View = View(activity).apply {
+            setBackgroundColor(
+                ContextCompat.getColor(activity, R.color.cw_color_outline_variant)
+            )
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                (activity.resources.displayMetrics.density).toInt().coerceAtLeast(1)
+            )
+        }
+
+        private fun spacer(height: Int): View = View(activity).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                height
+            )
+        }
+
+        /**
+         * The screen's content, bounded by the screen itself.
+         *
+         * A family may be long, and an unbounded column would push the buttons off the
+         * bottom; the height is therefore the content's own, up to what the display
+         * leaves for a dialog.
+         */
+        private fun scrollable(content: View): ScrollView {
+            val metrics = activity.resources.displayMetrics
+            val availableWidth = (metrics.widthPixels * 0.86f).toInt()
+            content.measure(
+                View.MeasureSpec.makeMeasureSpec(availableWidth, View.MeasureSpec.AT_MOST),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+            )
+            val maxHeight = (metrics.heightPixels * 0.7f).toInt()
+            return ScrollView(activity).apply {
+                addView(
+                    content,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT
+                )
+                layoutParams = ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    content.measuredHeight.coerceAtMost(maxHeight)
+                )
+            }
+        }
+
+        private fun roleLabel(role: ConversationMemberRole): String = when (role) {
+            ConversationMemberRole.PARENT -> activity.getString(R.string.family_role_parent)
+            ConversationMemberRole.CHILD -> activity.getString(R.string.family_role_child)
+            ConversationMemberRole.GUARDIAN -> activity.getString(R.string.family_role_relative)
         }
     }
 }

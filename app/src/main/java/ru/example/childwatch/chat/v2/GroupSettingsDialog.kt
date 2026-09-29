@@ -3,10 +3,16 @@ package ru.example.childwatch.chat.v2
 import android.app.Activity
 import android.view.View
 import android.widget.LinearLayout
+import android.widget.TextView
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
+import androidx.core.widget.TextViewCompat
+import androidx.core.widget.doAfterTextChanged
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.imageview.ShapeableImageView
 import com.google.android.material.shape.ShapeAppearanceModel
+import com.google.android.material.textfield.TextInputEditText
+import com.google.android.material.textfield.TextInputLayout
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import ru.childwatch.shared.chat.ChatV2GroupSettingsResponse
@@ -24,6 +30,10 @@ import ru.example.childwatch.profile.FamilyAvatarRenderer
  * A group reaches these settings through the group screen, which also holds the
  * membership; for the family chat they are the family's own name and picture, and a
  * rename here renames the family itself.
+ *
+ * Both editors answer in place: a name that is empty, too long or unchanged, and a
+ * refusal from the server, are shown under the field they are about while the editor
+ * stays open. Closing on such an answer used to leave a person with nothing to correct.
  */
 object GroupSettingsDialog {
 
@@ -48,15 +58,13 @@ object GroupSettingsDialog {
         scope.launch {
             val settings = repository.loadGroupSettings(conversationId)
             if (settings == null) {
-                android.widget.Toast.makeText(
-                    activity,
-                    R.string.group_settings_unavailable,
-                    android.widget.Toast.LENGTH_LONG
-                ).show()
+                GroupDialogs.toast(activity, activity.getString(R.string.group_settings_unavailable))
                 return@launch
             }
             activity.runOnUiThread {
                 when (startWith) {
+                    // Asked to edit without the right to: said plainly rather than
+                    // answered with a screen that never appeared.
                     Prompt.TITLE -> if (settings.canManage) {
                         promptTitle(
                             activity,
@@ -66,9 +74,13 @@ object GroupSettingsDialog {
                             settings.title?.takeIf { it.isNotBlank() } ?: contextTitle,
                             onChanged
                         )
+                    } else {
+                        GroupDialogs.toast(activity, activity.getString(R.string.group_read_only))
                     }
                     Prompt.AVATAR -> if (settings.canManage) {
                         promptAvatar(activity, scope, repository, conversationId, settings, onChanged)
+                    } else {
+                        GroupDialogs.toast(activity, activity.getString(R.string.group_read_only))
                     }
                     Prompt.MENU -> showLoaded(
                         activity,
@@ -130,30 +142,78 @@ object GroupSettingsDialog {
         current: String,
         onChanged: () -> Unit
     ) {
-        val input = android.widget.EditText(activity).apply {
-            setText(current)
-            setSelection(text.length)
+        val density = activity.resources.displayMetrics.density
+        // A counter rather than a filter: silently cutting a pasted name short would
+        // change what was asked for without saying so.
+        val field = TextInputLayout(activity).apply {
             hint = activity.getString(R.string.group_name_hint)
+            setCounterEnabled(true)
+            counterMaxLength = GroupDialogs.MAX_TITLE_LENGTH
         }
+        val input = TextInputEditText(field.context).apply {
+            setText(current)
+            setSelection(current.length)
+        }
+        field.addView(input)
         val container = LinearLayout(activity).apply {
-            val pad = (20 * activity.resources.displayMetrics.density).toInt()
+            val pad = (20 * density).toInt()
             setPadding(pad, pad / 2, pad, 0)
-            addView(input)
+            addView(field)
         }
-        AlertDialog.Builder(activity)
+
+        val dialog = MaterialAlertDialogBuilder(activity)
             .setTitle(R.string.group_action_rename)
             .setView(container)
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                val name = input.text?.toString().orEmpty().trim()
-                if (name.isEmpty() || name == current) return@setPositiveButton
-                scope.launch {
-                    val updated = repository.renameGroup(conversationId, name)
-                    report(activity, updated != null)
-                    if (updated != null) onChanged()
+            .setPositiveButton(android.R.string.ok, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+
+        fun setBusy(busy: Boolean) {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = !busy
+        }
+
+        fun submit() {
+            field.error = null
+            val name = input.text?.toString().orEmpty().trim()
+            when {
+                name.isEmpty() ->
+                    field.error = activity.getString(R.string.group_create_no_name)
+                name.length > GroupDialogs.MAX_TITLE_LENGTH ->
+                    field.error = activity.getString(R.string.group_error_title_too_long)
+                name == current ->
+                    field.error = activity.getString(R.string.group_title_unchanged)
+                else -> {
+                    setBusy(true)
+                    scope.launch {
+                        try {
+                            repository.renameGroup(conversationId, name)
+                            activity.runOnUiThread {
+                                setBusy(false)
+                                dialog.dismiss()
+                                GroupDialogs.toast(
+                                    activity,
+                                    activity.getString(R.string.group_title_saved)
+                                )
+                                onChanged()
+                            }
+                        } catch (error: Exception) {
+                            activity.runOnUiThread {
+                                setBusy(false)
+                                field.error = ChatV2ErrorText.failure(activity, error)
+                            }
+                        }
+                    }
                 }
             }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
+        }
+
+        // A correction clears the sentence about it, so what is on screen describes the
+        // field as it stands now.
+        input.doAfterTextChanged { field.error = null }
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener { submit() }
+        }
+        dialog.show()
     }
 
     private fun promptAvatar(
@@ -177,6 +237,14 @@ object GroupSettingsDialog {
         val views = mutableListOf<ShapeableImageView>()
         val size = (52 * density).toInt()
         val spacing = (8 * density).toInt()
+
+        val errorText = TextView(activity).apply {
+            TextViewCompat.setTextAppearance(
+                this,
+                R.style.TextAppearance_ChildWatch_TextInput_Error
+            )
+            visibility = View.GONE
+        }
 
         fun refresh() {
             val primary = ContextCompat.getColor(activity, R.color.cw_color_primary)
@@ -203,6 +271,7 @@ object GroupSettingsDialog {
                     .build()
                 setOnClickListener {
                     selected = value
+                    errorText.visibility = View.GONE
                     refresh()
                 }
             }
@@ -217,36 +286,60 @@ object GroupSettingsDialog {
             val pad = (20 * density).toInt()
             setPadding(pad, pad / 2, pad, 0)
             addView(
-                android.widget.TextView(activity).apply {
+                TextView(activity).apply {
                     text = activity.getString(R.string.group_avatar_hint)
                     setPadding(0, 0, 0, (8 * density).toInt())
                     visibility = View.VISIBLE
                 }
             )
             addView(scroll)
+            addView(errorText)
         }
 
-        AlertDialog.Builder(activity)
+        val dialog = MaterialAlertDialogBuilder(activity)
             .setTitle(R.string.group_action_avatar)
             .setView(container)
-            .setPositiveButton(android.R.string.ok) { _, _ ->
-                if (selected == currentAvatarKey) return@setPositiveButton
-                scope.launch {
-                    val updated = repository.updateGroupAvatar(conversationId, selected)
-                    report(activity, updated != null)
-                    if (updated != null) onChanged()
+            .setPositiveButton(android.R.string.ok, null)
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+
+        fun setBusy(busy: Boolean) {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.isEnabled = !busy
+        }
+
+        fun submit() {
+            errorText.visibility = View.GONE
+            if (selected == currentAvatarKey) {
+                errorText.text = activity.getString(R.string.group_avatar_unchanged)
+                errorText.visibility = View.VISIBLE
+                return
+            }
+            setBusy(true)
+            scope.launch {
+                try {
+                    repository.updateGroupAvatar(conversationId, selected)
+                    activity.runOnUiThread {
+                        setBusy(false)
+                        dialog.dismiss()
+                        GroupDialogs.toast(
+                            activity,
+                            activity.getString(R.string.group_avatar_saved)
+                        )
+                        onChanged()
+                    }
+                } catch (error: Exception) {
+                    activity.runOnUiThread {
+                        setBusy(false)
+                        errorText.text = ChatV2ErrorText.failure(activity, error)
+                        errorText.visibility = View.VISIBLE
+                    }
                 }
             }
-            .setNegativeButton(android.R.string.cancel, null)
-            .show()
-    }
+        }
 
-    /** One answer for both settings: saved, or refused without a reason to quote. */
-    private fun report(activity: Activity, saved: Boolean) {
-        android.widget.Toast.makeText(
-            activity,
-            if (saved) R.string.group_settings_saved else R.string.group_settings_failed,
-            if (saved) android.widget.Toast.LENGTH_SHORT else android.widget.Toast.LENGTH_LONG
-        ).show()
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE)?.setOnClickListener { submit() }
+        }
+        dialog.show()
     }
 }

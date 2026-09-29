@@ -47,12 +47,25 @@
     <string name="chat_emoji_button_label">Эмодзи</string>
     <string name="chat_emoji_button_content_description">Открыть или закрыть панель эмодзи</string>
 
+    <!-- Экран сообщений: то, что видно в шапке беседы и в её пустом состоянии -->
+    <string name="chat_sender_you">Вы</string>
+    <string name="chat_v2_message_rejected">Сообщение слишком длинное или пустое</string>
+    <string name="chat_v2_group_members">Участники: %1$s</string>
+    <string name="chat_v2_group_info_desc">Настройки группы и участники</string>
+    <plurals name="chat_v2_group_member_count">
+        <item quantity="one">Группа · %1$d участник</item>
+        <item quantity="few">Группа · %1$d участника</item>
+        <item quantity="many">Группа · %1$d участников</item>
+        <item quantity="other">Группа · %1$d участника</item>
+    </plurals>
+
     <!-- Группы: создание и управление -->
     <string name="chat_v2_new_group">+ Группа</string>
     <string name="group_new_title">Новая группа</string>
     <string name="group_create_name_label">Название группы</string>
     <string name="group_create_members_label">Кто в группе</string>
     <string name="group_create_confirm">Создать</string>
+    <string name="group_create_in_progress">Создаём группу…</string>
     <string name="group_create_no_name">Введите название группы</string>
     <string name="group_create_members_empty">Отметьте хотя бы одного участника</string>
     <string name="group_action_members_add">Добавить участников</string>
@@ -73,6 +86,27 @@
     <string name="group_closed">Группа закрыта</string>
     <string name="group_admin_leave_blocked">Вы администратор группы. Передайте администрирование другому участнику или закройте чат.</string>
 
+    <!-- Экран настроек группы: состав и действия -->
+    <string name="group_settings_close">Закрыть</string>
+    <string name="group_settings_members">Кто в группе</string>
+    <string name="group_admin_line">Администратор: %1$s</string>
+    <string name="group_member_admin_mark">администратор</string>
+    <string name="group_member_you_mark">это вы</string>
+    <plurals name="group_member_count">
+        <item quantity="one">%1$d участник</item>
+        <item quantity="few">%1$d участника</item>
+        <item quantity="many">%1$d участников</item>
+        <item quantity="other">%1$d участника</item>
+    </plurals>
+    <string name="group_title_unchanged">Название не изменилось</string>
+    <string name="group_title_saved">Название группы изменено</string>
+    <string name="group_avatar_unchanged">Аватар не изменился — выберите другой</string>
+    <string name="group_avatar_saved">Аватар группы изменён</string>
+    <string name="group_members_added">Добавлены в группу: %1$s</string>
+    <string name="group_member_removed_done">%1$s больше не в группе</string>
+    <string name="group_admin_transferred_done">Администратор группы — %1$s</string>
+    <string name="group_gone">Эта группа больше недоступна — возможно, её закрыли</string>
+
     <!-- Ответы сервера о группах, сказанные словами -->
     <string name="group_error_admin_required">Менять группу может только её администратор.</string>
     <string name="group_error_admin_cannot_leave">Вы администратор группы: передайте администрирование другому участнику или закройте чат.</string>
@@ -84,6 +118,8 @@
     <string name="group_error_title_required">Название группы не может быть пустым.</string>
     <string name="group_error_title_too_long">Название группы — не длиннее 64 символов.</string>
     <string name="group_error_not_a_group">Это не группа: у личного чата нет состава и администратора.</string>
+    <string name="group_error_avatar_unsupported">У группы нет своей картинки — её можно только назвать и собрать заново.</string>
     <string name="group_error_access_denied">Нет доступа к этой переписке.</string>
     <string name="group_error_generic">Не удалось выполнить действие с группой. Проверьте связь.</string>
+    <string name="group_error_offline">Нет связи с сервером — группа не изменена. Проверьте интернет и попробуйте снова.</string>
 </resources>

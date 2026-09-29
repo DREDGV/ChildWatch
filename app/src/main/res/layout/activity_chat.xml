@@ -15,6 +15,7 @@
         app:cardBackgroundColor="@color/cw_color_surface"
         app:cardCornerRadius="22dp"
         app:cardElevation="0dp"
+        app:rippleColor="@color/cw_color_primary_container"
         app:strokeColor="@color/cw_color_outline_variant"
         app:strokeWidth="1dp">
 
@@ -105,6 +106,18 @@
                         android:maxLines="1"
                         android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta" />
                 </LinearLayout>
+
+                <!-- Who is in a group conversation. A family chat and a direct
+                     conversation have no such line and leave it gone. -->
+                <TextView
+                    android:id="@+id/chatMembersText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="2dp"
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <com.google.android.material.button.MaterialButton

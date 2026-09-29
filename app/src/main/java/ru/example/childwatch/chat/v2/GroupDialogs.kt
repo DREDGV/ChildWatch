@@ -18,6 +18,14 @@ import ru.example.childwatch.R
  */
 internal object GroupDialogs {
 
+    /**
+     * The longest group name the server accepts.
+     *
+     * The limit belongs to the server, and every form that types a name counts up to
+     * the same number rather than each carrying its own idea of it.
+     */
+    const val MAX_TITLE_LENGTH = 64
+
     fun toast(activity: Activity, message: String) {
         android.widget.Toast.makeText(activity, message, android.widget.Toast.LENGTH_LONG).show()
     }
@@ -57,7 +65,7 @@ internal object GroupDialogs {
         confirmLabel: String,
         onConfirmed: () -> Unit
     ) {
-        AlertDialog.Builder(activity)
+        com.google.android.material.dialog.MaterialAlertDialogBuilder(activity)
             .setTitle(title)
             .setMessage(message)
             .setPositiveButton(confirmLabel) { _, _ -> onConfirmed() }

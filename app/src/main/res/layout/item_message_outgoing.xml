@@ -39,12 +39,13 @@
             android:text="12:34"
             android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta.OnPrimary" />
 
+        <!-- The delivery mark is written by ChatAdapter for every outgoing message;
+             a placeholder here would only ever be a stranger's text on screen. -->
         <TextView
             android:id="@+id/statusText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="6dp"
-            android:text="вњ“"
             android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta.OnPrimary" />
 
     </LinearLayout>

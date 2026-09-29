@@ -20,6 +20,7 @@ import ru.childwatch.shared.chat.ChatDeliveryState
 import ru.childwatch.shared.chat.ChatV2UiRegistry
 import ru.childwatch.shared.chat.ChatV2MessageDto
 import ru.childwatch.shared.chat.Conversation
+import ru.childwatch.shared.chat.ConversationMember
 import ru.childwatch.shared.chat.ConversationMemberRole
 import ru.childwatch.shared.chat.ConversationType
 import ru.childwatch.shared.chat.ConversationMessage
@@ -28,6 +29,7 @@ import ru.example.childwatch.chat.ChatMessage
 import ru.example.childwatch.chat.presence.PeerPresenceWatcher
 import androidx.core.widget.doAfterTextChanged
 import ru.example.childwatch.chat.v2.ChatV2Repository
+import ru.example.childwatch.chat.v2.GroupManagementDialog
 import ru.example.childwatch.databinding.ActivityChatBinding
 import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.WebSocketManager
@@ -165,13 +167,16 @@ class ChatConversationV2Activity : AppCompatActivity() {
 
     private fun configureStaticUi() = with(binding) {
         chatPartnerName.text = intent.getStringExtra(EXTRA_CONVERSATION_TITLE)
-            ?.takeIf { it.isNotBlank() } ?: "РЎРµРјРµР№РЅС‹Р№ С‡Р°С‚"
-        chatPartnerMeta.text = "Р—Р°С‰РёС‰С‘РЅРЅС‹Р№ СЃРµРјРµР№РЅС‹Р№ РґРёР°Р»РѕРі"
+            ?.takeIf { it.isNotBlank() } ?: getString(R.string.chat_title_family)
+        // The two lines under the name describe the conversation, and both are written
+        // once it has been read; a placeholder here would be a sentence about something
+        // not yet known, and the empty state already carries its own text.
+        chatPartnerMeta.visibility = View.GONE
+        chatMembersText.visibility = View.GONE
         connectionStatusText.setText(R.string.chat_v2_syncing)
         typingIndicator.visibility = View.GONE
         chatInfoButton.visibility = View.GONE
         emptyStateTitle.setText(R.string.chat_v2_no_messages)
-        emptyStateText.text = "РќР°РїРёС€РёС‚Рµ РїРµСЂРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ"
 
         emojiPopup = EmojiPopup(root, messageInput)
         emojiButton.setOnClickListener { emojiPopup?.toggle() }
@@ -401,30 +406,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
         }
 
         val localMember = current.members.firstOrNull { it.isLocalUser }
-        val otherMember = current.members.firstOrNull { !it.isLocalUser }
-        if (current.type == ConversationType.DIRECT && otherMember != null) {
-            binding.chatPartnerName.text = otherMember.displayName
-            binding.chatPartnerMeta.text = getString(
-                R.string.chat_v2_direct_meta,
-                roleLabel(otherMember.role)
-            )
-            FamilyAvatarRenderer.bind(
-                binding.chatAvatar,
-                otherMember.avatarKey,
-                otherMember.displayName
-            )
-        } else {
-            binding.chatPartnerName.text = current.title
-            binding.chatPartnerMeta.text = resources.getQuantityString(
-                R.plurals.chat_v2_family_member_count,
-                current.members.size,
-                current.members.size
-            )
-            // A family chat has no single peer, but the group itself owns a shared
-            // picture; only a conversation without one falls back to the letter
-            // drawn from the title.
-            FamilyAvatarRenderer.bind(binding.chatAvatar, current.avatarKey, current.title)
-        }
+        renderHeader(current)
         val currentRole = if (localMember?.role == ConversationMemberRole.CHILD) "child" else "parent"
         adapter = ChatAdapter(
             currentUser = currentRole,
@@ -444,11 +426,153 @@ class ChatConversationV2Activity : AppCompatActivity() {
 
         observeMessages(localMember?.memberId)
         lifecycleScope.launch {
+            // The list is read again so a group that was renamed, or that somebody else
+            // has just been added to, reaches this header without waiting for the screen
+            // to be reopened.
             runCatching { repository.refreshConversations(resolveTargetChildDeviceId()) }
-            conversation = repository.getCachedConversations()
-                .firstOrNull { it.conversationId == conversationId } ?: conversation
+            val refreshed = repository.getCachedConversations()
+                .firstOrNull { it.conversationId == conversationId } ?: return@launch
+            conversation = refreshed
+            renderHeader(refreshed)
         }
         syncOnce()
+    }
+
+    /**
+     * Writes who this conversation is into the header.
+     *
+     * A group also names the people in it: "a group" is not an answer to whom one is
+     * writing to, and the membership the screen already holds is the honest source for
+     * it — the same people the server listed when the list was refreshed.
+     *
+     * A group is opened for its settings from this header, because the header is what
+     * already says which group this is. The family chat and a direct conversation are
+     * left exactly as they were.
+     */
+    private fun renderHeader(current: Conversation) = with(binding) {
+        val otherMember = current.members.firstOrNull { !it.isLocalUser }
+        if (current.type == ConversationType.DIRECT && otherMember != null) {
+            chatPartnerName.text = otherMember.displayName
+            chatPartnerMeta.visibility = View.GONE
+            chatPartnerMeta.text = getString(
+                R.string.chat_v2_direct_meta,
+                roleLabel(otherMember.role)
+            )
+            chatMembersText.visibility = View.GONE
+            FamilyAvatarRenderer.bind(
+                chatAvatar,
+                otherMember.avatarKey,
+                otherMember.displayName
+            )
+        } else {
+            chatPartnerName.text = current.title
+            // Only a group puts a line here. A family chat and a direct conversation
+            // keep the header they have always had, which the owner asked not to change.
+            chatPartnerMeta.visibility = if (current.type == ConversationType.GROUP) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
+            chatPartnerMeta.text = if (current.type == ConversationType.GROUP) {
+                resources.getQuantityString(
+                    R.plurals.chat_v2_group_member_count,
+                    current.members.size,
+                    current.members.size
+                )
+            } else {
+                resources.getQuantityString(
+                    R.plurals.chat_v2_family_member_count,
+                    current.members.size,
+                    current.members.size
+                )
+            }
+            // A family chat has no single peer, but the conversation itself owns a
+            // shared picture; only one without a picture falls back to the letter
+            // drawn from the title.
+            FamilyAvatarRenderer.bind(chatAvatar, current.avatarKey, current.title)
+            val names = memberNames(current)
+            // A conversation whose membership is not on this phone says nothing about
+            // it, rather than showing a line with no people in it.
+            if (current.type == ConversationType.GROUP && names.isNotBlank()) {
+                chatMembersText.text = getString(R.string.chat_v2_group_members, names)
+                chatMembersText.visibility = View.VISIBLE
+            } else {
+                chatMembersText.visibility = View.GONE
+            }
+        }
+
+        val isGroup = current.type == ConversationType.GROUP
+        connectionStatusCard.isClickable = isGroup
+        connectionStatusCard.isFocusable = isGroup
+        connectionStatusCard.setOnClickListener(
+            if (isGroup) View.OnClickListener { openGroupSettings() } else null
+        )
+        chatInfoButton.visibility = if (isGroup) View.VISIBLE else View.GONE
+        chatInfoButton.contentDescription = getString(
+            if (isGroup) R.string.chat_v2_group_info_desc else R.string.chat_info_button_desc
+        )
+        chatInfoButton.setOnClickListener(
+            if (isGroup) View.OnClickListener { openGroupSettings() } else null
+        )
+    }
+
+    /** Everybody in the conversation, with this device's own member named as such. */
+    private fun memberNames(current: Conversation): String = current.members
+        .distinctBy(ConversationMember::memberId)
+        .sortedBy(ConversationMember::displayName)
+        .joinToString(", ") { member ->
+            if (member.isLocalUser || member.memberId == current.localMemberId) {
+                getString(R.string.chat_sender_you)
+            } else {
+                member.displayName
+            }
+        }
+
+    /**
+     * Opens the group's settings from inside the conversation.
+     *
+     * The family's membership is read first, because it is the only list a person may be
+     * added from; the group itself is read again after every change, so the name, the
+     * members and the header on this screen are the server's answer rather than an older
+     * copy of it.
+     */
+    private fun openGroupSettings() {
+        if (conversation?.type != ConversationType.GROUP) return
+        lifecycleScope.launch {
+            runCatching { repository.refreshConversations(resolveTargetChildDeviceId()) }
+            val familyMembers = repository.getCachedConversations()
+                .firstOrNull { it.type == ConversationType.FAMILY }
+                ?.members
+                .orEmpty()
+            GroupManagementDialog.show(
+                activity = this@ChatConversationV2Activity,
+                scope = lifecycleScope,
+                repository = repository,
+                conversationId = conversationId,
+                familyMembers = familyMembers,
+                onRefresh = { reloadAfterGroupChange() }
+            )
+        }
+    }
+
+    /**
+     * Reads this conversation again after the group changed, and closes the screen when
+     * the group is no longer one of this phone's conversations.
+     *
+     * The screen closes without a sentence of its own: every way a group can disappear
+     * from here — a member leaving, the administrator closing it, or it being closed once
+     * too few people were left — has already said so on the screen that caused it.
+     */
+    private suspend fun reloadAfterGroupChange() {
+        runCatching { repository.refreshConversations(resolveTargetChildDeviceId()) }
+        val current = repository.getCachedConversations()
+            .firstOrNull { it.conversationId == conversationId }
+        if (current == null) {
+            runOnUiThread { finish() }
+            return
+        }
+        conversation = current
+        runOnUiThread { renderHeader(current) }
     }
 
     private fun roleLabel(role: ConversationMemberRole): String = when (role) {
@@ -499,7 +623,8 @@ class ChatConversationV2Activity : AppCompatActivity() {
                 val queued = repository.enqueueMessage(
                     conversationId = conversationId,
                     text = text,
-                    senderDisplayName = localMember?.displayName ?: "Р’С‹",
+                    senderDisplayName = localMember?.displayName
+                        ?: getString(R.string.chat_sender_you),
                     senderRole = localMember?.role ?: ConversationMemberRole.GUARDIAN,
                     senderMemberId = localMember?.memberId
                 )
@@ -538,7 +663,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
             } catch (_: IllegalArgumentException) {
                 Toast.makeText(
                     this@ChatConversationV2Activity,
-                    "РЎРѕРѕР±С‰РµРЅРёРµ СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ РёР»Рё РїСѓСЃС‚РѕРµ",
+                    R.string.chat_v2_message_rejected,
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -647,7 +772,11 @@ class ChatConversationV2Activity : AppCompatActivity() {
             text = text,
             sender = role,
             authorDeviceId = senderMemberId,
-            authorDisplayName = if (senderMemberId == localMemberId) "Вы" else senderDisplayName,
+            authorDisplayName = if (senderMemberId == localMemberId) {
+                getString(R.string.chat_sender_you)
+            } else {
+                senderDisplayName
+            },
             timestamp = serverCreatedAt ?: clientSentAt,
             isRead = deliveryState == ChatDeliveryState.READ,
             isMine = senderMemberId != null && senderMemberId == localMemberId,
