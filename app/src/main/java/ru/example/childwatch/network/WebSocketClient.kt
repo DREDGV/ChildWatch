@@ -241,7 +241,7 @@ class WebSocketClient(
 
     private val onConnectError = Emitter.Listener { args ->
         val error = args.getOrNull(0)
-        Log.e(TAG, "вќЊ WebSocket connection error: $error")
+        Log.e(TAG, "❌ WebSocket connection error: $error")
         isConnecting = false
         isConnected = false
         isRegistered = false
@@ -287,7 +287,7 @@ class WebSocketClient(
                 Log.d(TAG, "Skipping missed messages request on periodic re-registration")
             }
         } else {
-            Log.e(TAG, "вќЊ Parent registration failed for device: $childDeviceId")
+            Log.e(TAG, "❌ Parent registration failed for device: $childDeviceId")
         }
     }
 
@@ -584,11 +584,11 @@ class WebSocketClient(
             val delivered = data.optBoolean("delivered", false)
 
             rememberChatEvent(messageId, timestamp)
-            Log.d(TAG, "вњ… Chat message sent confirmation: id=$messageId, delivered=$delivered")
+            Log.d(TAG, "✅ Chat message sent confirmation: id=$messageId, delivered=$delivered")
             pendingChatCallbacks.remove(messageId)?.onSuccess?.invoke()
             onChatMessageSentCallback?.invoke(messageId, delivered, timestamp)
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Error handling chat message sent confirmation", e)
+            Log.e(TAG, "❌ Error handling chat message sent confirmation", e)
         }
     }
 
@@ -686,10 +686,10 @@ class WebSocketClient(
             val requestId = data?.optString("requestId") ?: ""
             val error = data?.optString("error") ?: "Unknown error"
 
-            Log.e(TAG, "вќЊ Photo error: requestId=$requestId, error=$error")
+            Log.e(TAG, "❌ Photo error: requestId=$requestId, error=$error")
             onPhotoError?.invoke(requestId, error)
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Error handling photo error", e)
+            Log.e(TAG, "❌ Error handling photo error", e)
         }
     }
 
@@ -708,7 +708,7 @@ class WebSocketClient(
             )
             onPhotoBusy?.invoke(requestId, deviceId, ownerParentId, ownerDisplayName, timestamp)
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Error handling photo busy", e)
+            Log.e(TAG, "❌ Error handling photo busy", e)
         }
     }
 
@@ -1142,7 +1142,7 @@ class WebSocketClient(
      */
     fun setChatMessageCallback(callback: (messageId: String, text: String, sender: String, timestamp: Long) -> Unit) {
         onChatMessageCallback = callback
-        Log.d(TAG, "вњ… Chat message callback registered")
+        Log.d(TAG, "✅ Chat message callback registered")
     }
 
     fun setChatMessageSentCallback(callback: (messageId: String, delivered: Boolean, timestamp: Long) -> Unit) {
@@ -1162,7 +1162,7 @@ class WebSocketClient(
      */
     fun setTypingCallback(callback: (isTyping: Boolean) -> Unit) {
         onTypingCallback = callback
-        Log.d(TAG, "вњ… Typing indicator callback registered")
+        Log.d(TAG, "✅ Typing indicator callback registered")
     }
 
     fun setStreamTakeoverRequestedCallback(callback: ((String, String, String, Long) -> Unit)?) {
@@ -1209,7 +1209,7 @@ class WebSocketClient(
             socket?.emit("chat_message_status", payload)
             return true
         } catch (e: Exception) {
-            Log.e(TAG, "вќЊ Failed to send chat status", e)
+            Log.e(TAG, "❌ Failed to send chat status", e)
             return false
         }
     }
