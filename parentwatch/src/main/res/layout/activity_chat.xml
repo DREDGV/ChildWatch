@@ -126,14 +126,29 @@
                         android:maxLines="1"
                         android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta" />
                 </LinearLayout>
+
+                <!-- Who is in a group, and the way into its settings. It is filled in
+                     only for a group: a direct dialog has two people and naming them
+                     twice would say nothing. -->
+                <TextView
+                    android:id="@+id/groupMembersText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:ellipsize="end"
+                    android:maxLines="2"
+                    android:paddingTop="4dp"
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta"
+                    android:visibility="gone" />
             </LinearLayout>
 
+            <!-- The way into a group's settings from inside the conversation, which
+                 the header's name was not on its own. -->
             <com.google.android.material.button.MaterialButton
                 android:id="@+id/chatInfoButton"
                 style="@style/Widget.Material3.Button.IconButton"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:contentDescription="@string/chat_info_button_desc"
+                android:contentDescription="@string/group_header_open_settings"
                 app:icon="@android:drawable/ic_menu_info_details" />
         </LinearLayout>
     </com.google.android.material.card.MaterialCardView>

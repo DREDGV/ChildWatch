@@ -39,12 +39,14 @@
             android:text="12:34"
             android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta.OnPrimary" />
 
+        <!-- The delivery mark is written by ChatAdapter for every outgoing message; a
+             placeholder here would only ever be a stranger's text on screen, and this
+             one held the mojibake of a tick nobody could read. -->
         <TextView
             android:id="@+id/statusText"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginStart="6dp"
-            android:text="вњ“"
             android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta.OnPrimary" />
 
         <!-- Offered only for a message that failed to send, so it stays hidden
@@ -57,7 +59,7 @@
             android:background="?attr/selectableItemBackgroundBorderless"
             android:clickable="true"
             android:focusable="true"
-            android:text="РџРѕРІС‚РѕСЂ"
+            android:text="@string/update_retry"
             android:textColor="@android:color/holo_red_dark"
             android:textSize="12sp"
             android:textStyle="bold"

@@ -2,6 +2,20 @@
     <string name="chat_title_family">Семейный чат</string>
     <string name="chat_header_participants_title">Участники семьи</string>
     <string name="chat_partner_meta_family">Семейный чат</string>
+    <!--
+        Строка под названием беседы: что это за беседа и сколько в ней людей.
+
+        Показывается у беседы любого вида, поэтому у каждого вида своя формулировка:
+        у семейного чата и группы — число людей, у личного — роль собеседника. Раньше
+        строка была скрыта, и никто её не видел, хотя текст в неё писался.
+    -->
+    <plurals name="chat_v2_family_member_count">
+        <item quantity="one">Семейный чат · %1$d участник</item>
+        <item quantity="few">Семейный чат · %1$d участника</item>
+        <item quantity="many">Семейный чат · %1$d участников</item>
+        <item quantity="other">Семейный чат · %1$d участника</item>
+    </plurals>
+    <string name="chat_v2_direct_meta">Личный чат · %1$s</string>
     <string name="chat_info_name_line">Имя: %1$s</string>
     <string name="chat_info_online_line">В сети: %1$s</string>
     <string name="chat_info_offline_line">Офлайн: %1$s</string>

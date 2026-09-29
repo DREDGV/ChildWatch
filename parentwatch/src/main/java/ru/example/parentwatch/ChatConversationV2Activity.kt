@@ -19,6 +19,7 @@ import ru.childwatch.shared.chat.ChatDeliveryState
 import ru.childwatch.shared.chat.ChatV2UiRegistry
 import ru.childwatch.shared.chat.ChatV2MessageDto
 import ru.childwatch.shared.chat.Conversation
+import ru.childwatch.shared.chat.ConversationMember
 import ru.childwatch.shared.chat.ConversationMemberRole
 import ru.childwatch.shared.chat.ConversationMessage
 import ru.childwatch.shared.chat.ConversationType
@@ -27,6 +28,7 @@ import ru.example.parentwatch.chat.ChatMessage
 import ru.example.parentwatch.chat.presence.PeerPresenceWatcher
 import androidx.core.widget.doAfterTextChanged
 import ru.example.parentwatch.chat.v2.ChatV2Repository
+import ru.example.parentwatch.chat.v2.GroupSettingsDialog
 import ru.example.parentwatch.databinding.ActivityChatBinding
 import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.network.WebSocketManager
@@ -250,9 +252,13 @@ class ChatConversationV2Activity : AppCompatActivity() {
 
     private fun configureStaticUi() = with(binding) {
         val initialTitle = intent.getStringExtra(EXTRA_CONVERSATION_TITLE)
-            ?.takeIf { it.isNotBlank() } ?: "РЎРµРјРµР№РЅС‹Р№ С‡Р°С‚"
+            ?.takeIf { it.isNotBlank() } ?: getString(R.string.chat_title_family)
         chatPartnerName.text = initialTitle
-        chatPartnerMeta.text = "Р—Р°С‰РёС‰С‘РЅРЅС‹Р№ СЃРµРјРµР№РЅС‹Р№ РґРёР°Р»РѕРі"
+        // The line under the name describes the conversation, and it is written once the
+        // conversation has been read: a placeholder here would be a sentence about
+        // something not yet known, and for a personal chat it would name the wrong kind
+        // of chat. It is shown for every kind from then on.
+        chatPartnerMeta.visibility = View.GONE
         // The header used to keep the app icon from the layout until the
         // conversation finished loading, and forever if it had no avatar.
         FamilyAvatarRenderer.bind(chatAvatar, null, initialTitle)
@@ -260,7 +266,10 @@ class ChatConversationV2Activity : AppCompatActivity() {
         typingIndicator.visibility = View.GONE
         chatInfoButton.visibility = View.GONE
         emptyStateTitle.setText(R.string.chat_v2_no_messages)
-        emptyStateText.text = "РќР°РїРёС€РёС‚Рµ РїРµСЂРІРѕРµ СЃРѕРѕР±С‰РµРЅРёРµ"
+        // The empty state is worded by the layout; a second copy here left the card
+        // showing text nobody could read should the two ever disagree.
+        emptyStateText.setText(R.string.chat_empty_hint)
+        groupMembersText.visibility = View.GONE
 
         emojiPopup = EmojiPopup(root, messageInput)
         emojiButton.setOnClickListener { emojiPopup?.toggle() }
@@ -272,6 +281,11 @@ class ChatConversationV2Activity : AppCompatActivity() {
             sendButton.isEnabled = !editable.isNullOrBlank()
         }
         newMessagesButton.setOnClickListener { scrollToBottom() }
+        // The header names the conversation, so it is also where its settings live:
+        // the button is the visible affordance, and tapping the header itself is what
+        // a person tries first.
+        chatInfoButton.setOnClickListener { openGroupSettings() }
+        connectionStatusCard.setOnClickListener { openGroupSettings() }
         messagesRecyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 if (isNearBottom()) {
@@ -340,6 +354,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
             headerAvatarKey,
             headerLetterFrom
         )
+        renderMembership(current)
         binding.loadingIndicator.visibility = View.GONE
 
         observeMessages(localMember?.memberId)
@@ -347,8 +362,131 @@ class ChatConversationV2Activity : AppCompatActivity() {
             runCatching { repository.refreshConversations(resolveOwnChildDeviceId()) }
             conversation = repository.getCachedConversations()
                 .firstOrNull { it.conversationId == conversationId } ?: conversation
+            // The membership may have changed since the cache was read, and the
+            // header is the only place that says who is in the group.
+            conversation?.let { renderMembership(it) }
         }
         syncOnce()
+    }
+
+    /**
+     * Shows who is in a group and offers the way into its settings.
+     *
+     * The line under the name says what this conversation is and how many people are in
+     * it, and it is shown for every kind. It used to be hidden for a family chat and for
+     * a personal chat, so nobody ever saw it although the text was written into it all
+     * along; only the way it is worded differs — a count for a family chat and a group,
+     * the other person's role for a personal chat.
+     *
+     * A group also names its people, from the conversation's own membership — the one
+     * list this application really has, refreshed from the server — because the header
+     * is the only place that answers "who am I writing to?" once more than two people
+     * can read it. This device's own member is named as such rather than by its own
+     * name, so a person finds themselves in the line instead of guessing which name is
+     * theirs. A personal chat and a family chat get no such line: they hold two people
+     * who are already named above, or everybody in the family.
+     */
+    private fun renderMembership(current: Conversation) {
+        val isGroup = current.type == ConversationType.GROUP
+        val otherMember = current.members.firstOrNull { !it.isLocalUser }
+        if (current.type == ConversationType.DIRECT && otherMember != null) {
+            binding.chatPartnerMeta.visibility = View.VISIBLE
+            binding.chatPartnerMeta.text =
+                getString(R.string.chat_v2_direct_meta, roleLabel(otherMember.role))
+        } else {
+            binding.chatPartnerMeta.visibility = View.VISIBLE
+            binding.chatPartnerMeta.text = if (isGroup) {
+                resources.getQuantityString(
+                    R.plurals.group_header_member_count,
+                    current.members.size,
+                    current.members.size
+                )
+            } else {
+                resources.getQuantityString(
+                    R.plurals.chat_v2_family_member_count,
+                    current.members.size,
+                    current.members.size
+                )
+            }
+        }
+
+        val names = if (isGroup) memberNames(current) else ""
+        binding.groupMembersText.text = if (names.isNotBlank()) {
+            getString(R.string.group_header_members, names)
+        } else {
+            getString(R.string.group_header_members_unknown)
+        }
+        binding.groupMembersText.visibility = if (isGroup) View.VISIBLE else View.GONE
+        // The button is the affordance, the card is the habit: both lead to the same
+        // place, and neither pretends to work for a chat that has no settings.
+        binding.chatInfoButton.visibility = if (isGroup) View.VISIBLE else View.GONE
+        binding.connectionStatusCard.isClickable = isGroup
+        binding.connectionStatusCard.isFocusable = isGroup
+    }
+
+    /** What the other person in this conversation is, in words rather than a code. */
+    private fun roleLabel(role: ConversationMemberRole): String = when (role) {
+        ConversationMemberRole.PARENT -> getString(R.string.group_role_parent)
+        ConversationMemberRole.CHILD -> getString(R.string.group_role_child)
+        ConversationMemberRole.GUARDIAN -> getString(R.string.group_role_guardian)
+    }
+
+    /** Everybody in the conversation, with this device's own member named as such. */
+    private fun memberNames(current: Conversation): String = current.members
+        .distinctBy(ConversationMember::memberId)
+        .sortedBy(ConversationMember::displayName)
+        .joinToString(getString(R.string.group_member_name_separator)) { member ->
+            if (member.isLocalUser || member.memberId == current.localMemberId) {
+                getString(R.string.chat_sender_you)
+            } else {
+                member.displayName
+            }
+        }
+
+    /**
+     * Opens the settings of the group being read.
+     *
+     * Reachable from the header, so the settings no longer hide behind a long press on
+     * the list. The name or the membership may change while the dialog is open, so the
+     * header is written again from what the server answers, and the conversation is
+     * read once more as well: the next reading of the group has to be the server's and
+     * not this device's older copy of it.
+     */
+    private fun openGroupSettings() {
+        val current = conversation ?: return
+        if (current.type != ConversationType.GROUP) return
+        GroupSettingsDialog.show(
+            activity = this,
+            scope = lifecycleScope,
+            repository = repository,
+            conversation = current
+        ) {
+            lifecycleScope.launch { refreshConversation() }
+        }
+    }
+
+    /**
+     * Reads the conversation again, so the header follows a change made elsewhere.
+     *
+     * A group that was left or closed is gone from this device's list, and the header
+     * must stop claiming to know who is in it. The messages stay on screen: reading
+     * them back is the one thing still possible here.
+     */
+    private suspend fun refreshConversation() {
+        runCatching { repository.refreshConversations(resolveOwnChildDeviceId()) }
+        val refreshed = repository.getCachedConversations()
+            .firstOrNull { it.conversationId == conversationId }
+        if (refreshed == null) {
+            // The conversation is gone from this device's list, so the lines under the
+            // name stop claiming to describe it. The messages stay on screen: reading
+            // them back is the one thing still possible here.
+            binding.groupMembersText.visibility = View.GONE
+            binding.chatPartnerMeta.visibility = View.GONE
+            return
+        }
+        conversation = refreshed
+        binding.chatPartnerName.text = refreshed.title
+        renderMembership(refreshed)
     }
 
     private fun observeMessages(localMemberId: String?) {
@@ -393,7 +531,8 @@ class ChatConversationV2Activity : AppCompatActivity() {
                 val queued = repository.enqueueMessage(
                     conversationId = conversationId,
                     text = text,
-                    senderDisplayName = localMember?.displayName ?: "Р’С‹",
+                    senderDisplayName = localMember?.displayName
+                        ?: getString(R.string.chat_sender_you),
                     senderRole = localMember?.role ?: ConversationMemberRole.CHILD,
                     senderMemberId = localMember?.memberId
                 )
@@ -432,7 +571,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
             } catch (_: IllegalArgumentException) {
                 Toast.makeText(
                     this@ChatConversationV2Activity,
-                    "РЎРѕРѕР±С‰РµРЅРёРµ СЃР»РёС€РєРѕРј РґР»РёРЅРЅРѕРµ РёР»Рё РїСѓСЃС‚РѕРµ",
+                    R.string.chat_message_too_long,
                     Toast.LENGTH_LONG
                 ).show()
             }
@@ -541,7 +680,11 @@ class ChatConversationV2Activity : AppCompatActivity() {
             text = text,
             sender = role,
             authorDeviceId = senderMemberId,
-            authorDisplayName = if (senderMemberId == localMemberId) "Вы" else senderDisplayName,
+            authorDisplayName = if (senderMemberId == localMemberId) {
+                getString(R.string.chat_sender_you)
+            } else {
+                senderDisplayName
+            },
             timestamp = serverCreatedAt ?: clientSentAt,
             isRead = deliveryState == ChatDeliveryState.READ,
             isMine = senderMemberId != null && senderMemberId == localMemberId,

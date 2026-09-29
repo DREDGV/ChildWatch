@@ -31,6 +31,9 @@
     <string name="chat_remove_confirm">Убрать чат «%1$s» из списка? Сообщения останутся в переписке.</string>
     <string name="chat_removed">Чат убран из списка</string>
     <string name="chat_message_deleted">Сообщение удалено</string>
+    <string name="chat_message_too_long">Сообщение слишком длинное или пустое</string>
+    <!-- Чьё имя показать вместо своего: и в шапке беседы, и у своего сообщения. -->
+    <string name="chat_sender_you">Вы</string>
     <string name="chat_message_edited_time">%1$s · изменено</string>
     <string name="chat_action_edit_message">Изменить</string>
     <string name="chat_action_delete_for_everyone">Удалить у всех</string>
@@ -61,8 +64,8 @@
     <string name="group_admin_label">Администратор: %1$s</string>
     <string name="group_members_empty">Некого добавить: в семье больше нет свободных участников.</string>
     <string name="group_no_other_members">В группе больше никого нет.</string>
-    <string name="group_remove_confirm">Убрать «%1$s» из группы? У него останется только семейный чат.</string>
-    <string name="group_transfer_confirm">Передать правление участнику «%1$s»? Вы больше не сможете менять состав группы.</string>
+    <string name="group_remove_confirm">Убрать «%1$s» из группы «%2$s»? Человек больше не увидит эту переписку.</string>
+    <string name="group_transfer_confirm">Передать «%1$s» администрирование группы «%2$s»? После этого вы не сможете менять её название и состав.</string>
     <string name="group_leave_confirm">Выйти из группы «%1$s»? Сообщения останутся, но группа пропадёт из списка.</string>
     <string name="group_close_confirm">Закрыть чат «%1$s» для всех участников? Группа пропадёт из списка у всех, сообщения останутся.</string>
     <string name="group_closed">Группа закрыта</string>
@@ -78,8 +81,9 @@
     <string name="group_error_target_not_available">В группу можно добавлять только членов семьи.</string>
     <string name="group_error_members_required">В группе должен быть хотя бы один участник кроме вас.</string>
     <string name="group_error_title_required">Введите название группы.</string>
-    <string name="group_error_title_too_long">Название группы слишком длинное.</string>
+    <string name="group_error_title_too_long">Название группы слишком длинное: можно не больше 64 символов.</string>
     <string name="group_error_not_a_group">Это не групповой чат.</string>
+    <string name="group_error_avatar_unsupported">У группы пока нет своей картинки: её нельзя поменять.</string>
     <string name="group_error_access_denied">Нет доступа к этому чату.</string>
     <string name="group_error_generic">Не удалось выполнить действие. Проверьте связь.</string>
     <string name="profile_published">Профиль сохранён в семье</string>

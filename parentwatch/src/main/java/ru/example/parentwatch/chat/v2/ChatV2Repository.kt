@@ -510,25 +510,34 @@ class ChatV2Repository(
         return response?.takeIf { it.isSuccessful }?.body()
     }
 
-    /** Renames the group for everyone. The server refuses a non-administrator. */
-    suspend fun renameGroup(conversationId: String, title: String): ChatV2GroupSettingsResponse? {
+    /**
+     * Renames the group for everyone. The server refuses a non-administrator.
+     *
+     * A refusal keeps its code instead of becoming a plain falsehood about the
+     * connection: "only the administrator may change this" and "there is no
+     * connection" are different sentences, and answering both with one of them
+     * told a member the wrong thing about their own group.
+     */
+    suspend fun renameGroup(conversationId: String, title: String): ChatV2GroupSettingsResponse {
         val trimmed = title.trim()
-        if (trimmed.isEmpty()) return null
-        val response = runCatching {
-            api.updateChatV2GroupTitle(conversationId, ChatV2UpdateGroupTitleRequest(trimmed))
-        }.getOrNull() ?: return null
-        return requireGroupAnswer(response, "RENAME_GROUP").takeIf { it.success }
+        if (trimmed.isEmpty()) throw ChatV2RepositoryException("GROUP_TITLE_REQUIRED")
+        val response = api.updateChatV2GroupTitle(
+            conversationId,
+            ChatV2UpdateGroupTitleRequest(trimmed)
+        )
+        return requireGroupAnswer(response, "RENAME_GROUP")
     }
 
     /** Sets the shared picture of the group. The server refuses a non-administrator. */
     suspend fun updateGroupAvatar(
         conversationId: String,
         avatarKey: String?
-    ): ChatV2GroupSettingsResponse? {
-        val response = runCatching {
-            api.updateChatV2GroupAvatar(conversationId, ChatV2UpdateGroupAvatarRequest(avatarKey))
-        }.getOrNull() ?: return null
-        return requireGroupAnswer(response, "UPDATE_GROUP_AVATAR").takeIf { it.success }
+    ): ChatV2GroupSettingsResponse {
+        val response = api.updateChatV2GroupAvatar(
+            conversationId,
+            ChatV2UpdateGroupAvatarRequest(avatarKey)
+        )
+        return requireGroupAnswer(response, "UPDATE_GROUP_AVATAR")
     }
 
     suspend fun retryFailed(clientMessageId: String): Boolean = database.withTransaction {

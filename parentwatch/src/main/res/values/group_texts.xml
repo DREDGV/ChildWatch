@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!--
+        Групповой чат: то, что человек читает на экране группы.
+
+        Здесь только то, чего больше нигде нет: старые слова группы уже лежат в
+        strings.xml, и переписывать их заново значило бы завести два разных ответа
+        на один и тот же вопрос. Отказы и вопросы перед необратимым остались там
+        же, где их читает остальное приложение.
+
+        Слова короткие и простые: этим экраном пользуется ребёнок, и отказ должен
+        говорить, что делать дальше, а не называть правило.
+    -->
+
+    <!-- Счётчик людей в шапке беседы и в настройках; название группы стоит выше. -->
+    <plurals name="group_member_count">
+        <item quantity="one">%1$d участник</item>
+        <item quantity="few">%1$d участника</item>
+        <item quantity="many">%1$d участников</item>
+        <item quantity="other">%1$d участника</item>
+    </plurals>
+    <plurals name="group_header_member_count">
+        <item quantity="one">Группа · %1$d участник</item>
+        <item quantity="few">Группа · %1$d участника</item>
+        <item quantity="many">Группа · %1$d участников</item>
+        <item quantity="other">Группа · %1$d участника</item>
+    </plurals>
+
+    <!-- Одна строка ниже счётчика: кто именно в группе, и кто из них это вы. -->
+    <string name="group_header_members">Участники: %1$s</string>
+    <string name="group_member_name_separator">, </string>
+
+    <!-- Строка, когда состав группы этому телефону ещё неизвестен. -->
+    <string name="group_header_members_unknown">Группа</string>
+    <string name="group_header_open_settings">Настройки группы</string>
+
+    <!-- Настройки группы: заголовок окна и подписи. -->
+    <string name="group_settings_title">Настройки группы</string>
+    <string name="group_settings_close">Закрыть</string>
+    <string name="group_settings_members">Кто в группе</string>
+    <string name="group_settings_actions">Действия</string>
+    <string name="group_admin_line">Администратор: %1$s</string>
+    <string name="group_member_unknown">Участник без имени</string>
+    <string name="group_members_unknown">Состав группы ещё не получен</string>
+
+    <!-- Отметки рядом с человеком в списке состава. -->
+    <string name="group_member_admin_mark">администратор</string>
+    <string name="group_member_you_mark">это вы</string>
+    <string name="group_member_marks_join"> · </string>
+
+    <!-- Роли, словами. -->
+    <string name="group_role_parent">родитель</string>
+    <string name="group_role_child">ребёнок</string>
+    <string name="group_role_guardian">опекун</string>
+
+    <!-- Окно выбора людей из семьи. -->
+    <string name="group_members_add_title">Кого добавить в группу</string>
+    <string name="group_picker_confirm">Добавить</string>
+    <string name="group_members_required">Отметьте хотя бы одного человека</string>
+
+    <!-- Подписи окна создания группы; подсказка поля уже есть в strings.xml. -->
+    <string name="group_create_members_label">Кто в группе</string>
+    <string name="group_create_confirm">Создать</string>
+    <string name="group_create_in_progress">Создаём группу…</string>
+    <string name="group_create_no_name">Введите название группы</string>
+    <string name="group_name_too_long">Название не длиннее 64 символов</string>
+    <string name="group_name_required">Введите название группы</string>
+    <string name="group_name_unchanged">Такое название уже есть</string>
+    <string name="group_settings_unchanged">Ничего не изменилось</string>
+    <string name="group_settings_add">Добавить</string>
+    <string name="group_settings_save">Сохранить</string>
+    <string name="group_rename_hint">Новое название группы</string>
+
+    <!-- Экран без группы: её закрыли или из неё вышли. -->
+    <string name="group_gone">Эта группа больше недоступна — возможно, её закрыли</string>
+
+    <!-- Семейный чат: общий, но состава у него нет — в нём вся семья. -->
+    <string name="group_family_note">Это семейный чат: в нём все, кого родитель добавил в семью.</string>
+</resources>
