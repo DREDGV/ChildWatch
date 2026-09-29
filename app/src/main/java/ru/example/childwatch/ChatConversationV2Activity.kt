@@ -453,7 +453,10 @@ class ChatConversationV2Activity : AppCompatActivity() {
         val otherMember = current.members.firstOrNull { !it.isLocalUser }
         if (current.type == ConversationType.DIRECT && otherMember != null) {
             chatPartnerName.text = otherMember.displayName
-            chatPartnerMeta.visibility = View.GONE
+            // The line says what this conversation is and who is on the other side.
+            // It was hidden for a direct chat from the day it was written, so nobody
+            // ever saw it; the owner asked for it to be shown everywhere.
+            chatPartnerMeta.visibility = View.VISIBLE
             chatPartnerMeta.text = getString(
                 R.string.chat_v2_direct_meta,
                 roleLabel(otherMember.role)
@@ -466,13 +469,9 @@ class ChatConversationV2Activity : AppCompatActivity() {
             )
         } else {
             chatPartnerName.text = current.title
-            // Only a group puts a line here. A family chat and a direct conversation
-            // keep the header they have always had, which the owner asked not to change.
-            chatPartnerMeta.visibility = if (current.type == ConversationType.GROUP) {
-                View.VISIBLE
-            } else {
-                View.GONE
-            }
+            // Shown for every kind now, with the count that belongs to it: the owner
+            // asked for the line that says how many people are in the conversation.
+            chatPartnerMeta.visibility = View.VISIBLE
             chatPartnerMeta.text = if (current.type == ConversationType.GROUP) {
                 resources.getQuantityString(
                     R.plurals.chat_v2_group_member_count,
