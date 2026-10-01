@@ -14,7 +14,8 @@
 #   powershell -NoProfile -ExecutionPolicy Bypass -File scripts\release-updates.ps1 -PreflightOnly
 
 param(
-    [switch]$PreflightOnly
+    [switch]$PreflightOnly,
+    [int]$VersionCode = 0
 )
 
 $ErrorActionPreference = 'Continue'
@@ -27,6 +28,7 @@ $knownHosts = Join-Path $repo '.ssh-local\known_hosts'
 $ssh = Join-Path $env:SystemRoot 'System32\OpenSSH\ssh.exe'
 $scp = Join-Path $env:SystemRoot 'System32\OpenSSH\scp.exe'
 $publicBase = 'http://31.28.27.96:3000'
+. (Join-Path $PSScriptRoot 'update-version-guard.ps1')
 $expectedFingerprint = '4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d'
 
 function Say($text) { Write-Host ("[{0}] {1}" -f (Get-Date -Format 'HH:mm:ss'), $text) }
@@ -61,8 +63,32 @@ if ($PreflightOnly) {
     exit 0
 }
 
+function Read-PublishedManifest {
+    $json = (& $ssh -i $key -o UserKnownHostsFile=$knownHosts -o ConnectTimeout=12 -o BatchMode=yes $server 'curl -fsS --max-time 10 http://localhost:3000/updates/manifest' 2>&1 | Out-String).Trim()
+    if ($LASTEXITCODE -ne 0) { Stop-With 'cannot read published manifest; refusing to guess its version' }
+    try { return ($json | ConvertFrom-Json -ErrorAction Stop) }
+    catch { Stop-With 'published manifest is invalid JSON' }
+}
+$published = Read-PublishedManifest
+$highestCode = 0L
+foreach ($appName in @('parent', 'child')) {
+    $code = 0L
+    if (-not [long]::TryParse([string]$published.apps.$appName.versionCode, [ref]$code) -or $code -le 0) { Stop-With 'published version code is missing or invalid' }
+    $highestCode = [Math]::Max($highestCode, $code)
+}
+Get-ChildItem (Join-Path $repo 'releases') -Filter manifest.json -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
+    try { $local = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json -ErrorAction Stop
+        foreach ($appName in @('parent', 'child')) { $code=0L; if ([long]::TryParse([string]$local.apps.$appName.versionCode,[ref]$code)) { $highestCode=[Math]::Max($highestCode,$code) } }
+    } catch { Stop-With 'a local release manifest is unreadable; choose a verified new number' }
+}
+if ($VersionCode -eq 0) {
+    if ($highestCode -ge 2147483647) { Stop-With 'version code limit reached' }
+    $VersionCode = [int]($highestCode + 1)
+} elseif ($VersionCode -le $highestCode) { Stop-With "requested code $VersionCode is not newer than staged/published $highestCode" }
+Say "new explicit version code: $VersionCode"
+
 Head 'step 1 of 5: building both applications, signed with the project key'
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build-and-install.ps1') -Target both -BuildOnly 2>&1 |
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'build-and-install.ps1') -Target both -BuildOnly -VersionCode $VersionCode -BuildTimeoutSeconds 900 2>&1 |
     Select-String -Pattern 'gradle: BUILD|gradle: signing|^e: |error:|done' | ForEach-Object { $_.Line }
 if ($LASTEXITCODE -ne 0) { Stop-With 'the build did not succeed' }
 Say 'build finished'
@@ -70,6 +96,7 @@ Say 'build finished'
 Head 'step 2 of 5: staging the release and checking the signature'
 & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'stage-release.ps1') -UseDebugBuilds 2>&1 |
     ForEach-Object { $_.ToString() }
+if ($LASTEXITCODE -ne 0) { Stop-With 'staging failed' }
 $manifestPath = Join-Path $updatesDir 'manifest.json'
 if (-not (Test-Path -LiteralPath $manifestPath)) { Stop-With 'no manifest was produced' }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
@@ -96,6 +123,8 @@ if ($probe -notmatch 'OK') {
 }
 Say 'the server answers'
 
+$published = Read-PublishedManifest
+try { Assert-NewerUpdateManifest $manifest $published } catch { Stop-With $_.Exception.Message }
 Head 'step 4 of 5: uploading and publishing'
 $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
 $backupCommand = "cd /var/www/childwatch-updates && cp manifest.json manifest.json.bak-$stamp && rm -rf /tmp/cw-updates-in && mkdir -p /tmp/cw-updates-in && echo READY"
@@ -118,6 +147,7 @@ $publishScript = Join-Path $repo '.ssh-local\publish-updates.sh'
 if (-not (Test-Path -LiteralPath $publishScript)) { Stop-With "missing $publishScript" }
 Get-Content -LiteralPath $publishScript -Raw | & $ssh -i $key -o UserKnownHostsFile=$knownHosts -o ConnectTimeout=25 $server 'bash -s' 2>&1 |
     Select-String -Pattern 'update directory|\.apk|manifest\.json|error' | ForEach-Object { $_.Line.Trim() }
+if ($LASTEXITCODE -ne 0) { Stop-With 'remote publication refused or failed' }
 Say 'publish finished'
 
 Head 'step 5 of 5: checking what the server actually serves'
@@ -129,6 +159,7 @@ try {
 }
 foreach ($appName in @('parent', 'child')) {
     $entry = $served.apps.$appName
+    if ($entry.versionCode -ne $manifest.apps.$appName.versionCode -or $entry.sha256 -ne $manifest.apps.$appName.sha256 -or $entry.packageName -ne $manifest.apps.$appName.packageName) { Stop-With "served $appName does not match this release" }
     Say ("served {0}: {1} (code {2})" -f $appName, $entry.versionName, $entry.versionCode)
     $temp = Join-Path $env:TEMP ("cw-verify-" + $entry.file)
     Remove-Item -LiteralPath $temp -ErrorAction SilentlyContinue

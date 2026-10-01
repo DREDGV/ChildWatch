@@ -195,3 +195,9 @@ releases/**/*.apk
 
 # Scratch files left by an agent while investigating something.
 tmp-*
+# Backup bundles are copies of the whole history and are not part of it.
+.backups/
+
+# Local build snapshots and deployment bundles (source remains tracked).
+.runtime/
+releases/**/*.zip

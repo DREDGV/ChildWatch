@@ -185,9 +185,18 @@ $installResult = ($installLines -join "`n" | & $ssh -i $key -o UserKnownHostsFil
 if ($installResult -notmatch 'INSTALLED') { Stop-With "installing failed:`n$installResult" }
 Say 'files replaced and they parse in place'
 
-$logPath = '/home/adminuser/.pm2/logs/childwatch-out.log'
-$restart = "MARK=`$(wc -l < $logPath 2>/dev/null || echo 0); sudo -iu adminuser pm2 restart childwatch --update-env >/dev/null 2>&1; sleep 15; echo '--- the log while starting ---'; tail -n +\$((MARK + 1)) $logPath 2>/dev/null | grep -iE 'error|exception|cannot|undefined|failed' | tail -n 20 || echo '  (no errors in the log)'; echo '--- the log is read ---'"
+$restart = @'
+set -e
+log_path=/home/adminuser/.pm2/logs/childwatch-out.log
+mark=$(wc -l < "$log_path" 2>/dev/null || echo 0)
+sudo -iu adminuser pm2 restart childwatch --update-env
+sleep 15
+echo '--- the log while starting ---'
+tail -n +$((mark + 1)) "$log_path" 2>/dev/null | tail -n 80
+echo '--- the log is read ---'
+'@
 $restartResult = ($restart | & $ssh -i $key -o UserKnownHostsFile=$knownHosts -o ConnectTimeout=60 $server 'bash -s' 2>&1 | Out-String).Trim()
+if ($LASTEXITCODE -ne 0) { Stop-With "server restart or log read failed:`n$restartResult" }
 Say $restartResult
 
 Head 'after: the same questions'
