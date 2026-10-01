@@ -57,7 +57,6 @@ import ru.example.childwatch.network.NetworkClient
 import ru.example.childwatch.network.ParentLocationData
 import ru.example.childwatch.network.FamilyLiveLocation
 import ru.example.childwatch.designsystem.MapMemberStrip
-import ru.example.childwatch.designsystem.MapAvatarPlacement
 import ru.example.childwatch.designsystem.MapAvatarIcon
 import ru.example.childwatch.designsystem.MapRouteSegments
 import ru.example.childwatch.database.entity.Child
@@ -2870,7 +2869,6 @@ class DualLocationMapActivity : AppCompatActivity() {
     private fun placeFamilyMarkers(locations: List<FamilyLiveLocation>) {
         contactMarkers.values.forEach(mapView.overlays::remove)
         contactMarkers.clear()
-        val density = resources.displayMetrics.density
         val icons = locations.map { location ->
             val accent = participantAccentColor(location.deviceId, location.role,
                 emphasizeSelf = location.memberId == liveSelfMemberId)
@@ -2881,24 +2879,9 @@ class DualLocationMapActivity : AppCompatActivity() {
             MapAvatarIcon.create(this, portrait, accent, isStale(location.timestamp))
         }
         val truePoints = locations.map { GeoPoint(it.latitude, it.longitude) }
-        val pixels = truePoints.map { mapView.projection.toPixels(it, null) }
-        val anchors = MapAvatarPlacement.place(
-            locations.indices.map { index ->
-                MapAvatarPlacement.Item(pixels[index].x, pixels[index].y,
-                    icons[index]?.intrinsicWidth ?: (90f * density).toInt(),
-                    icons[index]?.intrinsicHeight ?: (90f * density).toInt())
-            },
-            mapView.width,
-            mapView.height,
-            binding.toolbar.height + binding.familyStrip.height,
-            (2f * density).toInt()
-        )
         locations.forEachIndexed { index, location ->
-            val anchor = anchors[index]
-            val projected = mapView.projection.fromPixels(anchor.x, anchor.y)
-            val displayPoint = GeoPoint(projected.latitude, projected.longitude)
             val marker = Marker(mapView).apply {
-                position = displayPoint
+                position = truePoints[index]
                 title = location.displayName
                 snippet = buildMarkerSnippet(getString(R.string.map_location_label), location.timestamp)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
@@ -2911,10 +2894,15 @@ class DualLocationMapActivity : AppCompatActivity() {
             contactMarkers[location.memberId] = marker
             mapView.overlays.add(marker)
         }
+        selectedFamilyMemberId?.let { contactMarkers[it] }?.let { marker ->
+            mapView.overlays.remove(marker)
+            mapView.overlays.add(marker)
+        }
     }
 
     private fun selectFamilyLocation(location: FamilyLiveLocation, centerMap: Boolean = true) {
         selectedFamilyMemberId = location.memberId
+        contactMarkers[selectedFamilyMemberId]?.let { marker -> mapView.overlays.remove(marker); mapView.overlays.add(marker) }
         selectedPlacesDeviceId = location.deviceId
         drawSelectedFamilyTrail()
         loadSelectedFamilyTrail(location.memberId)

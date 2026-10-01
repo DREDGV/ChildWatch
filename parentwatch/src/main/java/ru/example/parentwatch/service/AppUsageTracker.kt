@@ -42,7 +42,9 @@ class AppUsageTracker(private val context: Context) {
         val appName: String,
         val lastTimeUsed: Long,
         val totalTimeInForeground: Long,
-        val isSystemApp: Boolean
+        val isSystemApp: Boolean,
+        val firstTimeUsed: Long? = null,
+        val lastForegroundAt: Long? = null
     )
 
     /**
@@ -196,6 +198,8 @@ class AppUsageTracker(private val context: Context) {
         }.timeInMillis
         if (!hasUsageStatsPermission()) return DailyUsage(start, end, emptyList(), available = false)
         val totals = mutableMapOf<String, Long>()
+        val firstUsed = mutableMapOf<String, Long>()
+        val lastForeground = mutableMapOf<String, Long>()
         val lastUsed = mutableMapOf<String, Long>()
         var active: String? = null
         var beforeLock: String? = null
@@ -204,6 +208,11 @@ class AppUsageTracker(private val context: Context) {
             active?.let { name ->
                 val duration = (at.coerceAtMost(end) - openedAt.coerceAtLeast(start)).coerceAtLeast(0L)
                 totals[name] = (totals[name] ?: 0L) + duration
+                if (duration > 0L) {
+                    val from = openedAt.coerceAtLeast(start)
+                    firstUsed[name] = minOf(firstUsed[name] ?: from, from)
+                    lastForeground[name] = maxOf(lastForeground[name] ?: 0L, at.coerceAtMost(end))
+                }
             }
             active = null
         }
@@ -250,7 +259,7 @@ class AppUsageTracker(private val context: Context) {
         }
         close(end)
         val apps = totals.filterValues { it > 0L }.mapNotNull { (name, duration) ->
-            createAppUsageInfo(name, lastUsed[name] ?: start, duration)
+            createAppUsageInfo(name, lastUsed[name] ?: start, duration)?.copy(firstTimeUsed = firstUsed[name], lastForegroundAt = lastForeground[name])
         }.filter { it.packageName != context.packageName &&
             packageManager.getLaunchIntentForPackage(it.packageName) != null
         }.sortedByDescending { it.totalTimeInForeground }
