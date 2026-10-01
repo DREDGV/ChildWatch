@@ -24,6 +24,7 @@ const DeviceAccessService = require("./services/DeviceAccessService");
 const createChatRoutes = require("./routes/chat");
 const createChatV2Routes = require("./routes/chat-v2");
 const locationRoutes = require("./routes/location");
+const familyPlacesRoutes = require("./routes/family-places");
 const mediaRoutes = require("./routes/media");
 const streamingRoutes = require("./routes/streaming");
 const alertsRoutes = require("./routes/alerts");
@@ -243,6 +244,7 @@ streamingRoutes.init(commandManager, dbManager, wsManager);
 // an active parent link, so they no longer trust a raw deviceId from the client.
 mediaRoutes.init(dbManager);
 locationRoutes.init(dbManager);
+familyPlacesRoutes.init(dbManager);
 alertsRoutes.init(dbManager, wsManager);
 
 // API Routes. Chat v2 is mounted before the legacy compatibility router so
@@ -263,6 +265,7 @@ app.use(
 // Location, media and streaming all verify the authenticated caller against the
 // requested device, so a raw deviceId from the client is never trusted.
 app.use("/api/location", authMiddleware.authenticate(), locationRoutes);
+app.use("/api/family-places", authMiddleware.authenticate(), familyPlacesRoutes);
 app.use("/api/media", authMiddleware.authenticate(), mediaRoutes);
 app.use("/api/streaming", authMiddleware.authenticate(), streamingRoutes);
 app.use("/api/debug", authMiddleware.authenticate(), debugRoutes);
@@ -627,6 +630,8 @@ app.post(
         longitude,
         accuracy,
         timestamp,
+        speedMps: req.body.speedMps,
+        speedAccuracyMps: req.body.speedAccuracyMps,
       });
 
       // Log activity
@@ -737,6 +742,16 @@ app.post(
   }
 );
 
+app.post('/api/photo/result', authMiddleware.authenticate(), authMiddleware.rateLimit(60000,40), async (req,res) => {
+  try {
+    const {requestId,error,ownDeviceId}=req.body;
+    if (typeof ownDeviceId !== 'string' || !new (require('./services/DeviceAccessService'))(dbManager).isSameDevice(ownDeviceId,req.deviceId)) return res.status(403).json({success:false});
+    if (typeof requestId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(requestId) || typeof error !== 'string' || !error.trim()) return res.status(400).json({success:false});
+    await require('./services/PhotoDeliveryStore').forDatabase(dbManager).fail(req.deviceId,requestId,error);
+    return res.json({success:true});
+  } catch (error) { console.error('Photo failure receipt failed',error.message); return res.status(500).json({success:false}); }
+});
+
 // Photo upload (protected)
 app.post(
   "/api/photo",
@@ -753,7 +768,9 @@ app.post(
       }
 
       const deviceId = req.deviceId;
-      const { timestamp } = req.body;
+      const { timestamp, requestId, ownDeviceId } = req.body;
+      if (ownDeviceId && !new (require('./services/DeviceAccessService'))(dbManager).isSameDevice(ownDeviceId,deviceId)) return res.status(403).json({success:false,error:'Photo belongs to another phone'});
+      if (requestId && (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(requestId))) return res.status(400).json({success:false,error:"Invalid photo request ID"});
 
       // Validate file upload
       const fileValidation = validator.validateFileUpload(req.file, ["image"]);
@@ -765,10 +782,13 @@ app.post(
         });
       }
 
-      const photoTimestamp = timestamp ? parseInt(timestamp) : Date.now();
+      const photoTimestamp = timestamp ? Number(timestamp) : Date.now();
+      if (!Number.isSafeInteger(photoTimestamp) || photoTimestamp <= 0) {
+        return res.status(400).json({success:false,error:"Invalid photo timestamp"});
+      }
 
       // Save photo file metadata to database
-      await dbManager.savePhotoFile(deviceId, {
+      const delivery = await require("./services/PhotoDeliveryStore").forDatabase(dbManager).save(deviceId, requestId || null, {
         filename: req.file.filename,
         file_path: req.file.path,
         file_size: req.file.size,
@@ -777,6 +797,17 @@ app.post(
         height: null,
         timestamp: photoTimestamp,
       });
+
+      if (delivery.reused) {
+        await fs.promises.unlink(req.file.path).catch(() => {});
+        return res.json({success:true,filename:delivery.filename,requestId,deviceId,timestamp:photoTimestamp});
+      }
+
+      if (requestId) {
+        const pending = wsManager.pendingPhotoRequests.get(requestId);
+        if (pending && wsManager.normalizeDeviceId(pending.deviceId) === wsManager.normalizeDeviceId(deviceId))
+          wsManager.clearActivePhotoRequest(pending.deviceId, requestId);
+      }
 
       // Log activity
       await dbManager.logActivity(deviceId, {
@@ -797,13 +828,14 @@ app.post(
       res.json({
         success: true,
         message: "Photo received and saved",
-        filename: req.file.filename,
+        filename: delivery.filename,
+        requestId: requestId || null,
         deviceId: deviceId,
         timestamp: Date.now(),
       });
     } catch (error) {
       console.error("Photo upload error:", error);
-      res.status(500).json({
+      res.status(error.status || 500).json({
         error: "Internal server error",
         code: "PHOTO_UPLOAD_ERROR",
       });
@@ -1277,6 +1309,25 @@ app.get(
     }
   }
 );
+
+// Photo readiness uses the same child/permission boundary as the actual request.
+app.get("/api/photo/readiness/:deviceId", authMiddleware.authenticate(), authMiddleware.rateLimit(60000, 60), async (req, res) => {
+  try {
+    const target = await new (require('./services/DeviceAccessService'))(dbManager)
+      .requirePhotoAccess(req, res, req.params.deviceId);
+    if (target === null) return;
+    const access = new (require('./services/DeviceAccessService'))(dbManager);
+    const statuses = await Promise.all(access.idForms(target).map(id => dbManager.getLatestDeviceStatus(id)));
+    const status = statuses.filter(Boolean).sort((a,b) => b.timestamp - a.timestamp)[0] || authManager.getDeviceStatus(target);
+    const camera = status?.raw?.camera;
+    res.json({ success: true, deviceId: target, checkedAt: Date.now(),
+      ...wsManager.getPhotoConnectionState(target),
+      camera: camera && typeof camera === 'object' && !Array.isArray(camera) ? camera : null });
+  } catch (error) {
+    console.error('Photo readiness failed:', error.message);
+    res.status(500).json({ success: false, error: 'Readiness unavailable' });
+  }
+});
 
 app.get(
   "/api/device/status/:deviceId?",

@@ -285,7 +285,7 @@ class WebSocketManager {
       pending.expiryTimer = null;
     }
 
-    const deadlineAt = Date.now();
+    const deadlineAt = Number(pending.createdAt) || Date.now();
     pending.expiresAt = deadlineAt + this.PHOTO_REQUEST_TTL_MS;
     pending.expiryTimer = setTimeout(() => {
       const current = this.pendingPhotoRequests.get(requestId);
@@ -300,7 +300,7 @@ class WebSocketManager {
       }
       this.completePhotoRequest(requestId);
       console.warn(`[photo] request timed out: requestId=${requestId}`);
-    }, this.PHOTO_REQUEST_TTL_MS);
+    }, Math.max(0, pending.expiresAt - Date.now()));
     pending.expiryTimer.unref?.();
   }
 
@@ -376,6 +376,14 @@ class WebSocketManager {
   getSingleConnectedParentSocketId() {
     if (this.parentSockets.size !== 1) return null;
     return Array.from(this.parentSockets.keys())[0] || null;
+  }
+
+  getPhotoConnectionState(deviceId) {
+    const key = [...this.childSockets.keys()].find(id => this.deviceAccess.isSameDevice(id, deviceId));
+    const online = key ? this.isChildConnectedById(key) : false;
+    const active = [...this.activePhotoRequests.entries()].find(([id, request]) =>
+      this.deviceAccess.isSameDevice(id, deviceId) && this.isPhotoRequestActive(request));
+    return { online, busy: Boolean(active) };
   }
 
   isChildConnectedById(deviceId) {
@@ -684,7 +692,7 @@ class WebSocketManager {
   /**
    * Handle command request coming from a parent socket
    */
-  handleCommand(socket, data) {
+  async handleCommand(socket, data) {
     console.log(
       `[ws] [handleCommand] Received command from socket ${socket.id}, deviceType=${socket.deviceType}:`,
       JSON.stringify(data)
@@ -700,7 +708,7 @@ class WebSocketManager {
       const payload = data.data || {};
       const explicitDeviceId = this.normalizeDeviceId(data.deviceId);
       const requesterParentId = this.normalizeDeviceId(
-        payload.parentId || data.parentId || socket.parentDeviceId
+        socket.authenticatedDeviceId || socket.parentDeviceId
       );
 
       console.log(
@@ -713,9 +721,12 @@ class WebSocketManager {
       }
 
       const mappedDeviceId = this.parentSockets.get(socket.id);
+      const audioCommand = ["start_audio_stream", "stop_audio_stream"].includes(rawType);
       // Prefer connected targets. If explicit ID is stale/wrong but only one child is online,
       // fallback keeps legacy single-pair setups working after contact-migration mistakes.
-      let targetDeviceId = this.resolveConnectedChildDeviceId(
+      let targetDeviceId = audioCommand
+        ? explicitDeviceId || this.normalizeDeviceId(mappedDeviceId)
+        : this.resolveConnectedChildDeviceId(
         explicitDeviceId,
         mappedDeviceId
       );
@@ -738,8 +749,21 @@ class WebSocketManager {
         );
       }
 
+      if (audioCommand) {
+        const decision = await this.deviceAccess.authorizeAudioAccess(
+          socket.authenticatedDeviceId, targetDeviceId
+        );
+        if (!decision.allowed) {
+          socket.emit("command_error", { type: rawType, code: decision.code, deviceId: targetDeviceId });
+          return;
+        }
+      }
+
       if (socket.deviceType === "parent" && this.commandManager) {
         if (rawType === "start_audio_stream") {
+          const allowJoin = Boolean(socket.authenticatedDeviceId) &&
+            this.commandManager.isStreaming(targetDeviceId) &&
+            await this.canJoinFamilyAudio(requesterParentId, targetDeviceId);
           const startResult = this.commandManager.requestStreamingStart(
             targetDeviceId,
             requesterParentId,
@@ -747,6 +771,7 @@ class WebSocketManager {
             {
               sampleRate: payload.sampleRate,
               ownerDisplayName: socket.parentDisplayName || requesterParentId,
+              allowJoin,
             }
           );
           if (!startResult.ok) {
@@ -779,6 +804,15 @@ class WebSocketManager {
             });
             return;
           }
+          if (startResult.joined) {
+            socket.emit("stream_joined", {
+              deviceId: targetDeviceId,
+              listenerCount: startResult.session.listenerCount,
+              startedAt: startResult.session.startTime,
+              timestamp: Date.now(),
+            });
+            return;
+          }
         } else if (rawType === "stop_audio_stream") {
           const stopResult = this.commandManager.requestStreamingStop(
             targetDeviceId,
@@ -792,6 +826,14 @@ class WebSocketManager {
               ownerDisplayName: stopResult.session?.ownerDisplayName || "",
               startedAt: stopResult.session?.startTime || 0,
               durationMs: stopResult.session?.durationMs || 0,
+              timestamp: Date.now(),
+            });
+            return;
+          }
+          if (stopResult.listenerLeft || stopResult.ownerLeft) {
+            socket.emit("stream_left", {
+              deviceId: targetDeviceId,
+              listenerCount: stopResult.session.listenerCount,
               timestamp: Date.now(),
             });
             return;
@@ -853,6 +895,38 @@ class WebSocketManager {
     }
   }
 
+  async canJoinFamilyAudio(parentDeviceId, childDeviceId) {
+    if (!this.dbManager?.getFamilyIdentityMembershipsForDevice ||
+        !this.dbManager?.getFamilyMembers || !this.dbManager?.getFamilyPermission || !this.deviceAccess ||
+        !parentDeviceId || !childDeviceId) return false;
+    const memberships = async (deviceId) => (await Promise.all(
+      this.deviceAccess.idForms(deviceId).map((id) =>
+        this.dbManager.getFamilyIdentityMembershipsForDevice(id)
+      )
+    )).flat();
+    const [parents, children] = await Promise.all([
+      memberships(parentDeviceId), memberships(childDeviceId),
+    ]);
+    for (const parent of parents) {
+      const child = children.find((item) => item.familyId === parent.familyId);
+      if (!child) continue;
+      const members = await this.dbManager.getFamilyMembers(parent.familyId);
+      const adult = members.find((item) => item.id === parent.memberId);
+      const target = members.find((item) => item.id === child.memberId);
+      if (["PARENT", "GUARDIAN"].includes(String(adult?.role || "").toUpperCase()) &&
+          String(target?.role || "").toUpperCase() === "CHILD") {
+        const permission = await this.dbManager.getFamilyPermission({
+          familyId: parent.familyId,
+          actorMemberId: parent.memberId,
+          targetMemberId: child.memberId,
+          feature: "AUDIO_LISTENING",
+        });
+        if (permission?.allowed === 1) return true;
+      }
+    }
+    return false;
+  }
+
   handleForceReleaseStream(socket, data) {
     try {
       if (socket.deviceType !== "child") {
@@ -868,10 +942,11 @@ class WebSocketManager {
 
       const socketDeviceId = this.normalizeDeviceId(socket.deviceId);
       const explicitDeviceId = this.normalizeDeviceId(data?.deviceId);
-      const targetDeviceId = this.resolveConnectedChildDeviceId(
-        explicitDeviceId,
-        socketDeviceId
-      ) || socketDeviceId;
+      if (explicitDeviceId && !this.deviceAccess.isSameDevice(explicitDeviceId, socketDeviceId)) {
+        socket.emit("stream_force_release_result", { success: false, code: "FORBIDDEN" });
+        return;
+      }
+      const targetDeviceId = socketDeviceId;
 
       if (!targetDeviceId) {
         socket.emit("stream_force_release_result", {
@@ -1013,26 +1088,23 @@ class WebSocketManager {
   /**
    * Handle photo request from parent device
    */
-  handlePhotoRequest(socket, data) {
+  async handlePhotoRequest(socket, data) {
     try {
       const { targetDevice, requestId, camera } = data || {};
-      const normalizedTargetDevice = this.normalizeDeviceId(targetDevice);
-      const requesterParentId = this.normalizeDeviceId(
-        data?.parentId || socket.parentDeviceId
-      );
-      const requesterDisplayName = this.getParentDisplayLabel(
-        requesterParentId,
-        socket.parentDisplayName
-      );
-      const mappedDeviceId = this.parentSockets.get(socket.id);
-      let resolvedDeviceId = this.resolveConnectedChildDeviceId(
-        normalizedTargetDevice,
-        mappedDeviceId
-      );
-      if (!resolvedDeviceId) {
-        resolvedDeviceId =
-          normalizedTargetDevice || this.normalizeDeviceId(mappedDeviceId);
+      if (requestId && (typeof requestId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(requestId))) {
+        socket.emit('photo_error',{requestId,error:'photo_invalid_request'}); return;
       }
+      if (camera && !['front','back'].includes(camera)) {
+        socket.emit('photo_error',{requestId,error:'Requested camera not available'}); return;
+      }
+      const normalizedTargetDevice = this.normalizeDeviceId(targetDevice);
+      const requesterParentId = this.normalizeDeviceId(socket.parentDeviceId || socket.deviceId);
+      const authorization = await this.deviceAccess.authorizePhotoAccess(requesterParentId, normalizedTargetDevice);
+      if (!authorization.allowed) {
+        socket.emit("photo_error", {requestId:data?.requestId,error:authorization.code}); return;
+      }
+      const requesterDisplayName = this.getParentDisplayLabel(requesterParentId, socket.parentDisplayName);
+      const resolvedDeviceId = [...this.childSockets.keys()].find(id => this.deviceAccess.isSameDevice(id, normalizedTargetDevice)) || normalizedTargetDevice;
       const reqId = requestId || `${Date.now()}_${Math.random().toString(16).slice(2)}`;
       const cameraFacing =
         typeof camera === "string" && camera.trim()
@@ -1048,16 +1120,6 @@ class WebSocketManager {
           error: "Missing target device",
         });
         return;
-      }
-
-      const fallbackResolved =
-        normalizedTargetDevice &&
-        resolvedDeviceId &&
-        resolvedDeviceId !== normalizedTargetDevice;
-      if (fallbackResolved) {
-        console.warn(
-          `Photo request target remapped from ${normalizedTargetDevice} to connected child ${resolvedDeviceId}`
-        );
       }
 
       // requestId is the idempotency key for the complete operation. Repeating
@@ -1517,16 +1579,7 @@ class WebSocketManager {
       return;
     }
 
-    let deviceId = requestedDeviceId;
-    if (!this.isChildConnectedById(deviceId)) {
-      const onlyChild = this.resolveConnectedChildDeviceId();
-      if (onlyChild) {
-        console.warn(
-          `Parent requested ${requestedDeviceId}, but only child ${onlyChild} is connected. Using fallback mapping.`
-        );
-        deviceId = onlyChild;
-      }
-    }
+    const deviceId = requestedDeviceId;
 
     // Store parent socket mapping
     this.parentSockets.set(socket.id, deviceId);
@@ -1561,7 +1614,8 @@ class WebSocketManager {
       }
     }
 
-    if (shouldPersistParentLink && this.dbManager?.upsertDeviceLink) {
+    if (shouldPersistParentLink && this.dbManager?.upsertDeviceLink &&
+        await this.deviceAccess.isAudioTargetChild(deviceId)) {
       try {
         await this.dbManager.upsertDeviceLink({
           parentDeviceId,
@@ -1704,6 +1758,13 @@ class WebSocketManager {
         return;
       }
 
+      if (socket.deviceType !== "child" ||
+          !this.deviceAccess.isSameDevice(socket.authenticatedDeviceId, deviceId) ||
+          !this.deviceAccess.isSameDevice(socket.deviceId, deviceId)) {
+        console.warn("[ws] Rejected audio chunk from an unverified source");
+        return;
+      }
+
       if (!binaryData || binaryData.length === 0) {
         console.error("[ws] Audio chunk is empty");
         return;
@@ -1715,17 +1776,20 @@ class WebSocketManager {
         );
       }
 
-      // Forward chunk to ALL parent sockets mapped to this child.
-      // Parent app may keep several sockets alive (main UI + playback service),
-      // and restricting to one socket causes silent playback.
+      // Forward only to parents who explicitly joined this session. One parent
+      // may keep several sockets alive (main UI + playback service).
       const mappedParentSocketIds = [];
       for (const [parentSocketId, childDeviceId] of this.parentSockets.entries()) {
         if (this.normalizeDeviceId(childDeviceId) !== deviceId) continue;
         const mappedParentSocket = this.io.sockets.sockets.get(parentSocketId);
-        if (mappedParentSocket && mappedParentSocket.connected) {
-          mappedParentSocketIds.push(parentSocketId);
-        } else {
+        if (!mappedParentSocket || !mappedParentSocket.connected) {
           this.parentSockets.delete(parentSocketId);
+          continue;
+        }
+        if (this.commandManager?.isStreamingListener(
+          deviceId, mappedParentSocket.parentDeviceId
+        )) {
+          mappedParentSocketIds.push(parentSocketId);
         }
       }
 
@@ -2132,6 +2196,9 @@ class WebSocketManager {
   sendCommandToChild(deviceId, command) {
     let targetDeviceId = this.normalizeDeviceId(deviceId);
     if (!this.isChildConnectedById(targetDeviceId)) {
+      if (["start_audio_stream", "stop_audio_stream"].includes(command?.type)) {
+        return false; // Offline means offline; another child's microphone is never a substitute.
+      }
       const fallbackDeviceId = this.resolveConnectedChildDeviceId(targetDeviceId);
       if (!fallbackDeviceId) {
         console.warn(`[ws] Cannot send command: child ${deviceId} not connected`);

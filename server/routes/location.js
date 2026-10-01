@@ -106,7 +106,7 @@ async function latestDevicePosition(db, deviceId) {
       forms
     ),
   ]);
-  return [child, parent]
+  const positions = [child, parent]
     .filter(Boolean)
     .map((row) => ({
       latitude: Number(row.latitude),
@@ -119,7 +119,10 @@ async function latestDevicePosition(db, deviceId) {
       Number.isFinite(row.longitude) && Math.abs(row.longitude) <= 180 &&
       row.timestamp !== null
     )
-    .sort((first, second) => second.timestamp - first.timestamp)[0] || null;
+    .sort((first, second) => second.timestamp - first.timestamp);
+  try { await require('../services/LocationMotionStore').attach(db, forms, positions); }
+  catch (error) { console.error('Motion read failed', error.message); }
+  return positions[0] || null;
 }
 
 /**
@@ -266,6 +269,99 @@ router.get("/family/latest", async (req, res) => {
       error: "Failed to get family locations",
       code: "FAMILY_LOCATION_ERROR",
     });
+  }
+});
+
+/** Recent recorded fixes for one visible family member, for a live map trail. */
+router.get("/family/trail/:memberId", async (req, res) => {
+  try {
+    const familyId = String(req.query.familyId || "").trim();
+    const memberId = String(req.params.memberId || "").trim();
+    if (!familyId || !memberId) {
+      return res.status(400).json({ error: "Family and member are required", code: "FAMILY_TRAIL_TARGET_REQUIRED" });
+    }
+    if (!req.deviceId) {
+      return res.status(401).json({ error: "Authentication required", code: "AUTH_REQUIRED" });
+    }
+    if (!deviceAccess || !sharedDatabase) {
+      return res.status(503).json({ error: "Location access is not configured", code: "LOCATION_NOT_INITIALIZED" });
+    }
+    const memberships = (await Promise.all(
+      deviceAccess.idForms(req.deviceId).map((id) =>
+        sharedDatabase.getFamilyIdentityMembershipsForDevice(id)
+      )
+    )).flat();
+    const actor = memberships.find((membership) => membership.familyId === familyId);
+    if (!actor) {
+      return res.status(403).json({ error: "Family access denied", code: "FAMILY_ACCESS_DENIED" });
+    }
+    const [members, devices] = await Promise.all([
+      sharedDatabase.getFamilyMembers(familyId),
+      sharedDatabase.getFamilyDevices(familyId),
+    ]);
+    const target = members.find((member) => member.id === memberId);
+    if (!target) {
+      return res.status(404).json({ error: "Member not found", code: "FAMILY_MEMBER_NOT_FOUND" });
+    }
+    const targetDevices = devices.filter((device) => device.memberId === memberId);
+    await ensureSharedParentLocationTables();
+    const now = Date.now();
+    const latest = (await Promise.all(targetDevices.map(async (device) => ({
+      deviceId: device.deviceId,
+      point: await latestDevicePosition(sharedDatabase, device.deviceId),
+    })))).filter(({ point }) => point && point.timestamp <= now + 60_000)
+      .sort((a, b) => b.point.timestamp - a.point.timestamp)[0];
+    if (!latest || now - latest.point.timestamp > LAST_KNOWN_AGE_MS) {
+      return res.json({ success: true, memberId, points: [] });
+    }
+    if (memberId !== actor.memberId) {
+      const [locationPermission, historyPermission] = await Promise.all([
+        sharedDatabase.getFamilyPermission({
+          familyId, actorMemberId: actor.memberId, targetMemberId: memberId, feature: "LOCATION",
+        }),
+        sharedDatabase.getFamilyPermission({
+          familyId, actorMemberId: actor.memberId, targetMemberId: memberId,
+          feature: "LOCATION_HISTORY",
+        }),
+      ]);
+      if (historyPermission?.allowed !== 1 || locationPermission?.allowed === 0 ||
+          (locationPermission?.allowed !== 1 &&
+            now - latest.point.timestamp > LIVE_SHARING_AGE_MS)) {
+        return res.status(403).json({ error: "Location access denied", code: "LOCATION_ACCESS_DENIED" });
+      }
+    }
+    const forms = deviceAccess.idForms(latest.deviceId);
+    if (!forms.length) return res.json({ success: true, memberId, points: [] });
+    const placeholders = forms.map(() => "?").join(", ");
+    const from = now - 30 * 60 * 1000;
+    const rows = (await Promise.all([
+      sharedDatabase.all(
+        `SELECT latitude, longitude, accuracy, timestamp FROM locations
+         WHERE device_id IN (${placeholders}) ORDER BY timestamp DESC LIMIT 600`, forms),
+      sharedDatabase.all(
+        `SELECT latitude, longitude, accuracy, timestamp FROM parent_locations
+         WHERE parent_id IN (${placeholders}) ORDER BY timestamp DESC LIMIT 600`, forms),
+    ])).flat();
+    const points = rows.map((row) => ({
+      latitude: Number(row.latitude), longitude: Number(row.longitude),
+      accuracy: row.accuracy == null ? null : Number(row.accuracy),
+      timestamp: locationTimeMillis(row.timestamp),
+    })).filter((point) => point.timestamp !== null && point.timestamp >= from &&
+      point.timestamp <= now + 60_000 && Number.isFinite(point.latitude) &&
+      Number.isFinite(point.longitude) && Math.abs(point.latitude) <= 90 &&
+      Math.abs(point.longitude) <= 180)
+      .sort((a, b) => a.timestamp - b.timestamp)
+      .filter((point, index, ordered) => index === 0 ||
+        point.timestamp !== ordered[index - 1].timestamp ||
+        point.latitude !== ordered[index - 1].latitude ||
+        point.longitude !== ordered[index - 1].longitude)
+      .slice(-600);
+    try { await require('../services/LocationMotionStore').attach(sharedDatabase, forms, points); }
+    catch (error) { console.error('Trail motion read failed', error.message); }
+    return res.json({ success: true, memberId, deviceId: latest.deviceId, points });
+  } catch (error) {
+    console.error("Get family trail error:", error);
+    return res.status(500).json({ error: "Failed to get family trail", code: "FAMILY_TRAIL_ERROR" });
   }
 });
 
@@ -534,6 +630,38 @@ router.get("/stats/:deviceId", async (req, res) => {
  * POST /api/location/parent/:parentId
  * Upload parent location
  */
+// Historical replay is authenticated as the sending phone and never emits place/status events.
+router.post("/history", async (req, res) => {
+  try {
+    const { familyId, kind, points, ownDeviceId } = req.body;
+    if (typeof ownDeviceId !== 'string' || !deviceAccess.isSameDevice(ownDeviceId, req.deviceId)) return res.status(403).json({ success: false, error: 'History belongs to another phone' });
+    if (typeof familyId !== 'string' || !['parent', 'child'].includes(kind) || !Array.isArray(points) || points.length < 1 || points.length > 100)
+      return res.status(400).json({ success: false, error: 'Invalid history batch' });
+    const service = require('../services/FamilyPlacesService').forDatabase(sharedDatabase);
+    const actor = await service.actor(req.deviceId, familyId);
+    if (!actor || (kind === 'parent' ? !['PARENT', 'GUARDIAN'].includes(actor.memberRole) : actor.memberRole !== 'CHILD'))
+      return res.status(403).json({ success: false, error: 'Wrong family or phone role' });
+    const now = Date.now();
+    if (points.some(p => !p || !Number.isSafeInteger(p.timestamp) || p.timestamp < now - 48*60*60*1000 || p.timestamp > now + 60000 ||
+      !Number.isFinite(p.latitude) || Math.abs(p.latitude)>90 || !Number.isFinite(p.longitude) || Math.abs(p.longitude)>180 ||
+      !Number.isFinite(p.accuracy) || p.accuracy<=0 || p.accuracy>500))
+      return res.status(400).json({ success: false, error: 'Invalid historical fix' });
+    if (kind === 'parent') await ensureSharedParentLocationTables();
+    const table = kind === 'parent' ? 'parent_locations' : 'locations';
+    const deviceColumn = kind === 'parent' ? 'parent_id' : 'device_id';
+    for (const p of points) {
+      await sharedDatabase.run(`INSERT INTO ${table} (${deviceColumn},latitude,longitude,accuracy,timestamp)
+        SELECT ?,?,?,?,? WHERE NOT EXISTS (SELECT 1 FROM ${table} WHERE ${deviceColumn}=? AND timestamp=? AND latitude=? AND longitude=?)`,
+        [req.deviceId,p.latitude,p.longitude,p.accuracy,p.timestamp,req.deviceId,p.timestamp,p.latitude,p.longitude]);
+      await require('../services/LocationMotionStore').save(sharedDatabase, req.deviceId, p);
+    }
+    return res.json({ success: true, accepted: points.length });
+  } catch (error) {
+    console.error('History replay failed', error.message);
+    return res.status(500).json({ success: false, error: 'History replay failed' });
+  }
+});
+
 router.post("/parent/:parentId", async (req, res) => {
   try {
     const { parentId } = req.params;
@@ -558,6 +686,10 @@ router.post("/parent/:parentId", async (req, res) => {
     const authorizedParentId = await requireDevice(req, res, parentId);
     if (authorizedParentId === null) {
       return undefined;
+    }
+
+    if (!deviceAccess.isSameDevice(authorizedParentId, req.deviceId)) {
+      return res.status(403).json({ success: false, error: "A device can only publish its own location", code: "LOCATION_WRITE_SELF_ONLY" });
     }
 
     console.info("[location/parent/upload] incoming", {
@@ -590,6 +722,14 @@ router.post("/parent/:parentId", async (req, res) => {
         ]
       );
 
+      try { await require('../services/LocationMotionStore').save(db, authorizedParentId, req.body); }
+      catch (error) { console.error('Parent motion storage failed', error.message); }
+      try {
+        await require('../services/FamilyPlacesService').forDatabase(db).onLocation(authorizedParentId, {
+          latitude, longitude, accuracy, timestamp: timestamp || Date.now()
+        });
+      } catch (error) { console.error('Parent place notification processing failed', error.message); }
+
       // Clean up old locations (keep last 1000)
       await db.run(
         `
@@ -599,7 +739,7 @@ router.post("/parent/:parentId", async (req, res) => {
                 SELECT id FROM parent_locations 
                 WHERE parent_id = ? 
                 ORDER BY timestamp DESC 
-                LIMIT 1000
+                LIMIT 20000
             )
         `,
         [authorizedParentId, authorizedParentId]

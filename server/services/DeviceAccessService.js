@@ -165,6 +165,82 @@ class DeviceAccessService {
     return this.respondToDenial(res, decision.code);
   }
 
+  async isAudioTargetChild(deviceId) {
+    const forms = this.idForms(deviceId);
+    if (!forms.length) return false;
+    const rows = await this.dbManager.all(
+      `SELECT fm.role FROM family_devices fd
+       JOIN family_members fm ON fm.id = fd.member_id
+       JOIN families f ON f.id = fd.family_id
+       WHERE fd.device_id IN (${forms.map(() => "?").join(",")})
+         AND fd.is_active = 1 AND fm.is_active = 1 AND f.is_active = 1`,
+      forms
+    );
+    return rows.length > 0 && rows.every((row) => String(row.role).toUpperCase() === "CHILD");
+  }
+
+  async authorizeAudioAccess(callerDeviceId, requestedDeviceId) {
+    const caller = this.normalizeDeviceId(callerDeviceId);
+    const target = this.normalizeDeviceId(requestedDeviceId);
+    if (!caller) return { allowed: false, code: "AUTH_REQUIRED" };
+    if (!target) return { allowed: false, code: "MISSING_DEVICE_ID" };
+    if (!(await this.isAudioTargetChild(target))) {
+      return { allowed: false, code: "AUDIO_TARGET_NOT_CHILD" };
+    }
+    // The child itself may upload its own stream. Listening requires an adult
+    // in the same family and an explicit AUDIO_LISTENING permission.
+    if (this.isSameDevice(caller, target)) return { allowed: true, deviceId: target };
+    for (const actorId of this.idForms(caller)) {
+      for (const targetId of this.idForms(target)) {
+        const membership = await this.dbManager.getSharedFamilyMembership(actorId, targetId);
+        if (!membership || !["PARENT", "GUARDIAN"].includes(membership.actorRole) ||
+            membership.targetRole !== "CHILD") continue;
+        const permission = await this.dbManager.getFamilyPermission({
+          familyId: membership.familyId,
+          actorMemberId: membership.actorMemberId,
+          targetMemberId: membership.targetMemberId,
+          feature: "AUDIO_LISTENING",
+        });
+        if (permission?.allowed === 1) return { allowed: true, deviceId: target };
+      }
+    }
+    return { allowed: false, code: "AUDIO_PERMISSION_DENIED" };
+  }
+
+  async authorizePhotoAccess(callerDeviceId, requestedDeviceId) {
+    const caller = this.normalizeDeviceId(callerDeviceId);
+    const target = this.normalizeDeviceId(requestedDeviceId);
+    if (!caller) return { allowed: false, code: "AUTH_REQUIRED" };
+    if (!target) return { allowed: false, code: "MISSING_DEVICE_ID" };
+    if (!(await this.isAudioTargetChild(target))) {
+      return { allowed: false, code: "PHOTO_TARGET_NOT_CHILD" };
+    }
+    // The child itself may read its own photos. Remote capture requires an adult
+    // in the same family and an explicit REMOTE_PHOTO permission.
+    if (this.isSameDevice(caller, target)) return { allowed: true, deviceId: target };
+    for (const actorId of this.idForms(caller)) {
+      for (const targetId of this.idForms(target)) {
+        const membership = await this.dbManager.getSharedFamilyMembership(actorId, targetId);
+        if (!membership || !["PARENT", "GUARDIAN"].includes(membership.actorRole) ||
+            membership.targetRole !== "CHILD") continue;
+        const permission = await this.dbManager.getFamilyPermission({
+          familyId: membership.familyId,
+          actorMemberId: membership.actorMemberId,
+          targetMemberId: membership.targetMemberId,
+          feature: "REMOTE_PHOTO",
+        });
+        if (permission?.allowed === 1) return { allowed: true, deviceId: target };
+      }
+    }
+    return { allowed: false, code: "PHOTO_PERMISSION_DENIED" };
+  }
+
+  async requirePhotoAccess(req, res, target) {
+    const decision = await this.authorizePhotoAccess(req.deviceId,target);
+    if (decision.allowed) return decision.deviceId;
+    this.respondToDenial(res, decision.code); return null;
+  }
+
   async authorizeFileAccess(callerDeviceId, fileDeviceId) {
     return this.authorizeDeviceAccess(callerDeviceId, fileDeviceId);
   }

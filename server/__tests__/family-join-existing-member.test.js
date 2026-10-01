@@ -162,6 +162,19 @@ describe("an existing person joins with a new phone", () => {
     warnSpy.mockRestore();
   });
 
+  test("a new phone's legacy registration cannot rename the person it joined", async () => {
+    const invitation = (await inviteFor(momMember.id)).body.invitation;
+    expect((await accept(invitation.token, momNewPhone)).status).toBe(200);
+    await db.upsertDeviceLink({
+      parentDeviceId: momNewPhone,
+      childDeviceId: childPhone,
+      parentDisplayName: "Родитель",
+      childDisplayName: "Ребёнок",
+    });
+    const person = (await members()).find((member) => member.id === momMember.id);
+    expect(person.displayName).toBe("Мама");
+  });
+
   test("the invitation names the existing person, not a new one", async () => {
     const response = await inviteFor(momMember.id);
 
@@ -357,5 +370,40 @@ describe("an existing person joins with a new phone", () => {
     const again = await accept(invitation.token, childPhone, "CHILD_DEVICE");
     expect(again.status).toBe(409);
     expect((await members()).filter((member) => member.displayName === "Лёва")).toHaveLength(1);
+  });
+
+  test.each([["CHILD", "CHILD_DEVICE"], ["PARENT", "PARENT_MONITOR"], ["GUARDIAN", "PARENT_MONITOR"]])(
+    "adult invites new %s: URI, preview, accept and replay preserve one identity",
+    async (role, clientKind) => {
+      const before = await members();
+      const created = await request(server, "/api/family-onboarding/invitations", dadPhone, {
+        method: "POST", body: { familyId: family.id, mode: "NEW_MEMBER", displayName: "Новый человек", role },
+      });
+      expect(created.status).toBe(201);
+      const uri = new URL(created.body.invitation.invitationUri);
+      expect(uri.protocol).toBe("childwatch:");
+      expect(uri.hostname).toBe("family");
+      expect(uri.pathname).toBe("/join");
+      const token = uri.searchParams.get("token");
+      const preview = await request(server, `/api/family-onboarding/invitations/${token}`, momNewPhone);
+      expect(preview.body.invitation.member.role).toBe(role);
+      expect(preview.body.invitation.family.id).toBe(family.id);
+      expect(await members()).toHaveLength(before.length);
+      const joined = await accept(token, momNewPhone, clientKind);
+      expect(joined.status).toBe(200);
+      expect(joined.body.member.role).toBe(role);
+      expect(joined.body.member.displayName).toBe("Новый человек");
+      expect(await members()).toHaveLength(before.length + 1);
+      expect((await accept(token, strangerPhone, clientKind)).status).toBe(409);
+      expect(await members()).toHaveLength(before.length + 1);
+    }
+  );
+
+  test("wrong adult app does not consume a child invitation", async () => {
+    const invitation = await onboarding.createInvitation(dadPhone, {
+      familyId: family.id, mode: "NEW_MEMBER", displayName: "Ребёнок", role: "CHILD",
+    });
+    expect((await accept(invitation.token, childPhone, "PARENT_MONITOR")).body.code).toBe("APP_ROLE_MISMATCH");
+    expect((await accept(invitation.token, childPhone, "CHILD_DEVICE")).status).toBe(200);
   });
 });

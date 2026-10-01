@@ -170,7 +170,56 @@ router.get("/files/:fileName", (req, res) => {
   return res.sendFile(resolved);
 });
 
+/**
+ * Serves a package for a one-off manual installation.
+ *
+ * Needed for the first install on a phone that cannot update itself yet: the build
+ * already on it is signed with a different key, so it will refuse anything
+ * published through the update mechanism, and somebody has to open a link on that
+ * phone and install the package by hand.
+ *
+ * This is not a general file server. The name is checked against the same fixed
+ * shape as a release, the directory is separate from the published releases so a
+ * debug build can never be offered as an update, and nothing else in it is
+ * reachable.
+ */
+const DOWNLOAD_DIRECTORY = path.resolve(
+  process.env.CW_DOWNLOAD_DIR || path.join(__dirname, "..", "..", "downloads")
+);
+
+router.get("/downloads/:fileName", (req, res) => {
+  const fileName = String(req.params.fileName || "");
+  if (!/^[A-Za-z0-9._-]+\.apk$/.test(fileName) || fileName.includes("..")) {
+    return res.status(400).json({
+      error: "Not a package name",
+      code: "DOWNLOAD_FILE_NAME_INVALID",
+    });
+  }
+
+  const resolved = path.resolve(path.join(DOWNLOAD_DIRECTORY, fileName));
+  if (!resolved.startsWith(DOWNLOAD_DIRECTORY + path.sep)) {
+    return res.status(400).json({
+      error: "Not a package name",
+      code: "DOWNLOAD_FILE_NAME_INVALID",
+    });
+  }
+
+  if (!fs.existsSync(resolved)) {
+    return res.status(404).json({
+      error: "That package is not available",
+      code: "DOWNLOAD_FILE_MISSING",
+    });
+  }
+
+  res.set("Content-Type", "application/vnd.android.package-archive");
+  res.set("Content-Disposition", `attachment; filename="${fileName}"`);
+  res.set("Cache-Control", "no-store");
+  res.set("X-Content-Type-Options", "nosniff");
+  return res.sendFile(resolved);
+});
+
 module.exports = router;
 module.exports.updateDirectory = updateDirectory;
 module.exports.manifestFile = manifestFile;
 module.exports.readManifest = readManifest;
+module.exports.DOWNLOAD_DIRECTORY = DOWNLOAD_DIRECTORY;

@@ -75,7 +75,9 @@ async function requireFileAccess(req, res, table, fileId, notFoundCode, notFound
         return null;
     }
 
-    const authorizedDeviceId = await deviceAccess.requireDeviceAccess(req, res, record.device_id);
+    const authorizedDeviceId = table === "photo_files"
+        ? await deviceAccess.requirePhotoAccess(req,res,record.device_id)
+        : await deviceAccess.requireDeviceAccess(req, res, record.device_id);
     if (authorizedDeviceId === null) {
         return null;
     }
@@ -127,25 +129,39 @@ router.get('/audio/:deviceId', async (req, res) => {
     }
 });
 
+// Durable result belongs to the explicitly selected and authorized phone.
+router.get('/photo-result/:deviceId/:requestId', async (req,res) => {
+    try {
+        if (!/^[A-Za-z0-9_-]{1,100}$/.test(req.params.requestId)) return res.status(400).json({success:false});
+        const device = await deviceAccess.requirePhotoAccess(req,res,req.params.deviceId);
+        if (device === null) return;
+        const result=await withDatabase(db => require('../services/PhotoDeliveryStore').forDatabase(db)
+            .result(deviceAccess.idForms(device),req.params.requestId));
+        return res.json({success:true,...result});
+    } catch (error) { console.error('Photo result lookup failed',error.message); return res.status(500).json({success:false}); }
+});
+
 // Get photo files for a device
 router.get('/photos/:deviceId', async (req, res) => {
     try {
         const { deviceId } = req.params;
         const { limit = 50, offset = 0 } = req.query;
 
-        const authorizedDeviceId = await deviceAccess.requireDeviceAccess(req, res, deviceId);
+        const authorizedDeviceId = await deviceAccess.requirePhotoAccess(req, res, deviceId);
         if (authorizedDeviceId === null) {
             return undefined;
         }
 
-        const photoFiles = await withDatabase((db) =>
-            db.getPhotoFiles(authorizedDeviceId, parseInt(limit, 10), parseInt(offset, 10))
-        );
+        const photoFiles = await withDatabase(async (db) => {
+            const files = await db.getPhotoFiles(authorizedDeviceId, Math.min(100, Math.max(1, parseInt(limit,10)||50)), Math.max(0,parseInt(offset,10)||0));
+            return require('../services/PhotoDeliveryStore').forDatabase(db).attach(files);
+        });
 
         res.json({
             success: true,
             photoFiles: photoFiles.map(file => ({
                 id: file.id,
+                requestId: file.request_id,
                 filename: file.filename,
                 fileSize: file.file_size,
                 mimeType: file.mime_type,

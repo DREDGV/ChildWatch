@@ -59,6 +59,7 @@ class CommandManager {
             sampleRate: session.sampleRate || null,
             lastOwnerSeenAt,
             ownerStale: this.isSessionOwnerStale(session),
+            listenerCount: session.listeners?.size || 1,
         };
     }
 
@@ -165,6 +166,19 @@ class CommandManager {
             this.normalizeParentId(existingSession.ownerParentId || existingSession.parentId) !==
                 normalizedParentId
         ) {
+            if (options.allowJoin === true) {
+                if (!existingSession.listeners) {
+                    existingSession.listeners = new Set([
+                        this.normalizeParentId(existingSession.ownerParentId || existingSession.parentId),
+                    ]);
+                }
+                existingSession.listeners.add(normalizedParentId);
+                return {
+                    ok: true,
+                    joined: true,
+                    session: this.buildSessionSnapshot(deviceId, existingSession),
+                };
+            }
             return this.buildBusyResult("STREAM_BUSY", deviceId, existingSession);
         }
 
@@ -189,6 +203,8 @@ class CommandManager {
             timeout,
             sampleRate,
             lastOwnerSeenAt: Date.now(),
+            listeners: reused ? (existingSession.listeners || new Set([normalizedParentId]))
+                : new Set([normalizedParentId]),
         };
 
         this.streamingSessions.set(deviceId, nextSession);
@@ -219,11 +235,38 @@ class CommandManager {
         }
 
         const normalizedParentId = this.normalizeParentId(parentId);
+        const listeners = session.listeners || new Set([
+            this.normalizeParentId(session.ownerParentId || session.parentId),
+        ]);
+        if (!listeners.has(normalizedParentId)) {
+            return this.buildBusyResult("STREAM_CONTROL_FORBIDDEN", deviceId, session);
+        }
+        if (listeners.has(normalizedParentId) &&
+            this.normalizeParentId(session.ownerParentId || session.parentId) !== normalizedParentId) {
+            listeners.delete(normalizedParentId);
+            session.listeners = listeners;
+            return { ok: true, listenerLeft: true, session: this.buildSessionSnapshot(deviceId, session) };
+        }
         if (
             !this.isSessionOwnerStale(session) &&
             this.normalizeParentId(session.ownerParentId || session.parentId) !== normalizedParentId
         ) {
             return this.buildBusyResult("STREAM_CONTROL_FORBIDDEN", deviceId, session);
+        }
+
+        listeners.delete(normalizedParentId);
+        if (listeners.size > 0) {
+            if (session.recording) {
+                this.addCommand(deviceId, this.COMMANDS.STOP_RECORDING);
+                session.recording = false;
+            }
+            const nextOwner = listeners.values().next().value;
+            session.ownerParentId = nextOwner;
+            session.parentId = nextOwner;
+            session.ownerDisplayName = null;
+            session.lastOwnerSeenAt = Date.now();
+            session.listeners = listeners;
+            return { ok: true, ownerLeft: true, session: this.buildSessionSnapshot(deviceId, session) };
         }
 
         this.addCommand(deviceId, this.COMMANDS.STOP_STREAM);
@@ -418,6 +461,15 @@ class CommandManager {
 
     isStreaming(deviceId) {
         return this.streamingSessions.has(deviceId);
+    }
+
+    isStreamingListener(deviceId, parentId) {
+        const session = this.streamingSessions.get(deviceId);
+        if (!session) return false;
+        const listener = this.normalizeParentId(parentId);
+        return (session.listeners || new Set([
+            this.normalizeParentId(session.ownerParentId || session.parentId),
+        ])).has(listener);
     }
 
     isRecording(deviceId) {

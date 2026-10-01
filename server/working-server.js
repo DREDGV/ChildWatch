@@ -126,6 +126,8 @@ app.post('/api/loc', authenticateToken, async (req, res) => {
                 latitude,
                 longitude,
                 accuracy,
+                speedMps: req.body.speedMps,
+                speedAccuracyMps: req.body.speedAccuracyMps,
                 timestamp
             });
         }

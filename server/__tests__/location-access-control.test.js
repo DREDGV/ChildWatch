@@ -286,4 +286,74 @@ describe("location access control", () => {
     );
     expect(parentReadsChild.status).toBe(200);
   });
+
+  test("family live positions follow new reports and exclude outsiders", async () => {
+    const motherDeviceId = "mother-location-device";
+    await db.registerDevice(motherDeviceId, {
+      device_name: "Mother",
+      device_type: "android",
+      app_version: "7.3.0",
+    });
+    await db.upsertDeviceLink({ parentDeviceId, childDeviceId });
+    await db.upsertDeviceLink({ parentDeviceId: motherDeviceId, childDeviceId });
+    const [family] = await db.getFamiliesForDevice(parentDeviceId);
+
+    const motherUpload = await requestJson(
+      server,
+      `/api/location/parent/${motherDeviceId}`,
+      motherDeviceId,
+      {
+        method: "POST",
+        body: { latitude: 55.04, longitude: 82.96, accuracy: 9, timestamp: Date.now() },
+      }
+    );
+    expect(motherUpload.status).toBe(200);
+
+    const path = `/api/location/family/latest?familyId=${encodeURIComponent(family.id)}`;
+    const first = await requestJson(server, path, parentDeviceId);
+    expect(first.status).toBe(200);
+    expect(first.body.locations).toHaveLength(2);
+    expect(first.body.locations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ deviceId: childDeviceId, latitude: 55.01 }),
+      expect.objectContaining({ deviceId: motherDeviceId, latitude: 55.04 }),
+    ]));
+
+    await db.saveLocation(childDeviceId, {
+      latitude: 55.08,
+      longitude: 82.99,
+      accuracy: 7,
+      timestamp: Date.now() + 1000,
+    });
+    const second = await requestJson(server, path, parentDeviceId);
+    expect(second.body.locations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ deviceId: childDeviceId, latitude: 55.08 }),
+    ]));
+
+    const outsider = await requestJson(server, path, strangerDeviceId);
+    expect(outsider).toMatchObject({ status: 403, body: { code: "FAMILY_ACCESS_DENIED" } });
+    const anonymous = await requestJson(server, path, null);
+    expect(anonymous.status).toBe(401);
+  });
+
+  test("family live positions respect an explicit location denial", async () => {
+    await db.upsertDeviceLink({ parentDeviceId, childDeviceId });
+    const [family] = await db.getFamiliesForDevice(parentDeviceId);
+    const parent = await db.getFamilyDeviceMembership(family.id, parentDeviceId);
+    const child = await db.getFamilyDeviceMembership(family.id, childDeviceId);
+    await db.upsertFamilyPermission({
+      familyId: family.id,
+      actorMemberId: parent.memberId,
+      targetMemberId: child.memberId,
+      feature: "LOCATION",
+      allowed: false,
+    });
+
+    const response = await requestJson(
+      server,
+      `/api/location/family/latest?familyId=${encodeURIComponent(family.id)}`,
+      parentDeviceId
+    );
+    expect(response.status).toBe(200);
+    expect(response.body.locations).toEqual([]);
+  });
 });

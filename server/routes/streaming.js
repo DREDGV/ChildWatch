@@ -41,7 +41,15 @@ async function requireStreamingAccess(req, res, requestedDeviceId) {
         });
         return null;
     }
-    return deviceAccess.requireDeviceAccess(req, res, requestedDeviceId);
+    const decision = await deviceAccess.authorizeAudioAccess(req.deviceId, requestedDeviceId);
+    if (decision.allowed) return decision.deviceId;
+    res.status(decision.code === 'AUTH_REQUIRED' ? 401 :
+        decision.code === 'MISSING_DEVICE_ID' ? 400 : 403).json({
+        success: false,
+        code: decision.code,
+        error: 'Listening is only available for an authorized child device'
+    });
+    return null;
 }
 
 /**
@@ -70,6 +78,33 @@ async function resolveOwnerDisplayName(parentDeviceId, fallback = null) {
     }
     const normalizedParentId = normalizeParentId(parentDeviceId);
     if (!normalizedParentId) return "";
+
+    // The person's own name first.
+    //
+    // A phone reports its name when it registers, but it only sends one when it has
+    // it, and a phone set up by hand may not. When it does not, this used to answer
+    // with the registered device name and then with the identifier itself - so the
+    // other parent saw a shortened code where a person's name belongs, which is how
+    // the mother appeared when the father tried to listen at the same time.
+    //
+    // The family already knows who the device belongs to, so that is where the name
+    // is taken from before anything else is guessed at.
+    try {
+        const member = await dbManager?.get?.(
+            `SELECT fm.display_name AS display_name
+               FROM family_devices fd
+               JOIN family_members fm ON fm.id = fd.member_id
+              WHERE fd.device_id = ? AND fd.is_active = 1 AND fm.is_active = 1
+              ORDER BY fd.updated_at DESC
+              LIMIT 1`,
+            [normalizedParentId]
+        );
+        const memberName = String(member?.display_name || "").trim();
+        if (memberName) return memberName;
+    } catch (error) {
+        console.warn("Failed to resolve the owner from the family:", error?.message || error);
+    }
+
     try {
         const device = await dbManager?.getDevice?.(normalizedParentId);
         return String(device?.device_name || normalizedParentId).trim();
@@ -183,20 +218,24 @@ router.post('/start', async (req, res) => {
                 : null;
         const normalizedParentId = resolveOwnerId(req, parentId);
         const ownerDisplayName = await resolveOwnerDisplayName(normalizedParentId);
+        const allowJoin = commandManager.isStreaming(targetDeviceId) &&
+            typeof wsManager?.canJoinFamilyAudio === 'function' &&
+            await wsManager.canJoinFamilyAudio(normalizedParentId, targetDeviceId);
         const result = commandManager.requestStreamingStart(
             targetDeviceId,
             normalizedParentId,
             timeout,
             {
                 sampleRate: normalizedSampleRate,
-                ownerDisplayName
+                ownerDisplayName,
+                allowJoin
             }
         );
 
         if (result.ok) {
             // Try immediate WS delivery first. sendCommandToChild can remap target
             // to the only connected child when legacy contact IDs drift.
-            const commandSent = wsManager.sendCommandToChild(targetDeviceId, {
+            const commandSent = result.joined ? false : wsManager.sendCommandToChild(targetDeviceId, {
                 type: 'start_audio_stream',
                 data: {
                     parentId: normalizedParentId,
@@ -206,7 +245,7 @@ router.post('/start', async (req, res) => {
             });
             const childConnected = commandSent || wsManager.isChildConnected(targetDeviceId);
             console.log(`start_audio_stream command sent to ${targetDeviceId} via WebSocket: ${commandSent}`);
-            if (!commandSent) {
+            if (!commandSent && !result.joined) {
                 console.warn(`Child ${targetDeviceId} not connected - command queued and will be picked by polling`);
             }
 
@@ -219,6 +258,8 @@ router.post('/start', async (req, res) => {
                 parentId: normalizedParentId,
                 ownerDisplayName,
                 alreadyActive: result.reused === true,
+                joined: result.joined === true,
+                listenerCount: result.session?.listenerCount || 1,
                 webSocketEnabled: true,
                 childConnected: childConnected,
                 timestamp: Date.now()
@@ -289,12 +330,14 @@ router.post('/stop', async (req, res) => {
 
         if (result.ok) {
             // Best-effort immediate WS stop. If offline, command remains queued.
-            const stopSent = wsManager.sendCommandToChild(targetDeviceId, {
+            const stopSent = result.listenerLeft || result.ownerLeft ? false : wsManager.sendCommandToChild(targetDeviceId, {
                 type: 'stop_audio_stream',
                 data: {},
                 timestamp: Date.now()
             });
-            if (stopSent) {
+            if (result.listenerLeft || result.ownerLeft) {
+                console.log(`Listening participant left ${targetDeviceId}; child stream remains active`);
+            } else if (stopSent) {
                 console.log(`stop_audio_stream command sent to ${targetDeviceId} via WebSocket`);
             } else {
                 console.warn(`stop_audio_stream for ${targetDeviceId} queued - child is offline`);
@@ -305,6 +348,7 @@ router.post('/stop', async (req, res) => {
                 message: 'Audio streaming stopped',
                 deviceId: targetDeviceId,
                 requestedDeviceId: deviceId,
+                streamContinues: result.listenerLeft === true || result.ownerLeft === true,
                 timestamp: Date.now()
             });
         } else if (result.busy) {
@@ -536,6 +580,12 @@ router.get('/chunks/:deviceId', async (req, res) => {
         }
 
         // Get latest chunks
+        if (!commandManager.isStreamingListener(authorizedDeviceId, req.deviceId)) {
+            return res.status(403).json({
+                error: 'Join the listening session before receiving audio',
+                code: 'STREAM_LISTENER_REQUIRED'
+            });
+        }
         const chunks = commandManager.getAudioChunks(authorizedDeviceId, count);
 
         res.json({
@@ -636,4 +686,3 @@ router.get('/status/:deviceId', async (req, res) => {
 });
 
 module.exports = router;
-

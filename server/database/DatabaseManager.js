@@ -794,6 +794,12 @@ class DatabaseManager {
       `UPDATE family_members
        SET display_name = ?, updated_at = strftime('%s', 'now')
        WHERE display_name <> ?
+         AND NOT EXISTS (
+           SELECT 1 FROM family_devices confirmed
+           WHERE confirmed.member_id = family_members.id
+             AND confirmed.is_active = 1
+             AND confirmed.member_binding_source = 'EXPLICIT'
+         )
          AND id IN (
            SELECT member_id
            FROM family_devices
@@ -806,6 +812,7 @@ class DatabaseManager {
        SET display_name = ?, updated_at = strftime('%s', 'now')
        WHERE device_id = ?
          AND is_active = 1
+         AND member_binding_source <> 'EXPLICIT'
          AND display_name <> ?`,
       [normalizedDisplayName, normalizedDeviceId, normalizedDisplayName]
     );
@@ -813,6 +820,12 @@ class DatabaseManager {
       `UPDATE chat_messages_v2
        SET sender_display_name_snapshot = ?
        WHERE sender_display_name_snapshot <> ?
+         AND NOT EXISTS (
+           SELECT 1 FROM family_devices confirmed
+           WHERE confirmed.member_id = chat_messages_v2.sender_member_id
+             AND confirmed.is_active = 1
+             AND confirmed.member_binding_source = 'EXPLICIT'
+         )
          AND sender_member_id IN (
            SELECT member_id
            FROM family_devices
@@ -2599,7 +2612,9 @@ class DatabaseManager {
          actor.member_id AS actorMemberId,
          target.member_id AS targetMemberId,
          actor_member.display_name AS actorDisplayName,
-         target_member.display_name AS targetDisplayName
+         target_member.display_name AS targetDisplayName,
+         actor_member.role AS actorRole,
+         target_member.role AS targetRole
        FROM family_devices actor
        JOIN family_devices target ON target.family_id = actor.family_id
        JOIN families f ON f.id = actor.family_id
@@ -4700,7 +4715,13 @@ class DatabaseManager {
             VALUES (?, ?, ?, ?, ?)
         `;
 
-    return this.run(sql, [deviceId, latitude, longitude, accuracy, timestamp]);
+    const result = await this.run(sql, [deviceId, latitude, longitude, accuracy, timestamp]);
+    try { await require('../services/LocationMotionStore').save(this, deviceId, locationData); }
+    catch (error) { console.error('Motion storage failed', error.message); }
+    // A notification failure must not discard an accepted measurement.
+    try { await require('../services/FamilyPlacesService').forDatabase(this).onLocation(deviceId, locationData); }
+    catch (error) { console.error('Place notification processing failed', error.message); }
+    return result;
   }
 
   /**
