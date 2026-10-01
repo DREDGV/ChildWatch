@@ -1,0 +1,161 @@
+{
+  "createdAt": "2026-10-01T23:40:43.826359",
+  "files": [
+    {
+      "path": "auth/AuthManager.js",
+      "sha256": "118952b79bc7d2448a0c4d5c7af2cb26a34231f94ee2b2607a026fec6d546ac9"
+    },
+    {
+      "path": "database/DatabaseManager.js",
+      "sha256": "62f92e1bf9690ef0b46cd04cafab00e29a021d531b0a4846b168513d92f78e41"
+    },
+    {
+      "path": "ecosystem.config.cjs",
+      "sha256": "7d5fc2ff232691b4855d0959d107cd61bdd0d61c72481b8396cf073f6cb0ac7c"
+    },
+    {
+      "path": "index.js",
+      "sha256": "b6493e20667982fc3ee25a369d92a27a9f34f30d365b7e5df20384eb895c6a1b"
+    },
+    {
+      "path": "managers/AttentionSignalManager.js",
+      "sha256": "7478237672c9b4bc9d614b967d10fe2bcd4d8979197b6778eea0b0e8a851a32a"
+    },
+    {
+      "path": "managers/CommandManager.js",
+      "sha256": "25cfa947f8cec8c8cc0c5c00ea06e5c9fcfb6fc4703b83094c36b3233f0bc6a8"
+    },
+    {
+      "path": "managers/WebSocketManager.js",
+      "sha256": "9f5452f087773ca993fc7d8cb92ea1bd88dedea297cedd5c55b827c7ed752415"
+    },
+    {
+      "path": "middleware/AuthMiddleware.js",
+      "sha256": "f524be26006faf21486d0c46ee466a4516a0dd1a1d5c35c355a5c693895b66f9"
+    },
+    {
+      "path": "middleware/SocketAuthMiddleware.js",
+      "sha256": "46c2cd940477a4b0e95d6bbec71297b10e51ddb459fa45b2ccc3e5c40db1fed6"
+    },
+    {
+      "path": "minimal-server.js",
+      "sha256": "d323f007bada40d43e6f9dda7306bcc4f086f092dc48deec4502aa444b1cd06e"
+    },
+    {
+      "path": "package-lock.json",
+      "sha256": "f62f75bb7629edfe0cbee1b2ce88db5746b31d82e59171028ebe64afb02c5936"
+    },
+    {
+      "path": "package.json",
+      "sha256": "65c4701a4fe6887cd44a2677d72ae0613af5ba9231c0ffaffb15984acc7f718b"
+    },
+    {
+      "path": "routes/alerts.js",
+      "sha256": "c57050d9fe23811d32dd88c58c127718d5047e3677b91ed242d4a6f3be649eda"
+    },
+    {
+      "path": "routes/avatars.js",
+      "sha256": "fcdcce031bc2f2de31b40a32ed19d4782778d1b0fea2a22e2fd92a7a443af42c"
+    },
+    {
+      "path": "routes/chat-v2.js",
+      "sha256": "e94d670445cf3ddff7a903e6d64e6b16fb17295d94058639f1665f02d1d68f8b"
+    },
+    {
+      "path": "routes/chat.js",
+      "sha256": "8b5637be43475785e8d8573fe977bb39fabe215845c042dd20b9ee7d8592be84"
+    },
+    {
+      "path": "routes/debug.js",
+      "sha256": "5f7e251c3e548043b1e4aa88b9df821c81e6e1c85c3bc919f7de96b4b16be9f5"
+    },
+    {
+      "path": "routes/families.js",
+      "sha256": "98009da4b1dd0119bd54cfb1444a3590fa1ec7cbfff5c62f60616bf8134c3150"
+    },
+    {
+      "path": "routes/family-onboarding.js",
+      "sha256": "67394277d48eba798c067cb100952002ab5edfc2f0f105b9a3e4004d76fbbd42"
+    },
+    {
+      "path": "routes/family-places.js",
+      "sha256": "56c85fefb67a46ff0c94d35111ca057d0cba129cfcabe86c7e311f4279a19849"
+    },
+    {
+      "path": "routes/location.js",
+      "sha256": "698dbe0259e27c6959a90bae123986a63e5311a5a898d033318176c3f050d98a"
+    },
+    {
+      "path": "routes/me.js",
+      "sha256": "10ac212a728e24a1c15823e360f508ef9404fe821b8fc57052d9428226716400"
+    },
+    {
+      "path": "routes/media.js",
+      "sha256": "84316cbe72ea47c78a6e1fb484ffb387e47202eb6be7a3de898639c4eb5640d7"
+    },
+    {
+      "path": "routes/streaming.js",
+      "sha256": "c3976219c67bbd1569a0e43add771fff8c80255cfd510515e3424db29e71ccb4"
+    },
+    {
+      "path": "routes/updates.js",
+      "sha256": "3d8f26da1a14c48b88591bf040963fb96ae0e985b4eb619ff10f2e22b65fb5fe"
+    },
+    {
+      "path": "services/AvatarPresetCatalog.js",
+      "sha256": "2bce40587b89024c3e526f3dfedea4deaabc9474d8bda12aef693dcff706a3f9"
+    },
+    {
+      "path": "services/ChatConversationService.js",
+      "sha256": "fb6a05b72921ef3cce4b3bde1c81ea6db71d655a6c41a863916fb39c395cc9d5"
+    },
+    {
+      "path": "services/ChatV2SocketService.js",
+      "sha256": "710998c1b10213ce056846e6d1526afb88a5745e254f43eb1d72436582622597"
+    },
+    {
+      "path": "services/DeviceAccessService.js",
+      "sha256": "79b8b035363673ea02f60608f2e0bdbedf3623a04a4480e73f0d824b96331b65"
+    },
+    {
+      "path": "services/FamilyIdentityService.js",
+      "sha256": "46e3c9871d558b027fd52dbf990e830291140bac07eb5ed37fcb22d870bf368a"
+    },
+    {
+      "path": "services/FamilyOnboardingService.js",
+      "sha256": "677a0f7d107c119855e37ca011b7748b7aa9707eec247c1200141a0810aa2c5b"
+    },
+    {
+      "path": "services/FamilyPermissionService.js",
+      "sha256": "1a3e649da98b93c18f78556c35765888c7f9b5f605be339cc9e4ad98a1ce70f6"
+    },
+    {
+      "path": "services/FamilyPlacesService.js",
+      "sha256": "3de76d7a534f3e56f3e964fff78a6bda32a703c08f1316b4bc37a271ba1a5225"
+    },
+    {
+      "path": "services/LocationMotionStore.js",
+      "sha256": "04dd10cd856b8216d1cd04a74b5d9a4c6f490ad5bbd8217e97a55def464c0201"
+    },
+    {
+      "path": "services/PhotoDeliveryStore.js",
+      "sha256": "cf8fa7342334c3aabba84ce9adefaac1fd073b84032ed2da91a3ab1d94cf8c2a"
+    },
+    {
+      "path": "simple-server.js",
+      "sha256": "acd14da626a1c11479be6a02c697ae46b878c57b503cef3b3662c5a5bbd1b41e"
+    },
+    {
+      "path": "test-startup.js",
+      "sha256": "70aa96d8592e4c474d6d76dcc998413d3b038a991af07fe2da8c34a10edbc4bf"
+    },
+    {
+      "path": "validators/DataValidator.js",
+      "sha256": "1968d12afdf3ecd8e52dce52f422dda04e4c35aca489393908c38c5acf3393eb"
+    },
+    {
+      "path": "working-server.js",
+      "sha256": "50df33f5985464c0d45c59ff8b966c41dac05e2ffe4004ccd6de74800d47344a"
+    }
+  ]
+}

@@ -77,27 +77,15 @@ if (-not (Test-Path -LiteralPath $knownHosts)) { Stop-With "missing $knownHosts"
 # The repository also holds alternative entry points that were never deployed; the
 # first version of this script tried to back one of them up and stopped with
 # "cannot stat", which is how this rule was learned.
-  # The trailing "echo" matters: PowerShell appends the platform's line ending when it
-# pipes a string into a program, so whatever comes last gets an invisible carriage
-# return glued to it and bash reports it as a missing command. The list itself is
-# sorted here rather than on the server for the same reason.
-$remoteListing = ("cd $remoteApp && find . -name '*.js' -not -path './node_modules/*' -not -path './__tests__/*' -not -path './scripts/*' -printf '%P\n'; echo END_OF_LIST") -replace "`r", ""
-$remoteRaw = ($remoteListing | & $ssh -i $key -o UserKnownHostsFile=$knownHosts -o ConnectTimeout=15 -o BatchMode=yes $server 'bash -s' 2>&1 | Out-String)
-if ($remoteRaw -notmatch '\.js') {
-    Write-Host ''
-    Write-Host 'The server could not be asked which sources it runs, so nothing was sent.'
-    Write-Host 'The usual cause is the VPN: turn it off and press the button again.'
-    exit 2
-}
-$remoteFiles = @($remoteRaw -split "`r?`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -like '*.js' })
-Say ("the server runs {0} source file(s)" -f $remoteFiles.Count)
-
-$skipped = @()
-foreach ($relative in @($current.Keys)) {
-    if ($remoteFiles -notcontains $relative) { $skipped += $relative; $current.Remove($relative) }
-}
+# Named rather than inferred: the repository also holds alternative entry points that
+# were never part of the running server, and they are skipped by name. Everything else
+# in server/ is deployed, INCLUDING files that are new to the server - a new module the
+# code requires has to arrive, or the service dies on require at the next restart.
+$neverDeployed = @('minimal-server.js', 'simple-server.js', 'working-server.js', 'test-startup.js')
+$skipped = @($current.Keys | Where-Object { $neverDeployed -contains $_ })
+foreach ($relative in $skipped) { $current.Remove($relative) }
 if ($skipped) {
-    Say ("in the repository but not part of the running server, so not deployed: {0}" -f ($skipped -join ', '))
+    Say ("not part of the running server, so not deployed: {0}" -f ($skipped -join ', '))
 }
 
 $previous = @{}
@@ -147,7 +135,7 @@ $backup = "/home/adminuser/childwatch-code-rollback-$stamp"
 Head 'backup on the server'
 $backupLines = @("set -e", "mkdir -p $backup", "cd $remoteApp")
 foreach ($relative in $changed) { $backupLines += "mkdir -p `"$backup/$(Split-Path $relative -Parent)`" 2>/dev/null || true" }
-foreach ($relative in $changed) { $backupLines += "cp `"$remoteApp/$relative`" `"$backup/$relative`"" }
+foreach ($relative in $changed) { $backupLines += "if [ -f `"$remoteApp/$relative`" ]; then cp `"$remoteApp/$relative`" `"$backup/$relative`"; else echo `"  NEW on the server: $relative`"; fi" }
 $backupLines += "sqlite3 -cmd '.timeout 30000' `"$remoteApp/data/childwatch.db`" `".backup '$backup/childwatch.db'`""
 $backupLines += "chown -R adminuser:adminuser $backup"
 $backupLines += "echo BACKUP_OK"

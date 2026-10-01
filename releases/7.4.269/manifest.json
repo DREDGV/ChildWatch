@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "generatedAt": 1790873091347,
+  "generatedBy": "scripts\\stage-release.ps1",
+  "apps": {
+    "child": {
+      "packageName": "ru.example.parentwatch.debug",
+      "versionCode": 2000000269,
+      "versionName": "7.4.269-debug",
+      "buildType": "debug",
+      "sizeBytes": 37839934,
+      "sha256": "706f5b12dc588341b689a9b0a431c28dfb6c433b4d839dfef98b36f9c73cd1b7",
+      "file": "ChildDevice-7.4.269-debug.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": "Карта семьи: расстояния, следы, скорость GPS и цвет по скорости; новый главный экран и профиль; подключение семьи; удалённое фото и галерея; диагностика камеры, настройки и защита несохранённых изменений. Для серверных функций требуется соответствующее обновление сервера."
+    },
+    "parent": {
+      "packageName": "ru.example.childwatch",
+      "versionCode": 2000000269,
+      "versionName": "7.4.269",
+      "buildType": "debug",
+      "sizeBytes": 45197903,
+      "sha256": "e9c3360649a362ab995e0ff994d4af8a24841230cb751e844ebe8768dad23565",
+      "file": "ParentMonitor-7.4.269.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": "Карта семьи: расстояния, следы, скорость GPS и цвет по скорости; новый главный экран и профиль; подключение семьи; удалённое фото и галерея; диагностика камеры, настройки и защита несохранённых изменений. Для серверных функций требуется соответствующее обновление сервера."
+    }
+  }
+}

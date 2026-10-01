@@ -2,11 +2,11 @@
 
 ## Current Project Status
 
-Before relying on older docs in this repository, read [TRACKING.md](./TRACKING.md).
+Before relying on older docs in this repository, read [TODO.md](./TODO.md) for current tasks and evidence, then [TRACKING.md](./TRACKING.md) for a dated overview. Follow [AGENTS.md](./AGENTS.md) for current build and installation rules.
 
-`TRACKING.md` is the current high-level status file for active work and recent reality-checked behavior.
+`TRACKING.md` is a high-level status file. Its older sections describe earlier project stages.
 
-The active roadmap for the profile system is also maintained in `TRACKING.md`.
+Open profile and family work is maintained in `TODO.md`; `TRACKING.md` gives a dated overview.
 
 Important repository mapping:
 
@@ -24,13 +24,13 @@ Some older documentation in this repository may describe past architecture or ou
 - **Назначение:** Устанавливается на телефон РОДИТЕЛЯ
 - **Функции:** Просмотр локации ребенка, чат, прослушка, удаленная камера
 - **Пакет:** `ru.example.childwatch`
-- **Версия:** 6.4.0
+- **Версия:** определяется текущей сборкой в `app/build.gradle` (указанная ниже история может относиться к старым выпускам)
 
 ### 👶 **ChildDevice** (модуль `parentwatch/`)
 - **Назначение:** Устанавливается на телефон РЕБЕНКА  
 - **Функции:** Отправка локации, получение команд, запись аудио, съемка фото
 - **Пакет:** `ru.example.parentwatch`
-- **Версия:** 5.4.0
+- **Версия:** определяется текущей сборкой в `parentwatch/build.gradle`
 
 ---
 

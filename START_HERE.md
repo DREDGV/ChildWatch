@@ -1,70 +1,34 @@
-# ⚡ ШПАРГАЛКА: 3 команды на каждый день
+# ChildWatch: начало работы
 
-## 🌅 УТРО (1 раз):
+1. [TODO.md](TODO.md): очередь, состояние выпуска, ограничения владельца.
+2. [AGENTS.md](AGENTS.md): правила и безопасные команды.
+3. Один ID задачи; исторические подробности читать только по необходимости.
 
-```powershell
-# 1. Запустить эмулятор (если не запущен)
-Start-Process -FilePath "C:\Users\dr-ed\AppData\Local\Android\Sdk\emulator\emulator.exe" -ArgumentList "-avd Pixel_8_API_35"
+| Модуль | Назначение |
+|---|---|
+| `app/` | ParentMonitor — взрослый; пакет `ru.example.childwatch` |
+| `parentwatch/` | ChildDevice — ребёнок; пакет `ru.example.parentwatch` |
+| `shared-core/` | Общие контракты и логика |
+| `design-system/` | Общие визуальные компоненты и аватары |
+| `server/` | Node/SQLite/WebSocket |
 
-# Подождать 30 секунд, затем:
+Названия модулей исторические: не определять роль телефона по имени папки.
 
-# 2. Запустить scrcpy для Nokia (ChildDevice - устройство ребенка)
-Start-Process scrcpy -ArgumentList "--serial PT19655KA1280800674 --max-size 1024 --video-bit-rate 2M --window-title 'ChildDevice (Nokia)' --window-x 0"
+## Когда разрешены сборка и установка
 
-# 3. Запустить scrcpy для Pixel 8 (ParentMonitor - телефон родителя)
-Start-Process scrcpy -ArgumentList "--serial emulator-5554 --max-size 1024 --video-bit-rate 2M --window-title 'ParentMonitor (Pixel 8)' --window-x 600"
-```
-
-**Готово!** Теперь видите 2 окна: 
-- Nokia слева = **ChildDevice** (телефон ребенка)
-- Pixel 8 справа = **ParentMonitor** (телефон родителя)
-
----
-
-## 💻 РАБОТА (после каждого изменения кода):
+Из корня проекта, PowerShell:
 
 ```powershell
-# Вариант 1: Автоматический (САМЫЙ ПРОСТОЙ)
-.\scripts\dev-workflow.ps1 -Action deploy
+# Только сборка
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-and-install.ps1 -BuildOnly -BuildTimeoutSeconds 900
 
-# Вариант 2: Только для ParentMonitor (эмулятор Pixel 8 - РОДИТЕЛЬ)
-.\gradlew.bat :app:assembleDebug
-adb -s emulator-5554 install -r app/build/outputs/apk/debug/ParentMonitor-v6.4.0-debug.apk
-adb -s emulator-5554 shell am start -n ru.example.childwatch/ru.example.childwatch.MainActivity
+# Установка готового APK на проверенный телефон
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\build-and-install.ps1 -InstallOnly -Target parent -ConnectedParentSerial <serial>
 
-# Вариант 3: Только для ChildDevice (Nokia - РЕБЕНОК)
-.\gradlew.bat :parentwatch:assembleDebug
-adb -s PT19655KA1280800674 install -r parentwatch/build/outputs/apk/debug/ChildDevice-v5.4.0-debug.apk
-adb -s PT19655KA1280800674 shell am start -n ru.example.parentwatch.debug/ru.example.parentwatch.MainActivity
-
-# Вариант 4: Быстрый перезапуск (если уже установлено)
-.\scripts\quick-launch.ps1
+# Компиляция через безопасную обёртку
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run-gradle-safe.ps1 :app:compileDebugKotlin :parentwatch:compileDebugKotlin
 ```
 
-**Ждите 20-30 секунд и смотрите в окна scrcpy!**
-
----
-
-## 🌙 ВЕЧЕР:
-
-```powershell
-# Закрыть все scrcpy
-Get-Process scrcpy -ErrorAction SilentlyContinue | Stop-Process
-
-# Остановить эмулятор (опционально)
-adb -s emulator-5554 emu kill
-```
-
----
-
-## 🎯 ВСЁ!
-
-Вот и всё, что нужно знать!
-
-**3 этапа:**
-
-1. Утром → запустить окна
-2. Работа → deploy после изменений
-3. Вечер → закрыть
-
-**Live preview = вы видите экран устройств в реальном времени через scrcpy!**
+Для выпуска: `.agents/skills/childwatch-release/SKILL.md`. Не подставлять серийники, APK или versionCode из истории. Публикация — отдельное действие.
+Контекст семьи: [CONTEXT.md](CONTEXT.md). Навыки: [docs/agent-workflow.md](docs/agent-workflow.md).
+Прежняя шпаргалка: [архив](docs/history/START_HERE-2026-10-01.md); её команды не являются действующей инструкцией.

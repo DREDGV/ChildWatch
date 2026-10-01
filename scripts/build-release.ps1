@@ -19,7 +19,8 @@ param(
     [switch]$Stage,
     # Build only one application. Both by default.
     [ValidateSet("both", "parent", "child")]
-    [string]$Target = "both"
+    [string]$Target = "both",
+    [int]$VersionCode = 0
 )
 
 $ErrorActionPreference = "Stop"
@@ -129,6 +130,7 @@ Step "Building signed release APKs"
 $tasks = @()
 if ($Target -eq "both" -or $Target -eq "parent") { $tasks += ":app:assembleRelease" }
 if ($Target -eq "both" -or $Target -eq "child") { $tasks += ":parentwatch:assembleRelease" }
+if ($VersionCode -gt 0) { $tasks += "-PcwVersionCode=$VersionCode" }
 
 $env:CW_SIGNING_PASSWORD = $plain
 try {
@@ -172,11 +174,11 @@ if ($Target -eq "both" -or $Target -eq "child") {
     $targets += @{ Key = "child"; Project = "parentwatch"; Label = "ChildDevice" }
 }
 
-foreach ($target in $targets) {
-    $directory = Join-Path $repo "$($target.Project)\build\outputs\apk\release"
+foreach ($apkTarget in $targets) {
+    $directory = Join-Path $repo "$($apkTarget.Project)\build\outputs\apk\release"
     $apk = Get-ChildItem $directory -Filter "*.apk" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
-    if (-not $apk) { Fail "No release APK was produced for $($target.Label)." }
+    if (-not $apk) { Fail "No release APK was produced for $($apkTarget.Label)." }
 
     # apksigner is a wrapper that starts java using JAVA_HOME, so the full JDK has
     # to be in place for the call. Without this the check fails with a message
@@ -191,14 +193,15 @@ foreach ($target in $targets) {
     }
 
     if ($verifyExit -ne 0) {
-        Fail "$($target.Label) is not correctly signed: $verify"
-    }    $line = $verify | Where-Object { $_ -match "SHA-256 digest" } | Select-Object -First 1
-    $fingerprint = if ($line -and $line -match "([0-9a-fA-F:]{95})") {
+        Fail "$($apkTarget.Label) is not correctly signed: $verify"
+    }
+    $line = $verify | Where-Object { $_ -match "SHA-256 digest" } | Select-Object -First 1
+    $fingerprint = if ($line -and $line -match "([0-9a-fA-F:]{64,95})") {
         ($Matches[1] -replace ":", "").ToLowerInvariant()
     } else { "unknown" }
 
     Step ("{0}: signed, {1:N1} MB, fingerprint {2}" -f `
-        $target.Label, ($apk.Length / 1MB), $fingerprint.Substring(0, [Math]::Min(16, $fingerprint.Length)))
+        $apkTarget.Label, ($apk.Length / 1MB), $fingerprint.Substring(0, [Math]::Min(16, $fingerprint.Length)))
 }
 
 # ---------------------------------------------------------------------------

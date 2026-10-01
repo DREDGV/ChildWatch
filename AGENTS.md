@@ -20,6 +20,50 @@ the conversation — is what says whether something is still outstanding.
 - Never delete an item: mark it `[-]` with the reason so decisions stay visible.
 - When replying about unfinished work, mention what was recorded in `TODO.md`.
 
+## Efficient task continuation and skills
+
+- Read the short TODO once at the start of a work stage; read only the chosen ID's
+  section in `docs/tasks/legacy-index.md` when historical details are needed.
+- `[v]` means source changes exist but the required runtime verification remains.
+  `[~]` means work is happening now, not every task that once had an implementation.
+- Keep current state in TODO. Historical snapshots are evidence, not a second
+  current task list. Merge duplicate requests under one ID with source references.
+- For ChildWatch development use `.agents/skills/childwatch-development/SKILL.md`;
+  for requested build/install/release work use
+  `.agents/skills/childwatch-release/SKILL.md`. If not in the session skill catalog,
+  read the file directly. Skill selection guidance: `docs/agent-workflow.md`.
+- Batch independent reads; search the relevant module first. Recheck live devices,
+  server and manifest only before actions depending on them or after relevant changes.
+- User restrictions on tests, builds and publication take precedence. Do permitted
+  work and leave unmet verification explicit; do not request the same approval again.
+
+## UI and design preparation
+
+- Before UI/UX/frontend work read `DESIGN.md`, the relevant section of
+  `DESIGN_REFERENCES.md` and `docs/design-bootstrap.md`. Reuse saved references.
+- Use `.agents/skills/frontend-design/SKILL.md` as the one primary design skill.
+  Add only the relevant specialized skill (design-system, accessibility-review,
+  design-critique or user-research). Do not combine competing frontend skills.
+- For a substantial new screen research 5-15 real examples, select 2-4, explain
+  useful patterns briefly, then implement. User screenshots and existing product
+  language take priority. A small fix does not require repeating the whole research.
+- Inspect the actual rendered result: Android on device/emulator, web in browser.
+  Source or compile success alone does not close a visual task. Record any blocked
+  visual verification in TODO. Available tools and user restrictions take priority.
+
+## Recommend the next useful work
+
+- After completing a task or a coherent work stage, give one concrete recommended
+  next project task, optionally one alternative. Base it on fresh findings and TODO;
+  state the expected user-visible result and why it follows this work in one sentence.
+- Record newly found defects in TODO immediately. Record speculative improvements
+  as proposals awaiting selection, never as already approved implementation scope.
+- Do not create a long generic roadmap or recommend more testing/building when the
+  owner has asked to prioritize source development. Existing unfinished work comes first.
+- A suggestion is not permission to start new scope, publish, message people or alter
+  external state. If the owner already authorized autonomous continuation of a queue,
+  follow that authorization. Honor explicit pauses/stops without proposing more work.
+
 ## Room schema changes: always bump the version
 
 Adding a column to a Room entity without raising the database version crashes the
@@ -72,11 +116,11 @@ Rules that follow from those numbers:
 - **Report progress while a long command runs.** Never start a multi-minute
   build and stay silent: state what is running and how long it should take. Run
   it as a background job and read its output rather than waiting with no output.
-- **A build that exceeds its expected time is a problem, not patience.** At
-  roughly twice the expected duration, stop waiting, read the output, and report
-  what it is stuck on.
-- **If it has not worked within about a minute past the expected time, say so**
-  and switch to diagnosing instead of continuing to wait.
+- **Inspect output when timing diverges; do not wait silently.** The estimates
+  above describe older warm builds. Do not terminate normal Android compilation
+  before the 900-second allowance in the safe-execution section.
+- For `build-and-install.ps1`, pass `-BuildTimeoutSeconds 900` or greater for
+  Android compilation; its current default is shorter than that allowance.
 - Run independent steps in the same call — for example assembling and checking
   devices together — so wall-clock time is not spent sequentially.
 - Install with push + `pm install`; never the streamed path on the Nokia.

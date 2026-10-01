@@ -2,13 +2,23 @@
 
 ## Source Of Truth
 
+For open work and proof of completion, read [`TODO.md`](TODO.md). This file is a dated high-level overview; older stage reports below preserve the state at the time they were written. Check current code and the latest device/server evidence before treating a feature as delivered.
+
+## Snapshot — 2026-09-30
+
+- The group-chat server is live, and both Android clients contain the follow-up fixes for the owner's four findings. The latest child-app commit is `d25a368`; both Kotlin modules compiled. That child build has **not** been checked on a device yet. The 2026-09-29 pause note in `TODO.md` predates this commit.
+- Joining an existing adult profile on a new parent device was exercised with a real invitation and an Android emulator; the server kept the same person record. Real-phone reinstall, fresh-family setup, and recovery when all adult phones are lost remain open. The owner chose an advance family backup code for the latter; it is documented but not implemented.
+- Map work, audio, remote photo, signal, and the parent home screen have substantial uncommitted changes in the shared checkout. Their presence or successful compilation is not proof of field behavior. The next map gate is a moving-device route and stale-location check, including both Android clients.
+- The current device update path has an OTA success on the father's phone, but the one-call build/install script has a recorded hang and some devices still need a cable-installed updater. Keep deployment and installed-version claims tied to exact device checks.
+- `TODO.md` section 1 holds the profile/settings/home-screen work; sections 3, 6, and 10 hold device reliability, family onboarding, and map work. Historical plans and release notes are context, not completion evidence.
+
 This file is the current status of the project for active work.
 
 If old README sections, archived docs, changelogs, or feature notes disagree with the code, trust in this order:
 
-1. current code in `main`
-2. this `TRACKING.md`
-3. feature-specific docs only when they clearly match the code
+1. current code in the active checkout, with its branch and uncommitted changes identified
+2. `TODO.md` for open work and completion evidence
+3. this dated overview and feature-specific docs when they clearly match the code
 
 ## Module Mapping
 

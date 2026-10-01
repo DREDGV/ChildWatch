@@ -187,3 +187,11 @@ signing-password*
 # Released packages staged for publishing. Large binaries, and they belong on the
 # server rather than in the repository.
 /updates/
+
+# Built application packages are artefacts, not sources: committing them would add
+# eighty megabytes to every clone and to every future fetch, for ever.
+releases/**/*.apk
+*.apk
+
+# Scratch files left by an agent while investigating something.
+tmp-*

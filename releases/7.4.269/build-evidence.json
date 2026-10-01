@@ -1,0 +1,11 @@
+{
+  "builtAt": "2026-10-01T23:44:24+07:00",
+  "buildResult": "BUILD SUCCESSFUL",
+  "durationSeconds": 137,
+  "sourceFiles": 804,
+  "changedDuringBuild": [],
+  "versionCode": 2000000269,
+  "packageAndCertificateMatchPriorRelease": true,
+  "installed": false,
+  "serverPublished": false
+}

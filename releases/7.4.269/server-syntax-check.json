@@ -1,0 +1,187 @@
+[
+  {
+    "path": "auth/AuthManager.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "database/DatabaseManager.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "ecosystem.config.cjs",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "index.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "managers/AttentionSignalManager.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "managers/CommandManager.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "managers/WebSocketManager.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "middleware/AuthMiddleware.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "middleware/SocketAuthMiddleware.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "minimal-server.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "routes/alerts.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "routes/avatars.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "routes/chat-v2.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "routes/chat.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "routes/debug.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "routes/families.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "routes/family-onboarding.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "routes/family-places.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "routes/location.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "routes/me.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "routes/media.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "routes/streaming.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "routes/updates.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "services/AvatarPresetCatalog.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "services/ChatConversationService.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "services/ChatV2SocketService.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "services/DeviceAccessService.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "services/FamilyIdentityService.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "services/FamilyOnboardingService.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "services/FamilyPermissionService.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "services/FamilyPlacesService.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "services/LocationMotionStore.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "services/PhotoDeliveryStore.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "simple-server.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "test-startup.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "validators/DataValidator.js",
+    "exitCode": 0,
+    "error": ""
+  },
+  {
+    "path": "working-server.js",
+    "exitCode": 0,
+    "error": ""
+  }
+]
