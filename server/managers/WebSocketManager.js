@@ -1127,9 +1127,10 @@ class WebSocketManager {
       const existingPending = this.pendingPhotoRequests.get(reqId);
       if (existingPending) {
         const sameOperation =
-          existingPending.parentSocketId === socket.id &&
+          this.normalizeDeviceId(existingPending.parentDeviceId) === requesterParentId &&
           this.normalizeDeviceId(existingPending.deviceId) === resolvedDeviceId;
         if (sameOperation) {
+          existingPending.parentSocketId = socket.id;
           socket.emit("photo_request_queued", {
             requestId: reqId,
             deviceId: resolvedDeviceId,
@@ -1141,6 +1142,34 @@ class WebSocketManager {
             requestId: reqId,
             error: "photo_request_id_conflict",
           });
+        }
+        return;
+      }
+
+      const deliveries = require('../services/PhotoDeliveryStore').forDatabase(this.dbManager);
+      const owner = await deliveries.owner(reqId);
+      if (owner && !this.deviceAccess.isSameDevice(owner, resolvedDeviceId)) {
+        socket.emit('photo_error', {requestId:reqId,error:'photo_request_id_conflict'});
+        return;
+      }
+      const stored = await deliveries.result(this.deviceAccess.idForms(resolvedDeviceId), reqId);
+      if (stored.status !== 'pending') {
+        // Reconnect/replay recovers the operation, never takes another photo.
+        socket.emit(stored.status === 'error' ? 'photo_error' : 'photo_request_received', {
+          requestId: reqId, deviceId: resolvedDeviceId, error: stored.error, timestamp: Date.now(),
+        });
+        return;
+      }
+      // Another request may have completed its durable lookup during our await.
+      const concurrent = this.pendingPhotoRequests.get(reqId);
+      if (concurrent) {
+        if (this.normalizeDeviceId(concurrent.parentDeviceId) !== requesterParentId ||
+            this.normalizeDeviceId(concurrent.deviceId) !== resolvedDeviceId) {
+          socket.emit('photo_error',{requestId:reqId,error:'photo_request_id_conflict'});
+        } else {
+          concurrent.parentSocketId = socket.id;
+          socket.emit('photo_request_queued',{requestId:reqId,deviceId:resolvedDeviceId,
+            camera:concurrent.camera,timestamp:concurrent.createdAt});
         }
         return;
       }

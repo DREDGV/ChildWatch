@@ -12,25 +12,47 @@ class PhotoDeliveryStore {
   save(deviceId, requestId, metadata) {
     const work=this.queue.then(async () => {
       await this.ensure();
+      return this.db.withTransaction(async () => {
       if (requestId) {
         const previous=await this.db.get('SELECT * FROM photo_deliveries WHERE request_id=?',[requestId]);
         if (previous) {
           if (previous.device_id !== deviceId) throw Object.assign(new Error('Photo request belongs to another device'),{status:403});
-          return {filename:previous.filename, reused:true};
+          return {filename:previous.filename, capturedAt:previous.captured_at, reused:true};
         }
+      }
+      if (requestId) {
+        const failed = await this.db.get('SELECT device_id FROM photo_capture_failures WHERE request_id=?',[requestId]);
+        if (failed && failed.device_id !== deviceId) throw Object.assign(new Error('Photo request belongs to another device'),{status:403});
       }
       await this.db.savePhotoFile(deviceId,metadata);
       if (requestId) await this.db.run('INSERT INTO photo_deliveries(request_id,device_id,filename,captured_at) VALUES(?,?,?,?)',
         [requestId,deviceId,metadata.filename,metadata.timestamp]);
-      return {filename:metadata.filename,reused:false};
+      return {filename:metadata.filename,capturedAt:metadata.timestamp,reused:false};
+      });
     });
     this.queue=work.catch(()=>{}); return work;
   }
-  async fail(deviceId, requestId, error) {
+  fail(deviceId, requestId, error) {
+    const work = this.queue.then(async () => {
+      await this.ensure();
+      const delivered = await this.db.get('SELECT device_id FROM photo_deliveries WHERE request_id=?',[requestId]);
+      if (delivered) {
+        if (delivered.device_id !== deviceId) throw Object.assign(new Error('Photo request belongs to another device'),{status:403});
+        return; // A late failure never downgrades a delivered image.
+      }
+      const failed = await this.db.get('SELECT device_id FROM photo_capture_failures WHERE request_id=?',[requestId]);
+      if (failed && failed.device_id !== deviceId) throw Object.assign(new Error('Photo request belongs to another device'),{status:403});
+      await this.db.run(`INSERT INTO photo_capture_failures(request_id,device_id,error,created_at) VALUES(?,?,?,?)
+        ON CONFLICT(request_id) DO UPDATE SET error=excluded.error,created_at=excluded.created_at`,
+        [requestId,deviceId,error.slice(0,200),Date.now()]);
+    });
+    this.queue = work.catch(()=>{}); return work;
+  }
+  async owner(requestId) {
     await this.ensure();
-    await this.db.run(`INSERT INTO photo_capture_failures(request_id,device_id,error,created_at) VALUES(?,?,?,?)
-      ON CONFLICT(request_id) DO UPDATE SET error=excluded.error,created_at=excluded.created_at WHERE photo_capture_failures.device_id=excluded.device_id`,
-      [requestId,deviceId,error.slice(0,200),Date.now()]);
+    const row = await this.db.get(`SELECT device_id FROM photo_deliveries WHERE request_id=?
+      UNION SELECT device_id FROM photo_capture_failures WHERE request_id=? LIMIT 1`,[requestId,requestId]);
+    return row?.device_id || null;
   }
   async result(deviceIds, requestId) {
     await this.ensure();
@@ -41,6 +63,7 @@ class PhotoDeliveryStore {
       timestamp:saved.timestamp,width:saved.width,height:saved.height,createdAt:saved.created_at,requestId,
       downloadUrl:`/api/media/download/photo/${saved.id}`,thumbnailUrl:`/api/media/thumbnail/${saved.id}`}};
     const failed=await this.db.get(`SELECT error FROM photo_capture_failures WHERE request_id=? AND device_id IN (${marks})`,[requestId,...deviceIds]);
+    if (failed?.error === 'photo_upload_queued') return {status:'uploading',error:failed.error};
     return failed ? {status:'error',error:failed.error} : {status:'pending'};
   }
   async attach(files) {

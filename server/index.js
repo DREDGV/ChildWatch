@@ -127,7 +127,7 @@ const storage = multer.diskStorage({
   filename: (req, file, cb) => {
     const timestamp = Date.now();
     const ext = path.extname(file.originalname);
-    cb(null, `${file.fieldname}_${timestamp}${ext}`);
+    cb(null, `${file.fieldname}_${timestamp}_${require("crypto").randomUUID()}${ext}`);
   },
 });
 
@@ -759,6 +759,7 @@ app.post(
   authMiddleware.rateLimit(60000, 20), // 20 requests per minute for photos
   upload.single("photo"),
   async (req, res) => {
+    let retained = false;
     try {
       if (!req.file) {
         return res.status(400).json({
@@ -769,6 +770,8 @@ app.post(
 
       const deviceId = req.deviceId;
       const { timestamp, requestId, ownDeviceId } = req.body;
+      const photoAuthorization = await new (require('./services/DeviceAccessService'))(dbManager).authorizePhotoAccess(deviceId, deviceId);
+      if (!photoAuthorization.allowed) return res.status(403).json({success:false,code:photoAuthorization.code});
       if (ownDeviceId && !new (require('./services/DeviceAccessService'))(dbManager).isSameDevice(ownDeviceId,deviceId)) return res.status(403).json({success:false,error:'Photo belongs to another phone'});
       if (requestId && (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(requestId))) return res.status(400).json({success:false,error:"Invalid photo request ID"});
 
@@ -798,9 +801,10 @@ app.post(
         timestamp: photoTimestamp,
       });
 
+      retained = !delivery.reused;
       if (delivery.reused) {
         await fs.promises.unlink(req.file.path).catch(() => {});
-        return res.json({success:true,filename:delivery.filename,requestId,deviceId,timestamp:photoTimestamp});
+        return res.json({success:true,filename:delivery.filename,requestId,deviceId,timestamp:delivery.capturedAt});
       }
 
       if (requestId) {
@@ -831,7 +835,7 @@ app.post(
         filename: delivery.filename,
         requestId: requestId || null,
         deviceId: deviceId,
-        timestamp: Date.now(),
+        timestamp: delivery.capturedAt,
       });
     } catch (error) {
       console.error("Photo upload error:", error);
@@ -839,6 +843,9 @@ app.post(
         error: "Internal server error",
         code: "PHOTO_UPLOAD_ERROR",
       });
+    } finally {
+      // A rejected/retried multipart file must not become an orphan on disk.
+      if (!retained && req.file?.path) await fs.promises.unlink(req.file.path).catch(() => {});
     }
   }
 );

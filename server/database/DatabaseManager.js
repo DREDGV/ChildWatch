@@ -635,6 +635,123 @@ class DatabaseManager {
 
     // Shared picture of the group chat.
     await this.addColumnIfNotExists("families", "avatar_key", "TEXT");
+
+    // Per-day screen-time history. Purely additive: two new tables, no existing
+    // table is rebuilt or rewritten, so a database that already has three months
+    // of device status keeps all of it.
+    await this.ensureAppUsageHistoryTables();
+  }
+
+  /**
+   * The stored activity history: one row per child, per local calendar day.
+   *
+   * The device status table only ever holds the *newest* snapshot, so a single
+   * empty upload ("no usage data available right now", which the child app really
+   * does send) erased the whole day and the next good upload brought it back. That
+   * is the bug this schema exists to remove: a day is accumulated, and an upload
+   * can only ever add to it.
+   *
+   * Two tables rather than one JSON blob. The day row answers "how much, when did
+   * it start, when was it last seen" with a single lookup, and the per-app rows
+   * answer "which app, and when was it last used" without parsing and rewriting a
+   * document on every one of the child's snapshots - which arrive every couple of
+   * minutes and would otherwise make a lost update likely rather than impossible.
+   *
+   * The day key is the child's own local date, not the server's: `time_zone` is
+   * stored beside `day` so a report can be explained ("the 14th, in Europe/Berlin")
+   * instead of being silently reinterpreted in the server's zone.
+   *
+   * The migration is idempotent by construction - `CREATE TABLE/INDEX IF NOT
+   * EXISTS` plus a `schema_migrations` record - so running it twice, or on a
+   * database created after this change, changes nothing.
+   */
+  async ensureAppUsageHistoryTables() {
+    const migrationName = "app_usage_history_v1";
+
+    await this.run(`
+      CREATE TABLE IF NOT EXISTS app_usage_days (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        family_id TEXT,
+        member_id TEXT,
+        device_id TEXT NOT NULL,
+        day TEXT NOT NULL,
+        time_zone TEXT,
+        source TEXT NOT NULL DEFAULT 'DAILY_USAGE',
+        apps_count INTEGER NOT NULL DEFAULT 0,
+        total_time_ms INTEGER NOT NULL DEFAULT 0,
+        day_start_ms INTEGER,
+        day_end_ms INTEGER,
+        app_usage_collected_at_ms INTEGER,
+        snapshot_count INTEGER NOT NULL DEFAULT 0,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
+    await this.run(`
+      CREATE TABLE IF NOT EXISTS app_usage_day_apps (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        day_id INTEGER NOT NULL,
+        package_name TEXT NOT NULL,
+        app_name TEXT,
+        total_time_in_foreground_ms INTEGER NOT NULL DEFAULT 0,
+        last_used_ms INTEGER,
+        first_used_ms INTEGER,
+        last_foreground_at_ms INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    `);
+
+    // "one day per child per local date" is a constraint, not a convention: without
+    // it a concurrent upload could insert a second row for the same day and the
+    // parent would see only whichever row the read happened to pick.
+    await this.run(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_app_usage_days_device_day
+      ON app_usage_days (device_id, day, source)
+    `);
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_app_usage_days_family_day
+       ON app_usage_days (family_id, day)`
+    );
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_app_usage_days_member_day
+       ON app_usage_days (member_id, day)`
+    );
+    // Retention deletes by age, so the sweep has an index to walk.
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_app_usage_days_day
+       ON app_usage_days (day)`
+    );
+    await this.run(`
+      CREATE UNIQUE INDEX IF NOT EXISTS idx_app_usage_day_apps_day_package
+      ON app_usage_day_apps (day_id, package_name)
+    `);
+    await this.run(
+      `CREATE INDEX IF NOT EXISTS idx_app_usage_day_apps_day_time
+       ON app_usage_day_apps (day_id, total_time_in_foreground_ms)`
+    );
+
+    const now = Date.now();
+    await this.run(
+      `INSERT INTO schema_migrations (
+         name,
+         applied_at,
+         last_run_at,
+         details_json
+       ) VALUES (?, ?, ?, ?)
+       ON CONFLICT(name) DO UPDATE SET
+         last_run_at = excluded.last_run_at,
+         details_json = excluded.details_json`,
+      [
+        migrationName,
+        now,
+        now,
+        JSON.stringify({ tables: ["app_usage_days", "app_usage_day_apps"] }),
+      ]
+    );
+
+    return { migration: migrationName };
   }
 
   createStableFamilyId(parts) {
@@ -797,7 +914,6 @@ class DatabaseManager {
          AND NOT EXISTS (
            SELECT 1 FROM family_devices confirmed
            WHERE confirmed.member_id = family_members.id
-             AND confirmed.is_active = 1
              AND confirmed.member_binding_source = 'EXPLICIT'
          )
          AND id IN (
@@ -823,7 +939,6 @@ class DatabaseManager {
          AND NOT EXISTS (
            SELECT 1 FROM family_devices confirmed
            WHERE confirmed.member_id = chat_messages_v2.sender_member_id
-             AND confirmed.is_active = 1
              AND confirmed.member_binding_source = 'EXPLICIT'
          )
          AND sender_member_id IN (
@@ -1043,9 +1158,18 @@ class DatabaseManager {
                  id, family_id, display_name, role, avatar_key, is_active
                ) VALUES (?, ?, ?, ?, ?, 1)
                ON CONFLICT(id) DO UPDATE SET
-                 display_name = excluded.display_name,
-                 role = excluded.role,
-                 avatar_key = COALESCE(family_members.avatar_key, excluded.avatar_key),
+                 display_name = CASE WHEN EXISTS (
+                   SELECT 1 FROM family_devices fd WHERE fd.member_id = family_members.id
+                     AND fd.member_binding_source = 'EXPLICIT'
+                 ) THEN family_members.display_name ELSE excluded.display_name END,
+                 role = CASE WHEN EXISTS (
+                   SELECT 1 FROM family_devices fd WHERE fd.member_id = family_members.id
+                     AND fd.member_binding_source = 'EXPLICIT'
+                 ) THEN family_members.role ELSE excluded.role END,
+                 avatar_key = CASE WHEN EXISTS (
+                   SELECT 1 FROM family_devices fd WHERE fd.member_id = family_members.id
+                     AND fd.member_binding_source = 'EXPLICIT'
+                 ) THEN family_members.avatar_key ELSE COALESCE(family_members.avatar_key, excluded.avatar_key) END,
                  is_active = 1,
                  updated_at = strftime('%s', 'now')`,
               [memberId, familyId, displayName, role, defaultAvatarKeyFor(memberId)]
@@ -1920,11 +2044,11 @@ class DatabaseManager {
     const normalizedFamilyId = String(familyId || "").trim();
     const normalizedMemberId = String(memberId || "").trim();
     const normalizedDeviceId = String(deviceId || "").trim();
-    const normalizedDisplayName = String(displayName || "")
+    let normalizedDisplayName = String(displayName || "")
       .trim()
       .replace(/\s+/g, " ")
       .slice(0, 100);
-    const normalizedAvatarKey =
+    let normalizedAvatarKey =
       avatarKey === null || avatarKey === undefined
         ? null
         : String(avatarKey).trim().slice(0, 200) || null;
@@ -1946,6 +2070,21 @@ class DatabaseManager {
         const error = new Error("Device does not represent this family member");
         error.code = "FAMILY_PROFILE_CONFIRMATION_DENIED";
         throw error;
+      }
+
+      // A setup retry is not a profile edit. The authoritative name/avatar may
+      // have been changed since the phone queued this onboarding request.
+      const confirmed = await this.get(
+        `SELECT fm.display_name AS displayName, fm.avatar_key AS avatarKey
+         FROM family_members fm WHERE fm.id = ? AND fm.family_id = ? AND fm.is_active = 1
+         AND EXISTS (SELECT 1 FROM family_devices fd
+           WHERE fd.family_id = fm.family_id AND fd.member_id = fm.id
+             AND fd.member_binding_source = 'EXPLICIT')`,
+        [normalizedMemberId, normalizedFamilyId]
+      );
+      if (confirmed) {
+        normalizedDisplayName = confirmed.displayName;
+        normalizedAvatarKey = confirmed.avatarKey;
       }
 
       const now = Date.now();
@@ -2209,6 +2348,12 @@ class DatabaseManager {
          WHERE fm.id = ?
            AND fm.family_id = ?
            AND fm.is_active = 1
+           AND NOT EXISTS (
+             SELECT 1 FROM family_devices confirmed
+             WHERE confirmed.family_id = fm.family_id
+               AND confirmed.member_id = fm.id
+               AND confirmed.member_binding_source = 'EXPLICIT'
+           )
            AND EXISTS (
              SELECT 1
              FROM family_devices fd
@@ -4853,15 +4998,15 @@ class DatabaseManager {
   /**
    * Get photo files
    */
-  async getPhotoFiles(deviceId, limit = 50) {
+  async getPhotoFiles(deviceId, limit = 50, offset = 0) {
     const sql = `
             SELECT * FROM photo_files
             WHERE device_id = ?
-            ORDER BY timestamp DESC
-            LIMIT ?
+            ORDER BY timestamp DESC, id DESC
+            LIMIT ? OFFSET ?
         `;
 
-    return this.all(sql, [deviceId, limit]);
+    return this.all(sql, [deviceId, limit, offset]);
   }
 
   /**
@@ -5032,6 +5177,27 @@ class DatabaseManager {
     displayName = normalizeOptionalDisplayName(displayName);
     parentDisplayName = normalizeOptionalDisplayName(parentDisplayName);
     childDisplayName = normalizeOptionalDisplayName(childDisplayName);
+
+    // Registration carries cached labels. A confirmed person's profile always wins,
+    // including when its original phone has since been disconnected.
+    const confirmedName = async (deviceId) => {
+      const person = await this.get(
+        `SELECT fm.display_name AS name FROM family_devices fd
+         JOIN family_members fm ON fm.id = fd.member_id AND fm.family_id = fd.family_id
+         JOIN families f ON f.id = fm.family_id AND f.is_active = 1
+         WHERE fd.device_id = ? AND fm.is_active = 1
+           AND EXISTS (SELECT 1 FROM family_devices confirmed
+             WHERE confirmed.family_id = fm.family_id AND confirmed.member_id = fm.id
+               AND confirmed.member_binding_source = 'EXPLICIT')
+         ORDER BY fd.is_active DESC, fd.updated_at DESC LIMIT 1`, [deviceId]);
+      return person?.name || null;
+    };
+    parentDisplayName = (await confirmedName(parentDeviceId)) || parentDisplayName;
+    const canonicalChildName = await confirmedName(childDeviceId);
+    if (canonicalChildName) {
+      childDisplayName = canonicalChildName;
+      displayName = canonicalChildName;
+    }
 
     const existingLink = await this.get(
       `SELECT is_active AS isActive
