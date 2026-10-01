@@ -46,7 +46,12 @@ class ParentFamilyDirectoryRepository(context: Context) {
     private val contextResolver by lazy { ParentEffectiveContextResolver(appContext) }
     private val contextProvider by lazy { ParentEffectiveContextProvider.get(appContext) }
 
+    private fun ownScope(): String = org.json.JSONArray(listOf(contextResolver.resolveServerUrl(),
+        contextResolver.resolveFamilyId(), contextResolver.resolveOwnParentId())).toString()
+
     suspend fun load(): ParentFamilyDirectoryResult {
+        val scope = ownScope()
+        val revision = ParentFamilyProfileCache(appContext).revision()
         val localChildren = database.childDao().getAll()
         val localParent = database.parentDao().getAll().firstOrNull()
         val canonical = runCatching {
@@ -59,6 +64,7 @@ class ParentFamilyDirectoryRepository(context: Context) {
             .onFailure { Log.w(TAG, "Canonical family directory is unavailable", it) }
             .getOrNull()
 
+        if (scope != ownScope() || revision != ParentFamilyProfileCache(appContext).revision()) throw kotlinx.coroutines.CancellationException("Family context changed")
         if (canonical != null) {
             rememberCanonicalIdentity(canonical.directory)
             return canonical
@@ -107,12 +113,14 @@ class ParentFamilyDirectoryRepository(context: Context) {
         displayName: String,
         avatarValue: String?
     ): Boolean {
+        val scope = ownScope()
         val normalizedDeviceId = deviceId.trim()
         val normalizedName = displayName.trim()
         if (normalizedDeviceId.isBlank() || normalizedName.length < 2) return false
 
         val directoryResult = runCatching { load() }.getOrNull() ?: return false
         if (directoryResult.source != ParentFamilyDirectorySource.SERVER) return false
+        if (scope != ownScope()) return false
         val person = directoryResult.directory.personByDeviceId(normalizedDeviceId) ?: return false
         val response = networkClient.updateFamilyMemberProfile(
             familyId = person.member.familyId,
@@ -120,7 +128,11 @@ class ParentFamilyDirectoryRepository(context: Context) {
             displayName = normalizedName,
             avatarKey = avatarValue.toPortableAvatarKey()
         )
-        return response.isSuccessful && response.body()?.success == true
+        if (scope != ownScope() || !response.isSuccessful || response.body()?.success != true) return false
+        val accepted = response.body()!!.member
+        if (accepted.id != person.member.id || accepted.familyId != person.member.familyId) return false
+        ParentFamilyProfileCache(appContext).rememberPublished(accepted, normalizedDeviceId)
+        return true
     }
 
     /**
@@ -171,6 +183,7 @@ class ParentFamilyDirectoryRepository(context: Context) {
     }
 
     suspend fun updateOwnProfile(displayName: String, avatarValue: String?): Boolean {
+        val scope = ownScope()
         val normalizedName = displayName.trim()
         if (normalizedName.length < 2) return false
         val identity = runCatching { networkClient.getAuthenticatedIdentity() }
@@ -185,13 +198,18 @@ class ParentFamilyDirectoryRepository(context: Context) {
             identity.memberships.singleOrNull()
         }
             ?: return false
+        if (scope != ownScope()) return false
         val response = networkClient.updateFamilyMemberProfile(
             familyId = membership.familyId,
             memberId = membership.memberId,
             displayName = normalizedName,
             avatarKey = avatarValue.toPortableAvatarKey()
         )
-        return response.isSuccessful && response.body()?.success == true
+        if (scope != ownScope() || !response.isSuccessful || response.body()?.success != true) return false
+        val member = response.body()!!.member
+        if (member.id != membership.memberId || member.familyId != membership.familyId) return false
+        ParentFamilyProfileCache(appContext).rememberPublished(member, contextResolver.resolveOwnParentId())
+        return true
     }
 
     /**
@@ -275,8 +293,8 @@ class ParentFamilyDirectoryRepository(context: Context) {
                     displayName = member.displayName.trim().ifBlank {
                         localParentName?.trim().orEmpty().ifBlank { "Родитель" }
                     },
-                    avatarKey = member.avatarKey
-                        ?: localParentAvatar?.trim()?.takeIf(String::isNotBlank)
+                    avatarKey = if (selected.devices.any { it.memberId == selfMemberId && it.memberBindingSource.equals("EXPLICIT", true) })
+                        member.avatarKey else member.avatarKey ?: localParentAvatar?.trim()?.takeIf(String::isNotBlank)
                 )
             }
         }
@@ -320,7 +338,9 @@ class ParentFamilyDirectoryRepository(context: Context) {
             updatedAt = now
         )
 
-        val parentName = localParentName?.trim()
+        val cache = ParentFamilyProfileCache(appContext)
+        val cachedSelf = cache.person(selfDeviceId)
+        val parentName = cachedSelf?.name ?: localParentName?.trim()
             ?.takeIf(String::isNotBlank)
             ?: "Родитель"
         val members = buildList {
@@ -330,7 +350,7 @@ class ParentFamilyDirectoryRepository(context: Context) {
                     familyId = familyId,
                     displayName = parentName,
                     role = FamilyRole.PARENT,
-                    avatarKey = localParentAvatar?.trim()?.takeIf(String::isNotBlank)
+                    avatarKey = if (cachedSelf != null) cachedSelf.avatar else localParentAvatar?.trim()?.takeIf(String::isNotBlank)
                 )
             )
             localChildren.filter(Child::isActive).forEach { child ->
@@ -338,9 +358,9 @@ class ParentFamilyDirectoryRepository(context: Context) {
                     FamilyMember(
                         id = StableContextIds.memberId(child.deviceId),
                         familyId = familyId,
-                        displayName = child.name.trim().ifBlank { "Ребёнок" },
+                        displayName = cache.person(child.deviceId)?.name ?: child.name.trim().ifBlank { "Ребёнок" },
                         role = child.role.toFamilyRole(),
-                        avatarKey = child.avatarUrl,
+                        avatarKey = if (cache.person(child.deviceId) != null) cache.person(child.deviceId)?.avatar else child.avatarUrl,
                         isActive = true
                     )
                 )
@@ -389,6 +409,7 @@ class ParentFamilyDirectoryRepository(context: Context) {
             selfMemberId = directory.selfMemberId,
             focusedMemberId = focusedMemberId
         )
+        ParentFamilyProfileCache(appContext).remember(directory)
     }
 
     private data class ServerDirectoryCandidate(
@@ -440,8 +461,8 @@ class ParentFamilyDirectoryRepository(context: Context) {
             familyId = normalizedFamilyId,
             displayName = resolvedName,
             role = role.toFamilyRole(),
-            avatarKey = localPersonalAvatar
-                ?: avatarKey?.trim()?.takeIf(String::isNotBlank),
+            avatarKey = if (hasExplicitBinding) avatarKey?.trim()?.takeIf(String::isNotBlank)
+                else localPersonalAvatar ?: avatarKey?.trim()?.takeIf(String::isNotBlank),
             isActive = isActive != 0
         )
     }

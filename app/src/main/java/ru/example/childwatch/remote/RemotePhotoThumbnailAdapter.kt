@@ -39,9 +39,15 @@ class RemotePhotoThumbnailAdapter(
         private val imgThumbnail: ImageView = itemView.findViewById(R.id.imgThumbnail)
 
         fun bind(item: RemotePhotoItem) {
-            itemView.findViewById<android.widget.TextView>(R.id.tvPhotoDate).text =
-                java.text.SimpleDateFormat("dd MMM · HH:mm", java.util.Locale.getDefault()).format(java.util.Date(item.timestamp))
-            itemView.contentDescription = item.metaInfo
+            val date = java.text.SimpleDateFormat("dd MMM · HH:mm", java.util.Locale.getDefault())
+                .format(java.util.Date(item.timestamp))
+            itemView.findViewById<android.widget.TextView>(R.id.tvPhotoDate).text = date
+            itemView.contentDescription = itemView.context.getString(R.string.remote_photo_gallery_item_description, date)
+            itemView.findViewById<View>(R.id.btnPhotoActions).apply {
+                visibility = if (heightDp >= 88 && onPhotoActions != null) View.VISIBLE else View.GONE
+                contentDescription = context.getString(R.string.remote_photo_gallery_actions_description, date)
+                setOnClickListener { onPhotoActions?.invoke(item) }
+            }
             itemView.setOnLongClickListener { onPhotoActions?.invoke(item); onPhotoActions != null }
             Glide.with(imgThumbnail)
                 .load(AuthenticatedMedia.url(item.previewUrl, tokenProvider))

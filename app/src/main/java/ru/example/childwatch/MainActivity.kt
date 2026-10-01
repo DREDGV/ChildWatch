@@ -133,7 +133,11 @@ class MainActivity : AppCompatActivity() {
     private var deviceStatusRefreshJob: Job? = null
     private var badgeRefreshJob: Job? = null
     private var familySummaryJob: Job? = null
+    private var ownHomeAvatarIdentity: List<String?>? = null
+    private var selectedHomeAvatarIdentity: List<String?>? = null
+    private var homeFamilyRenderIdentity: String? = null
     private var lastStatusFetchTime = 0L
+    private var selectedLocationScope: String? = null
     private var selectedPersonAvatarValue: String? = null
     private var selectedPersonCanBeListenedTo = false
     private var statusDeviceId: String? = null
@@ -291,6 +295,7 @@ class MainActivity : AppCompatActivity() {
             binding.deviceInfoDistance.isVisible = binding.selectedChildLocation.isVisible
         }
         binding.diagnosticsToggleButton.setOnClickListener {
+            latestDeviceStatus?.let { updateFeatureDiagnostics(it) }
             if (homeSheet?.isShowing != true) homeSheet = HomeDetailSheet.show(
                 binding.diagnosticsPanel, binding.deviceInfoTitle.text.toString()
             )
@@ -778,22 +783,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateQuickProfileSummary() {
-        // Placeholder until the directory answers; the card is about the person, so
-        // it must not sit showing the family name in the meantime.
-        binding.activeProfileName.text = getString(R.string.profile_card_name_fallback)
-        // This card is the owner's own profile, so it says who the owner is: their
-        // name and their role in the family.
-        //
-        // It carries no line about a child. That line came from the older dialog in
-        // which this profile was also where a child got chosen, and left the card
-        // describing a child under a heading that says "my profile". Which child is
-        // being watched belongs to the child card at the top of this screen.
-        binding.activeProfileName.text = getString(R.string.profile_card_name_fallback)
-
+        // Keep the last displayed identity while a background refresh is pending.
+        // A failed refresh must not temporarily rename an already loaded person.
+        if (binding.activeProfileName.text.isNullOrBlank()) {
+            binding.activeProfileName.setText(R.string.profile_card_name_fallback)
+        }
         familySummaryJob?.cancel()
         familySummaryJob = lifecycleScope.launch {
             val directory = runCatching { familyDirectoryRepository.load().directory }
-                .onFailure { Log.w(TAG, "Unable to refresh family summary", it) }
+                .onFailure {
+                    if (it is CancellationException) throw it
+                    Log.w(TAG, "Unable to refresh family summary", it)
+                }
                 .getOrNull() ?: return@launch
             homeDirectory = directory
             renderHomeFamily(directory)
@@ -805,11 +806,16 @@ class MainActivity : AppCompatActivity() {
                 null
             )
             val canonicalOwnName = ownPerson?.member?.displayName
-            FamilyAvatarRenderer.bind(
-                binding.activeProfileAvatar,
-                ownPerson?.member?.avatarKey,
-                canonicalOwnName
+            val avatarIdentity = listOf(
+                org.json.JSONArray(listOf(effectiveContextResolver.resolveServerUrl(),
+                    effectiveContextResolver.resolveFamilyId(), effectiveContextResolver.resolveOwnParentId())).toString(),
+                ownPerson?.member?.id,
+                ownPerson?.member?.avatarKey, canonicalOwnName
             )
+            if (ownHomeAvatarIdentity != avatarIdentity) {
+                FamilyAvatarRenderer.bind(binding.activeProfileAvatar, ownPerson?.member?.avatarKey, canonicalOwnName)
+                ownHomeAvatarIdentity = avatarIdentity
+            }
             val card = profileManager.resolveOwnProfileCard(
                 canonicalName = canonicalOwnName,
                 familyName = directory.family.name
@@ -868,10 +874,22 @@ class MainActivity : AppCompatActivity() {
     private fun renderHomeFamily(directory: FamilyDirectorySnapshot) {
         val selectedId = directory.personByDeviceId(resolveSelectedChildIdForUi())?.member?.id
         val people = directory.people.filter { it.member.id != directory.selfMemberId }
+        val renderIdentity = org.json.JSONArray()
+            .put(effectiveContextResolver.resolveServerUrl()).put(directory.family.id)
+            .put(directory.selfMemberId).put(selectedId)
+            .put(org.json.JSONArray(people.map {
+                org.json.JSONArray(listOf(it.member.id, it.member.displayName, it.member.avatarKey))
+            })).toString()
+        // The strip rebuilds its children. Leave them and their focus intact
+        // when only device telemetry changed during a background directory refresh.
+        if (homeFamilyRenderIdentity == renderIdentity) return
+        homeFamilyRenderIdentity = renderIdentity
         binding.familyStrip.render(people.map {
             HomeFamilyStrip.Person(it.member.id, it.member.displayName, it.member.avatarKey)
         }, selectedId, { view, key, name -> FamilyAvatarRenderer.bind(view, key, name) }, select@{ memberId ->
-            val person = directory.person(memberId) ?: return@select
+            // A retained strip must act on the latest directory, not its render snapshot.
+            val currentDirectory = homeDirectory ?: return@select
+            val person = currentDirectory.person(memberId) ?: return@select
             val device = person.primaryDevice(resolveSelectedChildIdForUi())
             if (device == null) {
                 binding.childSelectionContainer.performClick()
@@ -886,7 +904,7 @@ class MainActivity : AppCompatActivity() {
                         }
                         linkedChildOptionsProvider.syncLocalChildren(options)
                     }
-                    updateSelectedChild(device.deviceId, memberId, directory.family.id)
+                    updateSelectedChild(device.deviceId, memberId, currentDirectory.family.id)
                 }
             }
         }, { binding.childSelectionContainer.performClick() }, true)
@@ -1460,6 +1478,7 @@ class MainActivity : AppCompatActivity() {
                 ?: getString(R.string.device_usage_current_unknown))
 
         binding.deviceInfoCameraValue.isVisible = selectedPersonCanBeListenedTo
+        updateFeatureDiagnostics(status)
         binding.deviceInfoCameraValue.text = getString(R.string.photo_camera_diagnostics_line,
             ru.example.childwatch.remote.PhotoReadinessSummary.fromStatus(this, status).summary)
         binding.deviceInfoCameraValue.setOnClickListener {
@@ -1487,6 +1506,13 @@ class MainActivity : AppCompatActivity() {
         binding.deviceInfoProgress.isVisible = false
         binding.deviceInfoStatusMessage.isVisible = true
         binding.deviceInfoStatusMessage.text = message
+    }
+
+    private fun updateFeatureDiagnostics(status: DeviceStatus) {
+        val person = binding.selectedChildName.text.toString()
+        binding.deviceInfoUsageReadiness.isVisible = selectedPersonCanBeListenedTo
+        binding.deviceInfoUsageReadiness.text = ru.example.childwatch.remote.DeviceFeatureDiagnostics.usage(this, status, person)
+        binding.deviceInfoLocationReadiness.text = ru.example.childwatch.remote.DeviceFeatureDiagnostics.location(this, status, person)
     }
 
     private fun refreshChildDeviceStatus(force: Boolean = false) {
@@ -1940,6 +1966,7 @@ class MainActivity : AppCompatActivity() {
         deviceStatusRefreshJob = lifecycleScope.launch {
             while (isActive) {
                 refreshChildDeviceStatus(force = true)
+                ru.example.childwatch.remote.ParentDeviceStatusReporter.report(this@MainActivity)
                 delay(30_000)
             }
         }
@@ -2201,11 +2228,12 @@ class MainActivity : AppCompatActivity() {
         applySelectedPersonActions()
         binding.selectedPersonActionsHint.setText(R.string.home_selected_choose_person)
         try {
-            binding.selectedChildLocation.isVisible = false
+            binding.selectedChildLocation.visibility = View.INVISIBLE
             binding.deviceInfoDistance.isVisible = false
             binding.selectedChildName.text = getString(R.string.main_select_contact_placeholder_title)
             binding.selectedChildDeviceId.text = getString(R.string.main_select_contact_placeholder_subtitle)
             binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(0, "child"))
+            selectedHomeAvatarIdentity = null
             selectedPersonAvatarValue = null
             binding.childSelectionContainer.contentDescription = getString(R.string.family_profiles_add_description)
         } catch (e: Exception) {
@@ -2358,7 +2386,10 @@ class MainActivity : AppCompatActivity() {
             getString(R.string.home_action_listen) else getString(R.string.listen_child_only)
         applySelectedPersonActions()
         binding.selectedChildLocation.isVisible = true
-        binding.selectedChildLocation.setText(ru.example.childwatch.designsystem.R.string.cw_distance_loading)
+        val locationScope = selectedLocationScopeKey()
+        if (locationScope != selectedLocationScope || binding.selectedChildLocation.text.isNullOrBlank()) {
+            binding.selectedChildLocation.setText(ru.example.childwatch.designsystem.R.string.cw_distance_loading)
+        }
         val displayName = option?.displayName?.trim()?.takeIf { it.isNotBlank() }
             ?: child.name.trim().ifBlank { getString(R.string.main_default_child_name) }
         binding.selectedChildName.text = displayName
@@ -2372,13 +2403,12 @@ class MainActivity : AppCompatActivity() {
         val avatar = option?.avatarKey?.trim()?.takeIf { it.isNotBlank() }
             ?: child.avatarUrl?.trim()?.takeIf { it.isNotBlank() }
         selectedPersonAvatarValue = avatar
-        val fallbackIcon = ContactIcons.resolve(option?.markerIconId ?: child.iconId, child.role)
         // The person's name drives the letter avatar when no picture is stored.
-        FamilyAvatarRenderer.bind(
-            binding.selectedChildAvatar,
-            avatar,
-            option?.displayName ?: child.name
-        )
+        val avatarIdentity = listOf(locationScope, avatar, displayName)
+        if (selectedHomeAvatarIdentity != avatarIdentity) {
+            FamilyAvatarRenderer.bind(binding.selectedChildAvatar, avatar, displayName)
+            selectedHomeAvatarIdentity = avatarIdentity
+        }
         startSelectedLocationUpdates()
         updateDeviceInfoCard()
     }
@@ -2400,17 +2430,26 @@ class MainActivity : AppCompatActivity() {
             R.string.home_selected_child_actions else R.string.home_selected_adult_actions)
     }
 
+    private fun selectedLocationScopeKey(): String = org.json.JSONArray()
+        .put(effectiveContextResolver.resolveServerUrl())
+        .put(effectiveContextResolver.resolveFamilyId())
+        .put(effectiveContextResolver.resolveOwnParentId())
+        .put(resolveSelectedChildIdForUi()).toString()
+
     private fun startSelectedLocationUpdates() {
         if (!screenVisible) return
+        val scope = selectedLocationScopeKey()
+        if (selectedLocationScope == scope && selectedLocationJob?.isActive == true) return
         selectedLocationJob?.cancel()
+        selectedLocationScope = scope
         selectedLocationJob = lifecycleScope.launch {
-            while (isActive) {
+            while (isActive && selectedLocationScopeKey() == scope) {
                 val requestedId = resolveSelectedChildIdForUi()
                 if (!requestedId.isNullOrBlank()) {
                     val ownId = effectiveContextResolver.resolveOwnParentId()
                     val summary = familyLocationSummary.forPerson(requestedId, ownId)
-                    if (requestedId == resolveSelectedChildIdForUi()) {
-                        binding.selectedChildLocation.text = summary
+                    if (selectedLocationScopeKey() == scope) {
+                        if (binding.selectedChildLocation.text.toString() != summary) binding.selectedChildLocation.text = summary
                         binding.selectedChildLocation.isVisible = true
                     }
                 }

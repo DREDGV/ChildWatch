@@ -165,6 +165,8 @@ class ParentLocationService : Service() {
                     return@launch
                 }
                 if (queuedScope != outboxScope()) return@launch
+                serviceScope.launch { ru.example.childwatch.remote.ParentDeviceStatusReporter.report(this@ParentLocationService) }
+                if (queuedScope != outboxScope()) return@launch
                 val targetDeviceId = resolveTargetDeviceId()
                 val serverUrl = ParentEffectiveContextProvider.get(this@ParentLocationService)
                     .featureContext("location")?.serverUrl

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="diagnostics_usage_title">Активность приложений</string>
+    <string name="diagnostics_usage_unconfirmed">Текущее разрешение не подтверждено. Откройте детское приложение на телефоне «%1$s» и обновите данные здесь.</string>
+    <string name="diagnostics_usage_permission">На телефоне «%1$s» откройте настройки детского приложения → доступ к активности и разрешите статистику использования. Сохранённая история не удаляется.</string>
+    <string name="diagnostics_usage_unknown">Телефон «%1$s» ещё не сообщил о доступе к активности. Обновите детское приложение и откройте его настройки.</string>
+    <string name="diagnostics_usage_collecting">Доступ разрешён, но снимок активности ещё не получен. Откройте детское приложение и обновите данные через минуту.</string>
+    <string name="diagnostics_usage_retained">Свежие данные ещё не получены. В «Активности» остаётся последний удачный снимок.</string>
+    <string name="diagnostics_usage_available">Откройте «Активность», чтобы посмотреть приложения и время использования.</string>
+    <string name="diagnostics_data_at">Данные за %1$s</string>
+    <string name="diagnostics_checked_at">Проверено %1$s</string>
+    <string name="diagnostics_location_title">Геолокация</string>
+    <string name="diagnostics_location_sharing_off">На телефоне «%1$s» передача местоположения выключена в настройках приложения. Включить её может владелец этого телефона.</string>
+    <string name="diagnostics_location_unconfirmed">Текущее состояние не подтверждено. Обновите и откройте приложение на телефоне «%1$s», затем обновите данные здесь.</string>
+    <string name="diagnostics_location_permission">На телефоне «%1$s» разрешите приложению доступ к местоположению в системных настройках.</string>
+    <string name="diagnostics_location_disabled">На телефоне «%1$s» включите «Местоположение» в системных настройках.</string>
+    <string name="diagnostics_location_background">На телефоне «%1$s» выберите доступ к местоположению «Разрешать всегда», чтобы приложение могло возобновить передачу координат из фона, например после перезагрузки.</string>
+    <string name="diagnostics_location_approximate">На телефоне «%1$s» разрешено только приблизительное местоположение. Включите точное для более полезной карты.</string>
+    <string name="diagnostics_location_prerequisites">Откройте карту, чтобы проверить координаты и время последнего местоположения.</string>
+    <string name="diagnostics_state_unconfirmed">Нужны свежие сведения</string>
+    <string name="diagnostics_state_permission">Нужно разрешение</string>
+    <string name="diagnostics_state_waiting">Ожидаем данные</string>
+    <string name="diagnostics_state_retained">Сохранённый снимок</string>
+    <string name="diagnostics_state_usage_ready">Статистика доступна</string>
+    <string name="diagnostics_state_sharing_off">Передача выключена</string>
+    <string name="diagnostics_state_location_off">Геолокация выключена</string>
+    <string name="diagnostics_state_background">Доступ в фоне ограничен</string>
+    <string name="diagnostics_state_approximate">Приблизительное местоположение</string>
+    <string name="diagnostics_state_location_ready">Разрешения включены</string>
+    <string name="diagnostics_device_facts">Сведения телефона</string>
+</resources>

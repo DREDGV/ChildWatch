@@ -796,17 +796,23 @@ class NetworkClient(private val context: Context) {
         catch (_: Exception) { false }
     }
 
-    suspend fun uploadPhoto(
+    data class PhotoUploadOutcome(val uploaded: Boolean, val retryable: Boolean, val error: String? = null)
+
+    suspend fun uploadPhoto(serverUrl: String, photoFile: File, requestId: String? = null,
+        capturedAt: Long = System.currentTimeMillis(), ownDeviceId: String = resolveChildDeviceId()): Boolean =
+        uploadPhotoOutcome(serverUrl, photoFile, requestId, capturedAt, ownDeviceId).uploaded
+
+    suspend fun uploadPhotoOutcome(
         serverUrl: String,
         photoFile: File,
         requestId: String? = null,
         capturedAt: Long = System.currentTimeMillis(),
         ownDeviceId: String = resolveChildDeviceId()
-    ): Boolean = withContext(Dispatchers.IO) {
+    ): PhotoUploadOutcome = withContext(Dispatchers.IO) {
         try {
             if (!photoFile.exists() || photoFile.length() == 0L) {
                 Log.e(TAG, "Photo file doesn't exist or is empty: ${photoFile.absolutePath}")
-                return@withContext false
+                return@withContext PhotoUploadOutcome(false, false, "photo_file_missing")
             }
             
             val url = "${serverUrl.trimEnd('/')}/api/photo"
@@ -837,20 +843,26 @@ class NetworkClient(private val context: Context) {
             client.newBuilder().callTimeout(25, TimeUnit.SECONDS).build().newCall(request).execute().use { response ->
                 if (response.isSuccessful && response.body?.string()?.let { JSONObject(it).optBoolean("success") } == true) {
                     Log.d(TAG, "Photo uploaded successfully: ${response.code}")
-                    return@withContext true
+                    return@withContext PhotoUploadOutcome(true, false)
                 } else {
                     Log.e(TAG, "Failed to upload photo: ${response.code} ${response.message}")
-                    return@withContext false
+                    val retryable = response.code == 401 || response.code == 408 || response.code == 429 || response.code >= 500 || response.isSuccessful
+                    val reason = when (response.code) {
+                        403 -> "photo_permission_denied"
+                        413 -> "photo_upload_too_large"
+                        else -> "photo_upload_rejected"
+                    }
+                    return@withContext PhotoUploadOutcome(false, retryable, reason)
                 }
             }
             
         } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
         catch (e: IOException) {
             Log.e(TAG, "Network error uploading photo", e)
-            return@withContext false
+            return@withContext PhotoUploadOutcome(false, true, "photo_upload_failed")
         } catch (e: Exception) {
             Log.e(TAG, "Unexpected error uploading photo", e)
-            return@withContext false
+            return@withContext PhotoUploadOutcome(false, true, "photo_upload_failed")
         }
     }
     

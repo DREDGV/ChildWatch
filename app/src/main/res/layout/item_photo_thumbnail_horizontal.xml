@@ -5,9 +5,13 @@
  android:clickable="true" android:focusable="true" android:foreground="?attr/selectableItemBackground">
  <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent">
   <ImageView android:id="@+id/imgThumbnail" android:layout_width="match_parent" android:layout_height="match_parent"
-   android:contentDescription="@string/remote_photo_preview" android:scaleType="centerCrop" />
+   android:importantForAccessibility="no" android:scaleType="centerCrop" />
+  <ImageButton android:id="@+id/btnPhotoActions" android:layout_width="48dp" android:layout_height="48dp"
+   android:layout_gravity="top|end" android:padding="12dp" android:background="@drawable/bg_photo_actions"
+   android:src="@drawable/ic_photo_more" android:contentDescription="@string/remote_photo_menu_title" android:visibility="gone" />
   <TextView android:id="@+id/tvPhotoDate" android:layout_width="match_parent" android:layout_height="wrap_content"
    android:layout_gravity="bottom" android:background="@drawable/bg_remote_photo_scrim" android:padding="8dp"
-   android:textColor="@android:color/white" android:textSize="12sp" />
+   android:textColor="@android:color/white" android:textSize="12sp" android:maxLines="1" android:ellipsize="end"
+   android:importantForAccessibility="no" />
  </FrameLayout>
 </com.google.android.material.card.MaterialCardView>

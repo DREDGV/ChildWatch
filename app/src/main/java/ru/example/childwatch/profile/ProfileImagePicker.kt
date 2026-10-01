@@ -94,7 +94,13 @@ class ProfilePhotoSession(
     private val host: ComponentActivity
 ) {
 
-    private val uploader by lazy { ProfilePhotoUploader(context) }
+    private val resolver = ParentEffectiveContextResolver(context)
+    private val expectedScope = currentScope()
+    private fun currentScope() = listOf(resolver.resolveServerUrl().trimEnd('/'), resolver.resolveFamilyId(), resolver.resolveOwnParentId())
+    private fun sameContext() = expectedScope.none { it.isNullOrBlank() } && currentScope() == expectedScope
+    private val uploader by lazy {
+        ProfilePhotoUploader(context, ru.example.childwatch.network.NetworkClient(context.applicationContext, expectedScope))
+    }
 
     /** The value the server gave for the currently displayed picture, if any. */
     @Volatile
@@ -102,7 +108,10 @@ class ProfilePhotoSession(
 
     /** Sends [uri] and answers as the editor should show the picture afterwards. */
     suspend fun upload(uri: Uri): ProfilePhotoResult {
-        return when (val result = uploader.upload(uri)) {
+        if (!sameContext()) return ProfilePhotoResult.Failed(ProfilePhotoFailure.REJECTED)
+        val result = uploader.upload(uri)
+        if (!sameContext()) return ProfilePhotoResult.Failed(ProfilePhotoFailure.REJECTED)
+        return when (result) {
             is ProfilePhotoUpload.Stored -> {
                 storedValue = result.avatarValue
                 ProfilePhotoResult.Stored(result.avatarValue)
@@ -139,7 +148,8 @@ class ProfilePhotoSession(
         val path = previousValue?.trim().orEmpty()
         if (!path.startsWith(UPLOADED_AVATAR_PREFIX)) return
         host.lifecycleScope.launch {
-            runCatching { uploader.remove(path) }
+            if (!sameContext()) return@launch
+            runCatching { kotlinx.coroutines.withTimeoutOrNull(15_000L) { uploader.remove(path) } }
                 .onFailure { android.util.Log.w(TAG, "The replaced picture was left on the server") }
         }
     }

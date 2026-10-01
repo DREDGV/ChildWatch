@@ -185,6 +185,7 @@ class PhotoCaptureService : Service() {
     private lateinit var effectiveContextResolver: ChildEffectiveContextResolver
     private var listenersRegistered = false
     private var cameraForegroundPrimed = false
+    private var foregroundPromotionSucceeded = false
     private var captureWatchdog: Job? = null
     private val requestLock = Any()
     private val activePhotoRequests = mutableSetOf<String>()
@@ -213,7 +214,7 @@ class PhotoCaptureService : Service() {
         Log.d(TAG, "PhotoCaptureService created")
 
         createNotificationChannel()
-        promoteToCameraForeground()
+        foregroundPromotionSucceeded = promoteToCameraForeground()
 
         cameraService = CameraService(this)
         cameraService?.initialize()
@@ -246,6 +247,14 @@ class PhotoCaptureService : Service() {
             ?.takeIf { it.isNotBlank() }
             ?: effectiveContext?.ownChildDeviceId?.takeIf { it.isNotBlank() }
             ?: deviceId
+
+        if (!foregroundPromotionSucceeded) {
+            val requestId = intent?.getStringExtra(EXTRA_REQUEST_ID)
+            if (!requestId.isNullOrBlank()) reportDispatchError(this, serverUrl.orEmpty(), deviceId.orEmpty(), requestId,
+                SecurityException("Camera foreground promotion refused"))
+            stopSelf(startId)
+            return START_NOT_STICKY
+        }
 
         if (intent?.action == ACTION_PREPARE_CAMERA_FOREGROUND || AppVisibilityTracker.isVisible()) {
             val primed = promoteToCameraForeground() && AppVisibilityTracker.isVisible()
@@ -377,6 +386,13 @@ class PhotoCaptureService : Service() {
             return
         }
 
+        val captureServer = serverUrl.orEmpty()
+        val captureFamily = effectiveContextResolver.resolveFamilyId().orEmpty()
+        if (ru.example.parentwatch.photo.PhotoUploadWorker.hasQueued(this, captureServer, captureFamily, myDeviceId, requestId)) {
+            notifyPhotoRequestAccepted(requestId)
+            return // The image already exists; a reconnect must not open the camera again.
+        }
+
         if (!hasCameraPermission()) {
             Log.e(TAG, "Camera permission not granted for photo request")
             sendPhotoError(requestId, "Camera permission denied")
@@ -428,6 +444,15 @@ class PhotoCaptureService : Service() {
         }
         service.capturePhoto(requestedFacing) { photoFile ->
             captureWatchdog?.cancel(); captureWatchdog = null
+            if (serverUrl != captureServer || deviceId != myDeviceId ||
+                effectiveContextResolver.resolveServerUrl().trimEnd('/') != captureServer.trimEnd('/') ||
+                effectiveContextResolver.resolveChildDeviceId() != myDeviceId ||
+                effectiveContextResolver.resolveFamilyId().orEmpty() != captureFamily) {
+                resumeAudioAfterPhoto()
+                finishPhotoRequest(requestId)
+                Log.w(TAG, "Captured image belongs to the previous connection; no cross-profile delivery")
+                return@capturePhoto
+            }
             if (photoFile != null) {
                 Log.d(TAG, "Photo captured for request: $requestId")
                 // The camera no longer needs the microphone. Resume listening before JPEG
@@ -535,37 +560,22 @@ class PhotoCaptureService : Service() {
     private fun sendPhotoViaWebSocket(photoFile: File, requestId: String) {
         val captureServer = serverUrl
         val captureDevice = deviceId
+        val captureFamily = effectiveContextResolver.resolveFamilyId().orEmpty()
         val capturedAt = photoFile.lastModified().takeIf { it > 0 } ?: System.currentTimeMillis()
         serviceScope.launch(Dispatchers.IO) {
-            var uploaded = false
             try {
                 if (captureServer.isNullOrBlank() || captureDevice.isNullOrBlank()) throw IllegalStateException("photo_context_missing")
-                repeat(2) { attempt ->
-                    if (serverUrl != captureServer || deviceId != captureDevice) throw IllegalStateException("photo_target_mismatch")
-                    if (!uploaded) {
-                        uploaded = networkClient?.uploadPhoto(captureServer, photoFile, requestId, capturedAt, captureDevice) == true
-                        if (!uploaded && attempt < 1) delay(2000L * (attempt + 1))
-                    }
-                }
-                if (!uploaded) throw IllegalStateException("photo_upload_failed")
-                ru.example.parentwatch.utils.CameraDiagnostics.recordOutcome(this@PhotoCaptureService, captureServer, captureDevice, null)
-                // HTTP is the durable result. A disconnected socket must not discard the image.
-                val client = WebSocketManager.getClient()
-                if (client?.isReady() == true) {
-                    runCatching {
-                        buildPreviewBase64(photoFile)?.let { base64 ->
-                            client.emit("photo", JSONObject().put("photo", base64).put("requestId", requestId)
-                                .put("timestamp", capturedAt).put("deviceId", captureDevice))
-                        }
-                    }.onFailure { Log.w(TAG, "Preview unavailable; parent can recover the saved result", it) }
-                }
-                withContext(Dispatchers.Main) { updateNotification(R.string.photo_capture_sent) }
+                if (captureServer.trimEnd('/') != effectiveContextResolver.resolveServerUrl().trimEnd('/') ||
+                    captureDevice != effectiveContextResolver.resolveChildDeviceId() ||
+                    captureFamily != effectiveContextResolver.resolveFamilyId().orEmpty()) throw IllegalStateException("photo_target_mismatch")
+                ru.example.parentwatch.photo.PhotoUploadWorker.enqueue(this@PhotoCaptureService,
+                    captureServer, captureFamily, captureDevice, requestId, photoFile, capturedAt)
                 photoFile.delete()
+                withContext(Dispatchers.Main) { updateNotification(R.string.photo_capture_upload_queued) }
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 sendPhotoError(requestId, error.message ?: "photo_upload_failed")
                 withContext(Dispatchers.Main) { updateNotification(R.string.photo_capture_send_error) }
-                // Keep the source file for diagnosis/recovery when upload did not succeed.
             } finally { finishPhotoRequest(requestId) }
         }
     }

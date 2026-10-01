@@ -1,0 +1,3 @@
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="@color/cw_color_inverse_on_surface">
+ <item><shape android:shape="oval"><solid android:color="@color/cw_color_scrim" /></shape></item>
+</ripple>

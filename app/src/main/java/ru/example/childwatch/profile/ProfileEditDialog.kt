@@ -6,6 +6,7 @@ import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import ru.example.childwatch.designsystem.FamilyProfileEditor
 
 data class ProfileEditResult(val name: String, val avatarKey: String?, val photoUri: Uri? = null)
@@ -34,22 +35,25 @@ object ProfileEditDialog {
             { name, avatar, photo, done ->
                 activity.lifecycleScope.launch {
                     try {
-                        val value = if (photo != null) {
-                            if (uploadedUri != photo || uploadedValue == null) {
-                                when (val upload = photoSession?.upload(photo)) {
-                                    is ProfilePhotoResult.Stored -> {
-                                        uploadedUri = photo
-                                        uploadedValue = upload.avatarValue
+                        val saved = withTimeoutOrNull(45_000L) {
+                            val value = if (photo != null) {
+                                if (uploadedUri != photo || uploadedValue == null) {
+                                    when (val upload = photoSession?.upload(photo)) {
+                                        is ProfilePhotoResult.Stored -> {
+                                            uploadedUri = photo
+                                            uploadedValue = upload.avatarValue
+                                        }
+                                        else -> return@withTimeoutOrNull false
                                     }
-                                    else -> { done.complete(false); return@launch }
                                 }
-                            }
-                            uploadedValue
-                        } else avatar
-                        val saved = onProfileChanged(ProfileEditResult(name, value))
-                        // Delete only after the family accepted the replacement.
-                        if (saved && currentAvatarKey != value) photoSession?.deleteReplacedPicture(currentAvatarKey)
+                                uploadedValue
+                            } else avatar
+                            onProfileChanged(ProfileEditResult(name, value))
+                        } ?: false
                         done.complete(saved)
+                        // Remote cleanup is secondary: an accepted profile must close immediately.
+                        if (saved && currentAvatarKey != (if (photo != null) uploadedValue else avatar))
+                            photoSession?.deleteReplacedPicture(currentAvatarKey)
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (error: Exception) {

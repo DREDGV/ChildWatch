@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="remote_photo_gallery_person_title">Фото · %1$s</string>
+    <string name="remote_photo_gallery_close">Закрыть</string>
+    <string name="remote_photo_gallery_empty_guidance">Здесь появятся полученные снимки. Закройте галерею, чтобы сделать новое фото.</string>
+    <string name="remote_photo_gallery_item_description">Открыть фото, %1$s</string>
+    <string name="remote_photo_gallery_actions_description">Действия с фото, %1$s</string>
+</resources>

@@ -54,7 +54,28 @@ data class CriticalAlert(
     val createdAt: Long
 )
 
-class NetworkClient(private val context: Context) {
+class NetworkClient(private val context: Context, private val expectedOwnScope: List<String?>? = null) {
+
+    private data class OwnDeviceStatusScope(val identity: List<String?>)
+
+    suspend fun uploadOwnDeviceStatus(deviceInfo: JSONObject, expectedScope: List<String?>): Boolean = withContext(Dispatchers.IO) {
+        fun currentScope() = listOf(effectiveContextResolver.resolveServerUrl().trimEnd('/'),
+            effectiveContextResolver.resolveFamilyId(), effectiveContextResolver.resolveOwnParentId())
+        if (currentScope() != expectedScope || expectedScope.any { it.isNullOrBlank() }) return@withContext false
+        try {
+            val request = Request.Builder()
+                .tag(OwnDeviceStatusScope::class.java, OwnDeviceStatusScope(expectedScope))
+                .url(ensureHttpsUrl(expectedScope[0]!!).trimEnd('/') + "/api/device/status")
+                .post(JSONObject().put("deviceInfo", deviceInfo).toString().toRequestBody("application/json; charset=utf-8".toMediaType()))
+                .build()
+            client.newBuilder().callTimeout(15, TimeUnit.SECONDS).build().newCall(request).execute().use { response ->
+                if (!response.isSuccessful || currentScope() != expectedScope) return@withContext false
+                val body = response.body?.string()?.let(::JSONObject) ?: return@withContext false
+                body.optBoolean("success") && body.optString("deviceId") == expectedScope[2]
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (error: Exception) { Log.w(TAG, "Own device status upload failed", error); false }
+    }
     
     companion object {
         private const val TAG = "NetworkClient"
@@ -223,6 +244,13 @@ class NetworkClient(private val context: Context) {
     private inner class AuthInterceptor : Interceptor {
         override fun intercept(chain: Interceptor.Chain): Response {
             val originalRequest = chain.request()
+            fun checkOwnStatusScope() {
+                val expected = originalRequest.tag(OwnDeviceStatusScope::class.java)?.identity ?: expectedOwnScope ?: return
+                val current = listOf(effectiveContextResolver.resolveServerUrl().trimEnd('/'),
+                    effectiveContextResolver.resolveFamilyId(), effectiveContextResolver.resolveOwnParentId())
+                if (current != expected) throw IOException("Own status context changed")
+            }
+            checkOwnStatusScope()
             val currentToken = getAuthToken()
 
             val newRequest = if (currentToken != null) {
@@ -233,6 +261,7 @@ class NetworkClient(private val context: Context) {
                 originalRequest
             }
 
+            checkOwnStatusScope()
             val response = chain.proceed(newRequest)
 
             // Handle token refresh on 401 Unauthorized
@@ -247,6 +276,7 @@ class NetworkClient(private val context: Context) {
                             tokenManager.refreshToken(serverUrl)
                         }
                         if (refreshedToken != null) {
+                            checkOwnStatusScope()
                             response.close()
                             authToken = refreshedToken
                             
@@ -255,6 +285,7 @@ class NetworkClient(private val context: Context) {
                                 .addHeader("Authorization", "Bearer $refreshedToken")
                                 .build()
                             
+                            checkOwnStatusScope()
                             return chain.proceed(retryRequest)
                         }
                     } catch (e: Exception) {

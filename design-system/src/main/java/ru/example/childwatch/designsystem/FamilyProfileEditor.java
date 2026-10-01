@@ -143,6 +143,8 @@ public final class FamilyProfileEditor {
         nameField = new TextInputLayout(host);
         nameField.setBoxBackgroundMode(TextInputLayout.BOX_BACKGROUND_OUTLINE);
         nameField.setHint(host.getString(R.string.cw_profile_name));
+        nameField.setCounterEnabled(true);
+        nameField.setCounterMaxLength(80);
         name = new TextInputEditText(host);
         name.setSingleLine(true);
         name.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS);
@@ -204,6 +206,25 @@ public final class FamilyProfileEditor {
         ScrollView scroll = new ScrollView(host);
         scroll.setFillViewport(false);
         scroll.addView(content);
+        final boolean[] keyboardShown = {false};
+        android.view.ViewTreeObserver.OnGlobalLayoutListener keyboardLayout = () -> {
+            AlertDialog current = OPEN.get(host);
+            if (current == null || current.getWindow() == null || !current.isShowing()) return;
+            View decor = current.getWindow().getDecorView();
+            android.graphics.Rect visible = new android.graphics.Rect();
+            decor.getWindowVisibleDisplayFrame(visible);
+            int screenHeight = host.getResources().getDisplayMetrics().heightPixels;
+            boolean keyboard = screenHeight - visible.bottom > dp(160);
+            int bodyHeight = Math.max(dp(120), Math.min(dp(520), visible.height() - dp(180)));
+            if (scroll.getLayoutParams().height != bodyHeight) {
+                scroll.getLayoutParams().height = bodyHeight;
+                scroll.requestLayout();
+            }
+            if (keyboard && !keyboardShown[0] && name.hasFocus()) {
+                scroll.post(() -> scroll.smoothScrollTo(0, Math.max(0, nameField.getTop() - dp(12))));
+            }
+            keyboardShown[0] = keyboard;
+        };
         dialog = new MaterialAlertDialogBuilder(host)
                 .setTitle(R.string.cw_profile_title)
                 .setView(scroll)
@@ -211,9 +232,17 @@ public final class FamilyProfileEditor {
                 .setNegativeButton(android.R.string.cancel, null)
                 .create();
         dialog.setCanceledOnTouchOutside(false);
+        Runnable back = () -> {
+            if (keyboardShown[0]) {
+                android.view.inputmethod.InputMethodManager input = (android.view.inputmethod.InputMethodManager)
+                        host.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+                if (input != null) input.hideSoftInputFromWindow(name.getWindowToken(), 0);
+                name.clearFocus();
+            } else requestClose();
+        };
         dialog.setOnKeyListener((d, key, event) -> {
             if (key != android.view.KeyEvent.KEYCODE_BACK) return false;
-            if (event.getAction() == android.view.KeyEvent.ACTION_UP) requestClose();
+            if (event.getAction() == android.view.KeyEvent.ACTION_UP) back.run();
             return true;
         });
         dialog.setOnShowListener(d -> {
@@ -223,16 +252,25 @@ public final class FamilyProfileEditor {
                 dialog.getButton(button).setMinHeight(dp(48));
             }
             if (android.os.Build.VERSION.SDK_INT >= 33 && dialog.getWindow() != null) {
-                gestureBack = Api33Back.install(dialog.getWindow(), this::requestClose);
+                gestureBack = Api33Back.install(dialog.getWindow(), back);
             }
             dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v -> requestClose());
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> submit());
             if (dialog.getWindow() != null) {
                 dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-                // Bound only the scroll body; the dialog's action buttons remain reachable.
-                scroll.getLayoutParams().height = Math.min(dp(520), (int) (host.getResources().getDisplayMetrics().heightPixels * 0.62f));
-                scroll.requestLayout();
+                dialog.getWindow().getDecorView().getViewTreeObserver().addOnGlobalLayoutListener(keyboardLayout);
             }
+        });
+        name.setOnFocusChangeListener((v, focused) -> {
+            if (focused) scroll.post(() -> scroll.smoothScrollTo(0, Math.max(0, nameField.getTop() - dp(12))));
+        });
+        name.setOnEditorActionListener((v, action, event) -> {
+            if (action != android.view.inputmethod.EditorInfo.IME_ACTION_DONE) return false;
+            android.view.inputmethod.InputMethodManager input = (android.view.inputmethod.InputMethodManager)
+                    host.getSystemService(android.content.Context.INPUT_METHOD_SERVICE);
+            if (input != null) input.hideSoftInputFromWindow(name.getWindowToken(), 0);
+            name.clearFocus();
+            return true;
         });
         photoButton.setOnClickListener(v -> {
             if (busy || picking || picker == null) return;
@@ -272,6 +310,10 @@ public final class FamilyProfileEditor {
             ((androidx.lifecycle.LifecycleOwner) host).getLifecycle().addObserver(observer);
         }
         dialog.setOnDismissListener(d -> {
+            if (dialog.getWindow() != null) {
+                android.view.ViewTreeObserver tree = dialog.getWindow().getDecorView().getViewTreeObserver();
+                if (tree.isAlive()) tree.removeOnGlobalLayoutListener(keyboardLayout);
+            }
             OPEN.remove(host);
             EDITORS.remove(host);
             if (android.os.Build.VERSION.SDK_INT >= 33 && gestureBack != null && dialog.getWindow() != null) {

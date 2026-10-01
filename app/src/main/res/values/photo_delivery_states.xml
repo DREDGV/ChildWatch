@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+ <string name="remote_photo_upload_queued_status">Фото снято · ждём передачу</string>
+ <string name="remote_photo_upload_deferred">Передача отложена. Снимок появится в галерее после восстановления сети.</string>
+ <string name="remote_photo_late_saved">Снимок получен и добавлен в галерею</string>
+ <string name="remote_photo_queue_full">Очередь снимков заполнена. Подождите восстановления сети на телефоне ребёнка.</string>
+ <string name="remote_photo_upload_expired">Не удалось передать снимок за сутки. Проверьте связь и сделайте новый.</string>
+ <string name="remote_photo_gallery_retry_action">Повторить загрузку</string>
+ <string name="remote_photo_upload_rejected">Сервер не принял снимок. Проверьте обновления приложений и повторите запрос.</string>
+</resources>

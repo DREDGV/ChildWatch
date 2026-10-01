@@ -32,7 +32,35 @@ class ChildFamilyDirectoryRepository(context: Context) {
     private val contextResolver by lazy { ChildEffectiveContextResolver(appContext) }
     private val contextProvider by lazy { ChildEffectiveContextProvider.get(appContext) }
 
+    private fun scopeKey(): String = JSONArray(listOf(contextResolver.resolveServerUrl().trimEnd('/'),
+        contextResolver.resolveFamilyId(), contextResolver.resolveChildDeviceId())).toString()
+
+    fun rememberPublishedProfile(familyId: String, memberId: String, name: String, avatarKey: String?, role: String) {
+        val root = if (prefs.getString(KEY_DIRECTORY_SCOPE, null) == scopeKey())
+            runCatching { JSONObject(prefs.getString(KEY_DIRECTORY_JSON, "{}")) }.getOrDefault(JSONObject())
+            else JSONObject()
+        if (root.optString("familyId").isNotBlank() && root.optString("familyId") != familyId) return
+        val members = root.optJSONArray("members") ?: JSONArray()
+        var found = false
+        for (index in 0 until members.length()) {
+            val member = members.optJSONObject(index) ?: continue
+            if (member.optString("id") == memberId) {
+                member.put("displayName", name).put("avatarKey", avatarKey ?: JSONObject.NULL).put("role", role)
+                found = true
+            }
+        }
+        if (!found) members.put(JSONObject().put("id", memberId).put("displayName", name)
+            .put("avatarKey", avatarKey ?: JSONObject.NULL).put("role", role)
+            .put("devices", JSONArray().put(JSONObject().put("deviceId", contextResolver.resolveChildDeviceId())
+                .put("displayName", name))))
+        root.put("familyId", familyId).put("selfMemberId", memberId).put("members", members)
+        prefs.edit().putLong("canonical_profile_revision", prefs.getLong("canonical_profile_revision", 0L) + 1L)
+            .putString(KEY_DIRECTORY_SCOPE, scopeKey()).putString(KEY_DIRECTORY_JSON, root.toString()).apply()
+    }
+
     suspend fun refresh(): FamilyDirectorySnapshot? = coroutineScope {
+        val scope = scopeKey()
+        val revision = prefs.getLong("canonical_profile_revision", 0L)
         val identityResponse = runCatching { networkClient.getAuthenticatedIdentity() }
             .onFailure { Log.w(TAG, "Family identity request failed", it) }
             .getOrNull()
@@ -80,17 +108,19 @@ class ChildFamilyDirectoryRepository(context: Context) {
         )
         if (directory.people.isEmpty()) return@coroutineScope loadCached()
 
-        save(directory)
+        if (scope != scopeKey() || revision != prefs.getLong("canonical_profile_revision", 0L)) return@coroutineScope loadCached()
         val targetDeviceId = contextResolver.resolveParentDeviceId()
         contextProvider.updateFamilyIdentity(
             familyId = directory.family.id,
             selfMemberId = directory.selfMemberId,
             focusedMemberId = directory.personByDeviceId(targetDeviceId)?.member?.id
         )
+        save(directory)
         directory
     }
 
     fun loadCached(): FamilyDirectorySnapshot? {
+        if (prefs.getString(KEY_DIRECTORY_SCOPE, null) != scopeKey()) return null
         val raw = prefs.getString(KEY_DIRECTORY_JSON, null)?.takeIf(String::isNotBlank)
             ?: return null
         return runCatching {
@@ -181,7 +211,7 @@ class ChildFamilyDirectoryRepository(context: Context) {
                 }
             })
         }
-        prefs.edit().putString(KEY_DIRECTORY_JSON, root.toString()).apply()
+        prefs.edit().putString(KEY_DIRECTORY_SCOPE, scopeKey()).putString(KEY_DIRECTORY_JSON, root.toString()).apply()
     }
 
     private fun toMember(data: FamilyMemberData): FamilyMember? {
@@ -225,6 +255,7 @@ class ChildFamilyDirectoryRepository(context: Context) {
     companion object {
         private const val TAG = "ChildFamilyDirectory"
         private const val PREFS_NAME = "parentwatch_prefs"
+        private const val KEY_DIRECTORY_SCOPE = "canonical_family_directory_snapshot_scope"
         private const val KEY_DIRECTORY_JSON = "canonical_family_directory_snapshot_json"
     }
 }

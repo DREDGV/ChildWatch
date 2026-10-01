@@ -24,6 +24,20 @@ object RemotePhotoErrorMessages {
                 message = context.getString(R.string.remote_photo_family_denied_hint)
             )
 
+            normalized.contains("photo_upload_too_large") || normalized.contains("photo_upload_rejected") ||
+                normalized.contains("photo_file_missing") -> RemotePhotoUiError(
+                status = context.getString(R.string.remote_photo_upload_rejected),
+                message = context.getString(R.string.remote_photo_upload_rejected)
+            )
+            normalized.contains("photo_upload_queue_full") -> RemotePhotoUiError(
+                status = context.getString(R.string.remote_photo_queue_full),
+                message = context.getString(R.string.remote_photo_queue_full)
+            )
+            normalized.contains("photo_upload_expired") -> RemotePhotoUiError(
+                status = context.getString(R.string.remote_photo_upload_expired),
+                message = context.getString(R.string.remote_photo_upload_expired)
+            )
+
             normalized.contains("photo_upload_failed") -> RemotePhotoUiError(
                 status = context.getString(R.string.remote_camera_download_failed),
                 message = context.getString(R.string.remote_photo_upload_failed)

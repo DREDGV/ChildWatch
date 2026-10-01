@@ -28,6 +28,7 @@ class ParentParticipantNameResolver(context: Context) {
     private val database by lazy { ChildWatchDatabase.getInstance(appContext) }
 
     fun resolveOwnParentDisplayName(): String {
+        ParentFamilyProfileCache(appContext).person(effectiveContextResolver.resolveOwnParentId())?.let { return it.name }
         val explicitSelfName = prefs.getString(KEY_SELF_DISPLAY_NAME, null).orEmpty().trim()
         if (explicitSelfName.isNotBlank()) return explicitSelfName
 
@@ -55,6 +56,7 @@ class ParentParticipantNameResolver(context: Context) {
             return appContext.getString(R.string.chat_partner_child)
         }
 
+        ParentFamilyProfileCache(appContext).person(resolvedChildId)?.let { return it.name }
         resolveLocalChildName(resolvedChildId)?.let { return it }
 
         val serverUrl = effectiveContextResolver.resolveServerUrl()

@@ -42,6 +42,11 @@ object OwnProfilePublisher {
         val resolver = ChildParticipantNameResolver(context)
         val familyId = onboarding.familyId()
         val memberId = resolver.resolveOwnMemberId() ?: onboarding.memberId()
+        val identity = ru.example.parentwatch.session.ChildEffectiveContextResolver(context)
+        val ownId = identity.resolveChildDeviceId()
+        val server = identity.resolveServerUrl()
+        fun sameContext() = identity.resolveChildDeviceId() == ownId &&
+            identity.resolveServerUrl() == server && onboarding.familyId() == familyId
 
         if (familyId.isBlank() || memberId.isBlank()) {
             Log.w(TAG, "Not published: family id (${familyId.isBlank()}) or member id (${memberId.isBlank()}) is unknown")
@@ -62,11 +67,17 @@ object OwnProfilePublisher {
                 )
             }.getOrNull()
 
+            if (!sameContext()) { onFinished(false); return@launch }
             if (response?.isSuccessful == true && response.body()?.success == true) {
-                // Refresh the cache so the new values survive synchronisation.
-                runCatching { resolver.refreshCanonicalDirectory(force = true) }
-                    .onFailure { Log.w(TAG, "Directory refresh after publish failed", it) }
+                val accepted = response.body()!!.member
+                if (accepted.id != memberId || accepted.familyId != familyId) { onFinished(false); return@launch }
+                resolver.rememberPublishedProfile(familyId, memberId, accepted.displayName, accepted.avatarKey, accepted.role)
+                // Acceptance is enough to finish Save. Refreshing the whole family is secondary.
                 onFinished(true)
+                scope.launch {
+                    if (sameContext()) runCatching { resolver.refreshCanonicalDirectory(force = true) }
+                        .onFailure { Log.w(TAG, "Directory refresh after publish failed", it) }
+                }
             } else {
                 Log.w(
                     TAG,

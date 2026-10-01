@@ -26,7 +26,9 @@ object OwnProfileEditor {
                     val directory = repository.load().directory
                     repository.ownPerson(directory, resolver.resolveSelfMemberId(), ownId)?.member
                 }.getOrNull() else null
-                if (activity.isFinishing || activity.isDestroyed) return@launch
+                if (activity.isFinishing || activity.isDestroyed ||
+                    resolver.resolveOwnParentId() != ownId || resolver.resolveFamilyId() != familyId ||
+                    resolver.resolveServerUrl() != serverUrl) return@launch
                 val initialName = stored?.first ?: cached?.displayName
                     ?: ParentParticipantNameResolver(activity).resolveOwnParentDisplayName()
                 val avatar = stored?.second ?: cached?.avatarKey
@@ -43,6 +45,8 @@ object OwnProfileEditor {
                             android.util.Log.w("OwnProfileEditor", "Profile publication failed", error)
                             false
                         }
+                        if (resolver.resolveOwnParentId() != ownId || resolver.resolveFamilyId() != familyId ||
+                            resolver.resolveServerUrl() != serverUrl) return@show false
                         if (published) {
                             activity.getSharedPreferences("childwatch_prefs", android.content.Context.MODE_PRIVATE)
                                 .edit().putString(ParentParticipantNameResolver.KEY_SELF_DISPLAY_NAME, result.name).apply()
@@ -50,8 +54,8 @@ object OwnProfileEditor {
                             if (profile != null && profiles.getActiveProfileId() == profile.id) {
                                 profiles.saveProfile(profile.copy(name = result.name, updatedAt = System.currentTimeMillis()))
                             }
-                            runCatching { repository.load() }
-                            onStored()
+                            runCatching { onStored() }
+                                .onFailure { android.util.Log.w("OwnProfileEditor", "Accepted profile UI refresh failed", it) }
                         }
                         published
                     }

@@ -90,7 +90,8 @@ class ProfilePhotoUploader(
                     )
                     ProfilePhotoUpload.Rejected
                 }
-            } catch (error: Exception) {
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (error: Exception) {
                 Log.e(TAG, "Storing the chosen picture failed", error)
                 ProfilePhotoUpload.Rejected
             }
@@ -114,7 +115,8 @@ class ProfilePhotoUploader(
                 Log.w(TAG, "The stored picture could not be removed: ${response.code()}")
             }
             response.isSuccessful
-        } catch (error: Exception) {
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (error: Exception) {
             Log.w(TAG, "Removing the stored picture failed", error)
             false
         }
@@ -133,7 +135,19 @@ class ProfilePhotoUploader(
     }
 
     private fun readBytes(uri: Uri): ByteArray? {
-        return context.contentResolver.openInputStream(uri)?.use { stream -> stream.readBytes() }
+        return context.contentResolver.openInputStream(uri)?.use { stream ->
+            val output = java.io.ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            var remaining = maxBytes.toInt() + 1
+            while (remaining > 0) {
+                val count = stream.read(buffer, 0, minOf(buffer.size, remaining))
+                if (count < 0) break
+                if (count == 0) continue
+                output.write(buffer, 0, count)
+                remaining -= count
+            }
+            output.toByteArray()
+        }
     }
 
     /**

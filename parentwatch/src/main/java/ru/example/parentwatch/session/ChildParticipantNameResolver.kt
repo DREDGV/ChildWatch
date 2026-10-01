@@ -22,6 +22,7 @@ class ChildParticipantNameResolver(context: Context) {
         private const val KEY_LINKED_PARENTS_JSON = "linked_parents_json"
         private const val KEY_ACTIVE_PARENT_LABEL = "active_parent_label"
         private const val KEY_CANONICAL_DIRECTORY_JSON = "canonical_family_directory_json"
+        private const val KEY_CANONICAL_DIRECTORY_SCOPE = "canonical_family_directory_scope"
         private const val KEY_CANONICAL_DIRECTORY_UPDATED_AT = "canonical_family_directory_updated_at"
         private const val CANONICAL_CACHE_TTL_MS = 5 * 60 * 1000L
         private val TECHNICAL_ID_PATTERN = Regex(
@@ -85,14 +86,50 @@ class ChildParticipantNameResolver(context: Context) {
         return appContext.getString(ru.example.parentwatch.R.string.family_member_name_missing)
     }
 
+    private fun canonicalScope(): String {
+        val context = ChildEffectiveContextResolver(appContext)
+        return JSONArray(listOf(context.resolveServerUrl().trimEnd('/'),
+            context.resolveFamilyId(), context.resolveChildDeviceId())).toString()
+    }
+
+    /** Keep the accepted profile visible even when the subsequent refresh is offline. */
+    fun rememberPublishedProfile(familyId: String, memberId: String, name: String, avatarKey: String?, role: String) {
+        val payload = if (prefs.getString(KEY_CANONICAL_DIRECTORY_SCOPE, null) == canonicalScope())
+            runCatching { JSONArray(prefs.getString(KEY_CANONICAL_DIRECTORY_JSON, "[]")) }.getOrDefault(JSONArray())
+            else JSONArray()
+        var found = false
+        for (index in 0 until payload.length()) {
+            val person = payload.optJSONObject(index) ?: continue
+            if (person.optString("familyId") == familyId && person.optString("memberId") == memberId) {
+                person.put("displayName", name).put("avatarKey", avatarKey ?: JSONObject.NULL).put("role", role)
+                found = true
+            }
+        }
+        if (!found) payload.put(JSONObject().put("familyId", familyId).put("memberId", memberId)
+            .put("displayName", name).put("avatarKey", avatarKey ?: JSONObject.NULL).put("role", role)
+            .put("deviceIds", JSONArray(listOf(ChildEffectiveContextResolver(appContext).resolveChildDeviceId()))))
+        prefs.edit().putString(KEY_CANONICAL_DIRECTORY_SCOPE, canonicalScope())
+            .putString(KEY_CANONICAL_DIRECTORY_JSON, payload.toString()).putString(KEY_SELF_DISPLAY_NAME, name).apply()
+        ChildFamilyDirectoryRepository(appContext).rememberPublishedProfile(familyId, memberId, name, avatarKey, role)
+    }
+
     /** Refreshes the device-to-person directory without blocking UI callers. */
     suspend fun refreshCanonicalDirectory(force: Boolean = false): Boolean {
+        val identity = ChildEffectiveContextResolver(appContext)
+        val own = identity.resolveChildDeviceId()
+        val server = identity.resolveServerUrl()
+        val family = identity.resolveFamilyId()
+        val scope = canonicalScope()
+        val revision = prefs.getLong("canonical_profile_revision", 0L)
         val cachedAt = prefs.getLong(KEY_CANONICAL_DIRECTORY_UPDATED_AT, 0L)
         if (!force && cachedAt > 0L && System.currentTimeMillis() - cachedAt < CANONICAL_CACHE_TTL_MS) {
             if (readCanonicalProfiles().isNotEmpty()) return true
         }
 
         val directory = ChildFamilyDirectoryRepository(appContext).refresh() ?: return false
+        val learnedFamily = family.isNullOrBlank() && identity.resolveFamilyId() == directory.family.id &&
+            identity.resolveChildDeviceId() == own && identity.resolveServerUrl() == server
+        if ((!learnedFamily && scope != canonicalScope()) || revision != prefs.getLong("canonical_profile_revision", 0L)) return false
         val payload = JSONArray().apply {
             directory.people.forEach { person ->
                 put(JSONObject().apply {
@@ -106,6 +143,7 @@ class ChildParticipantNameResolver(context: Context) {
             }
         }
         prefs.edit()
+            .putString(KEY_CANONICAL_DIRECTORY_SCOPE, canonicalScope())
             .putString(KEY_CANONICAL_DIRECTORY_JSON, payload.toString())
             .putLong(KEY_CANONICAL_DIRECTORY_UPDATED_AT, System.currentTimeMillis())
             .apply()
@@ -164,7 +202,7 @@ class ChildParticipantNameResolver(context: Context) {
     fun resolveChildAvatarKey(): String? {
         val ownChildId = sessionStore.resolveCurrentChildId().trim()
         if (ownChildId.isNotBlank()) {
-            canonicalProfileForDevice(ownChildId)?.avatarKey?.let { return it }
+            canonicalProfileForDevice(ownChildId)?.let { return it.avatarKey }
         }
         return runBlocking(Dispatchers.IO) {
             database.childDao().getByDeviceId(ownChildId)
@@ -220,6 +258,7 @@ class ChildParticipantNameResolver(context: Context) {
     }
 
     private fun readCanonicalProfiles(): List<CachedCanonicalProfile> {
+        if (prefs.getString(KEY_CANONICAL_DIRECTORY_SCOPE, null) != canonicalScope()) return emptyList()
         val raw = prefs.getString(KEY_CANONICAL_DIRECTORY_JSON, null).orEmpty()
         if (raw.isBlank()) return emptyList()
         return runCatching {

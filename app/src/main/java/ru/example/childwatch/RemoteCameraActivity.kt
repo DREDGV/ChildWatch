@@ -114,6 +114,9 @@ class RemoteCameraActivity : AppCompatActivity() {
     private var photoBusyListener: ((String, String, String, String, Long) -> Unit)? = null
     private var connectionTimeoutJob: Job? = null
     private var responseTimeoutJob: Job? = null
+    private var pendingScope: String? = null
+    private var lateRecoveryJob: Job? = null
+    private var waitingForUpload = false
     private var pendingRequestId: String? = null
     private var pendingStartedAt = 0L
     private var connectionAttempt = 0L
@@ -131,7 +134,7 @@ class RemoteCameraActivity : AppCompatActivity() {
      * A capture that finishes after the timeout is still a real photo, so its
      * result is accepted during the grace window instead of being discarded.
      */
-    private val timedOutRequestIds = mutableMapOf<String, Long>()
+    private val timedOutRequestIds = mutableMapOf<String, Pair<Long, String>>()
     private var selectedCameraFacing: String = "back"
     private var resolvedGalleryDeviceId: String? = null
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
@@ -180,6 +183,7 @@ class RemoteCameraActivity : AppCompatActivity() {
                 val request = savedInstanceState.getString("photo_request")
                 val remaining = (savedInstanceState.getLong("photo_deadline") - System.currentTimeMillis()).coerceIn(0L, PHOTO_RESPONSE_TIMEOUT_MS)
                 if (!request.isNullOrBlank() && remaining > 0) {
+                    pendingScope = photoScope()
                     pendingRequestId = request
                     pendingStartedAt = android.os.SystemClock.elapsedRealtime() - (PHOTO_RESPONSE_TIMEOUT_MS - remaining)
                     disableButtons(); startResponseTimeout(request)
@@ -391,6 +395,7 @@ class RemoteCameraActivity : AppCompatActivity() {
         unregisterPhotoListeners()
         galleryJob?.cancel(); galleryRefreshJob?.cancel()
         galleryItems = emptyList(); thumbnailAdapter.submitList(emptyList()); clearViewfinderPhoto()
+        lateRecoveryJob?.cancel()
         timedOutRequestIds.clear()
         childId = option.deviceId
         personLocationStatus?.refresh()
@@ -410,7 +415,7 @@ class RemoteCameraActivity : AppCompatActivity() {
      */
     override fun onStart() {
         super.onStart()
-        if (::statusText.isInitialized && childId != null) refreshCameraReadiness()
+        if (::statusText.isInitialized && childId != null) { refreshCameraReadiness(); loadPhotos(announce = false) }
     }
 
     override fun onStop() {
@@ -566,108 +571,75 @@ class RemoteCameraActivity : AppCompatActivity() {
         connectionTimeoutJob = null
     }
 
+    private fun matchesRequest(requestId: String): Boolean = pendingRequestId == requestId && pendingScope == photoScope()
+
     private fun registerPhotoListeners() {
         if (photoReceivedListener == null) {
-            photoReceivedListener = photoReceivedListener@{ photoBase64, requestId, timestamp ->
+            photoReceivedListener = { image, requestId, timestamp -> runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
                 val late = isLateDeliveryFor(requestId)
-                if (pendingRequestId != requestId && !late) return@photoReceivedListener
-                if (late && pendingRequestId != null && pendingRequestId != requestId) {
+                if (!matchesRequest(requestId) && !late) return@runOnUiThread
+                if (late && pendingRequestId != null && !matchesRequest(requestId)) {
                     clearLateDelivery(requestId)
-                    runOnUiThread { loadPhotos() }
-                    return@photoReceivedListener
+                    loadPhotos(announce = false)
+                    return@runOnUiThread
                 }
                 clearPendingRequest()
-                if (late) clearLateDelivery(requestId)
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    updateStatus(getString(R.string.remote_camera_photo_received))
-                    enableButtons()
-                    AudioPlaybackService.restoreIfNeeded(this@RemoteCameraActivity)
-                    openPhotoPreview(photoBase64, timestamp)
-                    scheduleGalleryRefresh()
-                }
-            }
+                clearLateDelivery(requestId)
+                updateStatus(getString(R.string.remote_camera_photo_received))
+                enableButtons()
+                AudioPlaybackService.restoreIfNeeded(this)
+                openPhotoPreview(image, timestamp)
+                scheduleGalleryRefresh()
+            } }
             WebSocketManager.addPhotoReceivedListener(photoReceivedListener!!)
         }
-
         if (photoErrorListener == null) {
-            photoErrorListener = photoErrorListener@{ requestId, error ->
+            photoErrorListener = { requestId, error -> runOnUiThread {
+                if (isFinishing || isDestroyed) return@runOnUiThread
                 val late = isLateDeliveryFor(requestId)
-                if (pendingRequestId != requestId && !late) return@photoErrorListener
-                if (late && pendingRequestId != null && pendingRequestId != requestId) {
-                    clearLateDelivery(requestId); return@photoErrorListener
-                }
+                if (!matchesRequest(requestId) && !late) return@runOnUiThread
+                if (late && pendingRequestId != null && !matchesRequest(requestId)) return@runOnUiThread
+                val recoverable = error.contains("timeout", true) || error.contains("disconnected", true)
+                if (recoverable) rememberTimedOutRequest(requestId) else clearLateDelivery(requestId)
                 clearPendingRequest()
-                if (late) clearLateDelivery(requestId)
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    Log.w(TAG, "Remote photo failed: request=$requestId error=$error")
-                    val uiError = RemotePhotoErrorMessages.resolve(this, error)
-                    updateStatus(uiError.status)
-                    AudioPlaybackService.restoreIfNeeded(this@RemoteCameraActivity)
-                    if (uiError.actionable) {
-                        MaterialAlertDialogBuilder(this)
-                            .setTitle(uiError.title)
-                            .setMessage(uiError.message)
-                            .setPositiveButton(R.string.remote_camera_recovery_action, null)
-                            .show()
-                    } else {
-                        Toast.makeText(this, uiError.message, Toast.LENGTH_SHORT).show()
-                    }
-                    enableButtons()
-                }
-            }
+                if (recoverable) recoverLatePhoto(requestId)
+                val problem = RemotePhotoErrorMessages.resolve(this, error)
+                updateStatus(if (recoverable && waitingForUpload) getString(R.string.remote_photo_upload_deferred) else problem.status)
+                AudioPlaybackService.restoreIfNeeded(this)
+                if (problem.actionable) MaterialAlertDialogBuilder(this)
+                    .setTitle(problem.title).setMessage(problem.message)
+                    .setPositiveButton(R.string.remote_camera_recovery_action, null).show()
+                else Toast.makeText(this, problem.message, Toast.LENGTH_SHORT).show()
+                enableButtons()
+            } }
             WebSocketManager.addPhotoErrorListener(photoErrorListener!!)
         }
-
         if (photoQueuedListener == null) {
-            photoQueuedListener = photoQueuedListener@{ requestId, _, camera, _ ->
-                if (pendingRequestId != requestId) return@photoQueuedListener
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    updateStatus(
-                        if (camera == "front") getString(R.string.remote_photo_status_queued_front)
-                        else getString(R.string.remote_photo_status_queued_back)
-                    )
-                }
+            photoQueuedListener = { requestId, _, camera, _ -> runOnUiThread {
+                if (isFinishing || isDestroyed || !matchesRequest(requestId)) return@runOnUiThread
+                updateStatus(getString(if (camera == "front") R.string.remote_photo_status_queued_front else R.string.remote_photo_status_queued_back))
                 startResponseTimeout(requestId)
-            }
+            } }
             WebSocketManager.addPhotoQueuedListener(photoQueuedListener!!)
         }
-
         if (photoRequestReceivedListener == null) {
-            photoRequestReceivedListener = photoRequestReceivedListener@{ requestId, _, _ ->
-                if (pendingRequestId != requestId) return@photoRequestReceivedListener
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    updateStatus(getString(R.string.remote_photo_status_device_accepted))
-                    // The child has the work now; retain the response timeout
-                    // so controls are still guaranteed to recover.
-                    startResponseTimeout(requestId)
-                }
-            }
+            photoRequestReceivedListener = { requestId, _, _ -> runOnUiThread {
+                if (isFinishing || isDestroyed || !matchesRequest(requestId)) return@runOnUiThread
+                updateStatus(getString(R.string.remote_photo_status_device_accepted))
+                startResponseTimeout(requestId)
+            } }
             WebSocketManager.addPhotoRequestReceivedListener(photoRequestReceivedListener!!)
         }
-
         if (photoBusyListener == null) {
-            photoBusyListener = photoBusyListener@{ requestId, _, _, ownerDisplayName, _ ->
-                if (pendingRequestId != requestId) return@photoBusyListener
+            photoBusyListener = { requestId, _, _, owner, _ -> runOnUiThread {
+                if (isFinishing || isDestroyed || !matchesRequest(requestId)) return@runOnUiThread
                 clearPendingRequest()
-                runOnUiThread {
-                    if (isFinishing || isDestroyed) return@runOnUiThread
-                    val ownerLabel = ownerDisplayName.ifBlank {
-                        getString(R.string.remote_camera_other_parent_fallback)
-                    }
-                    updateStatus(getString(R.string.remote_camera_busy_status, ownerLabel))
-                    AudioPlaybackService.restoreIfNeeded(this@RemoteCameraActivity)
-                    Toast.makeText(
-                        this@RemoteCameraActivity,
-                        getString(R.string.remote_camera_busy_status, ownerLabel),
-                        Toast.LENGTH_LONG
-                    ).show()
-                    enableButtons()
-                }
-            }
+                val ownerLabel = owner.ifBlank { getString(R.string.remote_camera_other_parent_fallback) }
+                updateStatus(getString(R.string.remote_camera_busy_status, ownerLabel))
+                AudioPlaybackService.restoreIfNeeded(this)
+                enableButtons()
+            } }
             WebSocketManager.addPhotoBusyListener(photoBusyListener!!)
         }
     }
@@ -676,6 +648,8 @@ class RemoteCameraActivity : AppCompatActivity() {
         val targetId = childId ?: return
         val requestId = java.util.UUID.randomUUID().toString()
         clearPendingRequest()
+        pendingScope = photoScope()
+        waitingForUpload = false
         pendingRequestId = requestId
         pendingStartedAt = android.os.SystemClock.elapsedRealtime()
         val camera = selectedCameraFacing
@@ -732,6 +706,10 @@ class RemoteCameraActivity : AppCompatActivity() {
                     catch (_: Exception) { null }
                 }
                 if (photoScope() != scope || pendingRequestId != requestId) return@launch
+                if (result?.optString("status") == "uploading") {
+                    waitingForUpload = true
+                    updateStatus(getString(R.string.remote_photo_upload_queued_status))
+                }
                 if (result?.optString("status") == "error") {
                     pendingRequestId = null; responseTimeoutJob = null
                     cancelConnectionTimeout(); enableButtons()
@@ -743,15 +721,17 @@ class RemoteCameraActivity : AppCompatActivity() {
                     return@launch
                 }
                 if (result?.optString("status") == "ready") {
-                    val file = result.getJSONObject("photo")
-                    val photo = ru.example.childwatch.network.PhotoFileData(file.getLong("id"), file.getString("filename"),
+                    val photo = runCatching {
+                        val file = result.getJSONObject("photo")
+                        ru.example.childwatch.network.PhotoFileData(file.getLong("id"), file.getString("filename"),
                         file.optLong("fileSize"), file.optString("mimeType", "image/jpeg"), timestamp = file.getLong("timestamp"),
                         createdAt = null, downloadUrl = file.getString("downloadUrl"), thumbnailUrl = file.optString("thumbnailUrl"), requestId = requestId)
+                    }.onFailure { Log.w(TAG, "Malformed durable photo result", it) }.getOrNull() ?: continue
                     pendingRequestId = null; responseTimeoutJob = null
                     cancelConnectionTimeout()
                     enableButtons(); AudioPlaybackService.restoreIfNeeded(this@RemoteCameraActivity)
                     updateStatus(getString(R.string.remote_camera_photo_received))
-                    loadPhotos()
+                    loadPhotos(announce = false)
                     openRemotePhotoPreview(photoItem(photo))
                     return@launch
                 }
@@ -760,10 +740,11 @@ class RemoteCameraActivity : AppCompatActivity() {
             rememberTimedOutRequest(requestId)
             pendingRequestId = null; responseTimeoutJob = null
             cancelConnectionTimeout()
-            updateStatus(getString(R.string.remote_camera_request_timeout))
+            updateStatus(getString(if (waitingForUpload) R.string.remote_photo_upload_deferred else R.string.remote_camera_request_timeout))
+            recoverLatePhoto(requestId)
             AudioPlaybackService.restoreIfNeeded(this@RemoteCameraActivity)
             enableButtons()
-            loadPhotos()
+            loadPhotos(announce = false)
         }
     }
 
@@ -775,22 +756,48 @@ class RemoteCameraActivity : AppCompatActivity() {
 
     private fun rememberTimedOutRequest(requestId: String) {
         val now = System.currentTimeMillis()
-        timedOutRequestIds[requestId] = now
+        timedOutRequestIds[requestId] = now to photoScope()
         val staleBefore = now - PHOTO_LATE_DELIVERY_GRACE_MS
-        timedOutRequestIds.entries.removeAll { it.value < staleBefore }
+        timedOutRequestIds.entries.removeAll { it.value.first < staleBefore }
     }
 
     private fun isLateDeliveryFor(requestId: String): Boolean {
         val timedOutAt = timedOutRequestIds[requestId] ?: return false
-        return System.currentTimeMillis() - timedOutAt <= PHOTO_LATE_DELIVERY_GRACE_MS
+        return timedOutAt.second == photoScope() && System.currentTimeMillis() - timedOutAt.first <= PHOTO_LATE_DELIVERY_GRACE_MS
     }
 
     private fun clearLateDelivery(requestId: String) {
         timedOutRequestIds.remove(requestId)
     }
 
+    private fun recoverLatePhoto(requestId: String) {
+        lateRecoveryJob?.cancel()
+        val target = childId ?: return
+        val scope = photoScope()
+        lateRecoveryJob = lifecycleScope.launch {
+            val deadline = android.os.SystemClock.elapsedRealtime() + PHOTO_LATE_DELIVERY_GRACE_MS
+            while (photoScope() == scope && android.os.SystemClock.elapsedRealtime() < deadline && isLateDeliveryFor(requestId)) {
+                delay(6000)
+                val result = kotlinx.coroutines.withTimeoutOrNull(8000) {
+                    try { networkClient.getRemotePhotoResult(target, requestId) }
+                    catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                    catch (_: Exception) { null }
+                }
+                if (scope != photoScope()) return@launch
+                if (result?.optString("status") == "ready") {
+                    clearLateDelivery(requestId)
+                    loadPhotos(announce = false)
+                    if (pendingRequestId == null) updateStatus(getString(R.string.remote_photo_late_saved))
+                    return@launch
+                }
+                if (result?.optString("status") == "error") return@launch
+            }
+        }
+    }
+
     private fun clearPendingRequest() {
         pendingRequestId = null
+        pendingScope = null
         cancelConnectionTimeout()
         responseTimeoutJob?.cancel()
         responseTimeoutJob = null
@@ -849,13 +856,13 @@ class RemoteCameraActivity : AppCompatActivity() {
     /**
      * Load photos from server
      */
-    private fun loadPhotos(append: Boolean = false) {
+    private fun loadPhotos(append: Boolean = false, announce: Boolean = true) {
         val target = childId ?: return
         val scope = photoScope()
         galleryJob?.cancel()
         progressIndicator.visibility = View.VISIBLE
         tvPhotosEmptyHint.visibility = View.GONE
-        if (pendingRequestId == null) updateStatus(getString(R.string.remote_camera_loading_gallery))
+        if (announce && pendingRequestId == null) updateStatus(getString(R.string.remote_camera_loading_gallery))
         galleryJob = lifecycleScope.launch {
             try {
                 val response = networkClient.getRemotePhotos(target, limit = 30, offset = if (append) galleryItems.size else 0)
@@ -882,14 +889,14 @@ class RemoteCameraActivity : AppCompatActivity() {
                 findViewById<View>(R.id.btnGalleryMore).visibility = View.VISIBLE
                 if (galleryItems.isEmpty()) clearViewfinderPhoto()
                 else { showViewfinderPhoto(galleryItems.first()); updateViewfinderTimestamp(galleryItems.first().timestamp) }
-                if (pendingRequestId == null) updateStatus(getString(R.string.remote_camera_gallery_updated))
+                if (announce && pendingRequestId == null) updateStatus(getString(R.string.remote_camera_gallery_updated))
             } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
             catch (error: Exception) {
                 if (scope != photoScope()) return@launch
                 tvPhotosEmptyHint.setText(R.string.remote_photo_gallery_retry)
                 tvPhotosEmptyHint.visibility = View.VISIBLE
                 rvRecentPhotos.visibility = if (galleryItems.isEmpty()) View.GONE else View.VISIBLE
-                if (pendingRequestId == null) updateStatus(getString(R.string.remote_camera_load_error))
+                if (announce && pendingRequestId == null) updateStatus(getString(R.string.remote_camera_load_error))
             } finally { if (scope == photoScope()) progressIndicator.visibility = View.GONE }
         }
     }
@@ -897,13 +904,23 @@ class RemoteCameraActivity : AppCompatActivity() {
     private fun showGallery() {
         val target = childId ?: return
         val scope = photoScope()
+        val usableHeight = resources.configuration.screenHeightDp / resources.configuration.fontScale.coerceAtLeast(1f)
+        val pageSize = when {
+            usableHeight >= 640 -> 6
+            usableHeight >= 480 -> 4
+            else -> 2
+        }
         val density = resources.displayMetrics.density
         fun dp(value: Int) = (value * density).toInt()
         val panel = android.widget.LinearLayout(this).apply {
             orientation = android.widget.LinearLayout.VERTICAL
             setPadding(dp(12), 0, dp(12), dp(8))
         }
-        val label = TextView(this).apply { textSize = 14f; setPadding(dp(4), dp(8), dp(4), dp(8)) }
+        val label = TextView(this).apply {
+            textSize = 14f
+            setPadding(dp(4), dp(8), dp(4), dp(8))
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+        }
         val pageAdapter = RemotePhotoThumbnailAdapter(
             tokenProvider = { networkClient.getAuthToken() },
             onPhotoClick = { if (scope == photoScope()) openRemotePhotoPreview(it) },
@@ -922,42 +939,78 @@ class RemoteCameraActivity : AppCompatActivity() {
             setText(R.string.remote_photo_gallery_previous)
         }
         val next = com.google.android.material.button.MaterialButton(this).apply { setText(R.string.remote_photo_gallery_next) }
-        row.addView(previous, android.widget.LinearLayout.LayoutParams(0, dp(48), 1f))
-        row.addView(next, android.widget.LinearLayout.LayoutParams(0, dp(48), 1f).apply { marginStart = dp(8) })
+        previous.minHeight = dp(48); next.minHeight = dp(48)
+        row.addView(previous, android.widget.LinearLayout.LayoutParams(0, -2, 1f))
+        row.addView(next, android.widget.LinearLayout.LayoutParams(0, -2, 1f).apply { marginStart = dp(8) })
+        val retry = com.google.android.material.button.MaterialButton(this, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            setText(R.string.remote_photo_gallery_retry_action)
+            visibility = View.GONE
+        }
         panel.addView(label)
-        panel.addView(grid, android.widget.LinearLayout.LayoutParams(-1, dp(288)))
+        val loading = com.google.android.material.progressindicator.CircularProgressIndicator(this).apply {
+            isIndeterminate = true
+            contentDescription = getString(R.string.remote_camera_loading_gallery)
+        }
+        val empty = TextView(this).apply {
+            textSize = 15f
+            gravity = android.view.Gravity.CENTER
+            setPadding(dp(16), dp(8), dp(16), dp(8))
+            setText(R.string.remote_photo_gallery_empty_guidance)
+            visibility = View.GONE
+        }
+        val galleryFrame = android.widget.FrameLayout(this).apply {
+            addView(grid, android.widget.FrameLayout.LayoutParams(-1, -1))
+            addView(empty, android.widget.FrameLayout.LayoutParams(-1, -1))
+            addView(loading, android.widget.FrameLayout.LayoutParams(dp(40), dp(40), android.view.Gravity.CENTER))
+            addView(retry, android.widget.FrameLayout.LayoutParams(-2, -2, android.view.Gravity.CENTER))
+        }
+        panel.addView(galleryFrame, android.widget.LinearLayout.LayoutParams(-1, dp((pageSize / 2) * 96)))
         panel.addView(row)
-        val dialog = MaterialAlertDialogBuilder(this).setTitle(getString(R.string.remote_photo_gallery_title))
-            .setView(panel).setPositiveButton(android.R.string.ok, null).create()
+        val dialog = MaterialAlertDialogBuilder(this)
+            .setTitle(getString(R.string.remote_photo_gallery_person_title, childName))
+            .setView(panel).setPositiveButton(R.string.remote_photo_gallery_close, null).create()
         var page = 0
         var pageJob: Job? = null
         fun loadPage(destination: Int) {
             pageJob?.cancel()
             previous.isEnabled = false; next.isEnabled = false
+            retry.visibility = View.GONE
+            grid.visibility = View.INVISIBLE
+            empty.visibility = View.GONE
+            loading.visibility = View.VISIBLE
             label.setText(R.string.remote_camera_loading_gallery)
             pageJob = lifecycleScope.launch {
                 try {
-                    val response = networkClient.getRemotePhotos(target, limit = 7, offset = destination * 6)
+                    val response = kotlinx.coroutines.withTimeoutOrNull(15_000L) {
+                        networkClient.getRemotePhotos(target, limit = pageSize + 1, offset = destination * pageSize)
+                    } ?: throw java.io.IOException("Gallery request timed out")
                     if (scope != photoScope() || !dialog.isShowing) { dialog.dismiss(); return@launch }
                     if (response.code() == 401 || response.code() == 403) {
                         pageAdapter.submitList(emptyList())
+                        loading.visibility = View.GONE
                         label.setText(R.string.remote_photo_family_denied_hint)
                         return@launch
                     }
                     if (!response.isSuccessful) throw IllegalStateException("Gallery unavailable")
                     val files = response.body()?.photoFiles ?: throw IllegalStateException("Missing gallery")
                     page = destination
-                    pageAdapter.submitList(files.take(6).map(::photoItem))
+                    pageAdapter.submitList(files.take(pageSize).map(::photoItem))
+                    loading.visibility = View.GONE
+                    grid.visibility = if (files.isEmpty()) View.INVISIBLE else View.VISIBLE
+                    empty.visibility = if (files.isEmpty()) View.VISIBLE else View.GONE
                     label.text = if (files.isEmpty()) getString(R.string.remote_camera_gallery_subtitle_empty)
                         else getString(R.string.remote_photo_gallery_page, page + 1)
                     previous.isEnabled = page > 0
-                    next.isEnabled = files.size > 6
+                    next.isEnabled = files.size > pageSize
                 } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
                 catch (error: Exception) {
                     if (scope == photoScope() && dialog.isShowing) {
                         label.setText(R.string.remote_photo_gallery_retry)
+                        loading.visibility = View.GONE
                         previous.isEnabled = page > 0
-                        label.setOnClickListener { loadPage(destination) }
+                        retry.visibility = View.VISIBLE
+                        grid.visibility = View.INVISIBLE
+                        retry.setOnClickListener { loadPage(destination) }
                     }
                 }
             }
@@ -1051,6 +1104,7 @@ class RemoteCameraActivity : AppCompatActivity() {
         connectionAttempt++
         super.onDestroy()
         clearPendingRequest()
+        lateRecoveryJob?.cancel()
         unregisterPhotoListeners()
         Log.d(TAG, "RemoteCameraActivity destroyed")
     }

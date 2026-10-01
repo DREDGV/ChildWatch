@@ -18,6 +18,14 @@
         <item name="colorSecondaryContainer">@color/cw_color_secondary_container</item>
         <item name="colorOnSecondaryContainer">@color/cw_color_on_secondary_container</item>
         <item name="colorSurface">@color/cw_color_surface</item>
+        <item name="colorSurfaceContainerHigh">@color/cw_color_surface_container_high</item>
+        <item name="colorSurfaceContainerLow">@color/cw_color_surface_container_low</item>
+        <item name="colorSurfaceContainer">@color/cw_color_surface_container</item>
+        <item name="colorSurfaceContainerLowest">@color/cw_color_surface_container_lowest</item>
+        <item name="colorSurfaceContainerHighest">@color/cw_color_surface_container_highest</item>
+        <item name="colorSurfaceDim">@color/cw_color_surface_dim</item>
+        <item name="colorSurfaceBright">@color/cw_color_surface_bright</item>
+        <item name="colorOutlineVariant">@color/cw_color_outline_variant</item>
         <item name="colorOnSurface">@color/cw_color_on_surface</item>
         <item name="colorSurfaceVariant">@color/cw_color_surface_variant</item>
         <item name="colorOnSurfaceVariant">@color/cw_color_on_surface_variant</item>
