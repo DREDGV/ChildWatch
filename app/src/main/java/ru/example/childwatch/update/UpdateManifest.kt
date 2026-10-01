@@ -108,7 +108,9 @@ object UpdateManifest {
      * is what decides.
      */
     private fun findEntry(apps: JSONObject, packageName: String): JSONObject? {
-        apps.optJSONObject(keyFor(packageName))?.let { return it }
+        apps.optJSONObject(keyFor(packageName))?.let { candidate ->
+            if (candidate.optString("packageName").equals(packageName, ignoreCase = true)) return candidate
+        }
 
         for (key in apps.keys()) {
             val candidate = apps.optJSONObject(key) ?: continue
@@ -120,7 +122,7 @@ object UpdateManifest {
     }
 
     private fun keyFor(packageName: String): String {
-        return if (packageName.endsWith(".parentwatch")) "child" else "parent"
+        return if (packageName.removeSuffix(".debug").endsWith(".parentwatch")) "child" else "parent"
     }
 
     private val SHA256_PATTERN = Regex("^[a-f0-9]{64}$")

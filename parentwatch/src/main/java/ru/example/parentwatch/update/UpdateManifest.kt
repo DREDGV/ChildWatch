@@ -109,7 +109,9 @@ object UpdateManifest {
      * is only a hint and the package name inside the entry is what decides.
      */
     private fun findEntry(apps: JSONObject, packageName: String): JSONObject? {
-        apps.optJSONObject(keyFor(packageName))?.let { return it }
+        apps.optJSONObject(keyFor(packageName))?.let { candidate ->
+            if (candidate.optString("packageName").equals(packageName, ignoreCase = true)) return candidate
+        }
 
         for (key in apps.keys()) {
             val candidate = apps.optJSONObject(key) ?: continue
@@ -121,5 +123,5 @@ object UpdateManifest {
     }
 
     private fun keyFor(packageName: String): String =
-        if (packageName.endsWith(".parentwatch")) "child" else "parent"
+        if (packageName.removeSuffix(".debug").endsWith(".parentwatch")) "child" else "parent"
 }

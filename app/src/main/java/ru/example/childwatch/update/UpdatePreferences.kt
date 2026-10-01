@@ -17,6 +17,8 @@ class UpdatePreferences(context: Context) {
         private const val TAG = "UpdatePreferences"
         private const val PREFS_NAME = "update_prefs"
 
+        private const val KEY_SERVER = "update_server_base"
+        private const val KEY_DISMISSED_AT = "dismissed_at"
         private const val KEY_LAST_CHECK = "last_successful_check_at"
         private const val KEY_DISMISSED_VERSION = "dismissed_version_code"
         private const val KEY_PENDING_NOTE = "pending_failure_note"
@@ -27,6 +29,22 @@ class UpdatePreferences(context: Context) {
 
     private val prefs = context.applicationContext
         .getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+
+    /** Cached offers and check times belong only to the server that produced them. */
+    fun bindServer(base: String): Boolean {
+        if (prefs.getString(KEY_SERVER, null) == base) return false
+        prefs.edit().putString(KEY_SERVER, base)
+            .remove(KEY_LAST_CHECK).remove(KEY_LAST_CHECK_VERSION)
+            .remove(KEY_OFFERED_MANIFEST).remove(KEY_OFFERED_VERSION)
+            .remove(KEY_DISMISSED_VERSION).remove(KEY_DISMISSED_AT).apply()
+        return true
+    }
+
+    fun dismissalStillActive(versionCode: Int, now: Long = System.currentTimeMillis()): Boolean {
+        if (dismissedVersionCode() != versionCode) return false
+        val at = prefs.getLong(KEY_DISMISSED_AT, 0L)
+        return at > 0L && now >= at && now - at < 24L * 60L * 60L * 1000L
+    }
 
     /**
      * The release found earlier and neither installed nor dismissed.
@@ -105,13 +123,14 @@ class UpdatePreferences(context: Context) {
     /**
      * Remembers which version the person closed the notice for.
      *
-     * The dismissal is deliberately not permanent: when a newer release appears,
+     * The dismissal expires after 24 hours; when a newer release appears,
      * its version code differs and the notice is offered again. Closing the notice
      * means "not this one, not now", never "never ask me again" — an application
      * that can never be updated again is worse than one that asks twice.
      */
     fun dismissVersion(versionCode: Int) {
-        prefs.edit().putInt(KEY_DISMISSED_VERSION, versionCode).apply()
+        prefs.edit().putInt(KEY_DISMISSED_VERSION, versionCode)
+            .putLong(KEY_DISMISSED_AT, System.currentTimeMillis()).apply()
     }
 
     /**

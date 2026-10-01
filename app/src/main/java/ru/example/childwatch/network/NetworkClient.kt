@@ -1844,6 +1844,7 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
             val url = ensureHttpsUrl(serverBase.trim()).trimEnd('/') + "/updates/manifest"
             val request = Request.Builder()
                 .url(url)
+                .header("Cache-Control", "no-cache")
                 .get()
                 .build()
 

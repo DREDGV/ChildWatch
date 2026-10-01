@@ -55,6 +55,12 @@ class UpdateManager(
     @Volatile
     private var serverBaseUrl: String? = null
 
+    fun bindServer(serverBase: String): Boolean {
+        val base = serverBase.trim().trimEnd('/')
+        serverBaseUrl = base.takeIf { it.isNotBlank() }
+        return preferences.bindServer(base)
+    }
+
     /**
      * True when a successful check happened recently, so asking now is wasteful.
      *
@@ -68,7 +74,7 @@ class UpdateManager(
     fun checkedRecently(now: Long = System.currentTimeMillis()): Boolean {
         if (preferences.lastSuccessfulCheckVersionCode() != currentVersionCode) return false
         val last = preferences.lastSuccessfulCheckAt()
-        return last > 0L && now - last < CHECK_INTERVAL_MS
+        return last > 0L && now >= last && now - last < CHECK_INTERVAL_MS
     }
 
     /**
@@ -97,7 +103,7 @@ class UpdateManager(
         // check is made at all. While this line sat below the early return, the stored
         // notice was shown, the person tapped "update", and the download failed with
         // "Server URL is not configured" — seen on the owner's phone, not in theory.
-        serverBaseUrl = base
+        bindServer(base)
 
         if (!force && checkedRecently()) {
             lastCheckState = CheckState.SKIPPED
@@ -120,6 +126,8 @@ class UpdateManager(
             Log.d(TAG, "The manifest describes nothing usable for $packageName")
             return null
         }
+
+        if (serverBaseUrl != base) return null
 
         // From this point the manifest was read successfully and names this very
         // application, so the wait until the next check starts now. This is the one
@@ -396,13 +404,13 @@ class UpdateManager(
         }
     }
 
-    /** Keeps the notice closed for this version until a newer one is published. */
+    /** Keeps the notice closed for this version for 24 hours. */
     fun dismiss(versionCode: Int) {
         preferences.dismissVersion(versionCode)
     }
 
     fun wasDismissed(versionCode: Int): Boolean =
-        preferences.dismissedVersionCode() == versionCode
+        preferences.dismissalStillActive(versionCode)
 
     /** Reads the once-only note left by an install that ended while nothing was on screen. */
     fun consumePendingFailureNote(): String? = preferences.consumePendingFailureNote()

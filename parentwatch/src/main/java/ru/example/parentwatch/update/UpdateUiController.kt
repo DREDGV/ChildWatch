@@ -11,8 +11,13 @@ import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.lifecycle.LifecycleCoroutineScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -62,6 +67,7 @@ class UpdateUiController(
     /** The release currently being offered, if any. */
     private var offered: UpdateRelease? = null
     private var checkJob: Job? = null
+    private var forcedCheckQueued = false
 
     /** The download dialog, held so that every path can close it. */
     private var progressDialog: AlertDialog? = null
@@ -71,45 +77,72 @@ class UpdateUiController(
     private val downloadCancelled = AtomicBoolean(false)
     private var lastProgressUpdateAt = 0L
 
+    init {
+        (context as? LifecycleOwner)?.let { owner ->
+            scope.launch {
+                owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+                    while (true) {
+                        delay(60_000L)
+                        checkAndShowNotice()
+                    }
+                }
+            }
+        }
+    }
+
     /**
-     * Runs the daily check and puts the notice on the screen when there is
+     * Checks for updates and puts the notice on the screen when there is
      * something to say.
      *
-     * Called on start and on every return to the foreground; the daily limit inside
+     * Called on start and on every return to the foreground; the 15-minute limit inside
      * [UpdateManager] is what stops that from being a request per resume.
      */
     fun checkAndShowNotice(force: Boolean = false) {
-        if (checkJob?.isActive == true) return
-        if (force) Toast.makeText(context, R.string.update_check_running, Toast.LENGTH_SHORT).show()
-        // An offer found earlier is still true, and the daily check limit must not be
-        // what hides it: a person who missed the notice once had no way to see it
-        // again until the next day. Shown first, then refreshed by the check below.
-        manager.previouslyOfferedRelease()?.let { earlier ->
-            if (manager.shouldOffer(earlier)) {
-                showNotice(earlier)
-            } else {
-                manager.forgetOfferedRelease()
+        if (checkJob?.isActive == true) {
+            if (force && !forcedCheckQueued) {
+                forcedCheckQueued = true
+                val active = checkJob
+                scope.launch {
+                    try {
+                        active?.join()
+                    } finally {
+                        forcedCheckQueued = false
+                    }
+                    checkAndShowNotice(force = true)
+                }
             }
+            return
         }
-
-        // Read through the caller's resolver, which is the same setting the rest of the
-        // application talks to. A phone that has not been set up yet is asked nothing:
-        // there is no server to ask.
+        if (force) Toast.makeText(context, R.string.update_check_running, Toast.LENGTH_SHORT).show()
         val serverUrl = try {
-            serverUrlProvider()?.trim()
-        } catch (error: Throwable) {
+            serverUrlProvider()?.trim().orEmpty()
+        } catch (error: Exception) {
             Log.w(TAG, "Could not resolve the server address", error)
-            null
+            ""
+        }
+        if (manager.bindServer(serverUrl)) {
+            hideNotice()
+            offered = null
+        }
+        manager.previouslyOfferedRelease()?.let { earlier ->
+            if (force || manager.shouldOffer(earlier)) showNotice(earlier)
         }
 
         checkJob = scope.launch {
             val release = try {
                 manager.checkForUpdate(serverUrl.orEmpty(), force)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (error: Throwable) {
                 // The check must never be able to interfere with the screen. Even a
                 // failure that is not an Exception ends here as a log line.
                 Log.w(TAG, "The update check did not complete", error)
                 null
+            }
+            if (serverUrlProvider()?.trim().orEmpty().trimEnd('/') != serverUrl.trimEnd('/')) {
+                hideNotice()
+                offered = null
+                return@launch
             }
             if (release == null) {
                 if (manager.lastCheckState == UpdateManager.CheckState.CURRENT) {
@@ -137,19 +170,25 @@ class UpdateUiController(
     private fun showNotice(release: UpdateRelease) {
         if (offered?.versionCode == release.versionCode && notice.isShowing()) return
         offered = release
+        val offerServer = serverUrlProvider()?.trim().orEmpty().trimEnd('/')
 
         if (noticeContainer.indexOfChild(notice.view) < 0) {
             noticeContainer.addView(notice.view, 0)
         }
         notice.show(
             release = release,
-            onUpdate = { offerDownload(release) },
+            onUpdate = {
+                if (serverUrlProvider()?.trim().orEmpty().trimEnd('/') == offerServer) {
+                    offerDownload(release, offerServer)
+                } else {
+                    hideNotice()
+                    offered = null
+                    checkAndShowNotice(force = true)
+                }
+            },
             onDismiss = {
-                // The notice stays away until a newer release is published. Nothing
-                // is asked again on the next resume, which is what "dismissable"
-                // has to mean to be worth offering.
+                // Later snoozes this release for one day; the cached offer remains.
                 manager.dismiss(release.versionCode)
-                manager.forgetOfferedRelease()
                 notice.hide()
                 offered = null
             }
@@ -170,7 +209,7 @@ class UpdateUiController(
      * person cannot judge — nobody can tell how much of their allowance forty
      * megabytes will take.
      */
-    private fun offerDownload(release: UpdateRelease) {
+    private fun offerDownload(release: UpdateRelease, offerServer: String) {
         val size = if (release.sizeBytes > 0L) {
             context.getString(
                 R.string.update_download_size,
@@ -184,7 +223,13 @@ class UpdateUiController(
             .setTitle(context.getString(R.string.update_download_title, release.versionName))
             .setMessage(context.getString(R.string.update_download_message, size))
             .setPositiveButton(context.getString(R.string.update_download_confirm)) { _, _ ->
-                startDownload(release)
+                if (serverUrlProvider()?.trim().orEmpty().trimEnd('/') == offerServer) {
+                    startDownload(release)
+                } else {
+                    hideNotice()
+                    offered = null
+                    checkAndShowNotice(force = true)
+                }
             }
             .setNegativeButton(context.getString(R.string.update_cancel), null)
             .show()
