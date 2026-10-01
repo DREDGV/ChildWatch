@@ -14,6 +14,7 @@ import androidx.lifecycle.LifecycleService
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 import ru.example.childwatch.MainActivity
 import ru.example.childwatch.R
 import ru.example.childwatch.chat.ChatManager
@@ -76,10 +77,7 @@ class ChatBackgroundService : LifecycleService() {
         }
 
         fun stop(context: Context) {
-            val intent = Intent(context, ChatBackgroundService::class.java).apply {
-                action = ACTION_STOP_SERVICE
-            }
-            runCatching { context.startService(intent) }.onFailure { error ->
+            runCatching { context.stopService(Intent(context, ChatBackgroundService::class.java)) }.onFailure { error ->
                 Log.w(TAG, "Chat service stop failed", error)
             }
         }
@@ -103,6 +101,16 @@ class ChatBackgroundService : LifecycleService() {
         super.onCreate()
         Log.d(TAG, "ChatBackgroundService created")
 
+        // Fulfil Android's foreground deadline before database and runtime setup.
+        createNotificationChannel()
+        startForeground(NOTIFICATION_ID, createNotification("Восстановление фоновой связи…"))
+
+        lifecycleScope.launch {
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                ru.example.childwatch.location.FamilyPlaceSync.sync(this@ChatBackgroundService)
+                delay(30_000L)
+            }
+        }
         chatManager = ChatManager(this)
         effectiveContextResolver = ParentEffectiveContextResolver(this)
         activeSessionStore = ParentActiveSessionStore(this)
@@ -200,9 +208,7 @@ class ChatBackgroundService : LifecycleService() {
         Log.d(TAG, "Starting chat background service (isRunning=$isRunning)")
 
         // Start foreground with notification
-        if (!isRunning) {
-            startForeground(NOTIFICATION_ID, createNotification("Восстановление фоновой связи…"))
-        }
+        startForeground(NOTIFICATION_ID, createNotification("Восстановление фоновой связи…"))
 
         if (isRunning &&
             serverUrl == lastServerUrl &&

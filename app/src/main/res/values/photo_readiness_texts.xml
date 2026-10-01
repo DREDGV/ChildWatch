@@ -1,0 +1,29 @@
+<resources>
+ <string name="photo_camera_details_title">Камера телефона ребёнка</string>
+ <string name="photo_camera_unknown">Камера: нет свежих данных</string>
+ <string name="photo_camera_stale">Камера: состояние устарело</string>
+ <string name="photo_camera_permission_missing">Камера: нужен доступ на телефоне ребёнка</string>
+ <string name="photo_camera_sensor_blocked">Камера выключена в настройках Android</string>
+ <string name="photo_camera_absent">Выбранная камера недоступна</string>
+ <string name="photo_camera_permission_ok">Доступ к камере разрешён</string>
+ <string name="photo_camera_offline">Телефон ребёнка не подключён для фото</string>
+ <string name="photo_camera_busy">Другой запрос фото ещё выполняется</string>
+ <string name="photo_camera_background_note">Разрешение камеры не гарантирует съёмку в фоне: Android может потребовать открыть ChildDevice на телефоне ребёнка.</string>
+ <string name="photo_camera_permission_help">На телефоне ребёнка откройте настройки Android → Приложения → ChildDevice → Разрешения → Камера и разрешите доступ.</string>
+ <string name="photo_camera_sensor_help">На телефоне ребёнка включите доступ к камере в быстрых настройках или настройках конфиденциальности Android.</string>
+ <string name="photo_camera_offline_help">Откройте ChildDevice на телефоне ребёнка и проверьте подключение к интернету.</string>
+ <string name="photo_camera_unknown_help">Телефон ещё не передал свежие сведения о камере. Можно попробовать сделать фото; разрешения и результат проверяются при запросе.</string>
+ <string name="photo_camera_checked_at">Проверено на телефоне: %1$s</string>
+ <string name="photo_camera_hardware">Основная: %1$s · фронтальная: %2$s</string>
+ <string name="photo_camera_present">есть</string>
+ <string name="photo_camera_missing">нет</string>
+ <string name="photo_camera_last_failed">Последняя переданная попытка (%1$s): %2$s</string>
+ <string name="photo_camera_last_success">Последнее фото доставлено: %1$s</string>
+ <string name="photo_camera_failure_unknown">не удалось получить фото; повторите запрос</string>
+ <string name="photo_camera_view_details">Состояние камеры. Нажмите для подробностей.</string>
+ <string name="photo_camera_checking">Проверяем доступ к фото…</string>
+ <string name="photo_camera_diagnostics_line">Фото ребёнка: %1$s</string>
+ <string name="photo_camera_absent_help">На этом телефоне выбранная камера не найдена. Попробуйте другую камеру.</string>
+ <string name="photo_camera_family_permission_help">Проверьте право на удалённое фото в настройках семьи. Разрешение камеры на детском телефоне само по себе не даёт взрослому доступ.</string>
+ <string name="photo_camera_busy_help">Дождитесь завершения предыдущего запроса. Обновите состояние камеры и повторите попытку.</string>
+</resources>

@@ -18,6 +18,9 @@ import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.vanniktech.emoji.EmojiPopup
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.example.childwatch.databinding.ActivityChatBinding
@@ -28,6 +31,7 @@ import ru.example.childwatch.chat.ChatMessageRuntimeRegistry
 import ru.example.childwatch.chat.withStatus
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.network.NetworkClient
+import ru.example.childwatch.location.FamilyLocationSummary
 import ru.example.childwatch.network.FamilyPresenceParticipant
 import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentEffectiveContextProvider
@@ -65,6 +69,8 @@ class ChatActivity : AppCompatActivity() {
     private lateinit var chatAdapter: ChatAdapter
     private lateinit var chatManager: ChatManager
     private lateinit var networkClient: NetworkClient
+    private val familyLocationSummary by lazy { FamilyLocationSummary(this, networkClient) }
+    private var personLocationJob: Job? = null
     private lateinit var contextProvider: ParentEffectiveContextProvider
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
     private lateinit var activeSessionStore: ParentActiveSessionStore
@@ -1145,6 +1151,7 @@ class ChatActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        startPersonLocationUpdates()
         isChatUiActive = true
         isChatUiVisible = true  // Устанавливаем глобальный флаг
         clearPendingReadReceiptRetries()
@@ -1159,6 +1166,8 @@ class ChatActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        personLocationJob?.cancel()
+        personLocationJob = null
         emojiPopup?.dismiss()
         isChatUiActive = false
         isChatUiVisible = false  // Сбрасываем глобальный флаг
@@ -1170,6 +1179,25 @@ class ChatActivity : AppCompatActivity() {
             .putBoolean(chatOpenKey, false)
             .apply()
         super.onPause()
+    }
+
+    private fun startPersonLocationUpdates() {
+        personLocationJob?.cancel()
+        personLocationJob = lifecycleScope.launch {
+            while (isActive) {
+                val requestedId = getChildDeviceId()
+                if (requestedId.isNotBlank()) {
+                    val summary = familyLocationSummary.forPerson(requestedId, ownParentDeviceId)
+                    if (requestedId == getChildDeviceId()) {
+                        binding.chatPersonLocation.text = summary
+                        binding.chatPersonLocation.visibility = View.VISIBLE
+                    }
+                } else {
+                    binding.chatPersonLocation.visibility = View.GONE
+                }
+                delay(30_000L)
+            }
+        }
     }
 
     override fun onDestroy() {

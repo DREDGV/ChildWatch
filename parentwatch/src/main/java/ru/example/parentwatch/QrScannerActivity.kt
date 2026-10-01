@@ -1,10 +1,10 @@
 package ru.example.parentwatch
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.util.Log
-import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.camera.core.CameraSelector
@@ -15,142 +15,96 @@ import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.core.content.ContextCompat
 import com.google.mlkit.vision.barcode.BarcodeScanning
+import com.google.mlkit.vision.barcode.BarcodeScannerOptions
 import com.google.mlkit.vision.barcode.common.Barcode
 import com.google.mlkit.vision.common.InputImage
 import ru.example.parentwatch.databinding.ActivityQrScannerBinding
-import java.util.concurrent.ExecutorService
+import ru.childwatch.shared.onboarding.FamilyInvitationTokenParser
 import java.util.concurrent.Executors
 
 class QrScannerActivity : AppCompatActivity() {
-
     private lateinit var binding: ActivityQrScannerBinding
-    private lateinit var cameraExecutor: ExecutorService
-    private var imageAnalyzer: ImageAnalysis? = null
+    private val cameraExecutor = Executors.newSingleThreadExecutor()
+    private val scanner = BarcodeScanning.getClient(BarcodeScannerOptions.Builder()
+        .setBarcodeFormats(Barcode.FORMAT_QR_CODE).build())
+    private var finished = false
+    @Volatile private var processing = false
 
-    private val requestPermissionLauncher = registerForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { isGranted ->
-        if (isGranted) {
-            startCamera()
-        } else {
-            Toast.makeText(this, "Необходимо разрешение на камеру", Toast.LENGTH_SHORT).show()
-            finish()
-        }
+    private val permission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startCamera() else binding.scanHint.setText(R.string.family_scan_permission)
+    }
+    private val picture = registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) runCatching { InputImage.fromFilePath(this, uri) }
+            .onSuccess { image -> read(image) {} }
+            .onFailure { binding.scanHint.setText(R.string.family_scan_image_error) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityQrScannerBinding.inflate(layoutInflater)
         setContentView(binding.root)
-
-        supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = getString(R.string.child_qr_scanner_backup_title)
-
-        cameraExecutor = Executors.newSingleThreadExecutor()
-
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA)
-            == PackageManager.PERMISSION_GRANTED
-        ) {
-            startCamera()
-        } else {
-            requestPermissionLauncher.launch(Manifest.permission.CAMERA)
-        }
+        supportActionBar?.hide()
+        binding.scanCloseButton.setOnClickListener { finish() }
+        binding.scanImageButton.setOnClickListener { picture.launch("image/*") }
+        binding.scanCameraButton.setOnClickListener { requestCamera() }
+        requestCamera()
     }
-
+    private fun requestCamera() {
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+            startCamera()
+        else permission.launch(Manifest.permission.CAMERA)
+    }
     private fun startCamera() {
-        val cameraProviderFuture = ProcessCameraProvider.getInstance(this)
-
-        cameraProviderFuture.addListener({
-            val cameraProvider = cameraProviderFuture.get()
-
-            val preview = Preview.Builder()
-                .build()
-                .also {
-                    it.setSurfaceProvider(binding.previewView.surfaceProvider)
-                }
-
-            imageAnalyzer = ImageAnalysis.Builder()
-                .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
-                .build()
-                .also {
-                    it.setAnalyzer(cameraExecutor, QrCodeAnalyzer { qrCode ->
-                        onQrCodeScanned(qrCode)
-                    })
-                }
-
+        val future = ProcessCameraProvider.getInstance(this)
+        future.addListener({
+            if (isFinishing || isDestroyed) return@addListener
             try {
-                cameraProvider.unbindAll()
-                cameraProvider.bindToLifecycle(
-                    this,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
-                    preview,
-                    imageAnalyzer
-                )
-            } catch (e: Exception) {
-                Log.e("QrScanner", "Camera binding failed", e)
-                Toast.makeText(this, "Ошибка запуска камеры", Toast.LENGTH_SHORT).show()
+                val provider = future.get()
+                val preview = Preview.Builder().build().also { it.setSurfaceProvider(binding.previewView.surfaceProvider) }
+                val analysis = ImageAnalysis.Builder()
+                    .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST).build()
+                analysis.setAnalyzer(cameraExecutor, object : ImageAnalysis.Analyzer {
+                    @ExperimentalGetImage
+                    override fun analyze(proxy: ImageProxy) {
+                        val media = proxy.image
+                        if (isFinishing || isDestroyed || finished || processing || media == null) { proxy.close(); return }
+                        processing = true
+                        read(InputImage.fromMediaImage(media, proxy.imageInfo.rotationDegrees)) {
+                            processing = false
+                            proxy.close()
+                        }
+                    }
+                })
+                provider.unbindAll()
+                provider.bindToLifecycle(this, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis)
+                binding.scanHint.setText(R.string.family_scan_hint)
+            } catch (failure: Exception) {
+                Log.w("FamilyQr", "Camera unavailable", failure)
+                binding.scanHint.setText(R.string.family_scan_camera_error)
             }
         }, ContextCompat.getMainExecutor(this))
     }
-
-    private fun onQrCodeScanned(qrCode: String) {
-        runOnUiThread {
-            val resultIntent = intent.apply {
-                putExtra("SCANNED_QR_CODE", qrCode)
-            }
-            setResult(RESULT_OK, resultIntent)
-            finish()
-        }
+    private fun read(image: InputImage, complete: () -> Unit) {
+        if (isFinishing || isDestroyed || finished) { complete(); return }
+        scanner.process(image).addOnSuccessListener { codes ->
+            if (isFinishing || isDestroyed || finished) return@addOnSuccessListener
+            val value = codes.firstOrNull { it.rawValue != null }?.rawValue
+            if (value != null) {
+                if (intent.getBooleanExtra("invitation_only", false) && FamilyInvitationTokenParser.parse(value) == null)
+                    binding.scanHint.setText(R.string.family_scan_not_invitation)
+                else {
+                    finished = true
+                    setResult(RESULT_OK, Intent().putExtra("SCANNED_QR_CODE", value))
+                    finish()
+                }
+            } else binding.scanHint.setText(R.string.family_scan_no_code)
+        }.addOnFailureListener {
+            if (!isDestroyed) binding.scanHint.setText(R.string.family_scan_image_error)
+        }.addOnCompleteListener { complete() }
     }
-
-    override fun onSupportNavigateUp(): Boolean {
-        finish()
-        return true
-    }
-
     override fun onDestroy() {
-        super.onDestroy()
+        scanner.close()
         cameraExecutor.shutdown()
-    }
-
-    private class QrCodeAnalyzer(
-        private val onQrCodeDetected: (String) -> Unit
-    ) : ImageAnalysis.Analyzer {
-
-        private val scanner = BarcodeScanning.getClient()
-        private var isProcessing = false
-
-        @ExperimentalGetImage
-        override fun analyze(imageProxy: ImageProxy) {
-            if (isProcessing) {
-                imageProxy.close()
-                return
-            }
-
-            val mediaImage = imageProxy.image
-            if (mediaImage != null) {
-                isProcessing = true
-                val image = InputImage.fromMediaImage(mediaImage, imageProxy.imageInfo.rotationDegrees)
-
-                scanner.process(image)
-                    .addOnSuccessListener { barcodes ->
-                        for (barcode in barcodes) {
-                            if (barcode.format == Barcode.FORMAT_QR_CODE) {
-                                barcode.rawValue?.let(onQrCodeDetected)
-                                break
-                            }
-                        }
-                    }
-                    .addOnFailureListener {
-                        Log.e("QrScanner", "Barcode scanning failed", it)
-                    }
-                    .addOnCompleteListener {
-                        isProcessing = false
-                        imageProxy.close()
-                    }
-            } else {
-                imageProxy.close()
-            }
-        }
+        super.onDestroy()
     }
 }

@@ -130,6 +130,11 @@ class GeofenceManager(private val context: Context) {
      * Register geofence with Android system
      */
     private fun registerGeofenceWithSystem(geofence: GeofenceEntity) {
+        val own = ru.example.childwatch.profile.ParentEffectiveContextResolver(context).resolveOwnParentId().removePrefix("device_")
+        if (own.isBlank() || geofence.deviceId.removePrefix("device_") != own) {
+            Log.w(TAG, "Remote-person places must be evaluated from family location uploads, not this phone's geofence")
+            return
+        }
         if (ActivityCompat.checkSelfPermission(
                 context,
                 Manifest.permission.ACCESS_FINE_LOCATION

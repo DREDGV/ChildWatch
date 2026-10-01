@@ -1,0 +1,12 @@
+<resources>
+    <string name="family_invite_share_failed">Не удалось подготовить QR для отправки. Скопируйте ссылку или повторите.</string>
+    <string name="family_invite_connected">Готово! Телефон участника «%1$s» подключён к семье. Это приглашение уже использовано; для другого телефона создайте новое.</string>
+    <string name="family_invite_child_app">На телефоне ребёнка — ChildDevice. Взрослые смогут видеть активность и местоположение по семейным разрешениям.</string>
+    <string name="family_invite_adult_app">На телефоне взрослого — ParentMonitor. Его телефон нельзя прослушивать как детский.</string>
+    <string name="family_invite_loading_context">Ваша семья</string>
+    <string name="family_invite_context">Семья «%1$s»\nУчастников: %2$d</string>
+    <string name="family_invite_steps">Выберите, чей это телефон. Затем покажите QR-код или отправьте приглашение.</string>
+    <string name="family_invite_new_help">Человек появится в семье после подтверждения на его телефоне.</string>
+    <string name="family_invite_existing_help">Подходит для замены телефона, дополнительного устройства и переустановки приложения. Выберите человека из вашей семьи — его имя, роль и аватар сохранятся. Второй профиль создавать не нужно.</string>
+    <string name="family_invite_legacy_help">Выберите старое устройство, чтобы связать его с профилем человека в семье.</string>
+</resources>

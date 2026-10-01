@@ -2,6 +2,7 @@ package ru.example.childwatch.utils
 
 import android.content.Context
 import android.util.Log
+import ru.childwatch.shared.family.ServerAddressValidator
 
 /**
  * Secure settings manager for ChildWatch application
@@ -103,6 +104,10 @@ class SecureSettingsManager(private val context: Context) {
         val sanitizedUrl = url?.trim()
             ?.takeIf { it.isNotBlank() }
             ?.let { normalizeServerUrl(it) }
+        if (!url.isNullOrBlank() && sanitizedUrl.isNullOrBlank()) {
+            Log.w(TAG, "Ignoring server URL without a valid HTTP host")
+            return
+        }
         securePrefs.putString(KEY_SERVER_URL, sanitizedUrl)
         Log.d(TAG, "Server URL set to: ${sanitizedUrl ?: "(cleared)"}")
     }
@@ -111,10 +116,12 @@ class SecureSettingsManager(private val context: Context) {
         val secureUrl = securePrefs.getString(KEY_SERVER_URL)?.trim()
         if (!secureUrl.isNullOrBlank()) {
             val normalized = normalizeServerUrl(secureUrl)
-            if (normalized != secureUrl) {
-                securePrefs.putString(KEY_SERVER_URL, normalized)
+            if (normalized.isNotBlank()) {
+                if (normalized != secureUrl) {
+                    securePrefs.putString(KEY_SERVER_URL, normalized)
+                }
+                return normalized
             }
-            return normalized
         }
 
         // Legacy fallback (childwatch_prefs) - migrate once, but do not auto-default
@@ -123,9 +130,11 @@ class SecureSettingsManager(private val context: Context) {
             ?.trim()
         if (!legacyUrl.isNullOrBlank()) {
             val normalized = normalizeServerUrl(legacyUrl)
-            securePrefs.putString(KEY_SERVER_URL, normalized)
-            Log.d(TAG, "Server URL migrated from legacy prefs")
-            return normalized
+            if (normalized.isNotBlank()) {
+                securePrefs.putString(KEY_SERVER_URL, normalized)
+                Log.d(TAG, "Server URL migrated from legacy prefs")
+                return normalized
+            }
         }
 
         return ""
@@ -133,18 +142,14 @@ class SecureSettingsManager(private val context: Context) {
 
     private fun normalizeServerUrl(raw: String): String {
         val candidate = extractUrlCandidate(raw)
-        if (candidate.startsWith("http://") || candidate.startsWith("https://")) {
-            return candidate
-        }
-
-        val looksLikeLocalOrIp = candidate.startsWith("localhost", ignoreCase = true) ||
-            candidate.matches(Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+(:\\d+)?$"))
-
-        return if (looksLikeLocalOrIp) {
-            "http://$candidate"
+        val normalized = if (candidate.startsWith("http://") || candidate.startsWith("https://")) {
+            candidate
         } else {
-            "https://$candidate"
+            val looksLikeLocalOrIp = candidate.startsWith("localhost", ignoreCase = true) ||
+                candidate.matches(Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+(:\\d+)?$"))
+            if (looksLikeLocalOrIp) "http://$candidate" else "https://$candidate"
         }
+        return normalized.takeIf(ServerAddressValidator::isValid).orEmpty()
     }
 
     private fun extractUrlCandidate(raw: String): String {

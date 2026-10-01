@@ -31,8 +31,8 @@ object AvatarPhotoSession {
     /**
      * Uploads [photo] and, once it is stored, saves and publishes the profile.
      *
-     * @param previousAvatarKey the picture being replaced; when it was one this
-     *        device uploaded, it is removed from the server afterwards
+     * @param previousAvatarKey retained for existing callers; removal happens in
+     *        publish only after the family accepts the replacement
      * @param onUploaded called on the main thread with the value the server
      *        returned, so the screen can save the profile and close the editor
      * @param onFailed called on the main thread when the photograph could not be
@@ -70,12 +70,6 @@ object AvatarPhotoSession {
                 return@launch
             }
 
-            // The old photograph is removed only after the new one is stored:
-            // the other order would leave the profile pointing at nothing if the
-            // upload had failed.
-            withContext(Dispatchers.IO) {
-                AvatarPhotoUpload.deleteUploadedPhoto(context, serverUrl, previousAvatarKey)
-            }
             onUploaded(avatarValue)
         }
     }
@@ -96,12 +90,6 @@ object AvatarPhotoSession {
         onFinished: (published: Boolean) -> Unit
     ) {
         val replaced = previousAvatarKey?.trim().orEmpty()
-        // Switching from an uploaded photograph to a built-in picture leaves the
-        // photograph on the server unless it is removed here.
-        if (replaced.startsWith("/avatars/") && replaced != avatarKey?.trim()) {
-            removeUploadedPhoto(context, scope, replaced)
-        }
-
         OwnProfilePublisher.publish(
             context = context,
             scope = scope,
@@ -120,6 +108,9 @@ object AvatarPhotoSession {
                 if (published) Toast.LENGTH_SHORT else Toast.LENGTH_LONG
             ).show()
             onFinished(published)
+            if (published && replaced.startsWith("/avatars/") && replaced != avatarKey?.trim()) {
+                removeUploadedPhoto(context, scope, replaced)
+            }
         }
     }
 

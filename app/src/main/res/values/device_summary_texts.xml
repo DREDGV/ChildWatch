@@ -1,0 +1,8 @@
+<resources>
+    <string name="device_summary_battery">Батарея: %1$s</string>
+    <string name="device_summary_temperature">Температура: %1$s</string>
+    <string name="device_summary_model">Телефон: %1$s</string>
+    <string name="device_summary_app">Открыто сейчас: %1$s</string>
+    <string name="device_summary_updated">Данные получены: %1$s</string>
+    <string name="device_summary_stale">Данные устарели · %1$s</string>
+</resources>

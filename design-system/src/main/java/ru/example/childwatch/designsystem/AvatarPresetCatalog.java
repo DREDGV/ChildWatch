@@ -3,7 +3,6 @@ package ru.example.childwatch.designsystem;
 import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
-import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 
@@ -166,9 +165,8 @@ public final class AvatarPresetCatalog {
      * than its frame and looking off-centre, differently for every picture,
      * because the artwork inside each circle is not the same size.
      *
-     * This finds the painted area inside the cell and then cuts a circle that
-     * contains it, centred on the artwork, so every preset fills its frame the
-     * same way regardless of the view size or shape.
+     * A fixed square centred on each painted circle gives every preset the same
+     * circular outline, including artwork that reaches beyond its background.
      */
     @Nullable
     private static Bitmap crop(Context context, int index) {
@@ -177,61 +175,21 @@ public final class AvatarPresetCatalog {
 
         int row = index / COLUMNS;
         int column = index % COLUMNS;
-        int cellLeft = Math.round(column * sheet.getWidth() / (float) COLUMNS);
-        int cellTop = Math.round(row * sheet.getHeight() / (float) COLUMNS);
-        int cellRight = Math.round((column + 1) * sheet.getWidth() / (float) COLUMNS);
-        int cellBottom = Math.round((row + 1) * sheet.getHeight() / (float) COLUMNS);
-        Rect cell = new Rect(cellLeft, cellTop, cellRight, cellBottom);
-
-        Rect painted = findPaintedBounds(sheet, cell);
-        if (painted == null) {
-            return Bitmap.createBitmap(sheet, cell.left, cell.top, cell.width(), cell.height());
-        }
-
-        // A square centred on the artwork, then cut into a circle.
-        int centreX = (painted.left + painted.right) / 2;
-        int centreY = (painted.top + painted.bottom) / 2;
-        int half = Math.max(painted.width(), painted.height()) / 2;
-        int left = Math.max(cell.left, centreX - half);
-        int top = Math.max(cell.top, centreY - half);
-        int right = Math.min(cell.right, centreX + half);
-        int bottom = Math.min(cell.bottom, centreY + half);
-        int size = Math.min(right - left, bottom - top);
-        if (size <= 0) {
-            return Bitmap.createBitmap(sheet, cell.left, cell.top, cell.width(), cell.height());
-        }
-
+        // The supplied 1254px sheet is not centred on equal-size grid cells:
+        // the first circle starts at x=27, successive columns at +245px, and
+        // successive rows at +240px. Match those circles exactly, scaled with
+        // the resource, instead of scanning protruding artwork or cell edges.
+        float scaleX = sheet.getWidth() / 1254f;
+        float scaleY = sheet.getHeight() / 1254f;
+        int size = Math.round(218f * Math.min(scaleX, scaleY));
+        int centerX = Math.round((136f + 245f * column) * scaleX);
+        int centerY = Math.round((139f + 240f * row) * scaleY);
+        int left = Math.max(0, Math.min(sheet.getWidth() - size, centerX - size / 2));
+        int top = Math.max(0, Math.min(sheet.getHeight() - size, centerY - size / 2));
         Bitmap square = Bitmap.createBitmap(sheet, left, top, size, size);
         Bitmap circular = toCircle(square);
         if (circular != square) square.recycle();
         return circular;
-    }
-
-    /** Bounding box of the non-background pixels inside [cell], or null. */
-    @Nullable
-    private static Rect findPaintedBounds(Bitmap sheet, Rect cell) {
-        int step = Math.max(1, Math.min(cell.width(), cell.height()) / 64);
-        int left = Integer.MAX_VALUE;
-        int top = Integer.MAX_VALUE;
-        int right = Integer.MIN_VALUE;
-        int bottom = Integer.MIN_VALUE;
-
-        for (int y = cell.top; y < cell.bottom; y += step) {
-            for (int x = cell.left; x < cell.right; x += step) {
-                int pixel = sheet.getPixel(x, y);
-                // The sheet background is near-white; anything else is artwork.
-                boolean background = android.graphics.Color.red(pixel) > 244
-                        && android.graphics.Color.green(pixel) > 244
-                        && android.graphics.Color.blue(pixel) > 244;
-                if (background) continue;
-                if (x < left) left = x;
-                if (x > right) right = x;
-                if (y < top) top = y;
-                if (y > bottom) bottom = y;
-            }
-        }
-        if (right <= left || bottom <= top) return null;
-        return new Rect(left, top, right + 1, bottom + 1);
     }
 
     /** Copies [square] into a circle with transparent corners. */

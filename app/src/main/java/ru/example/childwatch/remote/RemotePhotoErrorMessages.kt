@@ -15,6 +15,20 @@ object RemotePhotoErrorMessages {
     fun resolve(context: Context, rawError: String): RemotePhotoUiError {
         val normalized = rawError.trim().lowercase()
         return when {
+            normalized.contains("camera_not_available") || normalized.contains("requested camera not available") -> RemotePhotoUiError(
+                status = context.getString(R.string.photo_camera_absent),
+                message = context.getString(R.string.photo_camera_absent_help)
+            )
+            normalized.contains("photo_permission_denied") || normalized.contains("photo_target_not_child") -> RemotePhotoUiError(
+                status = context.getString(R.string.remote_photo_family_denied),
+                message = context.getString(R.string.remote_photo_family_denied_hint)
+            )
+
+            normalized.contains("photo_upload_failed") -> RemotePhotoUiError(
+                status = context.getString(R.string.remote_camera_download_failed),
+                message = context.getString(R.string.remote_photo_upload_failed)
+            )
+
             normalized.contains("background_camera_restricted") ||
                 normalized.contains("camera_background_restricted") ||
                 normalized.contains("camera restricted") ||
@@ -60,7 +74,7 @@ object RemotePhotoErrorMessages {
                 message = context.getString(R.string.remote_camera_service_start_failed_message)
             )
 
-            normalized.contains("photo_request_timeout") -> RemotePhotoUiError(
+            normalized.contains("photo_request_timeout") || normalized.contains("photo_capture_timeout") -> RemotePhotoUiError(
                 status = context.getString(R.string.remote_camera_request_timeout),
                 message = context.getString(R.string.remote_camera_no_response)
             )

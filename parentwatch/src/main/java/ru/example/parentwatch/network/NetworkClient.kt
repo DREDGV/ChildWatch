@@ -569,7 +569,9 @@ class NetworkClient(private val context: Context) {
                                 latitude = item.getDouble("latitude"),
                                 longitude = item.getDouble("longitude"),
                                 accuracy = if (item.isNull("accuracy")) null else item.optDouble("accuracy").toFloat(),
-                                timestamp = item.getLong("timestamp")
+                                timestamp = item.getLong("timestamp"),
+                                speedMps = if (item.isNull("speedMps")) null else item.optDouble("speedMps").toFloat(),
+                                speedAccuracyMps = if (item.isNull("speedAccuracyMps")) null else item.optDouble("speedAccuracyMps").toFloat()
                             )
                         )
                     }
@@ -583,6 +585,48 @@ class NetworkClient(private val context: Context) {
             null
         }
     }
+
+    suspend fun getFamilyTrail(familyId: String, memberId: String, expectedDeviceId: String? = null): List<ParentLocationData>? =
+        withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()?.takeIf(String::isNotBlank)
+                    ?: return@withContext null
+                val family = java.net.URLEncoder.encode(familyId, "UTF-8")
+                val member = java.net.URLEncoder.encode(memberId, "UTF-8")
+                val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}/api/location/family/trail/$member?familyId=$family"
+                val request = Request.Builder().url(url).get()
+                    .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME).build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Family trail request failed: ${response.code}")
+                        return@withContext null
+                    }
+                    val root = JSONObject(response.body?.string() ?: return@withContext null)
+                    if (!root.optBoolean("success")) return@withContext null
+                    if (expectedDeviceId != null && root.has("deviceId") && root.optString("deviceId") != expectedDeviceId) return@withContext null
+                    val points = root.optJSONArray("points") ?: return@withContext emptyList()
+                    buildList {
+                        for (index in 0 until points.length()) {
+                            val point = points.optJSONObject(index) ?: continue
+                            if (point.isNull("timestamp")) continue
+                            add(ParentLocationData(
+                                parentId = memberId,
+                                latitude = point.getDouble("latitude"),
+                                longitude = point.getDouble("longitude"),
+                                accuracy = if (point.isNull("accuracy")) 0f else point.optDouble("accuracy").toFloat(),
+                                timestamp = point.getLong("timestamp"),
+                                battery = null, speed = null, bearing = null,
+                                speedMps = if (point.isNull("speedMps")) null else point.optDouble("speedMps").toFloat(),
+                                speedAccuracyMps = if (point.isNull("speedAccuracyMps")) null else point.optDouble("speedAccuracyMps").toFloat()
+                            ))
+                        }
+                    }
+                }
+            } catch (error: Exception) {
+                Log.w(TAG, "Could not load family trail", error)
+                null
+            }
+        }
 
     /**
      * Get latest child location from server
@@ -742,9 +786,22 @@ class NetworkClient(private val context: Context) {
     /**
      * Upload photo to server (for future implementation)
      */
+    suspend fun reportPhotoFailure(server: String, own: String, requestId: String, reason: String): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val data = JSONObject().put("requestId", requestId).put("error", reason).put("ownDeviceId", own)
+            val request = Request.Builder().url(server.trimEnd('/') + "/api/photo/result")
+                .post(data.toString().toRequestBody("application/json".toMediaType())).build()
+            client.newCall(request).execute().use { it.isSuccessful }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (_: Exception) { false }
+    }
+
     suspend fun uploadPhoto(
         serverUrl: String,
-        photoFile: File
+        photoFile: File,
+        requestId: String? = null,
+        capturedAt: Long = System.currentTimeMillis(),
+        ownDeviceId: String = resolveChildDeviceId()
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             if (!photoFile.exists() || photoFile.length() == 0L) {
@@ -762,8 +819,10 @@ class NetworkClient(private val context: Context) {
                     photoFile.name,
                     photoFile.asRequestBody("image/jpeg".toMediaType())
                 )
-                .addFormDataPart("deviceId", resolveChildDeviceId())
-                .addFormDataPart("timestamp", System.currentTimeMillis().toString())
+                .addFormDataPart("deviceId", ownDeviceId)
+                .addFormDataPart("ownDeviceId", ownDeviceId)
+                .addFormDataPart("timestamp", capturedAt.toString())
+                .apply { requestId?.let { addFormDataPart("requestId", it) } }
                 .build()
             
             val request = Request.Builder()
@@ -775,8 +834,8 @@ class NetworkClient(private val context: Context) {
             Log.d(TAG, "Uploading photo to: $url")
             Log.d(TAG, "Photo file: ${photoFile.name}, size: ${photoFile.length()} bytes")
             
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
+            client.newBuilder().callTimeout(25, TimeUnit.SECONDS).build().newCall(request).execute().use { response ->
+                if (response.isSuccessful && response.body?.string()?.let { JSONObject(it).optBoolean("success") } == true) {
                     Log.d(TAG, "Photo uploaded successfully: ${response.code}")
                     return@withContext true
                 } else {
@@ -785,7 +844,8 @@ class NetworkClient(private val context: Context) {
                 }
             }
             
-        } catch (e: IOException) {
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (e: IOException) {
             Log.e(TAG, "Network error uploading photo", e)
             return@withContext false
         } catch (e: Exception) {
@@ -2213,7 +2273,9 @@ data class ParentLocationData(
     val timestamp: Long,
     val battery: Int?,
     val speed: Float?,
-    val bearing: Float?
+    val bearing: Float?,
+    val speedMps: Float? = null,
+    val speedAccuracyMps: Float? = null
 )
 
 data class LocationPairData(
@@ -2237,7 +2299,9 @@ data class FamilyLiveLocation(
     val latitude: Double,
     val longitude: Double,
     val accuracy: Float?,
-    val timestamp: Long
+    val timestamp: Long,
+    val speedMps: Float? = null,
+    val speedAccuracyMps: Float? = null
 )
 
 private fun JSONObject.toParentLocationData(fallbackId: String, idKey: String): ParentLocationData {

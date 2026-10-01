@@ -1,41 +1,29 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.constraintlayout.widget.ConstraintLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@android:color/black">
-
-    <androidx.camera.view.PreviewView
-        android:id="@+id/previewView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
-    <!-- Scanning frame overlay -->
-    <View
-        android:layout_width="250dp"
-        android:layout_height="250dp"
-        android:background="@android:color/transparent"
-        android:layout_margin="16dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent"
-        app:layout_constraintTop_toTopOf="parent" />
-
-    <TextView
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:text="Наведите камеру на QR-код"
-        android:textColor="@android:color/white"
-        android:textSize="16sp"
-        android:background="#80000000"
-        android:padding="12dp"
-        android:layout_margin="32dp"
-        app:layout_constraintBottom_toBottomOf="parent"
-        app:layout_constraintEnd_toEndOf="parent"
-        app:layout_constraintStart_toStartOf="parent" />
-
-</androidx.constraintlayout.widget.ConstraintLayout>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:background="#101D21">
+    <androidx.camera.view.PreviewView android:id="@+id/previewView"
+        android:layout_width="match_parent" android:layout_height="match_parent" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="20dp" android:background="#D9101D21">
+        <com.google.android.material.button.MaterialButton android:id="@+id/scanCloseButton"
+            style="@style/Widget.Material3.Button.TextButton" android:layout_width="wrap_content"
+            android:layout_height="wrap_content" android:text="@string/family_scan_back" android:textColor="#FFFFFF" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/family_scan_title" android:textColor="#FFFFFF" android:textSize="24sp" android:textStyle="bold" />
+    </LinearLayout>
+    <View android:layout_width="248dp" android:layout_height="248dp"
+        android:layout_gravity="center" android:background="@drawable/family_qr_frame"
+        android:importantForAccessibility="no" />
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="bottom" android:orientation="vertical" android:padding="20dp" android:background="#ED101D21">
+        <TextView android:id="@+id/scanHint" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="@string/family_scan_hint"
+            android:textColor="#FFFFFF" android:textSize="16sp" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/scanImageButton"
+            style="@style/Widget.Material3.Button" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:layout_marginTop="16dp" android:text="@string/family_scan_image" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/scanCameraButton"
+            style="@style/Widget.Material3.Button.TextButton" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:text="@string/family_scan_camera" android:textColor="#FFFFFF" />
+    </LinearLayout>
+</FrameLayout>

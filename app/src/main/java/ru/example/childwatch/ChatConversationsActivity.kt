@@ -41,6 +41,8 @@ class ChatConversationsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivityChatConversationsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        supportActionBar?.hide()
+        binding.backButton.setOnClickListener { finish() }
 
         val serverUrl = resolveServerUrl()
         if (serverUrl.isBlank()) {

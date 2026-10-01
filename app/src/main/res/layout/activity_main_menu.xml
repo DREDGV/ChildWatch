@@ -1,732 +1,186 @@
-<?xml version="1.0" encoding="utf-8"?>
-<!--
-    Parent home screen, ordered by what a parent opens the application for.
-
-    1. The child that is being watched — without a child there is nothing to do.
-    2. The monitoring switch — the one control that matters, with its state.
-    3. The family and the device-power warnings.
-    4. The quick actions.
-    5. Diagnostics: the child's device state and, at the very bottom, the build.
-
-    The screen used to open with the heading "Семья рядом" and the subtitle
-    "Главные действия и состояние ребёнка". Both were removed: they repeated the
-    application name, told the parent nothing about the family, and pushed the
-    child and the monitoring control below the fold. The version line moved from
-    the top to the bottom for the same reason — a build number is something a
-    parent reads once when reporting a problem, not a greeting.
--->
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/cw_color_background"
-    android:fillViewport="true"
-    tools:context=".MainActivity">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingHorizontal="@dimen/cw_space_5"
-        android:paddingTop="@dimen/cw_space_5"
-        android:paddingBottom="@dimen/cw_space_5">
-
-        <!--
-            Who is being watched. This is the first thing on the screen, because
-            every action below applies to this child, and the selection is often
-            wrong after a phone has been used for another family member.
-        -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/childSelectionCard"
-            style="@style/Widget.ChildWatch.PersonCard.Selected"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content">
-
-            <LinearLayout
-                android:id="@+id/childSelectionContainer"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="@dimen/cw_space_4">
-
-                <com.google.android.material.imageview.ShapeableImageView
-                    android:id="@+id/selectedChildAvatar"
-                    style="@style/Widget.ChildWatch.Avatar.Medium"
-                    android:contentDescription="@string/main_child_card_button_hint"
-                    android:src="@android:drawable/ic_menu_myplaces"
-                    app:tint="@null" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="@dimen/cw_space_4"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/selectedChildName"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/main_select_contact_placeholder_title"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Person.Name" />
-
-                    <TextView
-                        android:id="@+id/selectedChildDeviceId"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_1"
-                        android:text="@string/home_selected_child_hint"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Person.Supporting" />
-                </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/childSelectionEditIcon"
-                    style="@style/Widget.ChildWatch.Button.Icon.Tonal"
-                    android:layout_marginStart="@dimen/cw_space_2"
-                    android:contentDescription="@string/main_child_card_button_hint"
-                    app:icon="@android:drawable/ic_menu_edit" />
+<?xml version='1.0' encoding='utf-8'?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" xmlns:ns2="http://schemas.android.com/tools" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@color/cw_color_background">
+    <ru.example.childwatch.designsystem.HomeScrollView android:layout_width="match_parent" android:layout_height="match_parent" android:fillViewport="true" android:clipToPadding="false">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/homeContent" android:paddingHorizontal="16dp" android:paddingTop="4dp" android:paddingBottom="4dp" android:orientation="vertical">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:minHeight="48dp">
+                <ImageView android:layout_width="32dp" android:layout_height="32dp" android:layout_marginEnd="10dp" android:src="@drawable/cw_home_heart" android:importantForAccessibility="no" />
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:textSize="20sp" android:layout_weight="1" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:text="@string/cw_home_title" />
+                <com.google.android.material.card.MaterialCardView android:layout_width="48dp" android:layout_height="48dp" android:id="@+id/settingsCard" style="@style/Widget.ChildWatch.Home.Card" app:strokeWidth="0dp" app:cardBackgroundColor="@color/cw_color_background" android:contentDescription="@string/cw_home_settings">
+                    <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_gravity="center" android:src="@drawable/cw_home_settings" android:importantForAccessibility="no" app:tint="@color/cw_color_on_surface" />
+                </com.google.android.material.card.MaterialCardView>
+                <com.google.android.material.card.MaterialCardView android:layout_width="48dp" android:layout_height="48dp" android:id="@+id/activeProfileCard" style="@style/Widget.ChildWatch.Home.Card" android:contentDescription="@string/cw_home_own_profile" app:strokeWidth="0dp" app:cardBackgroundColor="@color/cw_color_background">
+                    <com.google.android.material.imageview.ShapeableImageView android:layout_width="38dp" android:layout_height="38dp" android:id="@+id/activeProfileAvatar" android:scaleType="centerCrop" android:contentDescription="@string/cw_home_own_profile" app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.ChildWatch.Avatar" android:layout_gravity="center" />
+                </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!--
-            Updates go here, directly under the child and above everything else.
-
-            The card itself is added in code: it is identical in both applications, and
-            building it once means the two cannot drift apart. Nothing appears in this
-            space until a check has actually succeeded and found a version this phone
-            does not have — an empty slot is not worth showing.
-        -->
-        <LinearLayout
-            android:id="@+id/updateNoticeContainer"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical" />
-
-        <!--
-            The monitoring switch. It used to sit fourth, below the family card, so
-            the one control a parent comes for was the hardest thing to reach.
-
-            The state line names its own subject ("Мониторинг активен" / "Мониторинг
-            неактивен") instead of saying just "Активен", and instead of a separate
-            "Мониторинг" heading that repeated it at the same size.
-        -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/statusCard"
-            style="@style/Widget.ChildWatch.Card"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_4">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="@dimen/cw_space_4">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:id="@+id/statusText"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/monitoring_inactive"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
-
-                    <ImageView
-                        android:id="@+id/statusIcon"
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
-                        android:contentDescription="@string/monitoring_status"
-                        android:src="@android:drawable/presence_offline"
-                        app:tint="@color/cw_color_warning" />
-                </LinearLayout>
-
-                <TextView
-                    android:id="@+id/serviceRunningTimeText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/cw_space_1"
-                    android:text="@string/service_running_time"
-                    android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/monitoringToggleBtn"
-                    style="@style/Widget.ChildWatch.Button.Primary"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/cw_space_4"
-                    android:text="@string/home_monitoring_action" />
+            <ru.example.childwatch.designsystem.HomeFamilyStrip android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/familyStrip" android:layout_marginTop="2dp" android:minHeight="64dp" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/homeNoticeRow" android:orientation="horizontal" android:gravity="center_vertical">
+                <com.google.android.material.button.MaterialButton android:id="@+id/homeUpdateButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/cw_home_update_available" android:textSize="12sp" android:minHeight="48dp" android:visibility="gone" android:textAllCaps="false" style="@style/Widget.ChildWatch.Button.Secondary" />
+                <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/homeAttentionButton" android:text="@string/cw_home_attention_short" android:textAllCaps="false" android:minHeight="48dp" android:visibility="gone" android:textSize="12sp" style="@style/Widget.ChildWatch.Button.Secondary" android:layout_weight="1" />
             </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!--
-            The family itself: its name, how many people and phones are in it, and
-            the button that opens the parent's own profile. It stays near the top
-            because the profile editor is reachable only from here, but it now sits
-            below the child and the switch instead of competing with them.
-        -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_6"
-            android:text="@string/home_family_section"
-            android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
-
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/activeProfileCard"
-            style="@style/Widget.ChildWatch.Card"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_2">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="@dimen/cw_space_4">
-
-                <!--
-                    The person's own picture. Without it this card named a person and
-                    showed no face, while every other list in the application did.
-                -->
-                <com.google.android.material.imageview.ShapeableImageView
-                    android:id="@+id/activeProfileAvatar"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_marginEnd="@dimen/cw_space_3"
-                    android:contentDescription="@string/family_profile_avatar_description"
-                    android:scaleType="centerCrop"
-                    app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.ChildWatch.Avatar" />
-
-                <LinearLayout
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/activeProfileName"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/family_profiles_title"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
-
-                    <TextView
-                        android:id="@+id/activeProfileMeta"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_1"
-                        android:maxLines="2"
-                        android:text="@string/home_family_child_missing"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
-                </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/switchProfileQuickButton"
-                    style="@style/Widget.ChildWatch.Button.Secondary"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="@dimen/cw_space_3"
-                    android:text="@string/profile_switch_edit" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Power warnings. Kept directly under the family card: they are the one
-             thing on this screen that is urgent and actionable, because a phone
-             that blocks the service cannot be monitored at all. -->
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/powerSettingsCard"
-            style="@style/Widget.ChildWatch.Card"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_4"
-            android:visibility="gone"
-            app:cardBackgroundColor="@color/cw_color_warning_container">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="@dimen/cw_space_4">
-
-                <LinearLayout
-                    android:id="@+id/batteryOptimizationRow"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:visibility="gone">
-
-                    <TextView
-                        android:id="@+id/batteryOptimizationMessage"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/battery_optimization_warning"
-                        android:textColor="@color/cw_color_on_warning_container" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/disableOptimizationButton"
-                        style="@style/Widget.ChildWatch.Button.Secondary"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/battery_optimization_button" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:id="@+id/powerSaverRow"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:visibility="gone">
-
-                    <TextView
-                        android:id="@+id/powerSaverMessage"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/power_save_warning"
-                        android:textColor="@color/cw_color_on_warning_container" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/openPowerSaverButton"
-                        style="@style/Widget.ChildWatch.Button.Secondary"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/power_save_button" />
-                </LinearLayout>
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_6"
-            android:text="@string/home_quick_actions"
-            android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_3"
-            android:orientation="horizontal">
-
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/audioStreamingCard"
-                style="@style/Widget.ChildWatch.Card.Interactive"
-                android:layout_width="0dp"
-                android:layout_height="136dp"
-                android:layout_marginEnd="@dimen/cw_space_2"
-                android:layout_weight="1">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:gravity="center"
-                    android:orientation="vertical"
-                    android:padding="@dimen/cw_space_3">
-
-                    <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
-                        android:contentDescription="@string/home_action_listen"
-                        android:src="@android:drawable/ic_lock_silent_mode_off"
-                        app:tint="@color/cw_color_primary" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_2"
-                        android:text="@string/home_action_listen"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:gravity="center"
-                        android:text="@string/home_action_listen_hint"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/remoteCameraCard"
-                style="@style/Widget.ChildWatch.Card.Interactive"
-                android:layout_width="0dp"
-                android:layout_height="136dp"
-                android:layout_marginStart="@dimen/cw_space_2"
-                android:layout_weight="1">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:gravity="center"
-                    android:orientation="vertical"
-                    android:padding="@dimen/cw_space_3">
-
-                    <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
-                        android:contentDescription="@string/home_action_photo"
-                        android:src="@android:drawable/ic_menu_camera"
-                        app:tint="@color/cw_color_secondary" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_2"
-                        android:text="@string/home_action_photo"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:gravity="center"
-                        android:text="@string/home_action_photo_hint"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_4"
-            android:orientation="horizontal">
-
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/chatCard"
-                style="@style/Widget.ChildWatch.Card.Interactive"
-                android:layout_width="0dp"
-                android:layout_height="136dp"
-                android:layout_marginEnd="@dimen/cw_space_2"
-                android:layout_weight="1">
-
-                <FrameLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:padding="@dimen/cw_space_3">
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="match_parent"
-                        android:gravity="center"
-                        android:orientation="vertical">
-
-                        <ImageView
-                            android:layout_width="40dp"
-                            android:layout_height="40dp"
-                            android:contentDescription="@string/home_action_chat"
-                            android:src="@android:drawable/ic_dialog_email"
-                            app:tint="@color/cw_color_primary" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/cw_space_2"
-                            android:text="@string/home_action_chat"
-                            android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="@string/home_action_chat_hint"
-                            android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
+            <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/childSelectionCard" android:layout_marginTop="6dp" style="@style/Widget.ChildWatch.Home.Card" app:cardCornerRadius="22dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/childSelectionContainer" android:orientation="horizontal" android:gravity="center_vertical" android:padding="12dp" android:minHeight="96dp" android:tag="homePerson">
+                    <com.google.android.material.imageview.ShapeableImageView android:layout_width="48dp" android:layout_height="48dp" android:id="@+id/selectedChildAvatar" android:scaleType="centerCrop" android:contentDescription="@string/cw_home_own_profile" app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.ChildWatch.Avatar" />
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="12dp" android:orientation="vertical">
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/selectedChildName" android:textSize="22sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:maxLines="1" android:ellipsize="end" android:text="@string/main_select_contact_placeholder_title" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/selectedChildDeviceId" android:textSize="12sp" android:layout_marginTop="3dp" android:maxLines="1" android:ellipsize="end" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/home_selected_child_hint" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/selectedChildLocation" android:textSize="12sp" android:layout_marginTop="7dp" android:maxLines="2" android:ellipsize="end" android:visibility="gone" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/family_location_unavailable" />
                     </LinearLayout>
-
-                    <TextView
-                        android:id="@+id/chatBadge"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_gravity="end|top"
-                        android:background="@drawable/badge_background"
-                        android:gravity="center"
-                        android:textColor="@android:color/white"
-                        android:textSize="10sp"
-                        android:textStyle="bold"
-                        android:visibility="gone" />
-                </FrameLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/attentionSignalCard"
-                style="@style/Widget.ChildWatch.Card.Interactive"
-                android:layout_width="0dp"
-                android:layout_height="136dp"
-                android:layout_marginStart="@dimen/cw_space_2"
-                android:layout_weight="1">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:gravity="center"
-                    android:orientation="vertical"
-                    android:padding="@dimen/cw_space_3">
-
-                    <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
-                        android:contentDescription="@string/home_action_signal"
-                        android:src="@android:drawable/ic_dialog_alert"
-                        app:tint="@color/cw_color_error" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_2"
-                        android:text="@string/home_action_signal"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/home_action_signal_hint"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
+                    <com.google.android.material.button.MaterialButton android:layout_width="48dp" android:layout_height="48dp" android:id="@+id/childSelectionEditIcon" android:text="" android:textAllCaps="false" android:minHeight="48dp" android:contentDescription="@string/main_child_card_button_hint" android:minWidth="0dp" android:padding="0dp" style="@style/Widget.ChildWatch.Button.Secondary" app:icon="@drawable/cw_home_edit" app:iconPadding="0dp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
-        </LinearLayout>
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_4"
-            android:orientation="horizontal">
-
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/parentLocationCard"
-                style="@style/Widget.ChildWatch.Card.Interactive"
-                android:layout_width="0dp"
-                android:layout_height="136dp"
-                android:layout_marginEnd="@dimen/cw_space_2"
-                android:layout_weight="1">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:gravity="center"
-                    android:orientation="vertical"
-                    android:padding="@dimen/cw_space_3">
-
-                    <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
-                        android:contentDescription="@string/home_action_map"
-                        android:src="@android:drawable/ic_dialog_map"
-                        app:tint="@color/cw_color_primary" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_2"
-                        android:text="@string/home_action_map"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:gravity="center"
-                        android:text="@string/home_action_map_hint"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/settingsCard"
-                style="@style/Widget.ChildWatch.Card.Interactive"
-                android:layout_width="0dp"
-                android:layout_height="136dp"
-                android:layout_marginStart="@dimen/cw_space_2"
-                android:layout_weight="1">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:gravity="center"
-                    android:orientation="vertical"
-                    android:padding="@dimen/cw_space_3">
-
-                    <ImageView
-                        android:layout_width="40dp"
-                        android:layout_height="40dp"
-                        android:contentDescription="@string/home_settings"
-                        android:src="@android:drawable/ic_menu_preferences"
-                        app:tint="@color/cw_color_secondary" />
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_2"
-                        android:text="@string/home_settings"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-        </LinearLayout>
-
-        <!--
-            Diagnostics. The version and the build date belong here and not at the
-            top: they are read when something has to be reported, so they sit with
-            the other technical detail and below everything a parent acts on.
-        -->
-        <TextView
-            android:id="@+id/homeDiagnosticsHeader"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_6"
-            android:text="@string/home_diagnostics_section"
-            android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
-
-        <com.google.android.material.card.MaterialCardView
-            android:id="@+id/deviceInfoCard"
-            style="@style/Widget.ChildWatch.Card"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_2">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="@dimen/cw_space_4">
-
-                <TextView
-                    android:id="@+id/deviceInfoTitle"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/home_device_summary"
-                    android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
-
-                <TextView
-                    android:id="@+id/deviceInfoDeviceId"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:visibility="gone" />
-
-                <ProgressBar
-                    android:id="@+id/deviceInfoProgress"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center_horizontal"
-                    android:layout_marginTop="@dimen/cw_space_3"
-                    android:visibility="gone" />
-
-                <TextView
-                    android:id="@+id/deviceInfoStatusMessage"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/cw_space_2"
-                    android:textAppearance="@style/TextAppearance.ChildWatch.Body"
-                    android:visibility="gone" />
-
-                <LinearLayout
-                    android:id="@+id/deviceInfoContent"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/cw_space_3"
-                    android:orientation="vertical">
-
-                    <TextView
-                        android:id="@+id/deviceInfoBatteryValue"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
-
-                    <TextView
-                        android:id="@+id/deviceInfoChargingValue"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_1"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
-
-                    <TextView
-                        android:id="@+id/deviceInfoTemperatureValue"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_1"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
-
-                    <TextView
-                        android:id="@+id/deviceInfoModelValue"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_1"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
-
-                    <TextView
-                        android:id="@+id/deviceInfoCurrentAppValue"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_1"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
-
-                    <TextView
-                        android:id="@+id/deviceInfoUpdatedValue"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_2"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
-                </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/deviceUsageButton"
-                    style="@style/Widget.ChildWatch.Button.Secondary"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="@dimen/cw_space_3"
-                    android:text="@string/home_action_activity" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="14sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:layout_marginTop="10dp" android:text="@string/cw_home_actions" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
+                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/audioStreamingCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1" app:cardBackgroundColor="@color/cw_color_primary_container">
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                            <ImageView android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="9dp" android:importantForAccessibility="no" android:src="@drawable/cw_home_sound" app:tint="@color/cw_color_primary" />
+                            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="15sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:maxLines="2" android:text="@string/cw_home_sound" />
+                                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:layout_marginTop="3dp" android:maxLines="2" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/cw_home_sound_hint" />
+                            </LinearLayout>
+                        </LinearLayout>
+                    </FrameLayout>
+                </com.google.android.material.card.MaterialCardView>
+                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/remoteCameraCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1" android:layout_marginStart="8dp">
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                            <ImageView android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="9dp" android:importantForAccessibility="no" android:src="@drawable/cw_home_camera" app:tint="@color/cw_color_primary" />
+                            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="15sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:maxLines="2" android:text="@string/home_action_photo" />
+                                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:layout_marginTop="3dp" android:maxLines="2" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/cw_home_photo_hint" />
+                            </LinearLayout>
+                        </LinearLayout>
+                    </FrameLayout>
+                </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- The version and the date the build was made, filled in by MainActivity.
-             It was hidden once, so there was no way to tell which build a phone was
-             running — which matters when a fix has been sent to one phone and not
-             yet to another. -->
-        <TextView
-            android:id="@+id/appVersionText"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="@dimen/cw_space_4"
-            android:textAppearance="@style/TextAppearance.ChildWatch.Diagnostics" />
-
-        <!-- Compatibility-only controls and technical status remain available to code,
-             but raw identifiers and service diagnostics no longer clutter the home screen. -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:visibility="gone">
-
-            <TextView android:id="@+id/locationStatusText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
-            <TextView android:id="@+id/audioStatusText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
-            <TextView android:id="@+id/photoStatusText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
-            <TextView android:id="@+id/lastUpdateText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
-            <TextView android:id="@+id/lastAudioUpdateText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
-            <TextView android:id="@+id/lastPhotoUpdateText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
-            <TextView android:id="@+id/permissionsStatusText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
-            <TextView android:id="@+id/batteryWarningText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/startMonitoringBtn"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/stopMonitoringBtn"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/emergencyStopBtn"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
+                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/chatCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1">
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                            <ImageView android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="9dp" android:importantForAccessibility="no" android:src="@drawable/cw_home_chat" app:tint="@color/cw_color_primary" />
+                            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="15sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:maxLines="2" android:text="@string/home_action_chat" />
+                                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:layout_marginTop="3dp" android:maxLines="2" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/cw_home_chat_hint" />
+                            </LinearLayout>
+                        </LinearLayout>
+                        <TextView android:layout_width="20dp" android:layout_height="20dp" android:id="@+id/chatBadge" android:textSize="10sp" android:layout_gravity="end|top" android:gravity="center" android:background="@drawable/badge_background" android:textColor="@android:color/white" android:visibility="gone" />
+                    </FrameLayout>
+                </com.google.android.material.card.MaterialCardView>
+                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/deviceUsageCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1" android:layout_marginStart="8dp">
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                            <ImageView android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="9dp" android:importantForAccessibility="no" android:src="@drawable/cw_home_usage" app:tint="@color/cw_color_primary" />
+                            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="15sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:maxLines="2" android:text="@string/cw_home_usage" />
+                                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:layout_marginTop="3dp" android:maxLines="2" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/cw_home_usage_hint" />
+                            </LinearLayout>
+                        </LinearLayout>
+                    </FrameLayout>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
+                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/attentionSignalCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1">
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                            <ImageView android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="9dp" android:importantForAccessibility="no" android:src="@drawable/cw_home_bell" app:tint="@color/cw_color_primary" />
+                            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="15sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:maxLines="2" android:text="@string/cw_home_signal" />
+                                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:layout_marginTop="3dp" android:maxLines="2" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/cw_home_signal_hint" />
+                            </LinearLayout>
+                        </LinearLayout>
+                    </FrameLayout>
+                </com.google.android.material.card.MaterialCardView>
+                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/parentLocationCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1" android:layout_marginStart="8dp">
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                            <ImageView android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="9dp" android:importantForAccessibility="no" android:src="@drawable/cw_home_map" app:tint="@color/cw_color_primary" />
+                            <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
+                                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="15sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:maxLines="2" android:text="@string/cw_home_map" />
+                                <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="12sp" android:layout_marginTop="3dp" android:maxLines="2" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/cw_home_map_hint" />
+                            </LinearLayout>
+                        </LinearLayout>
+                    </FrameLayout>
+                </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
+            <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/statusCard" android:layout_marginTop="10dp" style="@style/Widget.ChildWatch.Home.Card">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="12dp" android:paddingVertical="6dp" android:tag="homeService">
+                    <ImageView android:layout_width="24dp" android:layout_height="24dp" android:id="@+id/statusIcon" android:src="@drawable/cw_home_shield" android:importantForAccessibility="no" />
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="10dp" android:orientation="vertical">
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="13sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:text="@string/cw_home_phone_link" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/statusText" android:textSize="12sp" android:layout_marginTop="3dp" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/parent_service_inactive" />
+                    </LinearLayout>
+                    <com.google.android.material.button.MaterialButton android:layout_width="48dp" android:layout_height="wrap_content" android:id="@+id/monitoringToggleBtn" android:text="" android:textAllCaps="false" android:minHeight="48dp" android:textSize="12sp" android:paddingHorizontal="10dp" android:minWidth="0dp" style="@style/Widget.ChildWatch.Button.Secondary" android:padding="0dp" android:contentDescription="@string/parent_service_start" app:icon="@drawable/cw_home_toggle_off" app:iconSize="40dp" app:iconPadding="0dp" app:iconTint="@null" app:strokeWidth="0dp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+            <com.google.android.material.button.MaterialButton android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/diagnosticsToggleButton" android:text="@string/cw_home_details" android:textAllCaps="false" android:minHeight="48dp" android:textSize="13sp" android:gravity="start|center_vertical" android:layout_marginTop="6dp" style="@style/Widget.ChildWatch.Button.Secondary" app:icon="@drawable/cw_home_phone" android:maxLines="2" android:ellipsize="end" />
+            <Space android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/appVersionText" android:textSize="10sp" android:layout_weight="1" android:maxLines="2" android:textColor="@color/cw_color_on_surface_variant" />
+                <com.google.android.material.button.MaterialButton android:layout_width="wrap_content" android:layout_height="wrap_content" android:id="@+id/checkUpdatesButton" android:text="@string/update_check_button" android:textAllCaps="false" android:minHeight="48dp" android:textSize="11sp" android:paddingHorizontal="4dp" android:minWidth="0dp" style="@style/Widget.MaterialComponents.Button.TextButton" />
+            </LinearLayout>
         </LinearLayout>
+    </ru.example.childwatch.designsystem.HomeScrollView>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/homePanelStorage" android:visibility="gone" android:orientation="vertical">
+        <LinearLayout android:id="@+id/diagnosticsPanel" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+            <com.google.android.material.card.MaterialCardView android:id="@+id/deviceInfoCard" style="@style/Widget.ChildWatch.Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_2">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="@dimen/cw_space_4">
+                    <TextView android:id="@+id/deviceInfoTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/home_device_summary" android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
+                    <TextView android:id="@+id/deviceInfoDistance" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_2" android:text="@string/cw_distance_loading" android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+                    <TextView android:id="@+id/deviceInfoDeviceId" android:layout_width="wrap_content" android:layout_height="wrap_content" android:visibility="gone" />
+                    <ProgressBar android:id="@+id/deviceInfoProgress" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="center_horizontal" android:layout_marginTop="@dimen/cw_space_3" android:visibility="gone" />
+                    <TextView android:id="@+id/deviceInfoStatusMessage" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_2" android:textAppearance="@style/TextAppearance.ChildWatch.Body" android:visibility="gone" />
+                    <LinearLayout android:id="@+id/deviceInfoContent" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_3" android:orientation="vertical">
+                        <TextView android:id="@+id/deviceInfoBatteryValue" android:layout_width="match_parent" android:layout_height="wrap_content" android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+                        <TextView android:id="@+id/deviceInfoChargingValue" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_1" android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+                        <TextView android:id="@+id/deviceInfoTemperatureValue" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_1" android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+                        <TextView android:id="@+id/deviceInfoModelValue" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_1" android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+                        <TextView android:id="@+id/deviceInfoCurrentAppValue" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_1" android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+                        <TextView android:id="@+id/deviceInfoCameraValue" android:minHeight="48dp" android:gravity="center_vertical" android:clickable="true" android:focusable="true" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_1" android:textAppearance="@style/TextAppearance.ChildWatch.Body" android:visibility="gone" />
+                        <TextView android:id="@+id/deviceInfoUpdatedValue" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_2" android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
+                    </LinearLayout>
+                    <com.google.android.material.button.MaterialButton android:id="@+id/deviceUsageButton" style="@style/Widget.ChildWatch.Button.Secondary" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_3" android:text="@string/home_action_activity" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/deviceInfoRefreshButton" style="@style/Widget.ChildWatch.Button.Secondary" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_2" android:text="@string/home_selected_refresh" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/serviceRunningTimeText" android:textSize="12sp" android:textColor="@color/cw_color_on_surface_variant" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/homeDiagnosticsHeader" android:textSize="16sp" android:layout_marginTop="16dp" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/cw_home_own_profile" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/activeProfileName" android:textSize="16sp" android:textColor="@color/cw_color_on_surface_variant" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/activeProfileMeta" android:textSize="12sp" android:textColor="@color/cw_color_on_surface_variant" />
+            <com.google.android.material.button.MaterialButton android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/switchProfileQuickButton" android:text="@string/cw_home_own_profile" android:textAllCaps="false" android:minHeight="48dp" style="@style/Widget.ChildWatch.Button.Secondary" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/selectedPersonActionsHint" android:textSize="12sp" android:layout_marginTop="8dp" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/home_selected_choose_person" />
+        </LinearLayout>
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/homeAttentionPanel" android:orientation="vertical">
+            <com.google.android.material.card.MaterialCardView android:id="@+id/setupNoticeCard" style="@style/Widget.ChildWatch.PersonCard" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="@dimen/cw_space_4" android:visibility="gone" ns2:visibility="visible">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="@dimen/cw_space_4">
+                    <TextView android:id="@+id/setupNoticeTitle" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/home_setup_notice_title" android:textAppearance="@style/TextAppearance.ChildWatch.Person.Name" />
+                    <TextView android:id="@+id/setupNoticeBody" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_1" android:text="@string/home_setup_notice_body" android:textAppearance="@style/TextAppearance.ChildWatch.Person.Supporting" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/setupNoticeButton" style="@style/Widget.ChildWatch.Button.Secondary" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_3" android:minHeight="@dimen/cw_touch_target" android:text="@string/home_setup_notice_action" android:textAllCaps="false" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+            <com.google.android.material.card.MaterialCardView android:id="@+id/powerSettingsCard" style="@style/Widget.ChildWatch.Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_4" android:visibility="gone" app:cardBackgroundColor="@color/cw_color_warning_container">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="@dimen/cw_space_4">
+                    <LinearLayout android:id="@+id/batteryOptimizationRow" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal" android:visibility="gone">
+                        <TextView android:id="@+id/batteryOptimizationMessage" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/battery_optimization_warning" android:textColor="@color/cw_color_on_warning_container" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/disableOptimizationButton" style="@style/Widget.ChildWatch.Button.Secondary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/battery_optimization_button" />
+                    </LinearLayout>
+                    <LinearLayout android:id="@+id/powerSaverRow" android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal" android:visibility="gone">
+                        <TextView android:id="@+id/powerSaverMessage" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/power_save_warning" android:textColor="@color/cw_color_on_warning_container" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/openPowerSaverButton" style="@style/Widget.ChildWatch.Button.Secondary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="@string/power_save_button" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
+        <TextView android:id="@+id/locationStatusText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <TextView android:id="@+id/audioStatusText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <TextView android:id="@+id/photoStatusText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <TextView android:id="@+id/lastUpdateText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <TextView android:id="@+id/lastAudioUpdateText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <TextView android:id="@+id/lastPhotoUpdateText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <TextView android:id="@+id/permissionsStatusText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <TextView android:id="@+id/batteryWarningText" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/startMonitoringBtn" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/stopMonitoringBtn" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/emergencyStopBtn" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/updateNoticeContainer" android:orientation="vertical" />
     </LinearLayout>
-</ScrollView>
+</FrameLayout>

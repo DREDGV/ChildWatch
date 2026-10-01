@@ -46,14 +46,18 @@
                         android:scaleType="centerCrop"
                         android:src="@drawable/avatar_family_mint" />
 
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:layout_marginStart="@dimen/cw_space_3" android:orientation="vertical">
                     <TextView
                         android:id="@+id/deviceIdText"
-                        android:layout_width="0dp"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:layout_marginStart="@dimen/cw_space_3"
-                        android:layout_weight="1"
                         android:text="@string/device_usage_person_loading"
                         android:textAppearance="@style/TextAppearance.ChildWatch.Person.Name" />
+                        <TextView android:id="@+id/personLocationText" android:layout_width="match_parent"
+                            android:layout_height="wrap_content" android:layout_marginTop="4dp"
+                            android:text="@string/cw_distance_loading" android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+                    </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
@@ -92,7 +96,7 @@
                     <TextView
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="@string/device_usage_current_section"
+                        android:text="@string/daily_usage_last_app"
                         android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
 
                     <TextView
@@ -139,7 +143,16 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:text="@string/device_usage_recent_section"
+                        android:id="@+id/appsSectionTitle"
                         android:textAppearance="@style/TextAppearance.ChildWatch.Headline" />
+
+                    <TextView
+                        android:id="@+id/dailySummaryText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/cw_space_2"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Body"
+                        android:visibility="gone" />
 
                     <TextView
                         android:id="@+id/recentAppsEmptyText"

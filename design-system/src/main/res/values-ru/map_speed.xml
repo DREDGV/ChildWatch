@@ -1,0 +1,10 @@
+<resources>
+ <string name="cw_map_speeds">Показывать скорость</string>
+ <string name="cw_map_speed_colors">Цвет следа по скорости</string>
+ <string name="cw_map_speed_value">≈ %1$d км/ч</string>
+ <string name="cw_map_speed_unknown">Скорость неизвестна</string>
+ <string name="cw_map_speed_legend_title">Скорость на следе</string>
+ <string name="cw_map_speed_legend">Бирюзовый 0–7 · синий 25 · фиолетовый 60 · оранжевый 100+ км/ч · серый: нет данных</string>
+ <string name="cw_map_speed_help">Сначала используется скорость GPS с известной точностью измерения. ≈ — резервная оценка по смещению за 15–45 секунд; на поворотах она может быть ниже. Это не определение транспорта. При устаревших или неточных данных скорость неизвестна; серый не означает ноль. Разрывы не соединяются.</string>
+ <string name="cw_map_speed_measured">%1$d км/ч</string>
+</resources>

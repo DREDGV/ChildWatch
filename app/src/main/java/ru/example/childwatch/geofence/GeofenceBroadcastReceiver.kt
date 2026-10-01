@@ -71,6 +71,8 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                     return@launch
                 }
                 
+                val own = ru.example.childwatch.profile.ParentEffectiveContextResolver(context).resolveOwnParentId().removePrefix("device_")
+                if (own.isBlank() || geofenceEntity.deviceId.removePrefix("device_") != own) return@launch
                 when (transitionType) {
                     Geofence.GEOFENCE_TRANSITION_ENTER -> {
                         Log.d(TAG, "📍 Entered geofence: ${geofenceEntity.name}")
@@ -78,7 +80,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                             showNotification(
                                 context,
                                 geofenceEntity.name,
-                                "Ребёнок вошёл в зону",
+                                "Вы вошли в место",
                                 isExit = false
                             )
                         }
@@ -90,7 +92,7 @@ class GeofenceBroadcastReceiver : BroadcastReceiver() {
                             showNotification(
                                 context,
                                 geofenceEntity.name,
-                                "⚠️ Ребёнок покинул зону!",
+                                "Вы покинули место",
                                 isExit = true
                             )
                         }

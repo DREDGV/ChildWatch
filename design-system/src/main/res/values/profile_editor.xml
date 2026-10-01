@@ -1,0 +1,26 @@
+<resources>
+    <string name="cw_profile_title">Мой профиль</string>
+    <string name="cw_profile_details">Контакты и данные</string>
+    <string name="cw_profile_hint">Так вас видят остальные участники семьи.</string>
+    <string name="cw_profile_name">Имя в семье</string>
+    <string name="cw_profile_name_error">Введите имя: от 2 до 80 символов.</string>
+    <string name="cw_profile_presets">Или выберите аватар</string>
+    <string name="cw_profile_all_avatars">Все аватары (%1$d)</string>
+    <string name="cw_profile_fewer_avatars">Свернуть аватары</string>
+    <string name="cw_profile_photo">Выбрать фото</string>
+    <string name="cw_profile_preview">Предпросмотр аватара</string>
+    <string name="cw_profile_avatar_option">Аватар %1$d</string>
+    <string name="cw_profile_save">Сохранить профиль</string>
+    <string name="cw_profile_saving">Сохраняем профиль…</string>
+    <string name="cw_profile_failed">Не удалось подтвердить сохранение. Проверьте связь и попробуйте ещё раз — выбранные изменения остались в редакторе.</string>
+    <string name="cw_profile_crop_title">Настройте фото</string>
+    <string name="cw_profile_crop_hint">Переместите фото и измените масштаб. В круге — будущий аватар.</string>
+    <string name="cw_profile_crop_use">Использовать фото</string>
+    <string name="cw_profile_crop_rotate">Повернуть</string>
+    <string name="cw_profile_crop_zoom">Масштаб</string>
+    <string name="cw_profile_crop_unreadable">Не удалось открыть фото. Выберите другой снимок.</string>
+    <string name="cw_profile_crop_failed">Не удалось подготовить фото. Попробуйте ещё раз.</string>
+    <string name="cw_profile_discard_title">Отменить изменения профиля?</string>
+    <string name="cw_profile_discard">Отменить изменения</string>
+    <string name="cw_profile_stay">Продолжить редактирование</string>
+</resources>

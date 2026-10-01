@@ -8,12 +8,14 @@
 
     <com.google.android.material.appbar.MaterialToolbar
         android:id="@+id/inviteToolbar"
+        style="@style/Widget.ChildWatch.Toolbar"
         android:layout_width="match_parent"
         android:layout_height="?attr/actionBarSize"
         app:navigationIcon="@drawable/ic_arrow_back"
         app:title="Добавить в семью" />
 
     <androidx.core.widget.NestedScrollView
+        android:id="@+id/inviteScroll"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
@@ -23,12 +25,45 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="24dp">
+            android:padding="20dp">
+
+            <TextView
+                android:id="@+id/inviteFamilySummary"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/family_invite_loading_context"
+                android:textAppearance="@style/TextAppearance.ChildWatch.Title" />
+
+            <TextView
+                android:id="@+id/inviteStepsText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:layout_marginBottom="20dp"
+                android:text="@string/family_invite_steps"
+                android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+
+            <TextView
+                android:id="@+id/inviteModeHelp"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.ChildWatch.PersonCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content">
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="16dp">
 
             <TextView
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:text="Кого вы добавляете?"
+                android:text="1. Кого подключаем?"
                 android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
                 android:textColor="@color/cw_color_on_surface"
                 android:textStyle="bold" />
@@ -45,13 +80,13 @@
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:checked="true"
-                    android:text="Нового члена семьи" />
+                    android:text="Новый человек в семье" />
 
                 <com.google.android.material.radiobutton.MaterialRadioButton
                     android:id="@+id/inviteExistingPersonRadio"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Ещё один телефон существующего человека" />
+                    android:text="Новый телефон или переустановка приложения" />
 
                 <com.google.android.material.radiobutton.MaterialRadioButton
                     android:id="@+id/inviteLegacyProfileRadio"
@@ -96,7 +131,7 @@
 
             <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/inviteRoleLayout"
-                style="@style/Widget.ChildWatch.TextInputLayout"
+                style="@style/Widget.ChildWatch.TextInputLayout.Dropdown"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
@@ -142,7 +177,7 @@
 
             <com.google.android.material.textfield.TextInputLayout
                 android:id="@+id/inviteExistingLayout"
-                style="@style/Widget.ChildWatch.TextInputLayout"
+                style="@style/Widget.ChildWatch.TextInputLayout.Dropdown"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
@@ -160,7 +195,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="16dp"
-                android:text="Профиль появится в семье только после подтверждения на новом телефоне. Старые записи и история не будут изменены."
+                android:text="Подключение завершится после подтверждения на новом телефоне. Имя, история и прежние телефоны участника сохранятся."
                 android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
                 android:textColor="@color/cw_color_on_surface_variant" />
 
@@ -172,6 +207,8 @@
                 android:minHeight="52dp"
                 android:text="Создать приглашение"
                 android:textAllCaps="false" />
+            </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
             <!-- Load failures used to disable the button silently. The reason is
                  shown here together with a way to try again. -->
@@ -237,6 +274,14 @@
                     android:padding="20dp">
 
                     <TextView
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="12dp"
+                        android:text="2. Подключите новый телефон"
+                        android:textAppearance="@style/TextAppearance.Material3.TitleLarge"
+                        android:textColor="@color/cw_color_primary" />
+
+                    <TextView
                         android:id="@+id/invitationResultTitle"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -250,6 +295,8 @@
                         android:layout_width="240dp"
                         android:layout_height="240dp"
                         android:layout_marginTop="12dp"
+                        android:background="#FFFFFF"
+                        android:padding="8dp"
                         android:contentDescription="QR-код приглашения" />
 
                     <TextView
@@ -269,6 +316,13 @@
                         android:layout_marginTop="12dp"
                         android:text="Скопировать приглашение"
                         android:textAllCaps="false" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/shareInvitationButton"
+                        style="@style/Widget.Material3.Button"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="@string/family_connect_share" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
         </LinearLayout>

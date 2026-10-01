@@ -1,0 +1,11 @@
+<resources>
+    <string name="family_editor_guardian">Опекун</string>
+    <string name="family_editor_role_hint">Роль задана в семье. Изменение имени или аватара её не меняет.</string>
+    <string name="parent_service_heading">Связь на вашем телефоне</string>
+    <string name="parent_service_active">Фоновая связь включена</string>
+    <string name="parent_service_inactive">Фоновая связь выключена</string>
+    <string name="parent_service_explanation">Эта служба поддерживает работу ParentMonitor в фоне. Состояние выбранного человека показано в его карточке.</string>
+    <string name="parent_service_uptime">Работает на этом телефоне: %1$s</string>
+    <string name="parent_service_stop">Выключить фоновую связь</string>
+    <string name="parent_service_start">Включить фоновую связь</string>
+</resources>

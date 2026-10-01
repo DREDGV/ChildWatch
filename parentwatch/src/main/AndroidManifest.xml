@@ -90,9 +90,16 @@
 
         <activity
             android:name=".FamilyJoinActivity"
-            android:exported="false"
+            android:exported="true"
             android:parentActivityName=".MainActivity"
-            android:screenOrientation="portrait" />
+            android:screenOrientation="portrait">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="childwatch" android:host="family" android:path="/join" />
+            </intent-filter>
+        </activity>
 
         <!-- Chat Activity -->
         <activity

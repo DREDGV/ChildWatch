@@ -43,12 +43,15 @@ import ru.example.parentwatch.session.ChildParticipantNameResolver
 import ru.example.parentwatch.session.ChildProfileRuntimeCoordinator
 import ru.example.parentwatch.profile.AvatarPhotoSession
 import ru.example.parentwatch.profile.FamilyAvatarRenderer
-import ru.example.parentwatch.profile.ProfileEditDialog
 import ru.example.parentwatch.update.UpdateManager
 import ru.example.parentwatch.update.UpdateResultReceiver
 import ru.example.parentwatch.update.UpdateUiController
 import ru.childwatch.shared.onboarding.FamilyOnboardingEntryDecision
 import ru.childwatch.shared.onboarding.FamilyOnboardingEntryPolicy
+import ru.childwatch.shared.family.FamilyDirectorySnapshot
+import ru.childwatch.shared.family.FamilyPresenceState
+import ru.childwatch.shared.family.FamilyRole
+import ru.example.childwatch.designsystem.HomeFamilyStrip
 import android.view.MotionEvent
 import android.view.View
 import org.json.JSONArray
@@ -68,6 +71,10 @@ import java.util.*
  * New UI with menu cards for navigation.
  */
 class MainActivity : AppCompatActivity() {
+
+    private var homeSheet: com.google.android.material.bottomsheet.BottomSheetDialog? = null
+    private var homeSelectedMemberId: String? = null
+    private var homeSelectedDeviceId: String? = null
 
     companion object {
         const val LOCALHOST_URL = "http://10.0.2.2:3000"
@@ -90,14 +97,14 @@ class MainActivity : AppCompatActivity() {
      * STARTED — the profile dialog opens from a tap on a resumed screen, so
      * registering it there closed the application.
      */
-    private var profilePhotoCallback: ((android.net.Uri) -> Unit)? = null
+    private var profilePhotoCallback: ((android.net.Uri?) -> Unit)? = null
 
     private val profilePhotoPicker = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
     ) { picked ->
         val callback = profilePhotoCallback
         profilePhotoCallback = null
-        if (picked != null) callback?.invoke(picked)
+        callback?.invoke(picked)
     }
     
     
@@ -200,9 +207,18 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        ru.example.childwatch.designsystem.FamilyProfileEditor.saveState(this, outState)
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        ru.example.childwatch.designsystem.FamilyProfileEditor.restore(this, savedInstanceState) { openProfileEditor() }
+        findViewById<android.view.View>(R.id.checkUpdatesButton).setOnClickListener {
+            updateUi.checkAndShowNotice(force = true)
+        }
 
         prefs = getSharedPreferences("parentwatch_prefs", MODE_PRIVATE)
         profileManager = ChildDeviceProfileManager(this)
@@ -283,6 +299,7 @@ class MainActivity : AppCompatActivity() {
                     runCatching {
                         ChildFamilyDirectoryRepository(this@MainActivity).refresh()
                     }
+                    updateQuickProfileSummary()
                     ensureRuntimePermissions()
                 }
                 FamilyOnboardingEntryDecision.OPEN_JOIN_WIZARD -> {
@@ -318,6 +335,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
+        findViewById<View>(R.id.homeUpdateButton).setOnClickListener {
+            if (homeSheet?.isShowing != true) homeSheet = ru.example.childwatch.designsystem.HomeDetailSheet.show(
+                findViewById(R.id.updateNoticeContainer), getString(R.string.cw_home_update_available)
+            )
+        }
+        findViewById<View>(R.id.homeContent).viewTreeObserver.addOnGlobalLayoutListener {
+            val notices = findViewById<android.widget.LinearLayout>(R.id.updateNoticeContainer)
+            val hasUpdate = (0 until notices.childCount).any { notices.getChildAt(it).visibility == View.VISIBLE }
+            val button = findViewById<View>(R.id.homeUpdateButton)
+            val visibility = if (hasUpdate) View.VISIBLE else View.GONE
+            if (button.visibility != visibility) button.visibility = visibility
+        }
         // Find UI elements
     titleText = findViewById(R.id.titleText)
         activeProfileName = findViewById(R.id.activeProfileName)
@@ -329,7 +358,8 @@ class MainActivity : AppCompatActivity() {
         lastUpdateText = findViewById(R.id.lastUpdateText)
 
     // Set header title: name only (no version)
-    titleText.text = getString(R.string.home_child_brand)
+    titleText.text = getString(R.string.cw_home_title)
+        renderHomeFamily(ChildFamilyDirectoryRepository(this).loadCached())
 
         findViewById<MaterialButton>(R.id.switchProfileQuickButton)?.setOnClickListener {
             openProfileEditor()
@@ -364,7 +394,7 @@ class MainActivity : AppCompatActivity() {
         }.ifBlank {
             prefs.getString("device_id", "unknown") ?: "unknown"
         }
-        val parentId = contextProvider.current()?.targetDeviceId.orEmpty()
+        val parentId = homeSelectedDeviceId.orEmpty().ifBlank { contextProvider.current()?.targetDeviceId.orEmpty() }
             .ifBlank { resolvePairedParentId(prefs, myDeviceId) }
 
             val myId = if (myDeviceId != "unknown") myDeviceId else ""
@@ -389,6 +419,10 @@ class MainActivity : AppCompatActivity() {
         
         settingsCard.setOnClickListener {
             promptSettingsAccess()
+        }
+        findViewById<View>(R.id.childConnectionCard).setOnClickListener { promptSettingsAccess() }
+        findViewById<View>(R.id.childHomePersonCard).setOnClickListener {
+            findViewById<View>(R.id.parentLocationCard).performClick()
         }
 
         // Remote Camera card is not present on ChildDevice
@@ -541,13 +575,8 @@ class MainActivity : AppCompatActivity() {
      * this screen.
      */
     private fun openProfileEditor() {
-        val activeProfile = profileManager.getActiveProfile()
-        ProfileEditDialog.show(
-            activity = this,
-            initial = activeProfile,
-            currentAvatarKey = participantNameResolver.resolveChildAvatarKey(),
-            // This screen can upload a photograph, so the editor offers one.
-            canChoosePhoto = true,
+        ru.example.parentwatch.profile.OwnProfileEditor.show(
+            this,
             requestPhoto = { onPicked ->
                 profilePhotoCallback = onPicked
                 profilePhotoPicker.launch(
@@ -556,67 +585,8 @@ class MainActivity : AppCompatActivity() {
                     )
                 )
             },
-            onSave = { name, choice, done ->
-                when (choice) {
-                    is ProfileEditDialog.AvatarChoice.Photo -> {
-                        // A photograph has no value yet: the server returns the
-                        // path to store, and until then there is nothing to save.
-                        AvatarPhotoSession.uploadChosenPhoto(
-                            context = this,
-                            scope = lifecycleScope,
-                            photo = choice.uri,
-                            previousAvatarKey = participantNameResolver.resolveChildAvatarKey(),
-                            onUploaded = { avatarValue ->
-                                storeEditedProfile(name, avatarValue, done)
-                            },
-                            onFailed = { messageRes ->
-                                Toast.makeText(this, messageRes, Toast.LENGTH_LONG).show()
-                                done(false)
-                            }
-                        )
-                    }
-
-                    is ProfileEditDialog.AvatarChoice.BuiltIn ->
-                        storeEditedProfile(name, choice.value, done)
-                }
-            }
+            onStored = { updateQuickProfileSummary() }
         )
-    }
-
-    /**
-     * Saves the edited name and picture, then publishes them to the family.
-     *
-     * The name and picture live in the family too, so saving only locally let the
-     * next directory refresh bring the old picture back.
-     */
-    private fun storeEditedProfile(name: String, avatarKey: String?, done: (Boolean) -> Unit) {
-        val activeProfile = profileManager.getActiveProfile()
-        if (activeProfile == null) {
-            Toast.makeText(this, getString(R.string.profile_switch_no_active), Toast.LENGTH_SHORT).show()
-            done(false)
-            return
-        }
-        val previousAvatarKey = activeProfile.avatarKey?.takeIf { it.isNotBlank() }
-            ?: participantNameResolver.resolveChildAvatarKey()
-
-        val updated = activeProfile.copy(
-            name = name,
-            avatarKey = avatarKey,
-            updatedAt = System.currentTimeMillis()
-        )
-        profileManager.saveProfile(updated)
-        updateQuickProfileSummary()
-        done(true)
-
-        AvatarPhotoSession.publish(
-            context = this,
-            scope = lifecycleScope,
-            name = name,
-            avatarKey = avatarKey,
-            previousAvatarKey = previousAvatarKey
-        ) {
-            updateQuickProfileSummary()
-        }
     }
 
     private fun showQuickProfilePicker() {
@@ -830,6 +800,9 @@ class MainActivity : AppCompatActivity() {
             activeProfileName.text = getString(R.string.profile_switch_title)
             activeProfileMeta.text = getString(R.string.profile_switch_no_active)
             FamilyAvatarRenderer.bind(activeProfileAvatar, null, null)
+            homeSelectedMemberId = null
+            homeSelectedDeviceId = null
+            renderHomeFamily(null)
             return
         }
 
@@ -838,7 +811,7 @@ class MainActivity : AppCompatActivity() {
         activeProfileMeta.text = if (parentId.isNullOrBlank()) {
             getString(R.string.home_child_profile_not_connected)
         } else {
-            getString(R.string.home_child_profile_connected)
+            getString(R.string.cw_home_child_configured)
         }
         // The canonical directory already carries this profile's avatar key; it
         // was simply never read here, so the card kept showing the app icon.
@@ -849,6 +822,42 @@ class MainActivity : AppCompatActivity() {
             participantNameResolver.resolveChildAvatarKey(),
             displayName
         )
+        findViewById<View>(R.id.activeProfileCard).contentDescription = getString(R.string.cw_home_own_profile) + ": " + displayName
+        renderHomeFamily(ChildFamilyDirectoryRepository(this).loadCached())
+    }
+
+    private fun renderHomeFamily(directory: FamilyDirectorySnapshot?) {
+        val strip = findViewById<HomeFamilyStrip>(R.id.familyStrip)
+        val people = directory?.people.orEmpty()
+        val selected = directory?.let { it.person(homeSelectedMemberId) ?: it.person(it.selfMemberId) }
+        strip.render(people.map { HomeFamilyStrip.Person(it.member.id, it.member.displayName, it.member.avatarKey) },
+            selected?.member?.id, { view, key, name -> FamilyAvatarRenderer.bind(view, key, name) }, { id ->
+                homeSelectedMemberId = id
+                renderHomeFamily(directory)
+            }, {
+                if (people.isEmpty()) findViewById<View>(R.id.parentLocationCard).performClick()
+                else com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.cw_home_family_all)
+                    .setItems(people.map { it.member.displayName }.toTypedArray()) { _, index ->
+                        homeSelectedMemberId = people[index].member.id
+                        renderHomeFamily(directory)
+                    }.setNegativeButton(android.R.string.cancel, null).show()
+            }, false)
+        homeSelectedDeviceId = selected?.takeUnless { it.member.id == directory?.selfMemberId }?.primaryDevice()?.deviceId
+        if (selected == null) {
+            FamilyAvatarRenderer.bind(findViewById(R.id.childHomePersonAvatar), participantNameResolver.resolveChildAvatarKey(), activeProfileName.text.toString())
+            return
+        }
+        activeProfileName.text = selected.member.displayName
+        val role = getString(if (selected.member.role == FamilyRole.CHILD) R.string.cw_home_role_child else R.string.cw_home_role_adult)
+        val presence = getString(when (selected.presence()) {
+            FamilyPresenceState.ONLINE -> R.string.cw_home_recent
+            FamilyPresenceState.RECENTLY_ACTIVE -> R.string.cw_home_seen_recently
+            FamilyPresenceState.OFFLINE -> R.string.cw_home_offline
+            FamilyPresenceState.UNKNOWN -> R.string.cw_home_presence_unknown
+        })
+        activeProfileMeta.text = "$role · $presence"
+        FamilyAvatarRenderer.bind(findViewById(R.id.childHomePersonAvatar), selected.member.avatarKey, selected.member.displayName)
     }
 
     private fun formatProfileServer(serverUrl: String): String {
@@ -995,6 +1004,19 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            try {
+                val resolver = ru.example.parentwatch.session.ChildEffectiveContextResolver(this@MainActivity)
+                val server = resolver.resolveServerUrl()
+                val own = resolver.resolveChildDeviceId()
+                if (server.isNotBlank() && own.isNotBlank()) {
+                    val snapshot = ru.example.parentwatch.utils.DeviceInfoCollector.getDeviceInfo(this@MainActivity, includeCurrentApp = false)
+                    if (server == resolver.resolveServerUrl() && own == resolver.resolveChildDeviceId())
+                        ru.example.parentwatch.network.NetworkHelper(this@MainActivity).uploadDeviceStatus(server, snapshot)
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (error: Exception) { android.util.Log.w("CameraDiagnostics", "Status refresh postponed", error) }
+        }
         prefs.edit().putBoolean("chat_open", false).apply()
         screenVisible = true
         // A notification may have opened this screen exactly to finish an installation;
@@ -1159,7 +1181,12 @@ class MainActivity : AppCompatActivity() {
                 serviceIntent.action = LocationService.ACTION_START
                 serviceIntent.putExtra("server_url", serverUrl)
                 serviceIntent.putExtra("device_id", getUniqueDeviceId())
-                ContextCompat.startForegroundService(this, serviceIntent)
+                if (!LocationService.startTrackingService(this, serviceIntent)) {
+                    isServiceRunning = false
+                    ensureChatBackgroundService()
+                    updateUI()
+                    return
+                }
 
                 // ACTION_START is asynchronous. Retry once while this Activity is still visible so
                 // Android can attach the CAMERA foreground-service type after permission approval.
@@ -1235,21 +1262,18 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateUI() {
-        // Status badge removed from UI; keep service state internally only.
-        
-        // Update last update text
-        val lastUpdate = prefs.getLong("last_update", 0)
-        val dateLine = if (lastUpdate > 0) {
-            SimpleDateFormat("dd.MM.yy", Locale.getDefault()).format(Date(lastUpdate))
-        } else {
-            SimpleDateFormat("dd.MM.yy", Locale.getDefault()).format(Date())
-        }
-        lastUpdateText.text = getString(
-            R.string.child_status_version_line,
-            dateLine,
-            appVersion,
-            BuildConfig.BUILD_STAMP
-        )
+        val configured = familyOnboardingStore.isCompleted()
+        val locationGranted = ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val serviceAlive = isLocationServiceAlive()
+        findViewById<TextView>(R.id.childConnectionText).setText(when {
+            !configured -> R.string.cw_home_child_unconfigured
+            !locationGranted -> R.string.cw_home_child_permission
+            serviceAlive -> R.string.cw_home_child_running
+            else -> R.string.cw_home_child_stopped
+        })
+        lastUpdateText.text = "ChildDevice · $appVersion"
+        lastUpdateText.contentDescription = "$appVersion · ${BuildConfig.BUILD_STAMP}"
     }
 
     private fun updateChatBadge() {
@@ -1414,6 +1438,8 @@ class MainActivity : AppCompatActivity() {
     }
     
     override fun onDestroy() {
+        homeSheet?.dismiss()
+        homeSheet = null
         super.onDestroy()
         badgeRefreshJob?.cancel()
         photoIntegration?.unregister()

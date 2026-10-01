@@ -1,0 +1,56 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Words for the first-run screen of ChildDevice.
+
+    Two steps, one decision each, and plain words: "этот телефон", "телефон
+    родителя", "подключить". The screen says what already works before it asks
+    for anything, and it always keeps a way out.
+-->
+<resources>
+
+    <string name="child_join_toolbar_title">Подключение к семье</string>
+    <string name="child_join_title">Подключим этот телефон</string>
+    <string name="child_join_subtitle">Возьмите телефон родителя: он покажет код, а вы его отсканируете. Больше ничего не нужно.</string>
+    <string name="child_join_step_format">Шаг %1$d из %2$d</string>
+
+    <string name="child_join_how_title">Что будет дальше</string>
+    <string name="child_join_how_steps">1. На телефоне родителя откройте «Настройки» → «Семья» → «Пригласить».\n2. Отсканируйте оттуда код.\n3. Проверьте имя — оно появится у всей семьи.</string>
+
+    <string name="child_join_already_title">Этот телефон уже подключён</string>
+    <string name="child_join_already_body">Родитель «%1$s» уже видит этот телефон, а связь работает. Подключать заново не нужно.</string>
+    <string name="child_join_already_body_named">Родитель «%1$s» уже видит этот телефон, а связь работает. Подключать заново не нужно.</string>
+
+    <string name="child_join_scan">Сканировать код</string>
+    <string name="child_join_or_paste">или вставьте ссылку из приглашения</string>
+    <string name="child_join_code_hint">Код или ссылка приглашения</string>
+    <string name="child_join_check">Проверить приглашение</string>
+    <string name="child_join_check_title">Проверьте данные</string>
+    <string name="child_join_confirm_note">После подтверждения этот телефон будет подключён к выбранному человеку. Переназначить его другому участнику сможет взрослый в настройках семьи.</string>
+    <string name="child_join_accept">Добавить телефон в семью</string>
+
+    <string name="child_join_done_title">Готово — телефон в семье</string>
+    <string name="child_join_done_body">Этот телефон подключён как «%1$s» в семье «%2$s». Далее возьмите телефон родителя — «%3$s»: он увидит этот телефон в своём списке.</string>
+    <string name="child_join_done_body_without_parent">Этот телефон подключён как «%1$s» в семье «%2$s». Далее откройте родительское приложение на своём телефоне — этот телефон появится в списке.</string>
+    <string name="child_join_open_app">Понятно</string>
+
+    <string name="child_join_later">Настроить позже</string>
+    <string name="child_join_later_done">Хорошо. Подключить телефон можно позже: «Настройки» → «Подключение к семье».</string>
+
+    <string name="child_join_error_not_ours">Это не приглашение ChildWatch. Попросите взрослого создать новый код.</string>
+    <string name="child_join_error_expired">Срок приглашения истёк. Попросите создать новое.</string>
+    <string name="child_join_error_used">Это приглашение уже использовано.</string>
+    <string name="child_join_error_revoked">Это приглашение отменено.</string>
+    <string name="child_join_error_adult_app">Это приглашение для взрослого приложения. На детском телефоне нужно приглашение с ролью «Ребёнок».</string>
+    <string name="child_join_error_registration">Не удалось зарегистрировать телефон на сервере. Проверьте интернет.</string>
+    <string name="child_join_error_check">Не удалось проверить приглашение</string>
+    <string name="child_join_error_accept">Не удалось добавить телефон в семью</string>
+    <string name="child_join_error_server">Сервер не завершил подключение. Попробуйте ещё раз.</string>
+
+    <string name="child_join_role_label">Роль: %1$s</string>
+    <string name="child_join_role_parent">родитель</string>
+    <string name="child_join_role_guardian">взрослый</string>
+    <string name="child_join_role_child">ребёнок</string>
+    <string name="child_join_invited_by">Приглашение создал(а): %1$s</string>
+    <string name="child_join_joined">Телефон добавлен: %1$s</string>
+    <string name="child_join_required_next_time">Сначала подключите телефон к семье — или нажмите «Настроить позже».</string>
+</resources>

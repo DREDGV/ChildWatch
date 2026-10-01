@@ -41,62 +41,42 @@ sealed interface ProfilePhotoResult {
  * straight line of code instead of a callback chain.
  */
 object ProfileImagePicker {
+    private class PickerState {
+        lateinit var launcher: ActivityResultLauncher<PickVisualMediaRequest>
+        var pending: CompletableDeferred<Uri?>? = null
+    }
+    private val states = mutableMapOf<ComponentActivity, PickerState>()
 
-    private const val TAG = "ProfileImagePicker"
-
-    /** Launcher registered by the host activity, or null when none was registered. */
-    @Volatile
-    private var launcher: ActivityResultLauncher<PickVisualMediaRequest>? = null
-
-    /** The one call currently waiting for the chooser, resumed when it answers. */
-    @Volatile
-    private var pending: CompletableDeferred<Uri?>? = null
-
-    /**
-     * Provides the host activity's launcher.
-     *
-     * Called once the activity can register result launchers. When the editor is
-     * opened from a screen that has not registered one the call simply finds no
-     * picture, and the editor keeps working with the built-in avatars.
-     */
-    fun attach(launcher: ActivityResultLauncher<PickVisualMediaRequest>?) {
-        this.launcher = launcher
+    /** Register on the host before STARTED. Each screen owns its own request/result. */
+    fun registerLauncher(caller: ComponentActivity): ActivityResultLauncher<PickVisualMediaRequest> {
+        val state = PickerState()
+        state.launcher = caller.registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
+            state.pending?.complete(uri)
+        }
+        states[caller] = state
+        caller.lifecycle.addObserver(androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_DESTROY) {
+                state.pending?.complete(null)
+                if (states[caller] === state) states.remove(caller)
+            }
+        })
+        return state.launcher
     }
 
-    /**
-     * Registers a photo picker launcher on the host activity and wires it here.
-     *
-     * The activity must call this where it registers its other result launchers,
-     * because a launcher has to be taken before the activity is started. The
-     * returned launcher is the activity's own and is not used by the editor, which
-     * asks for a picture through [pick] instead.
-     */
-    fun registerLauncher(
-        caller: ActivityResultCaller
-    ): ActivityResultLauncher<PickVisualMediaRequest> {
-        return caller.registerForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri ->
-            pending?.complete(uri)
-        }.also(::attach)
-    }
-
-    /** Opens the chooser and answers with the chosen picture, or null when dismissed. */
-    suspend fun pick(): Uri? {
-        val registered = launcher ?: return null
-        // A second request would leave the first one waiting forever.
-        pending?.complete(null)
+    suspend fun pick(caller: ComponentActivity): Uri? {
+        val state = states[caller] ?: return null
+        state.pending?.complete(null)
         val answer = CompletableDeferred<Uri?>()
-        pending = answer
+        state.pending = answer
         return try {
-            registered.launch(
-                PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
-            )
+            state.launcher.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
             answer.await()
-        } catch (error: Exception) {
-            // A chooser that cannot open must not leave the editor stuck.
-            android.util.Log.w(TAG, "The picture chooser could not be opened", error)
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (error: Exception) {
+            android.util.Log.w("ProfileImagePicker", "Cannot open photo picker", error)
             null
         } finally {
-            if (pending === answer) pending = null
+            if (state.pending === answer) state.pending = null
         }
     }
 }

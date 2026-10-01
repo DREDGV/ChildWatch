@@ -2,24 +2,34 @@ package ru.example.childwatch
 
 import android.content.ClipData
 import android.content.ClipboardManager
+import android.content.Intent
 import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.os.LocaleList
 import android.view.View
+import android.view.Gravity
+import android.widget.FrameLayout
+import android.widget.ImageView
 import android.widget.ArrayAdapter
 import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.AccessibilityDelegateCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat
+import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.android.material.imageview.ShapeableImageView
 import com.google.android.material.shape.ShapeAppearanceModel
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.qrcode.QRCodeWriter
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import org.json.JSONObject
 import ru.childwatch.shared.family.FamilyPersonProfile
 import ru.childwatch.shared.onboarding.FamilyInvitationCreateRequest
@@ -40,7 +50,7 @@ class FamilyInviteActivity : AppCompatActivity() {
     private var familyId: String? = null
     private var people: List<FamilyPersonProfile> = emptyList()
     private var legacyCandidates: List<FamilyLegacyMigrationCandidateData> = emptyList()
-    private var selectedExistingIndex = 0
+    private var selectedExistingIndex = -1
     private var selectedLegacyIndex = 0
     /**
      * Which role the invitation offers.
@@ -52,7 +62,12 @@ class FamilyInviteActivity : AppCompatActivity() {
     private var selectedRoleIndex = 1
     private var selectedAvatarValue = FamilyAvatarRenderer.selectableValues().first()
     private var invitationUri: String? = null
-    private var avatarViews: List<ShapeableImageView> = emptyList()
+    private var invitationExpiresAt = 0L
+    private var invitationInstructions = ""
+    private var invitationUnavailable: String? = null
+    private var expiryJob: Job? = null
+    private data class AvatarChoice(val frame: FrameLayout, val badge: ImageView)
+    private var avatarViews: List<AvatarChoice> = emptyList()
     private val roleLabels = listOf("Ребёнок", "Родитель", "Родственник")
     private val roleValues = listOf("CHILD", "PARENT", "GUARDIAN")
 
@@ -73,7 +88,14 @@ class FamilyInviteActivity : AppCompatActivity() {
         binding.inviteRoleInput.setText(roleLabels[selectedRoleIndex], false)
         binding.inviteRoleInput.setOnItemClickListener { _, _, position, _ ->
             selectedRoleIndex = position
+            updateRoleHelp()
+            clearResult()
         }
+        binding.inviteRoleInput.setOnClickListener { showRolePicker() }
+        binding.inviteRoleLayout.setEndIconOnClickListener { showRolePicker() }
+        binding.inviteExistingInput.setOnClickListener { showExistingPersonPicker() }
+        binding.inviteExistingLayout.setEndIconOnClickListener { showExistingPersonPicker() }
+        binding.inviteNameInput.doAfterTextChanged { clearResult() }
         setupAvatarChoices()
         binding.inviteModeGroup.setOnCheckedChangeListener { _, _ -> applyModeState() }
         binding.createInvitationButton.setOnClickListener { createInvitation() }
@@ -81,15 +103,39 @@ class FamilyInviteActivity : AppCompatActivity() {
         binding.manageInvitationsButton.setOnClickListener { showActiveInvitations() }
         binding.transferDeviceButton.setOnClickListener { showDeviceTransferWizard() }
         binding.copyInvitationButton.setOnClickListener {
+            if (!invitationIsUsable()) return@setOnClickListener
             val value = invitationUri ?: return@setOnClickListener
             val clipboard = getSystemService(ClipboardManager::class.java)
             clipboard.setPrimaryClip(ClipData.newPlainText("ChildWatch invitation", value))
             Toast.makeText(this, "Приглашение скопировано", Toast.LENGTH_SHORT).show()
         }
+        binding.shareInvitationButton.setOnClickListener {
+            if (!invitationIsUsable()) return@setOnClickListener
+            val value = invitationUri ?: return@setOnClickListener
+            val directory = java.io.File(cacheDir, "family-invitations").apply { mkdirs() }
+            val imageFile = java.io.File(directory, "invitation-${java.util.UUID.randomUUID()}.png")
+            try {
+                imageFile.outputStream().use { stream ->
+                    check(generateQr(value, 640).compress(Bitmap.CompressFormat.PNG, 100, stream))
+                }
+            } catch (_: Exception) {
+                Toast.makeText(this, R.string.family_invite_share_failed, Toast.LENGTH_LONG).show()
+                return@setOnClickListener
+            }
+            val imageUri = androidx.core.content.FileProvider.getUriForFile(this, "$packageName.fileprovider", imageFile)
+            startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+                type = "image/png"
+                putExtra(Intent.EXTRA_STREAM, imageUri)
+                putExtra(Intent.EXTRA_TEXT, "$invitationInstructions\n\n$value")
+                clipData = ClipData.newUri(contentResolver, "Приглашение в семью", imageUri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }, getString(R.string.family_connect_share)))
+        }
         // The checked state declared in the XML is not reported to the listener
         // when it is attached, so the form could show one mode while the other
         // was actually selected. The state is applied explicitly here.
         applyModeState()
+        updateRoleHelp()
     }
 
     /**
@@ -102,6 +148,11 @@ class FamilyInviteActivity : AppCompatActivity() {
     private fun applyModeState() {
         val legacy = binding.inviteLegacyProfileRadio.isChecked
         val existing = binding.inviteExistingPersonRadio.isChecked
+        binding.inviteModeHelp.setText(when {
+            legacy -> R.string.family_invite_legacy_help
+            existing -> R.string.family_invite_existing_help
+            else -> R.string.family_invite_new_help
+        })
         binding.inviteExistingLayout.visibility = if (existing) View.VISIBLE else View.GONE
         binding.inviteLegacyCandidateLayout.visibility = if (legacy) View.VISIBLE else View.GONE
         binding.inviteNameLayout.visibility = if (existing) View.GONE else View.VISIBLE
@@ -110,6 +161,7 @@ class FamilyInviteActivity : AppCompatActivity() {
         binding.createInvitationButton.text =
             if (legacy) "Подтвердить профиль" else "Создать приглашение"
         if (legacy) applySelectedLegacyCandidate()
+        if (existing) updateExistingHelp()
         clearResult()
     }
 
@@ -318,6 +370,11 @@ class FamilyInviteActivity : AppCompatActivity() {
             }
             familyId = result.directory.family.id
             people = result.directory.people
+            binding.inviteFamilySummary.text = getString(
+                R.string.family_invite_context,
+                result.directory.family.name,
+                people.size
+            )
             val labels = people.map { person ->
                 "${person.member.displayName} · ${roleLabel(person.member.role.name)}"
             }
@@ -328,11 +385,22 @@ class FamilyInviteActivity : AppCompatActivity() {
                     labels
                 )
             )
-            if (labels.isNotEmpty()) binding.inviteExistingInput.setText(labels.first(), false)
+            selectedExistingIndex = -1
+            binding.inviteExistingInput.setText("", false)
             binding.inviteExistingInput.setOnItemClickListener { _, _, position, _ ->
                 selectedExistingIndex = position
+                updateExistingHelp()
+                clearResult()
             }
-            loadLegacyCandidates(result.directory.family.id)
+            try {
+                loadLegacyCandidates(result.directory.family.id)
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                // Optional legacy migration must not block ordinary invitations.
+                legacyCandidates = emptyList()
+                binding.inviteLegacyProfileRadio.visibility = View.GONE
+            }
             showLoading(false)
             applyModeState()
         }
@@ -384,13 +452,14 @@ class FamilyInviteActivity : AppCompatActivity() {
         selectedRoleIndex = roleValues.indexOf(candidate.member.role.uppercase())
             .takeIf { it >= 0 } ?: 0
         binding.inviteRoleInput.setText(roleLabels[selectedRoleIndex], false)
+        updateRoleHelp()
         selectedAvatarValue = candidate.member.avatarKey
             ?.takeIf { avatar -> FamilyAvatarRenderer.presets.any { it.storageValue == avatar } }
             ?: FamilyAvatarRenderer.presets.first().storageValue
         refreshAvatarChoices()
     }
 
-    private fun createInvitation() {
+    private fun createInvitation(allowDuplicateName: Boolean = false) {
         val currentFamilyId = familyId ?: return
         if (binding.inviteLegacyProfileRadio.isChecked) {
             confirmLegacyProfile(currentFamilyId)
@@ -412,6 +481,23 @@ class FamilyInviteActivity : AppCompatActivity() {
             val name = binding.inviteNameInput.text?.toString().orEmpty().trim()
             binding.inviteNameLayout.error = if (name.length < 2) "Введите имя" else null
             if (binding.inviteNameLayout.error != null) return
+            val duplicate = people.indexOfFirst { it.member.displayName.trim().equals(name, ignoreCase = true) }
+            if (duplicate >= 0 && !allowDuplicateName) {
+                MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.family_connect_duplicate_title)
+                    .setMessage(R.string.family_connect_duplicate_body)
+                    .setPositiveButton(R.string.family_connect_existing_action) { _, _ ->
+                        selectedExistingIndex = duplicate
+                        binding.inviteExistingInput.setText(
+                            "${people[duplicate].member.displayName} · ${roleLabel(people[duplicate].member.role.name)}", false)
+                        binding.inviteExistingPersonRadio.isChecked = true
+                        updateExistingHelp()
+                    }
+                    .setNeutralButton(R.string.family_connect_new_action) { _, _ -> createInvitation(allowDuplicateName = true) }
+                    .setNegativeButton("Отмена", null)
+                    .show()
+                return
+            }
             FamilyInvitationCreateRequest(
                 familyId = currentFamilyId,
                 mode = FamilyInvitationMode.NEW_MEMBER.name,
@@ -434,6 +520,8 @@ class FamilyInviteActivity : AppCompatActivity() {
                     return@launch
                 }
                 invitationUri = invitation!!.invitationUri
+                invitationUnavailable = null
+                invitationExpiresAt = invitation.expiresAt
                 if (BuildConfig.DEBUG) {
                     getSharedPreferences(DEBUG_PREFS_NAME, MODE_PRIVATE)
                         .edit()
@@ -442,15 +530,25 @@ class FamilyInviteActivity : AppCompatActivity() {
                 }
                 binding.invitationResultTitle.text =
                     "Приглашение для ${invitation.member.displayName}"
-                binding.invitationResultHint.text = if (invitation.member.role == "CHILD") {
-                    "Откройте ChildDevice на детском телефоне и отсканируйте код. Он действует 15 минут и только один раз."
-                } else {
-                    "Откройте ParentMonitor на телефоне взрослого и отсканируйте код. Он действует 15 минут и только один раз."
-                }
+                val application = if (invitation.member.role == "CHILD") "ChildDevice" else "ParentMonitor"
+                val expiry = java.text.DateFormat.getDateTimeInstance(
+                    java.text.DateFormat.SHORT, java.text.DateFormat.SHORT, java.util.Locale("ru", "RU")
+                ).format(java.util.Date(invitation.expiresAt))
+                val action = if (existing) "Телефон добавится к существующему человеку. Имя, аватар и роль сохранятся. Старые телефоны останутся подключёнными."
+                    else "Человек появится в вашей семье после подтверждения на его телефоне."
+                invitationInstructions =
+                    "${invitation.member.displayName} · ${roleLabel(invitation.member.role)}\n$action\n\n" +
+                    "На новом телефоне установите $application, откройте ссылку или отсканируйте QR-код в приложении. " +
+                    "Подтвердите имя и семью перед подключением.\n\nПриглашение одноразовое, действует до $expiry."
+                binding.invitationResultHint.text = invitationInstructions
                 binding.invitationQrImage.setImageBitmap(
                     generateQr(invitation.invitationUri!!, 640)
                 )
                 binding.invitationResultCard.visibility = View.VISIBLE
+                updateInvitationExpiry()
+                binding.inviteScroll.post {
+                    binding.inviteScroll.smoothScrollTo(0, binding.invitationResultCard.top)
+                }
             } catch (error: Exception) {
                 Toast.makeText(
                     this@FamilyInviteActivity,
@@ -513,6 +611,9 @@ class FamilyInviteActivity : AppCompatActivity() {
 
     private fun clearResult() {
         invitationUri = null
+        invitationExpiresAt = 0L
+        invitationInstructions = ""
+        invitationUnavailable = null
         if (BuildConfig.DEBUG) {
             getSharedPreferences(DEBUG_PREFS_NAME, MODE_PRIVATE)
                 .edit()
@@ -540,16 +641,15 @@ class FamilyInviteActivity : AppCompatActivity() {
         val row = binding.inviteAvatarRow
         row.removeAllViews()
         val density = resources.displayMetrics.density
-        val size = (56 * density).toInt()
-        val spacing = (10 * density).toInt()
+        val size = (68 * density).toInt()
+        val imageSize = (56 * density).toInt()
+        val spacing = (8 * density).toInt()
         avatarViews = FamilyAvatarRenderer.presets.mapIndexed { index, preset ->
-            val view = ShapeableImageView(this).apply {
+            val frame = FrameLayout(this).apply {
                 layoutParams = LinearLayout.LayoutParams(size, size).apply {
                     if (index > 0) marginStart = spacing
                 }
-                shapeAppearanceModel = ShapeAppearanceModel.builder()
-                    .setAllCornerSizes(size / 2f)
-                    .build()
+                isFocusable = true
                 contentDescription = getString(
                     R.string.family_profile_avatar_preset_description,
                     index + 1
@@ -559,24 +659,58 @@ class FamilyInviteActivity : AppCompatActivity() {
                     refreshAvatarChoices()
                     clearResult()
                 }
+                val attributes = obtainStyledAttributes(intArrayOf(android.R.attr.selectableItemBackgroundBorderless))
+                foreground = attributes.getDrawable(0)
+                attributes.recycle()
+            }
+            val view = ShapeableImageView(this).apply {
+                layoutParams = FrameLayout.LayoutParams(imageSize, imageSize, Gravity.CENTER)
+                shapeAppearanceModel = ShapeAppearanceModel.builder().setAllCornerSizes(imageSize / 2f).build()
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
             }
             FamilyAvatarRenderer.bind(view, preset.storageValue)
-            row.addView(view)
-            view
+            val badgeSize = (20 * density).toInt()
+            val badge = ImageView(this).apply {
+                layoutParams = FrameLayout.LayoutParams(badgeSize, badgeSize, Gravity.BOTTOM or Gravity.END)
+                setImageResource(R.drawable.ic_check)
+                imageTintList = ColorStateList.valueOf(ContextCompat.getColor(this@FamilyInviteActivity, R.color.cw_color_on_primary))
+                setPadding((3 * density).toInt(), (3 * density).toInt(), (3 * density).toInt(), (3 * density).toInt())
+                background = GradientDrawable().apply {
+                    shape = GradientDrawable.OVAL
+                    setColor(ContextCompat.getColor(this@FamilyInviteActivity, R.color.cw_color_primary))
+                    setStroke((2 * density).toInt(), ContextCompat.getColor(this@FamilyInviteActivity, R.color.cw_color_surface))
+                }
+                importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+            }
+            frame.addView(view)
+            frame.addView(badge)
+            ViewCompat.setAccessibilityDelegate(frame, object : AccessibilityDelegateCompat() {
+                override fun onInitializeAccessibilityNodeInfo(host: View, info: AccessibilityNodeInfoCompat) {
+                    super.onInitializeAccessibilityNodeInfo(host, info)
+                    info.className = "android.widget.RadioButton"
+                    info.isCheckable = true
+                    info.isChecked = host.isSelected
+                }
+            })
+            row.addView(frame)
+            AvatarChoice(frame, badge)
         }
         refreshAvatarChoices()
     }
 
     private fun refreshAvatarChoices() {
         val primary = ContextCompat.getColor(this, R.color.cw_color_primary)
-        val outline = ContextCompat.getColor(this, R.color.cw_color_outline_variant)
-        FamilyAvatarRenderer.presets.zip(avatarViews).forEach { (preset, view) ->
+        val surface = ContextCompat.getColor(this, R.color.cw_color_surface)
+        val selectedSurface = ContextCompat.getColor(this, R.color.cw_color_selected_surface)
+        FamilyAvatarRenderer.presets.zip(avatarViews).forEach { (preset, choice) ->
             val selected = preset.storageValue == selectedAvatarValue
-            view.strokeColor = ColorStateList.valueOf(if (selected) primary else outline)
-            view.strokeWidth = (if (selected) 3f else 1f) * resources.displayMetrics.density
-            view.alpha = if (selected) 1f else 0.72f
-            view.scaleX = if (selected) 1f else 0.92f
-            view.scaleY = if (selected) 1f else 0.92f
+            choice.frame.isSelected = selected
+            choice.frame.background = GradientDrawable().apply {
+                shape = GradientDrawable.OVAL
+                setColor(if (selected) selectedSurface else surface)
+                setStroke((2 * resources.displayMetrics.density).toInt(), if (selected) primary else Color.TRANSPARENT)
+            }
+            choice.badge.visibility = if (selected) View.VISIBLE else View.INVISIBLE
         }
     }
 
@@ -586,10 +720,118 @@ class FamilyInviteActivity : AppCompatActivity() {
         binding.manageInvitationsButton.isEnabled = !show
         binding.transferDeviceButton.isEnabled = !show
         binding.inviteModeGroup.isEnabled = !show
+        for (index in 0 until binding.inviteModeGroup.childCount) {
+            binding.inviteModeGroup.getChildAt(index).isEnabled = !show
+        }
+        binding.inviteNameInput.isEnabled = !show
+        binding.inviteRoleInput.isEnabled = !show
+        binding.inviteExistingInput.isEnabled = !show
+        binding.inviteLegacyCandidateInput.isEnabled = !show
+        avatarViews.forEach { it.frame.isEnabled = !show }
+    }
+
+    private fun updateExistingHelp() {
+        if (!binding.inviteExistingPersonRadio.isChecked) return
+        val person = people.getOrNull(selectedExistingIndex) ?: return
+        binding.inviteModeHelp.text = getString(R.string.family_connect_existing,
+            person.member.displayName, roleLabel(person.member.role.name), person.activeDevices.size)
+    }
+
+    private fun updateRoleHelp() {
+        binding.inviteRoleLayout.helperText = getString(if (selectedRoleIndex == 0)
+            R.string.family_invite_child_app else R.string.family_invite_adult_app)
+    }
+
+    private fun showRolePicker() {
+        MaterialAlertDialogBuilder(this)
+            .setTitle("Роль человека в семье")
+            .setSingleChoiceItems(roleLabels.toTypedArray(), selectedRoleIndex) { dialog, position ->
+                selectedRoleIndex = position
+                binding.inviteRoleInput.setText(roleLabels[position], false)
+                updateRoleHelp()
+                clearResult()
+                dialog.dismiss()
+            }.setNegativeButton("Отмена", null).show()
+    }
+
+    private fun showExistingPersonPicker() {
+        if (people.isEmpty()) return
+        val labels = people.map { "${it.member.displayName} · ${roleLabel(it.member.role.name)}" }
+        MaterialAlertDialogBuilder(this).setTitle("Чей это новый телефон?")
+            .setSingleChoiceItems(labels.toTypedArray(), selectedExistingIndex) { dialog, position ->
+                selectedExistingIndex = position
+                binding.inviteExistingInput.setText(labels[position], false)
+                updateExistingHelp()
+                clearResult()
+                dialog.dismiss()
+            }.setNegativeButton("Отмена", null).show()
+    }
+
+    private fun invitationIsUsable(): Boolean {
+        updateInvitationExpiry()
+        return invitationUri != null && invitationUnavailable == null && System.currentTimeMillis() < invitationExpiresAt
+    }
+
+    private fun updateInvitationExpiry() {
+        if (invitationUri == null) return
+        val usable = invitationUnavailable == null && System.currentTimeMillis() < invitationExpiresAt
+        binding.copyInvitationButton.isEnabled = usable
+        binding.shareInvitationButton.isEnabled = usable
+        binding.invitationQrImage.alpha = if (usable) 1f else 0.2f
+        if (invitationUnavailable != null) binding.invitationResultHint.text = invitationUnavailable
+        else if (!usable) binding.invitationResultHint.setText(R.string.family_connect_expired)
+        else {
+            val minutes = ((invitationExpiresAt - System.currentTimeMillis()).coerceAtLeast(0L) + 59_999L) / 60_000L
+            binding.invitationResultHint.text = "$invitationInstructions\nОсталось $minutes мин."
+        }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        expiryJob = lifecycleScope.launch {
+            while (isActive) {
+                updateInvitationExpiry()
+                delay(15_000L)
+                val uri = invitationUri
+                if (uri != null && invitationIsUsable()) {
+                    val token = ru.childwatch.shared.onboarding.FamilyInvitationTokenParser.parse(uri)
+                    if (token != null) {
+                        try {
+                            val invitation = networkClient.previewFamilyInvitation(token).body()?.invitation
+                            if (uri == invitationUri && invitation != null) {
+                                invitationUnavailable = when {
+                                    invitation.isConsumed -> getString(R.string.family_invite_connected, invitation.member.displayName)
+                                    invitation.isRevoked || invitation.isExpired -> getString(R.string.family_connect_expired)
+                                    else -> null
+                                }
+                                updateInvitationExpiry()
+                                if (invitation.isConsumed) {
+                                    val directory = directoryRepository.load()
+                                    if (uri == invitationUri && directory?.source == ParentFamilyDirectorySource.SERVER) {
+                                        people = directory.directory.people
+                                        binding.inviteFamilySummary.text = getString(
+                                            R.string.family_invite_context,
+                                            directory.directory.family.name,
+                                            people.size
+                                        )
+                                    }
+                                }
+                            }
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                        catch (_: Exception) { /* Keep the code while an intermittent refresh is unavailable. */ }
+                    }
+                }
+            }
+        }
+    }
+
+    override fun onStop() {
+        expiryJob?.cancel()
+        super.onStop()
     }
 
     private fun generateQr(value: String, size: Int): Bitmap {
-        val matrix = QRCodeWriter().encode(value, BarcodeFormat.QR_CODE, size, size)
+        val matrix = ru.example.childwatch.profile.FamilyInvitationQr.encode(value, size)
         return Bitmap.createBitmap(size, size, Bitmap.Config.RGB_565).also { bitmap ->
             for (x in 0 until size) for (y in 0 until size) {
                 bitmap.setPixel(x, y, if (matrix[x, y]) Color.BLACK else Color.WHITE)

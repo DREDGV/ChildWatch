@@ -28,6 +28,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.DrawableCompat
 import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -35,6 +36,9 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapListener
+import org.osmdroid.events.ScrollEvent
+import org.osmdroid.events.ZoomEvent
 import org.osmdroid.tileprovider.tilesource.TileSourceFactory
 import org.osmdroid.util.BoundingBox
 import org.osmdroid.util.GeoPoint
@@ -51,6 +55,10 @@ import ru.example.parentwatch.location.LocationManager
 import ru.example.parentwatch.network.NetworkClient
 import ru.example.parentwatch.contacts.ContactIcons
 import ru.example.parentwatch.profile.FamilyAvatarRenderer
+import ru.example.childwatch.designsystem.MapMemberStrip
+import ru.example.childwatch.designsystem.MapAvatarPlacement
+import ru.example.childwatch.designsystem.MapAvatarIcon
+import ru.example.childwatch.designsystem.MapRouteSegments
 import ru.example.parentwatch.session.ChildEffectiveContextResolver
 import ru.example.parentwatch.session.ChildEffectiveContextProvider
 import ru.example.parentwatch.session.ChildFamilyDirectoryRepository
@@ -118,10 +126,25 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var otherMarker: Marker? = null
     private var otherAccuracyOverlay: Polygon? = null
     private var connectionLine: Polyline? = null
-    private var historyLine: Polyline? = null
+    private val historyLines = mutableListOf<Polyline>()
+    private var lastOwnMotionLocation: android.location.Location? = null
+    private val familyMotionDevices = mutableMapOf<String, String>()
+    private val familyTrailFixes = mutableMapOf<String, MutableList<MapRouteSegments.Fix>>()
+    private val familyTrailLines = mutableListOf<Polyline>()
+    private val familyTrailRequestedAt = mutableMapOf<String, Long>()
+    private var familyTrailLoadJob: Job? = null
     private var historyStartMarker: Marker? = null
     private var historyEndMarker: Marker? = null
     private val familyMarkers = mutableMapOf<String, Marker>()
+    private val familyAccuracyOverlays = mutableMapOf<String, Polygon>()
+    private var currentFamilyCandidates: List<FamilyMarkerCandidate> = emptyList()
+    private var selectedFamilyCandidateId: String? = null
+    private val repositionFamilyMarkers = Runnable {
+        if (isMapReady && currentFamilyCandidates.isNotEmpty()) {
+            placeFamilyMarkers(currentFamilyCandidates)
+            mapView.invalidate()
+        }
+    }
     private var myLatitude: Double? = null
     private var myLongitude: Double? = null
     private var isMapReady = false
@@ -132,7 +155,12 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var isPersonDetailsExpanded = false
     private var liveModeUntilMs: Long = 0L
     private var lastLinkedSourceRes: Int? = null
+    private val mapOptions by lazy { ru.example.childwatch.designsystem.FamilyMapOptions(this) }
+    private val familyTrailJobs = mutableMapOf<String, Job>()
+    private val familyTrailAllowed = mutableSetOf<String>()
+    private var ownDistancePoint: ru.example.childwatch.designsystem.FamilyDistance.Point? = null
     private var lastMyPoint: GeoPoint? = null
+    private var lastMyTimestamp: Long? = null
     private var lastOtherPoint: GeoPoint? = null
     private var resolvedParentId: String = ""
     private var resolvedOtherId: String = ""
@@ -179,7 +207,9 @@ class DualLocationMapActivity : AppCompatActivity() {
         val memberId: String = "",
         val role: String = ROLE_PARENT,
         val avatarValue: String? = null,
-        val accuracy: Float? = null
+        val accuracy: Float? = null,
+        val speedMps: Float? = null,
+        val speedAccuracyMps: Float? = null
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -188,6 +218,10 @@ class DualLocationMapActivity : AppCompatActivity() {
         try {
             binding = ActivityDualLocationMapBinding.inflate(layoutInflater)
             setContentView(binding.root)
+            binding.distanceText.visibility = if (mapOptions.distances()) View.VISIBLE else View.GONE
+            binding.appBarLayout.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
+                positionMapControlsBelowHeader()
+            }
             myRole = intent.getStringExtra(EXTRA_MY_ROLE) ?: ROLE_PARENT
             myId = intent.getStringExtra(EXTRA_MY_ID)?.trim().orEmpty()
             otherId = intent.getStringExtra(EXTRA_OTHER_ID)?.trim().orEmpty()
@@ -324,6 +358,13 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
         participantNameResolver.resolveChildAvatarKey()?.let { values += it }
         FamilyAvatarRenderer.warmUp(this@DualLocationMapActivity, values)
+        kotlinx.coroutines.coroutineScope {
+            values.filter { ru.example.parentwatch.profile.AvatarImageLoader.isUploadedPicture(it) }.distinct().map { value ->
+                async(Dispatchers.IO) {
+                    ru.example.parentwatch.profile.AvatarImageLoader.preloadMapPhoto(applicationContext, value)
+                }
+            }.forEach { it.await() }
+        }
         familyAvatarByDevice = byDevice
         familyDeviceIds = byDevice.keys.toSet()
     }
@@ -338,6 +379,20 @@ class DualLocationMapActivity : AppCompatActivity() {
         if (normalized.isBlank()) return null
         return familyAvatarByDevice[normalized]
             ?: participantNameResolver.resolveParentAvatarKey(normalized)
+    }
+
+    override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
+        mapOptions.install(binding.toolbar) {
+            binding.distanceText.visibility = if (mapOptions.distances()) View.VISIBLE else View.GONE
+            if (!mapOptions.trails() && !mapOptions.speeds()) familyTrailJobs.values.forEach { it.cancel() }
+            renderFamilyMotion()
+            drawSelectedFamilyTrail()
+            loadLocations()
+        }
+        binding.toolbar.menu.removeItem(93242)
+        binding.toolbar.menu.add(0, 93242, 0, ru.example.childwatch.designsystem.R.string.cw_map_family)
+            .setOnMenuItemClickListener { showFamilyOverview(); true }
+        return true
     }
 
     private fun setupToolbar() {
@@ -377,6 +432,18 @@ class DualLocationMapActivity : AppCompatActivity() {
             mapView.setTileSource(TileSourceFactory.MAPNIK)
             mapView.setMultiTouchControls(true)
             mapView.controller.setZoom(15.0)
+            mapView.addMapListener(object : MapListener {
+                override fun onScroll(event: ScrollEvent?): Boolean {
+                    mapView.removeCallbacks(repositionFamilyMarkers)
+                    mapView.postDelayed(repositionFamilyMarkers, 220L)
+                    return false
+                }
+                override fun onZoom(event: ZoomEvent?): Boolean {
+                    mapView.removeCallbacks(repositionFamilyMarkers)
+                    mapView.postDelayed(repositionFamilyMarkers, 160L)
+                    return false
+                }
+            })
             mapView.setOnTouchListener { _, event ->
                 if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_MOVE) {
                     if (event.action == MotionEvent.ACTION_DOWN && binding.statsCard.visibility == View.VISIBLE) {
@@ -688,43 +755,58 @@ class DualLocationMapActivity : AppCompatActivity() {
 
     private fun displayLocationHistory(history: List<ParentLocationData>) {
         if (!isMapReady || !::mapView.isInitialized || isFinishing || isDestroyed) return
-        val validHistory = history
+        val fixes = history
             .sortedBy { it.timestamp }
             .filter { isValidCoordinate(it.latitude, it.longitude) }
-        if (validHistory.isEmpty()) return
+            .mapNotNull { point ->
+                normalizeTimestampMillis(point.timestamp)?.let { timestamp ->
+                    MapRouteSegments.Fix(point.latitude, point.longitude, timestamp, point.accuracy, point.speedMps, point.speedAccuracyMps)
+                }
+            }
+        val segments = MapRouteSegments.split(fixes.sortedBy { it.timestampMs })
 
-        historyLine?.let { mapView.overlays.remove(it) }
+        historyLines.forEach(mapView.overlays::remove)
+        historyLines.clear()
         historyStartMarker?.let { mapView.overlays.remove(it) }
         historyEndMarker?.let { mapView.overlays.remove(it) }
-        historyLine = null
         historyStartMarker = null
         historyEndMarker = null
+        if (segments.isEmpty()) return
 
-        historyLine = Polyline(mapView).apply {
-            id = "history_line"
-            setPoints(validHistory.map { GeoPoint(it.latitude, it.longitude) })
-            outlinePaint.color = historyAccentColor()
-            outlinePaint.strokeWidth = 8f
-            outlinePaint.alpha = 200
+        segments.filter { it.size >= 2 }.forEachIndexed { index, segment ->
+            val line = Polyline(mapView).apply {
+                id = "history_line_$index"
+                setPoints((if (mapOptions.speedColors()) segment else MapRouteSegments.simplify(segment)).map { GeoPoint(it.latitude, it.longitude) })
+                outlinePaint.color = Color.rgb(39, 79, 221)
+                outlinePaint.strokeWidth = 4.5f * resources.displayMetrics.density
+                outlinePaint.strokeCap = Paint.Cap.ROUND
+                outlinePaint.strokeJoin = Paint.Join.ROUND
+                outlinePaint.alpha = 255
+            }
+            
+                val casing = routeCasing(line)
+            historyLines += casing
+            historyLines += line
+            mapView.overlays.add(0, line)
+            mapView.overlays.add(0, casing)
         }
-        mapView.overlays.add(0, historyLine)
 
         val historyStartIcon = tintedDrawable(R.drawable.ic_route_start_marker, historyAccentColor())
         val historyEndIcon = tintedDrawable(R.drawable.ic_route_end_marker, historyAccentColor())
-        val firstPoint = validHistory.firstOrNull()
-        val lastPoint = validHistory.lastOrNull()
-        if (firstPoint != null && lastPoint != null && firstPoint != lastPoint) {
+        val firstPoint = segments.first().first()
+        val lastPoint = segments.last().last()
+        if (firstPoint != lastPoint) {
             historyStartMarker = Marker(mapView).apply {
                 position = GeoPoint(firstPoint.latitude, firstPoint.longitude)
                 title = getString(R.string.map_history_route_start)
-                snippet = formatTimestamp(firstPoint.timestamp)
+                snippet = formatTimestamp(firstPoint.timestampMs)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                 icon = historyStartIcon
             }
             historyEndMarker = Marker(mapView).apply {
                 position = GeoPoint(lastPoint.latitude, lastPoint.longitude)
                 title = getString(R.string.map_history_route_end)
-                snippet = formatTimestamp(lastPoint.timestamp)
+                snippet = formatTimestamp(lastPoint.timestampMs)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
                 icon = historyEndIcon
             }
@@ -733,8 +815,8 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
 
         safeZoomToBoundingBox(
-            validHistory.map { GeoPoint(it.latitude, it.longitude) },
-            validHistory.lastOrNull()?.let { GeoPoint(it.latitude, it.longitude) }
+            segments.flatten().map { GeoPoint(it.latitude, it.longitude) },
+            GeoPoint(lastPoint.latitude, lastPoint.longitude)
         )
         mapView.invalidate()
     }
@@ -807,6 +889,7 @@ class DualLocationMapActivity : AppCompatActivity() {
 
                 val myLocation = if (hasLocationPermission()) withContext(Dispatchers.IO) { locationManager.getCurrentLocation() } else null
                 if (myLocation != null && isValidCoordinate(myLocation.latitude, myLocation.longitude)) {
+                    lastOwnMotionLocation = android.location.Location(myLocation)
                     myLatitude = myLocation.latitude
                     myLongitude = myLocation.longitude
                     saveCachedLocation(cacheKeyMy(), myLocation.latitude, myLocation.longitude, myLocation.time, if (myLocation.hasSpeed()) myLocation.speed else null)
@@ -884,7 +967,7 @@ class DualLocationMapActivity : AppCompatActivity() {
                 }
 
                 if ((myLatFinal != null && myLonFinal != null) || otherFinal != null) {
-                    displayAvailableLocations(myLatFinal, myLonFinal, myTsFinal, otherFinal)
+                    displayAvailableLocations(myLatFinal, myLonFinal, myTsFinal, otherFinal, currentMyValid?.accuracy ?: serverSelfLocation?.accuracy)
                     binding.loadingIndicator.visibility = View.GONE
                     applyDiagnosticState(
                         resolveDiagnosticReason(
@@ -986,7 +1069,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
         mapView.overlays.add(myMarker)
         mapView.overlays.add(otherMarker)
-        mapView.overlays.add(connectionLine)
+        if (mapOptions.distances()) mapView.overlays.add(connectionLine)
         otherAccuracyOverlay = addAccuracyOverlay(
             GeoPoint(otherLat, otherLon),
             linkedLocation.accuracy
@@ -1050,10 +1133,14 @@ class DualLocationMapActivity : AppCompatActivity() {
         mapView.invalidate()
     }
 
-    private fun displayAvailableLocations(myLat: Double?, myLon: Double?, myTimestamp: Long?, otherLocation: ParentLocationData?) {
+    private fun displayAvailableLocations(myLat: Double?, myLon: Double?, myTimestamp: Long?, otherLocation: ParentLocationData?, myAccuracy: Float? = null) {
+        ownDistancePoint = if (myLat != null && myLon != null)
+            ru.example.childwatch.designsystem.FamilyDistance.Point(myLat, myLon, myTimestamp ?: 0L, myAccuracy ?: 0f)
+        else null
         val sanitizedMy = sanitizePoint(myLat, myLon, myTimestamp)
         val sanitizedOther = otherLocation?.takeIfUsable()
         lastMyPoint = sanitizedMy?.let { GeoPoint(it.latitude, it.longitude) }
+        lastMyTimestamp = sanitizedMy?.timestamp
         lastOtherPoint = sanitizedOther?.let { GeoPoint(it.latitude, it.longitude) }
         val myIcon = resolveMyMarkerIconRes()
         val otherIcon = resolveOtherMarkerIconRes()
@@ -1085,9 +1172,11 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun clearFamilyMarkers() {
-        if (familyMarkers.isEmpty()) return
         familyMarkers.values.forEach { mapView.overlays.remove(it) }
         familyMarkers.clear()
+        familyAccuracyOverlays.values.forEach { mapView.overlays.remove(it) }
+        familyAccuracyOverlays.clear()
+        currentFamilyCandidates = emptyList()
     }
 
     private fun addAccuracyOverlay(center: GeoPoint, accuracy: Float): Polygon? {
@@ -1095,9 +1184,9 @@ class DualLocationMapActivity : AppCompatActivity() {
             ?: return null
         return Polygon(mapView).apply {
             points = Polygon.pointsAsCircle(center, radiusMeters)
-            outlinePaint.color = Color.argb(170, 0, 105, 92)
+            outlinePaint.color = Color.argb(105, 0, 105, 92)
             outlinePaint.strokeWidth = 3f * resources.displayMetrics.density
-            fillPaint.color = Color.argb(38, 0, 105, 92)
+            fillPaint.color = Color.argb(18, 0, 105, 92)
             mapView.overlays.add(0, this)
         }
     }
@@ -1171,7 +1260,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                             memberId = location.memberId,
                             role = location.role.ifBlank { ROLE_PARENT },
                             avatarValue = location.avatarKey,
-                            accuracy = location.accuracy
+                            accuracy = location.accuracy,
+                            speedMps = location.speedMps, speedAccuracyMps = location.speedAccuracyMps
                         )
                     }
                 if (fromFamily.isNotEmpty()) return@withContext fromFamily
@@ -1239,9 +1329,58 @@ class DualLocationMapActivity : AppCompatActivity() {
     private fun renderFamilyMarkers(markers: List<FamilyMarkerCandidate>) {
         if (!isMapReady || !::mapView.isInitialized || isFinishing || isDestroyed) return
         clearFamilyMarkers()
-        if (markers.isEmpty()) {
+        val selfCandidate = lastMyPoint?.takeIf {
+            myRole == ROLE_CHILD && myId.isNotBlank() &&
+                isValidCoordinate(it.latitude, it.longitude)
+        }?.let { point ->
+            FamilyMarkerCandidate(
+                deviceId = myId,
+                title = selfMarkerTitle(),
+                latitude = point.latitude,
+                longitude = point.longitude,
+                timestamp = lastMyTimestamp,
+                iconId = ContactIcons.resolve(0, ROLE_CHILD),
+                memberId = "self:$myId",
+                role = ROLE_CHILD,
+                avatarValue = ownAvatarValue(),
+                accuracy = lastOwnMotionLocation?.takeIf { it.time == lastMyTimestamp }?.accuracy ?: ownDistancePoint?.accuracy,
+                speedMps = lastOwnMotionLocation?.takeIf { it.time == lastMyTimestamp }?.let { ru.example.childwatch.designsystem.LocationMotion.speed(it) },
+                speedAccuracyMps = lastOwnMotionLocation?.takeIf { it.time == lastMyTimestamp }?.let { ru.example.childwatch.designsystem.LocationMotion.accuracy(it) }
+            )
+        }
+        currentFamilyCandidates = listOfNotNull(selfCandidate) +
+            markers.filter { isValidCoordinate(it.latitude, it.longitude) }
+        val now = System.currentTimeMillis()
+        currentFamilyCandidates.forEach { candidate ->
+            val motionId = candidate.memberId.ifBlank { candidate.deviceId }
+            val previousDevice = familyMotionDevices.put(motionId, candidate.deviceId)
+            if (previousDevice != null && previousDevice != candidate.deviceId) {
+                familyTrailJobs.remove(motionId)?.cancel()
+                familyTrailFixes.remove(motionId)
+                familyTrailAllowed.remove(motionId)
+                familyTrailRequestedAt.remove(motionId)
+            }
+            val timestamp = candidate.timestamp?.let(::normalizeTimestampMillis) ?: return@forEach
+            if (now - timestamp !in 0..120_000L) return@forEach
+            val key = candidate.memberId.ifBlank { candidate.deviceId }
+            val fixes = familyTrailFixes.getOrPut(key) { mutableListOf() }
+            if (fixes.none { it.timestampMs == timestamp }) {
+                fixes += MapRouteSegments.Fix(candidate.latitude, candidate.longitude,
+                    timestamp, candidate.accuracy ?: 0f, candidate.speedMps, candidate.speedAccuracyMps)
+            }
+            fixes.removeAll { now - it.timestampMs > 30 * 60_000L }
+        }
+        if (mapOptions.speeds() || (mapOptions.trails() && mapOptions.allTrails())) currentFamilyCandidates.forEach { loadSelectedFamilyTrail(it) }
+        renderFamilyMotion()
+        if (currentFamilyCandidates.isEmpty()) {
             mapView.invalidate()
             return
+        }
+        connectionLine?.let(mapView.overlays::remove)
+        connectionLine = null
+        if (selfCandidate != null) {
+            myMarker?.let(mapView.overlays::remove)
+            myMarker = null
         }
 
         // The family answer wins for the person it describes. Its marker for the
@@ -1263,33 +1402,13 @@ class DualLocationMapActivity : AppCompatActivity() {
             }
         }
 
-        val points = mutableListOf<GeoPoint>()
-        markers.forEach { candidate ->
-            if (!isValidCoordinate(candidate.latitude, candidate.longitude)) return@forEach
-            val markerKey = candidate.memberId.ifBlank { candidate.deviceId }
-            // Not named "title": inside apply { } a local of that name shadows the
-            // marker's own property, and the assignment then targets the val.
-            val markerTitle = candidate.title.ifBlank { getString(R.string.family_member_name_missing) }
-            val marker = Marker(mapView).apply {
-                position = GeoPoint(candidate.latitude, candidate.longitude)
-                title = markerTitle
-                snippet = formatMarkerSnippet(markerTitle, candidate.timestamp)
-                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
-                icon = createParticipantMarkerDrawable(
-                    iconRes = ContactIcons.resolve(candidate.iconId, candidate.role),
-                    accentColor = participantAccentColor(candidate.deviceId, candidate.role, emphasizeSelf = false),
-                    title = markerTitle,
-                    avatarValue = candidate.avatarValue,
-                    subtitle = candidate.timestamp?.let {
-                        getString(R.string.map_stats_meta_updated, formatTimestamp(it))
-                    },
-                    stale = isStale(candidate.timestamp)
-                )
+        val points = currentFamilyCandidates.map { GeoPoint(it.latitude, it.longitude) }.toMutableList()
+        currentFamilyCandidates.forEach { candidate ->
+            candidate.accuracy?.let {
+                addAccuracyOverlay(GeoPoint(candidate.latitude, candidate.longitude), it)?.let { overlay ->
+                    familyAccuracyOverlays[candidate.memberId.ifBlank { candidate.deviceId }] = overlay
+                }
             }
-            familyMarkers[markerKey] = marker
-            mapView.overlays.add(marker)
-            candidate.accuracy?.let { addAccuracyOverlay(marker.position, it) }
-            points += marker.position
         }
 
         if (autoFitEnabled) {
@@ -1299,9 +1418,269 @@ class DualLocationMapActivity : AppCompatActivity() {
                 safeZoomToBoundingBox(points, points.firstOrNull())
             }
         }
+        placeFamilyMarkers(currentFamilyCandidates)
 
+        selectedFamilyCandidateId?.let { selectedId ->
+            currentFamilyCandidates.firstOrNull {
+                it.memberId.ifBlank { it.deviceId } == selectedId
+            }?.let { selectFamilyCandidate(it, centerMap = false) }
+        }
         mapView.invalidate()
     }
+
+    private fun placeFamilyMarkers(candidates: List<FamilyMarkerCandidate>) {
+        familyMarkers.values.forEach(mapView.overlays::remove)
+        familyMarkers.clear()
+        val density = resources.displayMetrics.density
+        val icons = candidates.map { candidate ->
+            val accent = participantAccentColor(candidate.deviceId, candidate.role,
+                emphasizeSelf = candidate.deviceId == myId)
+            val portrait = FamilyAvatarRenderer.drawable(this, candidate.avatarValue)
+                ?: ContextCompat.getDrawable(this, ContactIcons.resolve(candidate.iconId, candidate.role))?.mutate()?.also {
+                    DrawableCompat.setTint(it, accent)
+                }
+            MapAvatarIcon.create(this, portrait, accent, isStale(candidate.timestamp))
+        }
+        val truePoints = candidates.map { GeoPoint(it.latitude, it.longitude) }
+        val pixels = truePoints.map { mapView.projection.toPixels(it, null) }
+        val anchors = MapAvatarPlacement.place(
+            candidates.indices.map { index ->
+                MapAvatarPlacement.Item(pixels[index].x, pixels[index].y,
+                    icons[index]?.intrinsicWidth ?: (90f * density).toInt(),
+                    icons[index]?.intrinsicHeight ?: (90f * density).toInt())
+            },
+            mapView.width,
+            mapView.height,
+            binding.toolbar.height + binding.familyStrip.height,
+            (2f * density).toInt()
+        )
+        candidates.forEachIndexed { index, candidate ->
+            val key = candidate.memberId.ifBlank { candidate.deviceId }
+            val anchor = anchors[index]
+            val projected = mapView.projection.fromPixels(anchor.x, anchor.y)
+            val displayPoint = GeoPoint(projected.latitude, projected.longitude)
+            val marker = Marker(mapView).apply {
+                position = displayPoint
+                title = candidate.title
+                snippet = formatMarkerSnippet(candidate.title, candidate.timestamp)
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
+                icon = icons[index]
+                setOnMarkerClickListener { _, _ ->
+                    selectFamilyCandidate(candidate)
+                    true
+                }
+            }
+            familyMarkers[key] = marker
+            mapView.overlays.add(marker)
+        }
+    }
+
+    private fun selectFamilyCandidate(candidate: FamilyMarkerCandidate, centerMap: Boolean = true) {
+        selectedFamilyCandidateId = candidate.memberId.ifBlank { candidate.deviceId }
+        drawSelectedFamilyTrail()
+        loadSelectedFamilyTrail(candidate)
+        val point = GeoPoint(candidate.latitude, candidate.longitude)
+        if (centerMap) {
+            autoFitEnabled = false
+            updateAutoFitUi()
+            mapView.controller.setCenter(point)
+            mapView.invalidate()
+        }
+        val location = ParentLocationData(
+            parentId = candidate.deviceId,
+            latitude = candidate.latitude,
+            longitude = candidate.longitude,
+            accuracy = candidate.accuracy ?: 0f,
+            timestamp = candidate.timestamp ?: 0L,
+            battery = null,
+            speed = null,
+            bearing = null
+        )
+        binding.mapPersonName.text = candidate.title
+        FamilyAvatarRenderer.bind(binding.mapPersonAvatar, candidate.avatarValue, candidate.title)
+        binding.mapPersonStatus.text = getString(resolveMovementStatusText(location))
+        val accuracy = candidate.accuracy?.takeIf { it.isFinite() && it > 0f }?.let {
+            getString(R.string.map_person_accuracy_meters, it.toInt().coerceAtLeast(1))
+        } ?: getString(R.string.map_person_accuracy_unknown)
+        val updated = candidate.timestamp?.let(::formatRelativeTimestamp)
+            ?: getString(R.string.map_location_unavailable)
+        binding.mapPersonSummaryText.text = getString(
+            R.string.map_person_summary,
+            getString(R.string.map_person_battery_unknown), accuracy, updated
+        )
+        binding.mapPersonCoordinatesText.text = getString(
+            R.string.map_person_coordinates, candidate.latitude, candidate.longitude
+        )
+        binding.distanceText.text = mapDistance(location, candidate.deviceId == myId)
+        binding.etaText.text = "—"
+        binding.movementStatusText.text = familySpeedText(candidate.memberId.ifBlank { candidate.deviceId }, candidate.timestamp).orEmpty()
+        binding.pointMetaText.text = buildPointMetaText(location)
+        loadPersonAddress(location)
+        binding.statsCard.visibility = View.VISIBLE
+    }
+
+    private fun familySpeedText(id: String, time: Long?): String? {
+        if (!mapOptions.speeds()) return null
+        val timestamp = time?.let(::normalizeTimestampMillis) ?: 0L
+        val fixes = familyTrailFixes[id].orEmpty().sortedBy { it.timestampMs }
+        val speed = ru.example.childwatch.designsystem.MapSpeed.latest(fixes, timestamp, System.currentTimeMillis())
+        val measured = fixes.lastOrNull()?.takeIf { it.timestampMs == timestamp }?.let { ru.example.childwatch.designsystem.MapSpeed.measured(it) }
+        return if (speed != null && measured != null) getString(ru.example.childwatch.designsystem.R.string.cw_map_speed_measured, Math.round(speed))
+            else ru.example.childwatch.designsystem.MapSpeed.text(this, speed)
+    }
+
+    private fun renderFamilyMotion() {
+        MapMemberStrip.render(
+            binding.familyStripContent,
+            currentFamilyCandidates.map { candidate ->
+                MapMemberStrip.Entry(
+                    candidate.memberId.ifBlank { candidate.deviceId },
+                    candidate.title,
+                    candidate.avatarValue,
+                    candidate.timestamp?.let(::formatRelativeTimestamp)
+                        ?: getString(R.string.map_location_unavailable),
+                    isStale(candidate.timestamp),
+                    if (mapOptions.distances()) ru.example.childwatch.designsystem.FamilyDistance.compactText(this,
+                        ru.example.childwatch.designsystem.FamilyDistance.Point(candidate.latitude, candidate.longitude, candidate.timestamp ?: 0L, candidate.accuracy ?: 0f),
+                        ownDistancePoint, candidate.deviceId == myId) else null,
+                    familySpeedText(candidate.memberId.ifBlank { candidate.deviceId }, candidate.timestamp)
+                )
+            },
+            MapMemberStrip.AvatarBinder { view, avatar, name ->
+                FamilyAvatarRenderer.bind(view, avatar, name)
+            }
+        ) { entry ->
+            currentFamilyCandidates.firstOrNull {
+                it.memberId.ifBlank { it.deviceId } == entry.id
+            }?.let(::selectFamilyCandidate)
+        }
+        currentFamilyCandidates.firstOrNull { it.memberId.ifBlank { it.deviceId } == selectedFamilyCandidateId }?.let { binding.movementStatusText.text = familySpeedText(it.memberId.ifBlank { it.deviceId }, it.timestamp).orEmpty() }
+    }
+
+    private fun loadSelectedFamilyTrail(candidate: FamilyMarkerCandidate) {
+        val memberId = candidate.memberId.takeIf { it.isNotBlank() && !it.startsWith("self:") } ?: return
+        val familyId = ChildEffectiveContextResolver(this).resolveFamilyId()
+            ?.takeIf { it.isNotBlank() }
+            ?: ChildFamilyDirectoryRepository(this).loadCached()?.family?.id ?: return
+        if (!mapOptions.trails() && !mapOptions.speeds()) return
+        val now = System.currentTimeMillis()
+        if (now - (familyTrailRequestedAt[memberId] ?: 0L) < 30_000L) return
+        familyTrailRequestedAt[memberId] = now
+        if (familyTrailJobs[memberId]?.isActive == true) return
+        val motionDevice = familyMotionDevices[memberId]
+        val trailServer = ru.example.parentwatch.utils.ServerUrlResolver.getServerUrl(this)
+        familyTrailJobs[memberId] = lifecycleScope.launch {
+            val history = networkClient.getFamilyTrail(familyId, memberId, motionDevice)
+            if (motionDevice != familyMotionDevices[memberId]) return@launch
+            if (trailServer != ru.example.parentwatch.utils.ServerUrlResolver.getServerUrl(this@DualLocationMapActivity) || (familyId != (ChildEffectiveContextResolver(this@DualLocationMapActivity).resolveFamilyId()?.takeIf { it.isNotBlank() } ?: ChildFamilyDirectoryRepository(this@DualLocationMapActivity).loadCached()?.family?.id))) return@launch
+            if (history == null) {
+                familyTrailAllowed.remove(memberId); familyTrailFixes.remove(memberId); renderFamilyMotion(); drawSelectedFamilyTrail(); return@launch
+            }
+            familyTrailAllowed.add(memberId)
+            if (isFinishing || isDestroyed) return@launch
+            val live = familyTrailFixes[memberId].orEmpty()
+            val fixes = (history.mapNotNull { point ->
+                normalizeTimestampMillis(point.timestamp)?.let { timestamp ->
+                    MapRouteSegments.Fix(point.latitude, point.longitude, timestamp, point.accuracy, point.speedMps, point.speedAccuracyMps)
+                }
+            } + live).filter { now - it.timestampMs in 0..30 * 60_000L }
+                .distinctBy { Triple(it.timestampMs, it.latitude, it.longitude) }
+                .sortedBy { it.timestampMs }
+                .takeLast(600)
+            familyTrailFixes[memberId] = fixes.toMutableList()
+            renderFamilyMotion()
+            if (mapOptions.allTrails() || selectedFamilyCandidateId == memberId) drawSelectedFamilyTrail()
+        }
+    }
+
+    private fun applySpeedColors(line: Polyline, segment: List<MapRouteSegments.Fix>) {
+        val paint = Paint(line.outlinePaint)
+        val speeds = segment.indices.map { ru.example.childwatch.designsystem.MapSpeed.estimate(segment, it) }
+        line.outlinePaintLists.add(object : org.osmdroid.views.overlay.PaintList {
+            override fun getPaint(): Paint? = null
+            override fun getPaint(index: Int, x0: Float, y0: Float, x1: Float, y1: Float): Paint {
+                val first = speeds[index.coerceIn(0, speeds.lastIndex)]
+                val second = speeds[(index + 1).coerceIn(0, speeds.lastIndex)]
+                paint.shader = null
+                paint.color = ru.example.childwatch.designsystem.MapSpeed.color(this@DualLocationMapActivity, null)
+                if (first != null && second != null) {
+                    val a = ru.example.childwatch.designsystem.MapSpeed.color(this@DualLocationMapActivity, first)
+                    val b = ru.example.childwatch.designsystem.MapSpeed.color(this@DualLocationMapActivity, second)
+                    paint.color = a
+                    if (a != b && (x0 != x1 || y0 != y1)) paint.shader = android.graphics.LinearGradient(x0, y0, x1, y1, a, b, android.graphics.Shader.TileMode.CLAMP)
+                }
+                return paint
+            }
+        })
+    }
+
+    private fun routeCasing(line: Polyline) = Polyline(mapView).apply {
+        setPoints(line.actualPoints)
+        outlinePaint.color = Color.WHITE
+        outlinePaint.strokeWidth = 8f * resources.displayMetrics.density
+        outlinePaint.strokeCap = Paint.Cap.ROUND
+        outlinePaint.strokeJoin = Paint.Join.ROUND
+    }
+
+    private fun drawSelectedFamilyTrail() {
+        familyTrailLines.forEach(mapView.overlays::remove)
+        familyTrailLines.clear()
+        if (!mapOptions.trails()) { mapView.invalidate(); return }
+        val targets = if (mapOptions.allTrails()) currentFamilyCandidates else
+            currentFamilyCandidates.filter { it.memberId.ifBlank { it.deviceId } == selectedFamilyCandidateId }
+        targets.forEach { candidate ->
+        val id = candidate.memberId.ifBlank { candidate.deviceId }
+        if (id !in familyTrailAllowed && candidate.deviceId != myId) return@forEach
+        val fixes = familyTrailFixes[id] ?: return@forEach
+        val color = participantAccentColor(candidate.deviceId, candidate.role)
+        MapRouteSegments.split(fixes.sortedBy { it.timestampMs })
+            .filter { it.size >= 2 }.forEachIndexed { index, segment ->
+                val line = Polyline(mapView).apply {
+                    this.id = "family_live_trail_${id}_$index"
+                    setPoints((if (mapOptions.speedColors()) segment else MapRouteSegments.simplify(segment)).map { GeoPoint(it.latitude, it.longitude) })
+                    outlinePaint.color = color
+                    outlinePaint.alpha = 255
+                    outlinePaint.strokeWidth = (if (id == selectedFamilyCandidateId) 5f else 3.5f) * resources.displayMetrics.density
+                    outlinePaint.strokeCap = Paint.Cap.ROUND
+                    outlinePaint.strokeJoin = Paint.Join.ROUND
+                }
+                if (mapOptions.speedColors()) applySpeedColors(line, segment)
+                val casing = routeCasing(line)
+                familyTrailLines += casing
+                familyTrailLines += line
+                mapView.overlays.add(0, line)
+                mapView.overlays.add(0, casing)
+            }
+        }
+        mapView.invalidate()
+    }
+
+    private fun showFamilyOverview() {
+        val people = ChildFamilyDirectoryRepository(this).loadCached()?.people.orEmpty()
+        val entries = people.map { person ->
+            val candidate = currentFamilyCandidates.firstOrNull { item -> item.memberId == person.member.id ||
+                person.activeDevices.any { it.deviceId == item.deviceId } }
+            MapMemberStrip.Entry(person.member.id, person.member.displayName, person.member.avatarKey,
+                candidate?.timestamp?.let(::formatRelativeTimestamp) ?: getString(R.string.map_location_unavailable),
+                candidate == null || isStale(candidate.timestamp), if (mapOptions.distances())
+                ru.example.childwatch.designsystem.FamilyDistance.text(this, candidate?.let {
+                    ru.example.childwatch.designsystem.FamilyDistance.Point(it.latitude, it.longitude, it.timestamp ?: 0L, it.accuracy ?: 0f)
+                }, ownDistancePoint, candidate?.deviceId == myId) else null, familySpeedText(person.member.id, candidate?.timestamp))
+        }
+        ru.example.childwatch.designsystem.MapFamilyOverview.show(this, entries,
+            MapMemberStrip.AvatarBinder { image, avatar, name -> FamilyAvatarRenderer.bind(image, avatar, name) }) { entry ->
+            val person = people.firstOrNull { it.member.id == entry.id }
+            val candidate = currentFamilyCandidates.firstOrNull { item -> item.memberId == entry.id ||
+                person?.activeDevices?.any { it.deviceId == item.deviceId } == true }
+            if (candidate != null) selectFamilyCandidate(candidate) else
+                Toast.makeText(this, ru.example.childwatch.designsystem.R.string.cw_distance_person_missing, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun mapDistance(location: ParentLocationData, samePerson: Boolean = false): String =
+        ru.example.childwatch.designsystem.FamilyDistance.text(this,
+            ru.example.childwatch.designsystem.FamilyDistance.Point(location.latitude, location.longitude,
+                location.timestamp, location.accuracy), ownDistancePoint, samePerson)
 
     private fun bindLinkedStats(
         linkedLocation: ParentLocationData,
@@ -1343,8 +1722,11 @@ class DualLocationMapActivity : AppCompatActivity() {
             getString(R.string.map_person_coordinates_waiting)
         }
         loadPersonAddress(linkedLocation)
-        binding.distanceText.text = distanceMeters?.let { formatEtaDistance(it) } ?: "--"
-        binding.etaText.text = etaText ?: "--"
+        binding.distanceText.text = mapDistance(linkedLocation, linkedLocation.parentId == myId)
+        binding.etaText.text = if (ru.example.childwatch.designsystem.FamilyDistance.canMeasure(
+            ru.example.childwatch.designsystem.FamilyDistance.Point(linkedLocation.latitude,
+                linkedLocation.longitude, linkedLocation.timestamp, linkedLocation.accuracy), ownDistancePoint))
+            etaText ?: "—" else "—"
         binding.movementStatusText.text = getString(resolveMovementStatusText(linkedLocation))
         binding.pointMetaText.text = buildPointMetaText(linkedLocation)
         binding.statsCard.visibility = if (isStatsCardCollapsed) View.GONE else View.VISIBLE
@@ -1532,7 +1914,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private fun selfChildAccentColor(): Int = Color.parseColor("#0F766E")
 
     private fun participantAccentColor(deviceId: String?, role: String, emphasizeSelf: Boolean = false): Int {
-        if (role == ROLE_CHILD) return childAccentColor()
+        if (deviceId.isNullOrBlank() && role == ROLE_CHILD) return childAccentColor()
         if (emphasizeSelf) return selfChildAccentColor()
         val palette = intArrayOf(
             Color.parseColor("#2563EB"),
@@ -1620,7 +2002,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         val chipHeight = (if (subtitle.isNullOrBlank()) 22f else 36f) * density
         val chipPadding = 10f * density
         val iconSize = 34f * density
-        val outerCircle = iconSize / 2f + 5f * density
+        val outerCircle = iconSize / 2f + 1f * density
         val textWidth = maxOf(
             24f * density,
             textPaint.measureText(label),
@@ -1933,7 +2315,11 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun currentAutoRefreshInterval(): Long {
-        return if (isLiveModeActive()) LIVE_MODE_REFRESH_INTERVAL else AUTO_REFRESH_INTERVAL
+        return if (isLiveModeActive() || currentFamilyCandidates.isNotEmpty()) {
+            LIVE_MODE_REFRESH_INTERVAL
+        } else {
+            AUTO_REFRESH_INTERVAL
+        }
     }
 
     private fun updateLiveModeUi() {
@@ -2209,17 +2595,14 @@ class DualLocationMapActivity : AppCompatActivity() {
             return RouteSummary(0, 0f, null, null, 0, 0L, null, currentlyMoving = false)
         }
 
-        var totalDistanceMeters = 0f
-        for (index in 1 until sortedHistory.size) {
-            val previous = sortedHistory[index - 1]
-            val current = sortedHistory[index]
-            totalDistanceMeters += calculateDistance(
-                previous.latitude,
-                previous.longitude,
-                current.latitude,
-                current.longitude
-            )
-        }
+        val routeSegments = MapRouteSegments.split(sortedHistory.map { point ->
+            MapRouteSegments.Fix(point.latitude, point.longitude, point.timestamp, point.accuracy)
+        })
+        val totalDistanceMeters = routeSegments.sumOf { segment ->
+            MapRouteSegments.simplify(segment).zipWithNext().sumOf { (previous, current) ->
+                MapRouteSegments.distanceMeters(previous, current)
+            }
+        }.toFloat()
 
         val stops = detectStops(sortedHistory)
         val currentlyMoving = isCurrentlyMoving(sortedHistory)
@@ -2380,6 +2763,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
         autoRefreshJob?.cancel()
         loadLocationsJob?.cancel()
+        familyTrailJobs.values.forEach { it.cancel() }
     }
 
     override fun onDestroy() {

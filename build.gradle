@@ -44,7 +44,8 @@ def fallbackBuildNumber =
 def buildNumber = gitBuildNumber > 0 ? gitBuildNumber : fallbackBuildNumber
 
 ext.cwVersionCode = (findProperty("cwVersionCode") ?: (2_000_000_000L + buildNumber)).toString().toInteger()
-ext.cwVersionName = (findProperty("cwVersionName") ?: "${versionBase}.${buildNumber}").toString()
+def releaseNumber = findProperty("cwVersionCode") ? (ext.cwVersionCode - 2_000_000_000L) : buildNumber
+ext.cwVersionName = (findProperty("cwVersionName") ?: "${versionBase}.${releaseNumber}").toString()
 // The moment of the build, published into the application so a phone can say which
 // build it is running. The version name alone carries it in a compact form that
 // nobody can read at a glance.

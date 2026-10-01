@@ -13,24 +13,31 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.lifecycle.LifecycleCoroutineScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import ru.example.parentwatch.R
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
- * Everything this screen does about updates.
+ * Everything the screen does about updates.
  *
- * The screen only has to hand over a place to put the notice; the rest — the daily
- * check, the download, the verification and the request to the system installer —
- * lives here.
+ * The screen itself only has to hand over a place to put the notice and a way to
+ * find out the server address; the rest — the daily check, the download, the
+ * verification and the request to the system installer — lives here.
  *
- * On this phone the rules matter for a second reason: it is the device that cannot
- * be plugged in, so nothing here may ever block the screen a child uses or leave a
- * dialog standing in the way of the chat. The check runs off the main thread, a
- * failure is a log line and nothing else, and every progress indicator is dismissed
- * on **any** failure — in a `finally`, so no path leaves a spinner on the screen
- * with nothing behind it.
+ * The rules this class exists to keep:
+ *
+ * - the check happens off the main thread and never blocks the screen from opening,
+ *   because an update is the least important thing happening on a phone that is
+ *   being used to watch a child;
+ * - a failed check is silent. No dialog, no message, no delay: a person opening the
+ *   application to see where their child is must not be told about a network they
+ *   cannot fix;
+ * - every progress indicator is dismissed on **any** failure, including the failures
+ *   that are not `Exception` — in a `finally`, so there is no path that leaves a
+ *   spinner on the screen with nothing behind it.
  */
 class UpdateUiController(
     private val context: Context,
@@ -54,6 +61,7 @@ class UpdateUiController(
 
     /** The release currently being offered, if any. */
     private var offered: UpdateRelease? = null
+    private var checkJob: Job? = null
 
     /** The download dialog, held so that every path can close it. */
     private var progressDialog: AlertDialog? = null
@@ -64,13 +72,15 @@ class UpdateUiController(
     private var lastProgressUpdateAt = 0L
 
     /**
-     * Runs the daily check and puts the notice on the screen when there is something
-     * to say.
+     * Runs the daily check and puts the notice on the screen when there is
+     * something to say.
      *
      * Called on start and on every return to the foreground; the daily limit inside
      * [UpdateManager] is what stops that from being a request per resume.
      */
-    fun checkAndShowNotice() {
+    fun checkAndShowNotice(force: Boolean = false) {
+        if (checkJob?.isActive == true) return
+        if (force) Toast.makeText(context, R.string.update_check_running, Toast.LENGTH_SHORT).show()
         // An offer found earlier is still true, and the daily check limit must not be
         // what hides it: a person who missed the notice once had no way to see it
         // again until the next day. Shown first, then refreshed by the check below.
@@ -82,9 +92,9 @@ class UpdateUiController(
             }
         }
 
-        // Read through the caller's resolver, which is the same session the
-        // synchronisation uses. A phone that has not joined a family yet is asked
-        // nothing: there is no server to ask.
+        // Read through the caller's resolver, which is the same setting the rest of the
+        // application talks to. A phone that has not been set up yet is asked nothing:
+        // there is no server to ask.
         val serverUrl = try {
             serverUrlProvider()?.trim()
         } catch (error: Throwable) {
@@ -92,17 +102,29 @@ class UpdateUiController(
             null
         }
 
-        scope.launch {
+        checkJob = scope.launch {
             val release = try {
-                manager.checkForUpdate(serverUrl.orEmpty())
+                manager.checkForUpdate(serverUrl.orEmpty(), force)
             } catch (error: Throwable) {
                 // The check must never be able to interfere with the screen. Even a
                 // failure that is not an Exception ends here as a log line.
                 Log.w(TAG, "The update check did not complete", error)
                 null
-            } ?: return@launch
+            }
+            if (release == null) {
+                if (manager.lastCheckState == UpdateManager.CheckState.CURRENT) {
+                    hideNotice()
+                    offered = null
+                }
+                if (force) {
+                    val message = if (manager.lastCheckState == UpdateManager.CheckState.CURRENT)
+                        R.string.update_check_current else R.string.update_check_failed
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                return@launch
+            }
 
-            if (!manager.shouldOffer(release)) {
+            if (!force && !manager.shouldOffer(release)) {
                 Log.d(TAG, "Version ${release.versionCode} was dismissed by the person")
                 return@launch
             }
@@ -123,9 +145,9 @@ class UpdateUiController(
             release = release,
             onUpdate = { offerDownload(release) },
             onDismiss = {
-                // The notice stays away until a newer release is published. Nothing is
-                // asked again on the next resume, which is what "dismissable" has to
-                // mean to be worth offering.
+                // The notice stays away until a newer release is published. Nothing
+                // is asked again on the next resume, which is what "dismissable"
+                // has to mean to be worth offering.
                 manager.dismiss(release.versionCode)
                 manager.forgetOfferedRelease()
                 notice.hide()
@@ -140,11 +162,13 @@ class UpdateUiController(
     }
 
     /**
-     * Starts a download after saying what it will cost.
+     * Starts a download after telling the person what it will cost.
      *
-     * A package of tens of megabytes over a phone plan is a real expense, and on this
-     * phone nobody is watching for it, so the size is stated before anything is
-     * transferred and a metered connection is not used at all.
+     * A package of tens of megabytes over a phone plan is a real expense, so the
+     * size is stated before anything is transferred. When the connection is metered
+     * the download waits for Wi-Fi instead of asking permission for something the
+     * person cannot judge — nobody can tell how much of their allowance forty
+     * megabytes will take.
      */
     private fun offerDownload(release: UpdateRelease) {
         val size = if (release.sizeBytes > 0L) {
@@ -213,15 +237,15 @@ class UpdateUiController(
      * Shows how much of the package has arrived.
      *
      * The total comes from the manifest, never from a `Content-Length` header: the
-     * server does not send one, and a bar that waits for the file to finish before it
-     * can tell how long the file is would be no bar at all. When the manifest
-     * announces no size the bar is left indeterminate rather than showing a percentage
-     * of nothing.
+     * server does not send one, and a bar that waits for the file to finish before
+     * it can tell how long the file is would be no bar at all. When the manifest
+     * announces no size the bar is left indeterminate rather than showing a
+     * percentage of nothing.
      */
     private fun publishProgress(bytes: Long, announcedTotal: Long) {
-        // Chunks arrive every few milliseconds, so the screen is refreshed a few times
-        // a second at most: enough to look alive, few enough that the drawing does not
-        // become the slow part.
+        // Chunks arrive every few milliseconds, so the screen is refreshed a few
+        // times a second at most: enough to look alive, few enough that the drawing
+        // does not become the slow part.
         val now = System.currentTimeMillis()
         if (now - lastProgressUpdateAt < PROGRESS_UPDATE_INTERVAL_MS && bytes < announcedTotal) {
             return
@@ -234,6 +258,9 @@ class UpdateUiController(
             val megabytes = bytes.toDouble() / BYTES_PER_MB
 
             if (announcedTotal > 0L) {
+                // The bar is a real position, not a spinner: it is drawn from the
+                // size in the manifest and never from a Content-Length header the
+                // server does not send.
                 bar.isIndeterminate = false
                 bar.max = 100
                 bar.progress = ((bytes * 100L) / announcedTotal).coerceIn(0L, 100L).toInt()
@@ -273,8 +300,8 @@ class UpdateUiController(
             .setView(column)
             .setCancelable(false)
             .setNegativeButton(context.getString(R.string.update_cancel)) { _, _ ->
-                // The download stops at the next chunk and removes what it wrote; the
-                // person is told nothing, because stopping is not a failure.
+                // The download stops at the next chunk and removes what it wrote;
+                // the person is told nothing, because stopping is not a failure.
                 downloadCancelled.set(true)
             }
             .show()
@@ -303,8 +330,8 @@ class UpdateUiController(
         when (val request = installer.install(success.file)) {
             is InstallRequest.Committed -> {
                 Log.i(TAG, "Installation session ${request.sessionId} was committed")
-                // The package is deleted by the result receiver, which is the only part
-                // of this that outlives the application being replaced.
+                // The package is deleted by the result receiver, which is the only
+                // part of this that outlives the application being replaced.
                 // The screen's own sink stays in place. It used to be replaced here with
                 // one that opens the confirmation unconditionally, which bypassed the
                 // screen's own check of whether it is visible: a confirmation arriving
@@ -330,8 +357,8 @@ class UpdateUiController(
      *
      * The screen that opens is Android's own — the application never tries to grant
      * itself anything, and it never pretends the switch is a settings screen of its
-     * own. The download is not kept while this happens: the notice stays on screen and
-     * the update can be started again once the switch is on.
+     * own. The download is not kept while this happens: the notice stays on screen,
+     * and the person starts the update again once the switch is on.
      */
     private fun showInstallPermissionExplanation() {
         MaterialAlertDialogBuilder(context)
@@ -353,8 +380,8 @@ class UpdateUiController(
             context.startActivity(intent)
         } catch (error: Throwable) {
             Log.w(TAG, "Could not open the installation permission screen", error)
-            // Not every phone has this screen; saying so is better than a button that
-            // appears to do nothing.
+            // Not every phone has this screen; saying so is better than a button
+            // that appears to do nothing.
             Toast.makeText(
                 context,
                 context.getString(R.string.update_permission_settings_unavailable),
@@ -366,23 +393,21 @@ class UpdateUiController(
     /** Says what went wrong, and offers another attempt only when one could work. */
     private fun onDownloadFailure(failure: DownloadResult.Failure, release: UpdateRelease) {
         if (failure.reason == DownloadFailure.CANCELLED) {
-            // The person stopped it. A message about their own decision would be noise.
+            // The person stopped it. A message about their own decision would be
+            // noise.
             Log.i(TAG, "The update download was cancelled by the person")
             return
         }
 
-        Log.w(
-            TAG,
-            "The update was not prepared: ${failure.reason} (retryable=${failure.retryable})"
-        )
+        Log.w(TAG, "The update was not prepared: ${failure.reason} (retryable=${failure.retryable})")
 
         showFailureMessage(failure, release)
     }
 
     private fun showFailureMessage(failure: DownloadResult.Failure, release: UpdateRelease) {
         if (failure.reason == DownloadFailure.CANCELLED) {
-            // The person stopped it. A message about their own decision would be noise,
-            // and there is nothing on the screen to dismiss either.
+            // The person stopped it. A message about their own decision would be
+            // noise, and there is nothing on the screen to dismiss either.
             return
         }
 
@@ -408,10 +433,10 @@ class UpdateUiController(
     /**
      * The sentence shown for each reason.
      *
-     * One sentence per cause, decided by the cause and not by the words in a message:
-     * the project this design came from searched the error text for the word
-     * "checksum" to decide whether to offer another attempt, so rewording a message
-     * there silently changed the advice a person was given.
+     * One sentence per cause, decided by the cause and not by the words in a
+     * message: the project this design came from searched the error text for the
+     * word "checksum" to decide whether to offer another attempt, so rewording a
+     * message there silently changed the advice a person was given.
      */
     private fun messageFor(failure: DownloadResult.Failure): Int {
         return when (failure.reason) {
@@ -435,9 +460,9 @@ class UpdateUiController(
     /**
      * Opens the confirmation the system installer produced.
      *
-     * Called while a screen is visible, because that is when an application is allowed
-     * to open a window. The receiver holds the confirmation when nothing is on screen
-     * and posts a notification instead.
+     * Called while a screen is visible, because that is when an application is
+     * allowed to open a window. The receiver holds the confirmation when nothing is
+     * on screen and posts a notification instead.
      */
     fun openConfirmation(intent: Intent) {
         try {
@@ -449,10 +474,11 @@ class UpdateUiController(
     }
 
     /**
-     * Shows the once-only note an installation left behind.
+     * Shows the once-only note an installation left behind, and stops the check
+     * from interfering with it.
      *
-     * Read exactly once: this phone reports what happened to the installation it was
-     * asked for, and does not repeat it on every launch afterwards.
+     * Read exactly once: a person is told what happened to the installation they
+     * asked for, and is not told again on every launch afterwards.
      */
     fun showPendingFailureNote() {
         val note = try {

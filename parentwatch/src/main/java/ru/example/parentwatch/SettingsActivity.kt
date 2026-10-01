@@ -15,6 +15,7 @@ import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import org.json.JSONArray
 import org.json.JSONObject
+import ru.childwatch.shared.family.ServerAddressValidator
 import ru.example.parentwatch.contacts.ContactIcons
 import ru.example.parentwatch.databinding.ActivitySettingsBinding
 import ru.example.parentwatch.database.ParentWatchDatabase
@@ -103,6 +104,15 @@ class SettingsActivity : AppCompatActivity() {
      * choose a picture on Android 14 — the storage permissions used before are no
      * longer available for this purpose.
      */
+    private var ownProfilePhotoCallback: ((android.net.Uri?) -> Unit)? = null
+    private val ownProfilePhotoPicker = registerForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
+    ) { picked ->
+        val callback = ownProfilePhotoCallback
+        ownProfilePhotoCallback = null
+        callback?.invoke(picked)
+    }
+
     private val photoPickerLauncher = registerForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia()
     ) { picked ->
@@ -130,15 +140,17 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        ru.example.childwatch.designsystem.FamilyProfileEditor.restore(this, savedInstanceState) { binding.ownProfileButton.performClick() }
         
         // Set up toolbar
         setSupportActionBar(binding.toolbar)
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
-        supportActionBar?.title = "Настройки"
+        supportActionBar?.title = getString(R.string.settings_screen_title)
         profileManager = ChildDeviceProfileManager(this)
         
         setupUI()
         loadSettings()
+        setupUnsavedChangesProtection(savedInstanceState)
 
         // Allows the profile card on the home screen to open the profile editor
         // directly, instead of dropping the user on an unexplained settings list
@@ -148,6 +160,45 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
     
+
+    private var savedFormValues: List<String> = emptyList()
+    private var leaveSettingsDialog: androidx.appcompat.app.AlertDialog? = null
+
+    private fun currentFormValues(): List<String> = listOf(
+        binding.serverUrlInput.text.toString(),
+        binding.notificationDurationSlider.value.toString(),
+        binding.notificationSoundSwitch.isChecked.toString(),
+        binding.notificationVibrationSwitch.isChecked.toString()
+    )
+
+    private fun setupUnsavedChangesProtection(state: android.os.Bundle?) {
+        savedFormValues = state?.getStringArrayList("settings_form_baseline") ?: currentFormValues()
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (currentFormValues() == savedFormValues) {
+                    finish()
+                    return
+                }
+                if (leaveSettingsDialog?.isShowing == true) return
+                leaveSettingsDialog = androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle(R.string.cw_settings_unsaved_title)
+                    .setMessage(R.string.cw_settings_unsaved_message)
+                    .setPositiveButton(R.string.cw_settings_unsaved_save) { _, _ -> saveSettings() }
+                    .setNegativeButton(R.string.cw_settings_unsaved_discard) { _, _ -> finish() }
+                    .setNeutralButton(R.string.cw_settings_unsaved_stay, null)
+                    .create()
+                leaveSettingsDialog?.setOnDismissListener { leaveSettingsDialog = null }
+                leaveSettingsDialog?.show()
+            }
+        })
+    }
+
+    override fun onSaveInstanceState(outState: android.os.Bundle) {
+        ru.example.childwatch.designsystem.FamilyProfileEditor.saveState(this, outState)
+        outState.putStringArrayList("settings_form_baseline", ArrayList(savedFormValues))
+        super.onSaveInstanceState(outState)
+    }
+
     private fun setupUI() {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
@@ -209,6 +260,21 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.switchProfileButton.setOnClickListener {
             showProfilePicker()
+        }
+
+        binding.ownProfileButton.setOnClickListener {
+            ru.example.parentwatch.profile.OwnProfileEditor.show(
+                this,
+                requestPhoto = { callback ->
+                    ownProfilePhotoCallback = callback
+                    ownProfilePhotoPicker.launch(
+                        androidx.activity.result.PickVisualMediaRequest(
+                            androidx.activity.result.contract.ActivityResultContracts.PickVisualMedia.ImageOnly
+                        )
+                    )
+                },
+                onStored = { updateProfileSummary() }
+            )
         }
 
         binding.editSelfNameButton.setOnClickListener {
@@ -308,11 +374,11 @@ class SettingsActivity : AppCompatActivity() {
 
         if (hasPermission) {
             binding.usagePermissionStatus.isVisible = true
-            binding.requestUsagePermissionButton.text = "✅ Разрешение предоставлено"
+            binding.requestUsagePermissionButton.text = getString(R.string.settings_usage_granted)
             binding.requestUsagePermissionButton.isEnabled = false
         } else {
             binding.usagePermissionStatus.isVisible = false
-            binding.requestUsagePermissionButton.text = "🔓 Предоставить разрешение"
+            binding.requestUsagePermissionButton.text = getString(R.string.settings_usage_request_button)
             binding.requestUsagePermissionButton.isEnabled = true
         }
     }
@@ -431,44 +497,58 @@ class SettingsActivity : AppCompatActivity() {
     }
     
     private fun saveSettings() {
-        val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
-        val serverUrl = binding.serverUrlInput.text.toString().trim()
+        try {
 
-        if (serverUrl.isEmpty()) {
-            Toast.makeText(this, "Введите URL сервера", Toast.LENGTH_SHORT).show()
-            return
+            val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
+            val notificationPrefs = getSharedPreferences("notification_prefs", MODE_PRIVATE)
+            val serverUrl = binding.serverUrlInput.text.toString().trim()
+
+            if (serverUrl.isEmpty()) {
+                binding.serverUrlInput.error = getString(R.string.settings_error_enter_server_url)
+                ru.example.childwatch.designsystem.SettingsSection.reveal(binding.serverUrlInput)
+                Toast.makeText(this, "Введите URL сервера", Toast.LENGTH_SHORT).show()
+                return
+            }
+
+            val normalizedServerUrl = ServerUrlResolver.normalizeServerUrl(serverUrl)
+            if (!ServerAddressValidator.isValid(normalizedServerUrl)) {
+                binding.serverUrlInput.error = getString(R.string.profile_switch_validation_server)
+                ru.example.childwatch.designsystem.SettingsSection.reveal(binding.serverUrlInput)
+                return
+            }
+            binding.serverUrlInput.error = null
+
+            // Save server URL
+            prefs.edit()
+                .putString("server_url", normalizedServerUrl)
+                .apply()
+            syncActiveSession(
+                serverUrl = normalizedServerUrl,
+                ownChildId = sessionStore.resolveCurrentChildId().ifBlank {
+                    prefs.getString("device_id", null).orEmpty()
+                },
+                linkedParentId = sessionStore.resolveCurrentParentId()
+            )
+
+            // Save notification settings
+            val notificationDurationSec = binding.notificationDurationSlider.value.toInt()
+            val notificationSound = binding.notificationSoundSwitch.isChecked
+            val notificationVibration = binding.notificationVibrationSwitch.isChecked
+
+            notificationPrefs.edit()
+                .putInt("notification_duration", notificationDurationSec * 1000) // Convert to ms
+                .putBoolean("notification_sound", notificationSound)
+                .putBoolean("notification_vibration", notificationVibration)
+                .apply()
+
+            ru.example.parentwatch.utils.NotificationManager.createNotificationChannels(this)
+
+            Toast.makeText(this, "✅ Настройки сохранены", Toast.LENGTH_SHORT).show()
+            finish()
+        } catch (error: Exception) {
+            android.util.Log.e("SettingsActivity", "Unable to save settings", error)
+            Toast.makeText(this, R.string.cw_settings_save_failed, Toast.LENGTH_LONG).show()
         }
-
-        val normalizedServerUrl = ServerUrlResolver.normalizeServerUrl(serverUrl)
-
-        // Save server URL
-        prefs.edit()
-            .putString("server_url", normalizedServerUrl)
-            .apply()
-        syncActiveSession(
-            serverUrl = normalizedServerUrl,
-            ownChildId = sessionStore.resolveCurrentChildId().ifBlank {
-                prefs.getString("device_id", null).orEmpty()
-            },
-            linkedParentId = sessionStore.resolveCurrentParentId()
-        )
-
-        // Save notification settings
-        val notificationDurationSec = binding.notificationDurationSlider.value.toInt()
-        val notificationSound = binding.notificationSoundSwitch.isChecked
-        val notificationVibration = binding.notificationVibrationSwitch.isChecked
-
-        notificationPrefs.edit()
-            .putInt("notification_duration", notificationDurationSec * 1000) // Convert to ms
-            .putBoolean("notification_sound", notificationSound)
-            .putBoolean("notification_vibration", notificationVibration)
-            .apply()
-
-        ru.example.parentwatch.utils.NotificationManager.createNotificationChannels(this)
-
-        Toast.makeText(this, "✅ Настройки сохранены", Toast.LENGTH_SHORT).show()
-        finish()
     }
 
     private fun showSaveProfileDialog() {
@@ -730,13 +810,16 @@ class SettingsActivity : AppCompatActivity() {
             dialog.getButton(androidx.appcompat.app.AlertDialog.BUTTON_POSITIVE).setOnClickListener {
                 val name = nameInput.text?.toString()?.trim().orEmpty()
                 val serverUrl = serverInput.text?.toString()?.trim().orEmpty()
+                val normalizedServerUrl = ServerUrlResolver.normalizeServerUrl(serverUrl)
                 val ownId = ownIdInput.text?.toString()?.trim().orEmpty()
                 val parentId = parentIdInput.text?.toString()?.trim().orEmpty()
 
                 when {
                     name.isBlank() -> Toast.makeText(this, R.string.profile_switch_validation_name, Toast.LENGTH_SHORT).show()
-                    serverUrl.isBlank() || (!serverUrl.startsWith("http://") && !serverUrl.startsWith("https://")) ->
-                        Toast.makeText(this, R.string.profile_switch_validation_server, Toast.LENGTH_SHORT).show()
+                    !ServerAddressValidator.isValid(normalizedServerUrl) -> {
+                        serverInput.error = getString(R.string.profile_switch_validation_server)
+                        serverInput.requestFocus()
+                    }
                     ownId.isBlank() -> Toast.makeText(this, R.string.profile_switch_validation_own_id, Toast.LENGTH_SHORT).show()
                     else -> {
                         val chosenPhoto = pendingPhotoUri
@@ -751,7 +834,7 @@ class SettingsActivity : AppCompatActivity() {
                                     storeEditedProfile(
                                         existingProfile = existingProfile,
                                         name = name,
-                                        serverUrl = serverUrl,
+                                        serverUrl = normalizedServerUrl,
                                         ownId = ownId,
                                         parentId = parentId,
                                         avatarKey = avatarValue
@@ -772,7 +855,7 @@ class SettingsActivity : AppCompatActivity() {
                         storeEditedProfile(
                             existingProfile = existingProfile,
                             name = name,
-                            serverUrl = serverUrl,
+                            serverUrl = normalizedServerUrl,
                             ownId = ownId,
                             parentId = parentId,
                             avatarKey = selectedAvatar
@@ -897,6 +980,10 @@ class SettingsActivity : AppCompatActivity() {
         val appliedServerUrl = appliedContext?.serverUrl.orEmpty().ifBlank { profile.serverUrl }
         val appliedChildId = appliedContext?.ownChildDeviceId.orEmpty().ifBlank { profile.ownChildDeviceId }
         binding.serverUrlInput.setText(appliedServerUrl)
+        // The applied profile has already saved its server, unlike notification drafts.
+        savedFormValues = savedFormValues.mapIndexed { index, value ->
+            if (index == 0) binding.serverUrlInput.text.toString() else value
+        }
         binding.deviceIdText.setText(appliedChildId)
         updateParentConnectionStatus()
         updateProfileSummary()
@@ -914,6 +1001,9 @@ class SettingsActivity : AppCompatActivity() {
      * through the profile editor's advanced section.
      */
     private fun updateProfileSummary() {
+        binding.settingsFamilySummary.text = getString(
+            R.string.cw_settings_profile, participantNameResolver.resolveChildDisplayName()
+        )
         val activeProfile = profileManager.getActiveProfile()
         val effectiveContext = sessionStore.resolveEffectiveContext()
         val ownChildId = activeProfile?.ownChildDeviceId?.takeIf { it.isNotBlank() }
@@ -1304,7 +1394,11 @@ class SettingsActivity : AppCompatActivity() {
                 putExtra("server_url", serverUrl)
                 putExtra("device_id", deviceId)
             }
-            androidx.core.content.ContextCompat.startForegroundService(this, intent)
+            if (!ru.example.parentwatch.service.LocationService.startTrackingService(this, intent)) {
+                updateServiceButtons(false)
+                Toast.makeText(this, R.string.monitoring_location_permission_needed, Toast.LENGTH_LONG).show()
+                return
+            }
             prefs.edit().putBoolean("service_running", true).apply()
             updateServiceButtons(true)
             Toast.makeText(this, "Мониторинг запущен", Toast.LENGTH_SHORT).show()
@@ -2007,7 +2101,7 @@ class SettingsActivity : AppCompatActivity() {
         return if (rawId.length <= 16) rawId else "${rawId.take(8)}...${rawId.takeLast(4)}"
     }
 override fun onSupportNavigateUp(): Boolean {
-        onBackPressed()
+        onBackPressedDispatcher.onBackPressed()
         return true
     }
 }

@@ -22,6 +22,7 @@ class UpdatePreferences(context: Context) {
         private const val KEY_PENDING_NOTE = "pending_failure_note"
         private const val KEY_OFFERED_MANIFEST = "offered_manifest_json"
         private const val KEY_OFFERED_VERSION = "offered_version_code"
+        private const val KEY_LAST_CHECK_VERSION = "last_successful_check_version_code"
     }
 
     private val prefs = context.applicationContext
@@ -77,12 +78,25 @@ class UpdatePreferences(context: Context) {
     fun lastSuccessfulCheckAt(): Long = prefs.getLong(KEY_LAST_CHECK, 0L)
 
     /**
-     * Records a successful check.
+     * The version code that made the last successful check.
      *
-     * The single writer for [KEY_LAST_CHECK], called from exactly one place.
+     * Kept so that a check can be told apart from a check made by an older build:
+     * installing an update does not clear this file, so without the version the new
+     * build would inherit the old one's "checked a minute ago" and say nothing for
+     * the rest of the day.
      */
-    fun recordSuccessfulCheck(atMillis: Long) {
-        prefs.edit().putLong(KEY_LAST_CHECK, atMillis).apply()
+    fun lastSuccessfulCheckVersionCode(): Int = prefs.getInt(KEY_LAST_CHECK_VERSION, 0)
+
+    /**
+     * Records a successful check, made by [versionCode].
+     *
+     * The single writer for [KEY_LAST_CHECK].
+     */
+    fun recordSuccessfulCheck(atMillis: Long, versionCode: Int) {
+        prefs.edit()
+            .putLong(KEY_LAST_CHECK, atMillis)
+            .putInt(KEY_LAST_CHECK_VERSION, versionCode)
+            .apply()
     }
 
     /** The version the person closed the notice for, on this installation. */

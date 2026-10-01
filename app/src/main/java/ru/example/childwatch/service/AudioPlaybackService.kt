@@ -104,6 +104,8 @@ class AudioPlaybackService : LifecycleService() {
             private set
         var streamingStartTime = 0L
             private set
+        var firstChunkTimestamp = 0L
+            private set
         var playbackSampleRate = DEFAULT_STREAM_SAMPLE_RATE
             private set
         var inputStreamSampleRate = DEFAULT_STREAM_SAMPLE_RATE
@@ -162,6 +164,10 @@ class AudioPlaybackService : LifecycleService() {
             return context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(PREF_SESSION_DESIRED, false)
         }
+
+        fun sessionTargetId(context: Context): String? =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getString(PREF_SESSION_DEVICE_ID, null)?.trim()?.takeIf { it.isNotEmpty() }
 
         fun restoreIfNeeded(context: Context): Boolean {
             val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
@@ -261,6 +267,7 @@ class AudioPlaybackService : LifecycleService() {
     private val mainHandler: Handler = Handler(Looper.getMainLooper())
 
     private var deviceId: String? = null
+    private var targetValidationJob: Job? = null
     private var serverUrl: String? = null
     private var isRecording = false
     private var streamingStartTime: Long = 0L
@@ -440,9 +447,33 @@ class AudioPlaybackService : LifecycleService() {
                     return START_NOT_STICKY
                 }
 
-                startPlayback(deviceId, serverUrl, recording)
+                if (isPlaying && this.deviceId != deviceId) {
+                    Log.w(TAG, "Refusing to relabel an existing stream as another device")
+                    return START_STICKY
+                }
+                startForeground(NOTIFICATION_ID, createNotification(getString(R.string.listen_checking_target)))
+                targetValidationJob?.cancel()
+                targetValidationJob = lifecycleScope.launch {
+                    val allowed = runCatching {
+                        ru.example.childwatch.profile.ParentListeningTargetPolicy(this@AudioPlaybackService)
+                            .isChildDevice(deviceId)
+                    }.getOrDefault(false)
+                    if (!isActive) return@launch
+                    if (!allowed) {
+                        if (!isPlaying) {
+                            clearPersistedSession()
+                            stopSelf()
+                        } else {
+                            updateNotification(resolveListeningStatus())
+                        }
+                        return@launch
+                    }
+                    startPlayback(deviceId, serverUrl, recording)
+                }
             }
             ACTION_STOP_PLAYBACK -> {
+                targetValidationJob?.cancel()
+                targetValidationJob = null
                 Log.d(TAG, "Stopping playback")
                 stopPlayback()
             }
@@ -614,6 +645,8 @@ class AudioPlaybackService : LifecycleService() {
                     AudioPlaybackService.streamingStartTime = streamingStartTime
                     chunksReceived = 0
                     AudioPlaybackService.chunksReceived = 0
+                    firstChunkTimestamp = 0L
+                    AudioPlaybackService.firstChunkTimestamp = 0L
                     lastChunkTimestamp = 0L
                     AudioPlaybackService.lastChunkTimestamp = 0L
                     lastReceivedSequence = -1
@@ -733,6 +766,8 @@ class AudioPlaybackService : LifecycleService() {
         // CRITICAL: Set flags FIRST to stop all loops
         isPlaying = false
         AudioPlaybackService.isPlaying = false
+        firstChunkTimestamp = 0L
+        AudioPlaybackService.firstChunkTimestamp = 0L
         val stopDeviceId = deviceId
         val stopServerUrl = serverUrl
         val stopNetworkClient = networkClient
@@ -1251,6 +1286,8 @@ class AudioPlaybackService : LifecycleService() {
                 lastChunkTimestamp = System.currentTimeMillis()
                 AudioPlaybackService.lastChunkTimestamp = lastChunkTimestamp
                 if (chunksReceived == 1) {
+                    firstChunkTimestamp = lastChunkTimestamp
+                    AudioPlaybackService.firstChunkTimestamp = lastChunkTimestamp
                     startCommandJob?.cancel()
                     startCommandJob = null
                     clearCaptureRetryGate()
@@ -1462,9 +1499,7 @@ class AudioPlaybackService : LifecycleService() {
     }
 
     private fun resolvePreferredTargetDeviceId(initialDeviceId: String?): String? {
-        return ParentEffectiveContextResolver(this)
-            .resolveTargetDeviceCandidates(initialDeviceId)
-            .firstOrNull()
+        return initialDeviceId?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     /**
@@ -1767,6 +1802,8 @@ class AudioPlaybackService : LifecycleService() {
 
         isPlaying = false
         AudioPlaybackService.isPlaying = false
+        firstChunkTimestamp = 0L
+        AudioPlaybackService.firstChunkTimestamp = 0L
         playbackSampleRate = DEFAULT_STREAM_SAMPLE_RATE
         requestedStreamSampleRate = DEFAULT_STREAM_SAMPLE_RATE
         inputStreamSampleRate = DEFAULT_STREAM_SAMPLE_RATE

@@ -4,7 +4,6 @@ import android.os.Bundle
 import android.text.format.DateUtils
 import android.view.LayoutInflater
 import android.widget.TextView
-import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
 import androidx.appcompat.content.res.AppCompatResources
 import androidx.core.view.isVisible
@@ -13,6 +12,8 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import ru.example.childwatch.databinding.ActivityDeviceUsageBinding
 import ru.example.childwatch.network.DeviceRecentApp
 import ru.example.childwatch.network.DeviceStatus
@@ -34,6 +35,8 @@ class DeviceUsageActivity : AppCompatActivity() {
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
     private lateinit var linkedChildOptionsProvider: ParentLinkedChildOptionsProvider
     private var personLabelJob: Job? = null
+    private var usageJob: Job? = null
+    private var refreshJob: Job? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -43,6 +46,9 @@ class DeviceUsageActivity : AppCompatActivity() {
         networkClient = NetworkClient(this)
         effectiveContextResolver = ParentEffectiveContextResolver(this)
         linkedChildOptionsProvider = ParentLinkedChildOptionsProvider(this)
+        ru.example.childwatch.location.PersonLocationStatus(this, binding.personLocationText, networkClient) {
+            resolveChildDeviceId()
+        }
 
         binding.toolbar.navigationIcon = AppCompatResources.getDrawable(
             this,
@@ -66,19 +72,30 @@ class DeviceUsageActivity : AppCompatActivity() {
             showLoading(true)
         }
 
-        lifecycleScope.launch {
+        usageJob?.cancel()
+        usageJob = lifecycleScope.launch {
             try {
+                if (!ru.example.childwatch.profile.ParentListeningTargetPolicy(this@DeviceUsageActivity)
+                        .isChildDevice(childDeviceId)) {
+                    showOnlyMessage(getString(R.string.daily_usage_child_only))
+                    return@launch
+                }
                 val latestDeferred = async { networkClient.getChildDeviceStatus(childDeviceId) }
                 val historyDeferred = async { networkClient.getChildDeviceStatusHistory(childDeviceId, limit = 80) }
 
                 val latestResponse = latestDeferred.await()
                 val historyResponse = historyDeferred.await()
 
+                if (latestResponse.code() == 403 || historyResponse.code() == 403) {
+                    showOnlyMessage(getString(R.string.daily_usage_access_denied))
+                    return@launch
+                }
+
                 val status = latestResponse.body()?.status.takeIf { latestResponse.isSuccessful }
                 val history = historyResponse.body()?.statuses.orEmpty().takeIf { historyResponse.isSuccessful }.orEmpty()
 
                 if (status == null && history.isEmpty()) {
-                    showOnlyMessage(getString(R.string.device_usage_status_unavailable))
+                    showLoadFailure()
                     return@launch
                 }
 
@@ -87,14 +104,22 @@ class DeviceUsageActivity : AppCompatActivity() {
                 binding.historyCard.isVisible = true
                 binding.statusMessageText.isVisible = false
                 renderStatus(status)
-                renderRecentApps(status)
-                renderHistory(history)
+                val usageSnapshot = history.sortedByDescending { it.timestamp ?: 0L }
+                    .firstOrNull { !readRecentApps(it.recentApps, it.raw).isNullOrEmpty() }
+                val recentApps = if (extractUsagePermissionMissing(status)) emptyList() else
+                    readRecentApps(status?.recentApps, status?.raw)
+                        .ifEmpty { readRecentApps(usageSnapshot?.recentApps, usageSnapshot?.raw) }
+                renderRecentApps(status, recentApps)
+                val dailyRaw = status?.raw?.takeIf { it["dailyUsage"] is Map<*, *> }
+                    ?: history.sortedByDescending { it.timestamp ?: 0L }
+                        .firstOrNull { it.raw?.get("dailyUsage") is Map<*, *> }?.raw
+                renderDailyUsage(status, dailyRaw)
+                renderHistory(history.sortedByDescending { it.timestamp ?: 0L })
                 showLoading(false)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                showOnlyMessage(getString(R.string.device_usage_status_unavailable))
-                Toast.makeText(this@DeviceUsageActivity, error.message ?: getString(R.string.device_usage_open_error), Toast.LENGTH_SHORT).show()
+                showLoadFailure()
             }
         }
     }
@@ -104,7 +129,8 @@ class DeviceUsageActivity : AppCompatActivity() {
             ?: getString(R.string.device_usage_current_unknown)
         binding.currentAppText.text = currentApp
 
-        val updatedAtText = status?.timestamp?.takeIf { it > 0 }?.let {
+        val usageTime = (status?.raw?.get("appUsageCollectedAt") as? Number)?.toLong()
+        val updatedAtText = usageTime?.takeIf { it > 0 }?.let {
             DateUtils.getRelativeTimeSpanString(
                 it,
                 System.currentTimeMillis(),
@@ -122,8 +148,71 @@ class DeviceUsageActivity : AppCompatActivity() {
         ).joinToString("\n")
     }
 
-    private fun renderRecentApps(status: DeviceStatus?) {
-        val recentApps = status?.recentApps.orEmpty()
+    private fun renderDailyUsage(status: DeviceStatus?, snapshotRaw: Map<String, Any?>?) {
+        binding.dailySummaryText.isVisible = true
+        binding.appsSectionTitle.setText(R.string.device_usage_recent_section)
+        val daily = snapshotRaw?.get("dailyUsage") as? Map<*, *>
+        val start = (daily?.get("start") as? Number)?.toLong()
+        val end = (daily?.get("end") as? Number)?.toLong()
+        if (extractUsagePermissionMissing(status)) {
+            binding.dailySummaryText.setText(R.string.device_usage_permission_missing)
+            return
+        }
+        if (daily?.get("available") == false) {
+            binding.dailySummaryText.setText(R.string.daily_usage_unavailable)
+            return
+        }
+        if (start == null || end == null || end < start) {
+            binding.dailySummaryText.setText(R.string.daily_usage_waiting)
+            return
+        }
+        val zone = java.util.TimeZone.getTimeZone(daily?.get("timeZone") as? String ?: "UTC")
+        val dateFormat = java.text.SimpleDateFormat("d MMMM", Locale.getDefault()).apply { timeZone = zone }
+        val clockFormat = java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).apply { timeZone = zone }
+        val rows = (daily?.get("apps") as? List<*>)?.mapNotNull { it as? Map<*, *> }.orEmpty()
+            .filter { ((it["totalTimeInForeground"] as? Number)?.toLong() ?: 0L) > 0L }
+            .sortedByDescending { (it["totalTimeInForeground"] as? Number)?.toLong() ?: 0L }
+        val total = rows.sumOf { (it["totalTimeInForeground"] as? Number)?.toLong() ?: 0L }
+        binding.appsSectionTitle.text = getString(R.string.daily_usage_heading, dateFormat.format(java.util.Date(start)))
+        binding.dailySummaryText.text = getString(R.string.daily_usage_summary,
+            formatDuration(total), rows.size, clockFormat.format(java.util.Date(end))) +
+            if (System.currentTimeMillis() - end > 5 * DateUtils.MINUTE_IN_MILLIS)
+                "\n" + getString(R.string.daily_usage_stale) else ""
+        binding.recentAppsContainer.removeAllViews()
+        binding.recentAppsEmptyText.isVisible = rows.isEmpty()
+        binding.recentAppsEmptyText.setText(R.string.daily_usage_empty)
+        rows.forEach { app ->
+            val duration = (app["totalTimeInForeground"] as? Number)?.toLong() ?: 0L
+            val row = createUsageRow(
+                title = app["appName"] as? String ?: app["packageName"] as? String ?: "",
+                subtitle = "",
+                meta = getString(R.string.daily_usage_app_time, formatDuration(duration),
+                    if (total > 0) (duration * 100 / total).toInt() else 0)
+            )
+            row.findViewById<com.google.android.material.progressindicator.LinearProgressIndicator>(R.id.usageShareBar).apply {
+                isVisible = true
+                progress = if (total > 0) (duration * 100 / total).toInt().coerceIn(0, 100) else 0
+            }
+            binding.recentAppsContainer.addView(row)
+        }
+    }
+
+    private fun readRecentApps(apps: List<DeviceRecentApp>?, raw: Map<String, Any?>?): List<DeviceRecentApp> {
+        if (!apps.isNullOrEmpty()) return apps
+        return (raw?.get("recentApps") as? List<*>)?.mapNotNull { entry ->
+            val item = entry as? Map<*, *> ?: return@mapNotNull null
+            DeviceRecentApp(
+                packageName = item["packageName"] as? String,
+                appName = item["appName"] as? String,
+                lastUsed = (item["lastUsed"] as? Number)?.toLong(),
+                totalTimeInForeground = (item["totalTimeInForeground"] as? Number)?.toLong(),
+                isSystemApp = item["isSystemApp"] as? Boolean
+            )
+        }.orEmpty()
+    }
+
+    private fun renderRecentApps(status: DeviceStatus?, apps: List<DeviceRecentApp>) {
+        val recentApps = apps
             .filter { !it.appName.isNullOrBlank() || !it.packageName.isNullOrBlank() }
             .sortedByDescending { it.lastUsed ?: 0L }
 
@@ -167,6 +256,7 @@ class DeviceUsageActivity : AppCompatActivity() {
         val compactHistory = mutableListOf<DeviceStatusHistoryItem>()
         var previousPackage: String? = null
         items.forEach { item ->
+            if (compactHistory.size >= 20) return@forEach
             val packageName = item.currentAppPackage?.takeIf { it.isNotBlank() }
             val appName = item.currentAppName?.takeIf { it.isNotBlank() }
             if (packageName == null && appName == null) {
@@ -258,11 +348,20 @@ class DeviceUsageActivity : AppCompatActivity() {
     }
 
     private fun showLoading(isLoading: Boolean) {
+        binding.refreshButton.isEnabled = !isLoading
         binding.progressBar.isVisible = isLoading
         binding.statusMessageText.isVisible = isLoading
         if (isLoading) {
             binding.statusMessageText.text = getString(R.string.device_usage_loading)
         }
+    }
+
+    private fun showLoadFailure() {
+        showLoading(false)
+        // Keep the last displayed snapshot readable during a temporary outage.
+        binding.statusMessageText.isVisible = true
+        binding.statusMessageText.setText(R.string.daily_usage_refresh_failed)
+        binding.currentAppCard.isVisible = true
     }
 
     private fun showOnlyMessage(message: String) {
@@ -297,7 +396,24 @@ class DeviceUsageActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        usageJob?.cancel()
         personLabelJob?.cancel()
         super.onDestroy()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        refreshJob?.cancel()
+        refreshJob = lifecycleScope.launch {
+            while (isActive) {
+                delay(DateUtils.MINUTE_IN_MILLIS)
+                if (usageJob?.isActive != true) loadUsage(force = false)
+            }
+        }
+    }
+
+    override fun onStop() {
+        refreshJob?.cancel()
+        super.onStop()
     }
 }

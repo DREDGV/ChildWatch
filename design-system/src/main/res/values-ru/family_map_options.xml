@@ -1,0 +1,11 @@
+<resources>
+    <string name="cw_map_view">Вид карты</string>
+    <string name="cw_map_distances">Расстояния до семьи · по прямой</string>
+    <string name="cw_map_trails">След движения · последние 30 минут</string>
+    <string name="cw_map_all_trails">Следы всех доступных членов семьи</string>
+    <string name="cw_map_apply">Применить</string>
+    <string name="cw_map_no_distance">Нет расстояния</string>
+    <string name="cw_map_self">Вы</string>
+    <string name="cw_map_family">Семья · расстояния</string>
+    <string name="cw_map_no_members">Нет доступных участников семьи</string>
+</resources>

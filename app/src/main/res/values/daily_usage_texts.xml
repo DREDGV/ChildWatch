@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="daily_usage_access_denied">Нет доступа к активности этого ребёнка. Проверьте разрешения участника в семье.</string>
+    <string name="daily_usage_refresh_failed">Не удалось получить свежие данные. Показанный снимок не обновлён. Повторите загрузку кнопкой «Обновить».</string>
+    <string name="daily_usage_unavailable">Телефон ребёнка пока не предоставил журнал дневной активности. Это не означает, что приложениями не пользовались. Ниже — последние известные приложения.</string>
+    <string name="daily_usage_last_app">Последнее замеченное приложение</string>
+    <string name="daily_usage_child_only">Активность приложений доступна только для ребёнка. Выберите ребёнка на главном экране.</string>
+    <string name="daily_usage_heading">Приложения · %1$s</string>
+    <string name="daily_usage_summary">В приложениях: %1$s · приложений: %2$d\nДанные до %3$s по времени телефона ребёнка</string>
+    <string name="daily_usage_app_time">%1$s · %2$d%% времени</string>
+    <string name="daily_usage_waiting">Дневная статистика ещё не получена. Она появится после обновления приложения ребёнка и отправки нового снимка. Ниже — последние известные приложения.</string>
+    <string name="daily_usage_stale">Снимок устарел. Кнопка обновления загружает полученные данные; новые появятся, когда телефон ребёнка передаст статистику.</string>
+    <string name="daily_usage_empty">В этом дневном снимке пока нет использования приложений.</string>
+</resources>

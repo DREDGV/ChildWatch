@@ -9,6 +9,7 @@ import kotlinx.coroutines.withContext
 import okhttp3.*
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.logging.HttpLoggingInterceptor
@@ -109,7 +110,7 @@ class NetworkClient(private val context: Context) {
     /**
      * Get current authentication token
      */
-    fun getAuthToken(): String? = authToken ?: tokenManager.getAuthToken()
+    fun getAuthToken(): String? = tokenManager.getAuthToken()
     
     /**
      * Register device and get authentication token
@@ -187,6 +188,7 @@ class NetworkClient(private val context: Context) {
     }
 
     fun replaceDeviceIdentity(deviceId: String?) {
+        if (!deviceId.isNullOrBlank() && tokenManager.getDeviceId() == deviceId.trim()) return
         authToken = null
         tokenManager.setDeviceId(deviceId)
         tokenManager.clearTokens()
@@ -235,7 +237,6 @@ class NetworkClient(private val context: Context) {
 
             // Handle token refresh on 401 Unauthorized
             if (response.code == 401 && currentToken != null) {
-                response.close()
                 
                 // Try to refresh token
                 val serverUrl = extractServerUrl(originalRequest.url.toString())
@@ -246,6 +247,7 @@ class NetworkClient(private val context: Context) {
                             tokenManager.refreshToken(serverUrl)
                         }
                         if (refreshedToken != null) {
+                            response.close()
                             authToken = refreshedToken
                             
                             // Retry request with new token
@@ -375,6 +377,19 @@ class NetworkClient(private val context: Context) {
     /**
      * Upload parent location to server for "Where are parents?" feature
      */
+    suspend fun uploadLocationHistory(server: String, family: String, own: String, points: org.json.JSONArray): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val data = JSONObject().put("familyId", family).put("ownDeviceId", own).put("kind", "parent").put("points", points)
+            val request = Request.Builder().url(ensureHttpsUrl(server).trimEnd('/') + "/api/location/history")
+                .post(data.toString().toRequestBody("application/json".toMediaType())).build()
+            client.newCall(request).execute().use { response ->
+                val result = response.body?.string()?.let { JSONObject(it) }
+                response.isSuccessful && result?.optBoolean("success") == true && result?.optInt("accepted") == points.length()
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (failure: Exception) { Log.w(TAG, "Location history remains queued", failure); false }
+    }
+
     suspend fun uploadParentLocation(
         parentId: String,
         latitude: Double,
@@ -383,7 +398,8 @@ class NetworkClient(private val context: Context) {
         timestamp: Long,
         speed: Float? = null,
         bearing: Float? = null,
-        batteryLevel: Int? = null
+        batteryLevel: Int? = null,
+        speedAccuracyMps: Float? = null
     ): Boolean = withContext(Dispatchers.IO) {
         try {
             val serverUrl = getConfiguredServerUrl()
@@ -402,7 +418,8 @@ class NetworkClient(private val context: Context) {
                 put("accuracy", accuracy)
                 put("timestamp", timestamp)
                 put("provider", "fused")
-                speed?.let { put("speed", it) }
+                speed?.let { put("speed", it); put("speedMps", it) }
+                speedAccuracyMps?.let { put("speedAccuracyMps", it) }
                 bearing?.let { put("bearing", it) }
                 batteryLevel?.let {
                     put("battery", it)
@@ -587,6 +604,101 @@ class NetworkClient(private val context: Context) {
             return@withContext null
         }
     }
+
+    /** One authenticated snapshot for the family map, including adult phones. */
+    suspend fun getFamilyLiveLocations(familyId: String): List<FamilyLiveLocation>? = withContext(Dispatchers.IO) {
+        try {
+            val serverUrl = getConfiguredServerUrl()?.takeIf(String::isNotBlank)
+                ?: return@withContext null
+            val encodedFamilyId = java.net.URLEncoder.encode(familyId, "UTF-8")
+            val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}/api/location/family/latest?familyId=$encodedFamilyId"
+            val request = Request.Builder()
+                .url(url)
+                .get()
+                .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME)
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    Log.w(TAG, "Family locations request failed: ${response.code}")
+                    return@withContext null
+                }
+                val body = response.body?.string() ?: return@withContext null
+                val root = JSONObject(body)
+                if (!root.optBoolean("success")) return@withContext null
+                val locations = root.optJSONArray("locations") ?: return@withContext emptyList()
+                buildList {
+                    for (index in 0 until locations.length()) {
+                        val item = locations.optJSONObject(index) ?: continue
+                        val memberId = item.optString("memberId").trim()
+                        val deviceId = item.optString("deviceId").trim()
+                        if (memberId.isBlank() || deviceId.isBlank()) continue
+                        add(
+                            FamilyLiveLocation(
+                                memberId = memberId,
+                                deviceId = deviceId,
+                                displayName = item.optString("displayName").trim(),
+                                role = item.optString("role").trim(),
+                                avatarKey = item.optString("avatarKey").trim().takeIf(String::isNotBlank),
+                                latitude = item.getDouble("latitude"),
+                                longitude = item.getDouble("longitude"),
+                                accuracy = if (item.isNull("accuracy")) null else item.optDouble("accuracy").toFloat(),
+                                timestamp = item.getLong("timestamp"),
+                                speedMps = if (item.isNull("speedMps")) null else item.optDouble("speedMps").toFloat(),
+                                speedAccuracyMps = if (item.isNull("speedAccuracyMps")) null else item.optDouble("speedAccuracyMps").toFloat()
+                            )
+                        )
+                    }
+                }
+            }
+        } catch (error: Exception) {
+            Log.w(TAG, "Could not load family locations", error)
+            null
+        }
+    }
+
+    /** Bounded server history for the selected person's live map trail. */
+    suspend fun getFamilyTrail(familyId: String, memberId: String, expectedDeviceId: String? = null): List<ParentLocationData>? =
+        withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()?.takeIf(String::isNotBlank)
+                    ?: return@withContext null
+                val family = java.net.URLEncoder.encode(familyId, "UTF-8")
+                val member = java.net.URLEncoder.encode(memberId, "UTF-8")
+                val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}/api/location/family/trail/$member?familyId=$family"
+                val request = Request.Builder().url(url).get()
+                    .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME).build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        Log.w(TAG, "Family trail request failed: ${response.code}")
+                        return@withContext null
+                    }
+                    val root = JSONObject(response.body?.string() ?: return@withContext null)
+                    if (!root.optBoolean("success")) return@withContext null
+                    if (expectedDeviceId != null && root.has("deviceId") && root.optString("deviceId") != expectedDeviceId) return@withContext null
+                    val points = root.optJSONArray("points") ?: return@withContext emptyList()
+                    buildList {
+                        for (index in 0 until points.length()) {
+                            val point = points.optJSONObject(index) ?: continue
+                            if (point.isNull("timestamp")) continue
+                            add(ParentLocationData(
+                                parentId = memberId,
+                                latitude = point.getDouble("latitude"),
+                                longitude = point.getDouble("longitude"),
+                                accuracy = if (point.isNull("accuracy")) 0f else point.optDouble("accuracy").toFloat(),
+                                timestamp = point.getLong("timestamp"),
+                                battery = null, speed = null, bearing = null,
+                                speedMps = if (point.isNull("speedMps")) null else point.optDouble("speedMps").toFloat(),
+                                speedAccuracyMps = if (point.isNull("speedAccuracyMps")) null else point.optDouble("speedAccuracyMps").toFloat()
+                            ))
+                        }
+                    }
+                }
+            } catch (error: Exception) {
+                Log.w(TAG, "Could not load family trail", error)
+                null
+            }
+        }
 
     suspend fun getLocationPair(parentId: String, childId: String): LocationPairData? = withContext(Dispatchers.IO) {
         try {
@@ -1299,7 +1411,7 @@ class NetworkClient(private val context: Context) {
                 Log.d(TAG, "Getting child device status from server: $serverUrl")
                 Log.d(TAG, "Child device ID: $childDeviceId")
 
-                api.getDeviceStatus(childDeviceId)
+                withCredentialRecovery { api.getDeviceStatus(childDeviceId) }
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting child device status", e)
                 retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
@@ -1331,7 +1443,7 @@ class NetworkClient(private val context: Context) {
                 Log.d(TAG, "Getting child device status history from server: $serverUrl")
                 Log.d(TAG, "Child device ID: $childDeviceId, limit=$limit")
 
-                api.getDeviceStatusHistory(childDeviceId, limit)
+                withCredentialRecovery { api.getDeviceStatusHistory(childDeviceId, limit) }
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting child device status history", e)
                 retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
@@ -1651,6 +1763,30 @@ class NetworkClient(private val context: Context) {
      * application uses, instead of reading the setting again: two readers of one
      * setting are two chances to disagree about which server the family is on.
      */
+    /** Authenticated family places; non-success is preserved for recovery UI. */
+    suspend fun familyPlacesRequest(familyId: String, method: String = "GET", suffix: String = "",
+        body: JSONObject? = null, after: Long? = null, targetMemberId: String? = null): JSONObject = withContext(Dispatchers.IO) {
+        val configured = getConfiguredServerUrl()?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("Server is not configured")
+        val url = (ensureHttpsUrl(configured).trimEnd('/') + "/api/family-places" + suffix).toHttpUrl().newBuilder()
+            .addQueryParameter("familyId", familyId)
+        after?.let { url.addQueryParameter("after", it.toString()) }
+        targetMemberId?.let { url.addQueryParameter("targetMemberId", it) }
+        val request = Request.Builder().url(url.build())
+        when (method) {
+            "POST" -> request.post((body ?: JSONObject()).toString().toRequestBody("application/json".toMediaType()))
+            "PATCH" -> request.patch((body ?: JSONObject()).toString().toRequestBody("application/json".toMediaType()))
+            "DELETE" -> request.delete()
+            else -> request.get()
+        }
+        client.newCall(request.build()).execute().use { response ->
+            val json = response.body?.string()?.let(::JSONObject) ?: JSONObject()
+            if (!response.isSuccessful || !json.optBoolean("success"))
+                throw IllegalStateException(if (response.code == 403) "PLACE_PERMISSION_DENIED" else "PLACE_REQUEST_FAILED")
+            json
+        }
+    }
+
     fun resolveConfiguredServerUrl(): String? = getConfiguredServerUrl()
 
     /**
@@ -1915,6 +2051,30 @@ class NetworkClient(private val context: Context) {
     /**
      * Get captured photos for the child device
      */
+    suspend fun getPhotoReadiness(target: String): JSONObject? = withContext(Dispatchers.IO) {
+        val server = getConfiguredServerUrl()?.takeIf { it.isNotBlank() } ?: return@withContext null
+        val url = ensureHttpsUrl(server).trimEnd('/').toHttpUrl().newBuilder()
+            .addPathSegments("api/photo/readiness").addPathSegment(target).build()
+        client.newBuilder().callTimeout(8, java.util.concurrent.TimeUnit.SECONDS).build()
+            .newCall(Request.Builder().url(url).get().build()).execute().use { response ->
+                if (response.code == 401 || response.code == 403)
+                    return@withContext JSONObject().put("permissionDenied", true)
+                if (!response.isSuccessful) return@withContext null
+                response.body?.string()?.let { JSONObject(it).takeIf { json -> json.optBoolean("success") } }
+            }
+    }
+
+    suspend fun getRemotePhotoResult(target: String, requestId: String): JSONObject? = withContext(Dispatchers.IO) {
+        val server = getConfiguredServerUrl()?.takeIf { it.isNotBlank() } ?: return@withContext null
+        val url = ensureHttpsUrl(server).trimEnd('/').toHttpUrl().newBuilder()
+            .addPathSegments("api/media/photo-result").addPathSegment(target).addPathSegment(requestId).build()
+        client.newCall(Request.Builder().url(url).get().build()).execute().use { response ->
+            if (response.code == 403) return@withContext JSONObject().put("status", "error").put("error", "PHOTO_PERMISSION_DENIED")
+            if (!response.isSuccessful) return@withContext null
+            response.body?.string()?.let { JSONObject(it) }
+        }
+    }
+
     suspend fun getRemotePhotos(
         childDeviceId: String,
         limit: Int = 50,
@@ -2514,7 +2674,23 @@ data class ParentLocationData(
     val timestamp: Long,
     val battery: Int?,
     val speed: Float?,
-    val bearing: Float?
+    val bearing: Float?,
+    val speedMps: Float? = null,
+    val speedAccuracyMps: Float? = null
+)
+
+data class FamilyLiveLocation(
+    val memberId: String,
+    val deviceId: String,
+    val displayName: String,
+    val role: String,
+    val avatarKey: String?,
+    val latitude: Double,
+    val longitude: Double,
+    val accuracy: Float?,
+    val timestamp: Long,
+    val speedMps: Float? = null,
+    val speedAccuracyMps: Float? = null
 )
 
 data class LocationPairData(

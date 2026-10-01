@@ -103,5 +103,6 @@ data class RemotePhotoItem(
     val displayName: String,
     val metaInfo: String,
     val previewUrl: String,
-    val fullImageUrl: String
+    val fullImageUrl: String,
+    val timestamp: Long = 0L
 )

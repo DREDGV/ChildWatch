@@ -277,7 +277,7 @@ class TokenManager(private val context: Context) {
     /**
      * Get device ID
      */
-    private fun getDeviceId(): String {
+    fun getDeviceId(): String {
         return prefs.getString(KEY_DEVICE_ID, null) ?: run {
             val androidId = android.provider.Settings.Secure.getString(
                 context.contentResolver,

@@ -36,15 +36,15 @@ class ParentLocationService : Service() {
         private const val TAG = "ParentLocationService"
         private const val NOTIFICATION_ID = 1002
         private const val CHANNEL_ID = "parent_location_channel"
-        private const val LOCATION_UPDATE_INTERVAL_IDLE = 60_000L
-        private const val LOCATION_FASTEST_INTERVAL_IDLE = 30_000L
-        private const val LOCATION_UPDATE_INTERVAL_MOVING = 15_000L
-        private const val LOCATION_FASTEST_INTERVAL_MOVING = 7_000L
-        private const val LOCATION_UPLOAD_INTERVAL_IDLE = 90_000L
-        private const val LOCATION_UPLOAD_INTERVAL_MOVING = 18_000L
+        private const val LOCATION_UPDATE_INTERVAL_IDLE = 30_000L
+        private const val LOCATION_FASTEST_INTERVAL_IDLE = 15_000L
+        private const val LOCATION_UPDATE_INTERVAL_MOVING = 5_000L
+        private const val LOCATION_FASTEST_INTERVAL_MOVING = 3_000L
+        private const val LOCATION_UPLOAD_INTERVAL_IDLE = 60_000L
+        private const val LOCATION_UPLOAD_INTERVAL_MOVING = 5_000L
         private const val LOCATION_UPLOAD_DISTANCE_IDLE_METERS = 35f
         private const val LOCATION_UPLOAD_DISTANCE_MOVING_METERS = 10f
-        private const val MOVING_SPEED_THRESHOLD_MPS = 1.4f
+        private const val MOVING_SPEED_THRESHOLD_MPS = 0.7f
         private const val MOVEMENT_DISTANCE_THRESHOLD_METERS = 20f
         private const val MOVEMENT_TIME_WINDOW_MS = 45_000L
         private const val TRACKING_MODE_STICKINESS_MS = 45_000L
@@ -59,6 +59,10 @@ class ParentLocationService : Service() {
          * the whole application down instead of merely not tracking.
          */
         fun start(context: Context) {
+            if (!hasLocationPermission(context)) {
+                Log.i(TAG, "Location sharing awaits user permission")
+                return
+            }
             val intent = Intent(context, ParentLocationService::class.java)
             runCatching {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -78,6 +82,10 @@ class ParentLocationService : Service() {
                 Log.w(TAG, "Location service stop failed", error)
             }
         }
+
+        private fun hasLocationPermission(context: Context): Boolean =
+            ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
     
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -86,27 +94,46 @@ class ParentLocationService : Service() {
     private var currentTrackingMode = TrackingMode.IDLE
     private var lastTrackingModeChangeAt = 0L
     private var lastObservedLocation: Location? = null
-    private var lastUploadedLocation: Location? = null
-    private var lastUploadAt: Long = 0L
+    @Volatile private var lastUploadedLocation: Location? = null
+    @Volatile private var lastUploadAt: Long = 0L
+    @Volatile private var uploadInFlight = false
     
     override fun onCreate() {
         super.onCreate()
         Log.d(TAG, "ParentLocationService created")
         
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        if (!hasLocationPermission(this)) { stopSelf(); return }
         createNotificationChannel()
-        startForeground(NOTIFICATION_ID, createNotification())
+        try {
+            startForeground(NOTIFICATION_ID, createNotification())
+        } catch (refused: SecurityException) {
+            Log.w(TAG, "Location foreground access is unavailable", refused)
+            stopSelf()
+            return
+        }
         
         setupLocationUpdates()
     }
     
+    private val locationOutbox by lazy { ru.example.childwatch.designsystem.LocationOutbox(this) }
+    private fun outboxScope(): String? {
+        val resolver = ParentEffectiveContextResolver(this)
+        return ru.example.childwatch.designsystem.LocationOutbox.scope(resolver.resolveServerUrl(), resolver.resolveFamilyId(), resolver.resolveOwnParentId())
+    }
+
     private fun setupLocationUpdates() {
         locationCallback = object : LocationCallback() {
             override fun onLocationResult(locationResult: LocationResult) {
                 locationResult.lastLocation?.let { location ->
+                    if (!ru.example.childwatch.designsystem.LocationQuality.usable(location)) return
                     updateTrackingMode(location)
-                    if (shouldUploadLocation(location)) {
-                        sendLocationToChild(location)
+                    val scope = outboxScope()
+                    val moving = currentTrackingMode == TrackingMode.MOVING
+                    serviceScope.launch(Dispatchers.IO) {
+                        try { locationOutbox.enqueue(scope, location, moving) }
+                        catch (error: Exception) { Log.w(TAG, "Cannot retain measured location", error) }
+                        if (scope == outboxScope() && shouldUploadLocation(location)) sendLocationToChild(location)
                     }
                 }
             }
@@ -114,11 +141,7 @@ class ParentLocationService : Service() {
         
         val locationRequest = buildLocationRequest()
         
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) == PackageManager.PERMISSION_GRANTED
-        ) {
+        if (hasLocationPermission(this)) {
             fusedLocationClient.requestLocationUpdates(
                 locationRequest,
                 locationCallback,
@@ -130,7 +153,10 @@ class ParentLocationService : Service() {
         }
     }
     
-    private fun sendLocationToChild(location: Location) {
+    @Synchronized private fun sendLocationToChild(location: Location) {
+        val queuedScope = outboxScope()
+        if (uploadInFlight) return
+        uploadInFlight = true
         serviceScope.launch {
             try {
                 val parentId = resolveParentDeviceId()
@@ -138,6 +164,7 @@ class ParentLocationService : Service() {
                     Log.w(TAG, "Parent device ID is missing, skipping location upload")
                     return@launch
                 }
+                if (queuedScope != outboxScope()) return@launch
                 val targetDeviceId = resolveTargetDeviceId()
                 val serverUrl = ParentEffectiveContextProvider.get(this@ParentLocationService)
                     .featureContext("location")?.serverUrl
@@ -149,8 +176,8 @@ class ParentLocationService : Service() {
                     put("latitude", location.latitude)
                     put("longitude", location.longitude)
                     put("accuracy", location.accuracy)
-                    put("timestamp", System.currentTimeMillis())
-                    put("speed", location.speed.takeIf { it > 0 } ?: 0f)
+                    put("timestamp", location.time)
+                    ru.example.childwatch.designsystem.LocationMotion.put(this, location)
                     put("bearing", location.bearing.takeIf { it > 0 } ?: 0f)
                     if (!targetDeviceId.isNullOrBlank()) {
                         put("targetDevice", targetDeviceId)
@@ -166,30 +193,49 @@ class ParentLocationService : Service() {
                 }
 
                 // Дополнительно отправим на сервер REST для fallback карты
+                var accepted = false
                 try {
                     if (serverUrl.isNotBlank()) {
-                        ru.example.childwatch.network.NetworkClient(this@ParentLocationService)
+                        accepted = ru.example.childwatch.network.NetworkClient(this@ParentLocationService)
                             .uploadParentLocation(
                                 parentId = parentId,
                                 latitude = location.latitude,
                                 longitude = location.longitude,
                                 accuracy = location.accuracy,
-                                timestamp = System.currentTimeMillis(),
-                                speed = location.speed.takeIf { it > 0 } ?: 0f,
+                                timestamp = location.time,
+                                speed = ru.example.childwatch.designsystem.LocationMotion.speed(location),
+                                speedAccuracyMps = ru.example.childwatch.designsystem.LocationMotion.accuracy(location),
                                 bearing = location.bearing.takeIf { it > 0 } ?: 0f,
                                 batteryLevel = null
                             )
                     }
-                } catch (e: Exception) {
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (e: Exception) {
                     Log.w(TAG, "Failed to upload parent location via REST", e)
                 }
 
-                lastUploadedLocation = Location(location)
-                lastUploadAt = System.currentTimeMillis()
+                if (accepted) {
+                    lastUploadedLocation = Location(location)
+                    lastUploadAt = android.os.SystemClock.elapsedRealtime()
+                    withContext(Dispatchers.IO) {
+                        if (queuedScope == outboxScope()) {
+                            locationOutbox.acknowledge(queuedScope, location.time)
+                            val family = ParentEffectiveContextResolver(this@ParentLocationService).resolveFamilyId()
+                            if (!family.isNullOrBlank()) repeat(3) {
+                                if (queuedScope != outboxScope()) return@withContext
+                                val batch = locationOutbox.batch(queuedScope, location.time)
+                                if (batch.length() == 0) return@withContext
+                                if (!ru.example.childwatch.network.NetworkClient(this@ParentLocationService).uploadLocationHistory(serverUrl, family, parentId, batch)) return@withContext
+                                locationOutbox.acknowledge(queuedScope, batch)
+                            }
+                        }
+                    }
+                }
                 
-            } catch (e: Exception) {
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (e: Exception) {
                 Log.e(TAG, "Error sending parent location", e)
-            }
+            } finally { uploadInFlight = false }
         }
     }
 
@@ -199,30 +245,25 @@ class ParentLocationService : Service() {
                 Priority.PRIORITY_HIGH_ACCURACY,
                 LOCATION_UPDATE_INTERVAL_MOVING,
                 LOCATION_FASTEST_INTERVAL_MOVING,
-                LOCATION_UPDATE_INTERVAL_MOVING * 2
+                0L
             )
             TrackingMode.IDLE -> Quadruple(
                 Priority.PRIORITY_BALANCED_POWER_ACCURACY,
                 LOCATION_UPDATE_INTERVAL_IDLE,
                 LOCATION_FASTEST_INTERVAL_IDLE,
-                LOCATION_UPDATE_INTERVAL_IDLE * 2
+                30_000L
             )
         }
 
         return LocationRequest.Builder(priority, interval)
             .setMinUpdateIntervalMillis(fastest)
             .setMaxUpdateDelayMillis(maxDelay)
-            .setMinUpdateDistanceMeters(
-                if (currentTrackingMode == TrackingMode.MOVING) {
-                    LOCATION_UPLOAD_DISTANCE_MOVING_METERS
-                } else {
-                    LOCATION_UPLOAD_DISTANCE_IDLE_METERS
-                }
-            )
+            .setMinUpdateDistanceMeters(0f) // Allow stationary heartbeat fixes.
             .build()
     }
 
     private fun shouldUploadLocation(location: Location): Boolean {
+        if (uploadInFlight || !ru.example.childwatch.designsystem.LocationQuality.usable(location)) return false
         val previous = lastUploadedLocation ?: return true
         val minInterval = if (currentTrackingMode == TrackingMode.MOVING) {
             LOCATION_UPLOAD_INTERVAL_MOVING
@@ -235,12 +276,12 @@ class ParentLocationService : Service() {
             LOCATION_UPLOAD_DISTANCE_IDLE_METERS
         }
 
-        val elapsed = System.currentTimeMillis() - lastUploadAt
+        val elapsed = android.os.SystemClock.elapsedRealtime() - lastUploadAt
         if (elapsed >= minInterval) {
             return true
         }
 
-        if (location.distanceTo(previous) >= minDistance) {
+        if (elapsed >= 3_000L && location.distanceTo(previous) >= maxOf(minDistance, location.accuracy + previous.accuracy)) {
             return true
         }
 
@@ -272,26 +313,8 @@ class ParentLocationService : Service() {
     }
 
     private fun determineTrackingMode(location: Location, previous: Location?): TrackingMode {
-        val measuredSpeed = location.speed.takeIf { it > 0f }
-        if (measuredSpeed != null) {
-            return if (measuredSpeed >= MOVING_SPEED_THRESHOLD_MPS) {
-                TrackingMode.MOVING
-            } else {
-                TrackingMode.IDLE
-            }
-        }
-
-        if (previous != null) {
-            val elapsed = (location.time - previous.time).takeIf { it > 0L }
-                ?: TRACKING_MODE_STICKINESS_MS
-            if (elapsed <= MOVEMENT_TIME_WINDOW_MS &&
-                location.distanceTo(previous) >= MOVEMENT_DISTANCE_THRESHOLD_METERS
-            ) {
-                return TrackingMode.MOVING
-            }
-        }
-
-        return TrackingMode.IDLE
+        return if (ru.example.childwatch.designsystem.LocationQuality.moving(location, previous, MOVING_SPEED_THRESHOLD_MPS))
+            TrackingMode.MOVING else TrackingMode.IDLE
     }
 
     private fun trackingRank(mode: TrackingMode): Int = when (mode) {
@@ -374,6 +397,10 @@ class ParentLocationService : Service() {
     }
     
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (!::locationCallback.isInitialized || !hasLocationPermission(this)) {
+            stopSelf()
+            return START_NOT_STICKY
+        }
         return START_STICKY
     }
     
@@ -381,7 +408,9 @@ class ParentLocationService : Service() {
     
     override fun onDestroy() {
         super.onDestroy()
-        fusedLocationClient.removeLocationUpdates(locationCallback)
+        if (::fusedLocationClient.isInitialized && ::locationCallback.isInitialized) {
+            fusedLocationClient.removeLocationUpdates(locationCallback)
+        }
         serviceScope.cancel()
         Log.d(TAG, "ParentLocationService destroyed")
     }

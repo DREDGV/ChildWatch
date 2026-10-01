@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="family_connect_share">Передать QR и ссылку</string>
+    <string name="family_connect_expired">Срок приглашения истёк. Создайте новое приглашение для этого человека.</string>
+    <string name="family_connect_existing">%1$s · %2$s\nЭтот телефон будет добавлен к выбранному человеку. Имя, аватар и роль сохранятся.\nСейчас подключено телефонов: %3$d. Старые телефоны останутся подключёнными; потерянный или переданный телефон отключите отдельно в настройках семьи.</string>
+    <string name="family_connect_duplicate_title">Такое имя уже есть в семье</string>
+    <string name="family_connect_duplicate_body">Для нового телефона или переустановки выберите существующего человека — его имя и аватар сохранятся. Если это другой человек с таким же именем, можно создать отдельный профиль.</string>
+    <string name="family_connect_existing_action">Выбрать существующего</string>
+    <string name="family_connect_new_action">Это другой человек</string>
+</resources>

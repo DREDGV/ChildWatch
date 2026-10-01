@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="family_scan_title">Сканировать QR-код</string>
+    <string name="family_scan_back">Назад</string>
+    <string name="family_scan_hint">Наведите камеру на код приглашения. Он считывается автоматически. Если код пришёл на этот телефон, откройте его изображение.</string>
+    <string name="family_scan_image">Выбрать изображение с QR-кодом</string>
+    <string name="family_scan_camera">Включить камеру</string>
+    <string name="family_scan_permission">Камера не разрешена. Можно включить её повторно или выбрать сохранённое изображение с кодом. Ссылку можно вставить на предыдущем экране.</string>
+    <string name="family_scan_camera_error">Камера недоступна. Выберите изображение с QR-кодом или вставьте ссылку на предыдущем экране.</string>
+    <string name="family_scan_image_error">Не удалось прочитать изображение. Выберите чёткий снимок с полностью видимым QR-кодом.</string>
+    <string name="family_scan_not_invitation">Это другой QR-код. Нужен код из раздела семьи, созданный для подключения человека.</string>
+    <string name="family_scan_no_code">Код пока не найден. Поместите его целиком в рамку или выберите другое изображение.</string>
+</resources>

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="listen_title">Прослушка</string>
+    <string name="listen_title">Звук вокруг</string>
     <string name="listen_subtitle">Живой звук, задержка и статус телефона ребенка в одном месте.</string>
     <string name="listen_device_unknown">Телефон ребенка</string>
     <string name="listen_device_id">ID устройства: %1$s</string>
@@ -15,11 +15,11 @@
     <string name="listen_state_connecting">Подключение…</string>
     <string name="listen_state_reconnecting">Восстановление связи</string>
     <string name="listen_state_busy">Линия занята</string>
-    <string name="listen_toggle_start">Начать прослушку</string>
-    <string name="listen_toggle_stop">Остановить прослушку</string>
+    <string name="listen_toggle_start">Начать передачу звука</string>
+    <string name="listen_toggle_stop">Остановить передачу звука</string>
 
     <string name="listen_connection_label">Связь</string>
-    <string name="listen_connection_idle">Прослушка не запущена</string>
+    <string name="listen_connection_idle">Передача звука не запущена</string>
     <string name="listen_connection_waiting">Ждем первый звук</string>
     <string name="listen_connection_stable">Поток стабилен</string>
     <string name="listen_connection_delayed">Есть задержка</string>
@@ -62,8 +62,8 @@
     <string name="listen_diag_stream">Поток</string>
     <string name="listen_diag_status">Статус</string>
     <string name="listen_diag_no_data">Нет данных</string>
-    <string name="listen_filters_description">Фильтры пока скрыты, чтобы не мешать стабильности прослушки.</string>
-    <string name="listen_info_text">Техническая строка обновляется во время прослушки.</string>
+    <string name="listen_filters_description">Фильтры пока скрыты, чтобы не мешать стабильности передачи звука.</string>
+    <string name="listen_info_text">Техническая строка обновляется во время передачи звука.</string>
 
     <string name="listen_battery_waiting">Ждем статус</string>
     <string name="listen_battery_percent">%1$d%%</string>
@@ -83,25 +83,25 @@
     <string name="listen_hint_active">Последний пакет: %1$s.</string>
     <string name="listen_hint_active_stale_status">Статус ребенка давно не обновлялся: %1$s.</string>
     <string name="listen_hint_error">Проверьте сеть, телефон ребенка и сервер.</string>
-    <string name="listen_busy_other_parent">Ребенка уже прослушивает %1$s. Линия пока занята.</string>
+    <string name="listen_busy_other_parent">%1$s уже слушает звук рядом с ребёнком. Линия пока занята.</string>
     <string name="listen_takeover_dialog_title">Линия занята</string>
-    <string name="listen_takeover_dialog_message">Прослушку уже ведет %1$s. Можно отправить запрос на освобождение линии.</string>
+    <string name="listen_takeover_dialog_message">Передачу звука уже ведет %1$s. Можно отправить запрос на освобождение линии.</string>
     <string name="listen_takeover_dialog_request">Запросить освобождение</string>
     <string name="listen_takeover_request_pending">Запрос на освобождение линии уже отправлен. Подождите ответа.</string>
     <string name="listen_takeover_request_sent">Запрос отправлен для %1$s. Ждем освобождения линии.</string>
-    <string name="listen_takeover_request_granted">Линия освободилась. Прослушка запускается.</string>
+    <string name="listen_takeover_request_granted">Линия освободилась. Передача звука запускается.</string>
     <string name="listen_takeover_request_failed">Не удалось отправить запрос: %1$s</string>
-    <string name="listen_takeover_line_available">Линия освободилась. Можно запускать прослушку.</string>
+    <string name="listen_takeover_line_available">Линия освободилась. Можно запускать передачу звука.</string>
     <string name="listen_takeover_pending_hint">Запрос отправлен %1$s. Ждем освобождения линии.</string>
     <string name="listen_toggle_request_takeover">Запросить освобождение линии</string>
     <string name="listen_toggle_takeover_sent">Запрос отправлен</string>
     <string name="listen_takeover_owner_dialog_title">Запрос на освобождение линии</string>
-    <string name="listen_takeover_owner_dialog_message">%1$s просит освободить линию прослушки. Освободить сейчас?</string>
+    <string name="listen_takeover_owner_dialog_message">%1$s просит освободить линию передачи звука. Освободить сейчас?</string>
     <string name="listen_takeover_owner_release">Освободить</string>
     <string name="listen_takeover_owner_keep">Оставить занятой</string>
     <string name="listen_takeover_owner_requested_toast">%1$s просит освободить линию.</string>
     <string name="listen_takeover_owner_released_toast">Линия освобождена.</string>
-    <string name="listen_force_released_by_child">Линия прослушки принудительно освобождена %1$s.</string>
+    <string name="listen_force_released_by_child">Линия передачи звука принудительно освобождена %1$s.</string>
 
     <string name="listen_stream_kbps">%1$d КБ/с</string>
     <string name="listen_stream_sample_rate">%1$d кГц</string>
@@ -122,20 +122,20 @@
 
     <string name="listen_toast_recording_on">Сохранение потока включено</string>
     <string name="listen_toast_recording_off">Сохранение потока выключено</string>
-    <string name="listen_status_active">Прослушка активна</string>
+    <string name="listen_status_active">Передача звука активна</string>
     <string name="listen_status_recording">Идет запись</string>
     <string name="listen_status_connecting">Подключение к телефону…</string>
     <string name="listen_status_reconnecting">Восстановление связи</string>
-    <string name="listen_child_microphone_blocked">Android заблокировал микрофон после перезагрузки. Нажмите уведомление на детском телефоне, чтобы восстановить прослушивание.</string>
+    <string name="listen_child_microphone_blocked">Android заблокировал микрофон после перезагрузки. Нажмите уведомление на детском телефоне, чтобы восстановить передачу звука.</string>
     <string name="listen_child_microphone_permission_missing">На детском телефоне не разрешен доступ к микрофону.</string>
     <string name="listen_child_microphone_start_failed">Не удалось запустить микрофон детского телефона.</string>
     <string name="listen_recording_saved_enabled">Запись потока включена</string>
     <string name="listen_recording_start_failed">Не удалось начать запись потока</string>
     <string name="listen_recording_saved_file">Запись сохранена: %1$s</string>
     <string name="listen_recording_empty">Пока нет сохраненных записей</string>
-    <string name="listen_notification_channel">Прослушка</string>
-    <string name="listen_notification_channel_description">Уведомления для активной прослушки</string>
-    <string name="listen_notification_title">Прослушка</string>
+    <string name="listen_notification_channel">Звук вокруг</string>
+    <string name="listen_notification_channel_description">Уведомления для активной передачи звука</string>
+    <string name="listen_notification_title">Звук вокруг</string>
     <string name="listen_person_label">Сейчас выбран</string>
     <string name="listen_technical_show">Техническая информация</string>
     <string name="listen_technical_hide">Скрыть техническую информацию</string>

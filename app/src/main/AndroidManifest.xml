@@ -99,6 +99,17 @@
             android:theme="@style/Theme.ChildWatch.NoActionBar" />
 
         <!-- Child Selection Activity -->
+        <activity android:name=".FamilyJoinActivity" android:exported="true"
+            android:theme="@style/Theme.ChildWatch.NoActionBar">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="childwatch" android:host="family" android:path="/join" />
+            </intent-filter>
+        </activity>
+
+        <!-- Child Selection Activity -->
         <activity
             android:name=".ChildSelectionActivity"
             android:exported="false"

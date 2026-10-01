@@ -1,0 +1,12 @@
+<resources>
+    <string name="cw_distance_self">This is your phone</string>
+    <string name="cw_distance_person_missing">Distance unavailable: no person location</string>
+    <string name="cw_distance_own_missing">Distance unavailable: no location for your phone</string>
+    <string name="cw_distance_stale">Distance unavailable: locations are outdated</string>
+    <string name="cw_distance_inaccurate">Distance unavailable: location accuracy is too low</string>
+    <string name="cw_distance_nearby">Near you · straight line</string>
+    <string name="cw_distance_m">≈%1$d m · straight line</string>
+    <string name="cw_distance_km">≈%1$s km · straight line</string>
+    <string name="cw_distance_loading">Updating distance…</string>
+    <string name="cw_distance_unavailable">Distance unavailable: check connection</string>
+</resources>

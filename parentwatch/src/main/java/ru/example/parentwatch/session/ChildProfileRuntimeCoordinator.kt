@@ -61,9 +61,9 @@ class ChildProfileRuntimeCoordinator(context: Context) {
             putExtra("server_url", serverUrl)
             putExtra("device_id", childId)
         }
-        ContextCompat.startForegroundService(appContext, serviceIntent)
+        val started = LocationService.startTrackingService(appContext, serviceIntent)
         ChatBackgroundService.start(appContext, serverUrl, childId)
-        prefs.edit().putBoolean("service_running", true).apply()
+        prefs.edit().putBoolean("service_running", started).apply()
     }
 
     private fun stopRealtimeServices() {

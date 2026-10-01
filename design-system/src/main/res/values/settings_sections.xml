@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <declare-styleable name="CwSettingsSection">
+        <attr name="cwSectionTitle" format="string" />
+        <attr name="cwSectionDescription" format="string" />
+        <attr name="cwSectionIcon" format="reference" />
+        <attr name="cwSectionExpanded" format="boolean" />
+    </declare-styleable>
+    <string name="cw_settings_intro">Настройте семью, связь и уведомления. Изменения параметров сохраняются кнопкой внизу.</string>
+    <string name="cw_settings_family">Мой профиль и семья</string>
+    <string name="cw_settings_family_hint">Имя, значок на карте и подключение близких</string>
+    <string name="cw_settings_location_permissions">Геолокация и системные разрешения</string>
+    <string name="cw_settings_usage_access">Доступ к активности приложений</string>
+    <string name="cw_settings_service_control">Фоновая служба</string>
+    <string name="cw_settings_select_person">Выбрать человека</string>
+    <string name="cw_settings_edit_person">Изменить карточку участника</string>
+    <string name="cw_settings_sharing">Семейные функции</string>
+    <string name="cw_settings_sharing_hint">Геолокация, звук вокруг и фотографии</string>
+    <string name="cw_settings_notifications">Уведомления</string>
+    <string name="cw_settings_notifications_hint">Звук, вибрация и время показа</string>
+    <string name="cw_settings_background">Разрешения и работа в фоне</string>
+    <string name="cw_settings_background_hint">Геолокация, активность приложений и служба</string>
+    <string name="cw_settings_privacy">Приватность и приложение</string>
+    <string name="cw_settings_privacy_hint">Согласие, сведения и диагностика</string>
+    <string name="cw_settings_advanced">Дополнительно</string>
+    <string name="cw_settings_advanced_hint">Сервер, телефоны и сохранённые настройки</string>
+    <string name="cw_settings_collapsed">Раздел свёрнут</string>
+    <string name="cw_settings_expanded">Раздел раскрыт</string>
+    <string name="cw_settings_profile">Мой профиль: %1$s</string>
+    <string name="cw_settings_server_presets">Адрес подключения</string>
+    <string name="cw_settings_server_default">Основной сервер</string>
+    <string name="cw_settings_server_local">Локальный сервер</string>
+    <string name="cw_settings_device_details">Данные телефона</string>
+    <string name="cw_settings_saved_profiles">Сохранённые настройки</string>
+    <string name="cw_settings_saved_profiles_hint">Для переноса настроек и переключения между сохранёнными конфигурациями.</string>
+    <string name="cw_settings_child_access_hint">Защита настроек PIN-кодом сохраняется. Семейное подключение и работа служб управляются прежними действиями.</string>
+    <string name="cw_settings_link_hint">Приглашение для нового человека или телефона создаётся здесь; на втором телефоне его нужно принять.</string>
+    <string name="cw_settings_save_hint">Некоторые семейные действия применяются сразу; параметры этого экрана — после сохранения.</string>
+    <string name="cw_settings_unsaved_title">Сохранить изменения?</string>
+    <string name="cw_settings_unsaved_message">Вы изменили настройки. При выходе без сохранения эти изменения будут потеряны.</string>
+    <string name="cw_settings_unsaved_save">Сохранить</string>
+    <string name="cw_settings_unsaved_stay">Остаться</string>
+    <string name="cw_settings_unsaved_discard">Выйти без сохранения</string>
+    <string name="cw_settings_save_failed">Не удалось сохранить настройки. Изменения остались на экране — попробуйте ещё раз.</string>
+</resources>

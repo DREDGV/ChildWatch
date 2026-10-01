@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="child_connect_already_linked">Этот телефон уже подключён. Для смены владельца попросите взрослого переназначить его в настройках семьи.</string>
+    <string name="child_connect_existing_result">Этот телефон подключится к существующему ребёнку. Его имя и аватар сохранятся; второй человек в семье не появится.</string>
+    <string name="child_connect_new_result">После подтверждения в семье появится новый ребёнок с указанным именем. Этот телефон будет принадлежать ему.</string>
+    <string name="child_connect_expires">Можно подключиться до %1$s.</string>
+</resources>

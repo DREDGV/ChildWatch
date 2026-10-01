@@ -697,7 +697,8 @@ data class PhotoFileData(
     val timestamp: Long,
     val createdAt: String?,
     val downloadUrl: String,
-    val thumbnailUrl: String?
+    val thumbnailUrl: String?,
+    val requestId: String? = null
 )
 
 data class AudioGalleryResponse(

@@ -117,7 +117,7 @@ class PhotoCaptureService : Service() {
                                 cameraFacing = cameraFacing
                             )
                         } else {
-                            reportDispatchError(
+                            reportDispatchError(context, serverUrl, deviceId,
                                 requestId,
                                 IllegalStateException("Photo service stopped before dispatch")
                             )
@@ -129,7 +129,7 @@ class PhotoCaptureService : Service() {
                     context.startService(intent)
                 }
             } catch (error: Exception) {
-                reportDispatchError(requestId, error)
+                reportDispatchError(context, serverUrl, deviceId, requestId, error)
                 throw error
             }
         }
@@ -149,7 +149,7 @@ class PhotoCaptureService : Service() {
             true
         }
 
-        private fun reportDispatchError(requestId: String, error: Throwable) {
+        private fun reportDispatchError(context: Context, server: String, own: String, requestId: String, error: Throwable) {
             val reason = if (
                 error is SecurityException ||
                 error.javaClass.simpleName.contains("ForegroundServiceStartNotAllowed", true)
@@ -157,6 +157,10 @@ class PhotoCaptureService : Service() {
                 "camera_background_restricted"
             } else {
                 "photo_service_start_failed"
+            }
+            ru.example.parentwatch.utils.CameraDiagnostics.recordOutcome(context, server, own, reason)
+            CoroutineScope(Dispatchers.IO).launch {
+                NetworkClient(context.applicationContext).reportPhotoFailure(server, own, requestId, reason)
             }
             runCatching {
                 WebSocketManager.getClient()?.emit("photo_error", JSONObject().apply {
@@ -181,6 +185,7 @@ class PhotoCaptureService : Service() {
     private lateinit var effectiveContextResolver: ChildEffectiveContextResolver
     private var listenersRegistered = false
     private var cameraForegroundPrimed = false
+    private var captureWatchdog: Job? = null
     private val requestLock = Any()
     private val activePhotoRequests = mutableSetOf<String>()
     private val recentPhotoRequests = ArrayDeque<String>()
@@ -408,7 +413,7 @@ class PhotoCaptureService : Service() {
         val requestedFacing = resolveRequestedFacing(service, cameraFacing)
         if (requestedFacing == null) {
             Log.e(TAG, "No camera available for request: $requestId")
-            completePhotoRequestAfterError(requestId, "Requested camera not available")
+            completePhotoRequestAfterError(requestId, "camera_not_available")
             updateNotification(R.string.photo_capture_capture_error)
             return
         }
@@ -416,7 +421,13 @@ class PhotoCaptureService : Service() {
         updateNotification(R.string.photo_capture_request_capturing)
         pauseAudioForPhoto()
 
+        captureWatchdog?.cancel()
+        captureWatchdog = serviceScope.launch {
+            delay(30_000)
+            service.cancelCapture("photo_capture_timeout")
+        }
         service.capturePhoto(requestedFacing) { photoFile ->
+            captureWatchdog?.cancel(); captureWatchdog = null
             if (photoFile != null) {
                 Log.d(TAG, "Photo captured for request: $requestId")
                 // The camera no longer needs the microphone. Resume listening before JPEG
@@ -448,20 +459,8 @@ class PhotoCaptureService : Service() {
         } else {
             CameraService.CameraFacing.BACK
         }
-        val fallback = if (preferred == CameraService.CameraFacing.BACK) {
-            CameraService.CameraFacing.FRONT
-        } else {
-            CameraService.CameraFacing.BACK
-        }
-
-        return when {
-            service.hasCameraFacing(preferred) -> preferred
-            service.hasCameraFacing(fallback) -> {
-                Log.w(TAG, "Requested camera $preferredFacing is unavailable, using $fallback")
-                fallback
-            }
-            else -> null
-        }
+        // A named camera must never silently become the opposite camera.
+        return preferred.takeIf { service.hasCameraFacing(it) }
     }
 
     private fun beginPhotoRequest(requestId: String): PhotoRequestClaim {
@@ -534,64 +533,45 @@ class PhotoCaptureService : Service() {
      * Send photo via WebSocket as base64
      */
     private fun sendPhotoViaWebSocket(photoFile: File, requestId: String) {
+        val captureServer = serverUrl
+        val captureDevice = deviceId
+        val capturedAt = photoFile.lastModified().takeIf { it > 0 } ?: System.currentTimeMillis()
         serviceScope.launch(Dispatchers.IO) {
+            var uploaded = false
             try {
+                if (captureServer.isNullOrBlank() || captureDevice.isNullOrBlank()) throw IllegalStateException("photo_context_missing")
+                repeat(2) { attempt ->
+                    if (serverUrl != captureServer || deviceId != captureDevice) throw IllegalStateException("photo_target_mismatch")
+                    if (!uploaded) {
+                        uploaded = networkClient?.uploadPhoto(captureServer, photoFile, requestId, capturedAt, captureDevice) == true
+                        if (!uploaded && attempt < 1) delay(2000L * (attempt + 1))
+                    }
+                }
+                if (!uploaded) throw IllegalStateException("photo_upload_failed")
+                ru.example.parentwatch.utils.CameraDiagnostics.recordOutcome(this@PhotoCaptureService, captureServer, captureDevice, null)
+                // HTTP is the durable result. A disconnected socket must not discard the image.
                 val client = WebSocketManager.getClient()
-                if (client == null || !client.isReady()) {
-                    throw IllegalStateException("WebSocket client is not ready")
+                if (client?.isReady() == true) {
+                    runCatching {
+                        buildPreviewBase64(photoFile)?.let { base64 ->
+                            client.emit("photo", JSONObject().put("photo", base64).put("requestId", requestId)
+                                .put("timestamp", capturedAt).put("deviceId", captureDevice))
+                        }
+                    }.onFailure { Log.w(TAG, "Preview unavailable; parent can recover the saved result", it) }
                 }
-
-                val base64 = buildPreviewBase64(photoFile)
-                    ?: throw IllegalStateException("Failed to encode preview photo")
-                
-                val data = org.json.JSONObject().apply {
-                    put("photo", base64)
-                    put("requestId", requestId)
-                    put("timestamp", System.currentTimeMillis())
-                    put("deviceId", deviceId)
-                }
-                
-                client.emit("photo", data)
-                Log.d(TAG, "Photo preview sent via WebSocket: requestId=$requestId, base64Length=${base64.length}")
-                
-                withContext(Dispatchers.Main) {
-                    updateNotification(R.string.photo_capture_sent)
-                }
-
-                val uploadSuccess = uploadPhotoForGallery(photoFile)
-                if (uploadSuccess) {
-                    Log.d(TAG, "Photo uploaded for gallery after preview send: requestId=$requestId")
-                } else {
-                    Log.w(TAG, "Photo preview delivered, but gallery upload failed: requestId=$requestId")
-                }
-                
-                // Clean up
+                withContext(Dispatchers.Main) { updateNotification(R.string.photo_capture_sent) }
                 photoFile.delete()
-                delay(2000)
-                updateNotification(R.string.photo_capture_ready)
-                finishPhotoRequest(requestId)
-                
-            } catch (e: Exception) {
-                Log.e(TAG, "Error sending photo via WebSocket", e)
-                val errorSent = sendPhotoError(requestId, e.message ?: "Unknown error")
-                withContext(Dispatchers.Main) {
-                    updateNotification(R.string.photo_capture_send_error)
-                }
-                if (errorSent) {
-                    finishPhotoRequest(requestId)
-                } else {
-                    abandonPhotoRequest(requestId)
-                }
-            }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                sendPhotoError(requestId, error.message ?: "photo_upload_failed")
+                withContext(Dispatchers.Main) { updateNotification(R.string.photo_capture_send_error) }
+                // Keep the source file for diagnosis/recovery when upload did not succeed.
+            } finally { finishPhotoRequest(requestId) }
         }
     }
 
     private suspend fun uploadPhotoForGallery(photoFile: File): Boolean {
-        val safeServerUrl = serverUrl
-        if (safeServerUrl.isNullOrBlank()) {
-            return false
-        }
-
+        val safeServerUrl = serverUrl?.takeIf { it.isNotBlank() } ?: return false
         return networkClient?.uploadPhoto(safeServerUrl, photoFile) ?: false
     }
 
@@ -647,6 +627,12 @@ class PhotoCaptureService : Service() {
      * Send photo error via WebSocket
      */
     private fun sendPhotoError(requestId: String, error: String): Boolean {
+        val sourceServer = serverUrl; val sourceDevice = deviceId
+        if (!sourceServer.isNullOrBlank() && !sourceDevice.isNullOrBlank())
+            ru.example.parentwatch.utils.CameraDiagnostics.recordOutcome(this, sourceServer, sourceDevice, error)
+        if (!sourceServer.isNullOrBlank() && !sourceDevice.isNullOrBlank()) serviceScope.launch(Dispatchers.IO) {
+            networkClient?.reportPhotoFailure(sourceServer, sourceDevice, requestId, error)
+        }
         try {
             val client = WebSocketManager.getClient()
             if (client == null || !client.isReady()) {
@@ -713,6 +699,7 @@ class PhotoCaptureService : Service() {
         Log.d(TAG, "PhotoCaptureService destroyed")
         WebSocketManager.removeCommandListener(commandListener)
         listenersRegistered = false
+        captureWatchdog?.cancel()
         cameraService?.release()
         cameraService = null
 

@@ -41,6 +41,9 @@ class UpdateManager(
     private val currentVersionCode: Int = BuildConfig.VERSION_CODE
 ) {
 
+    enum class CheckState { SKIPPED, FAILED, CURRENT, AVAILABLE }
+    var lastCheckState = CheckState.SKIPPED
+        private set
     private val preferences = UpdatePreferences(context)
 
     /**
@@ -81,7 +84,8 @@ class UpdateManager(
      * the installed version already being current. The caller cannot tell those
      * apart, and should not: none of them deserves a message.
      */
-    suspend fun checkForUpdate(serverBase: String): UpdateRelease? {
+    suspend fun checkForUpdate(serverBase: String, force: Boolean = false): UpdateRelease? {
+        lastCheckState = CheckState.FAILED
         val base = serverBase.trim().trimEnd('/')
         if (base.isBlank()) {
             Log.d(TAG, "The update check is skipped: no server address is configured")
@@ -95,7 +99,8 @@ class UpdateManager(
         // "Server URL is not configured" — seen on the owner's phone, not in theory.
         serverBaseUrl = base
 
-        if (checkedRecently()) {
+        if (!force && checkedRecently()) {
+            lastCheckState = CheckState.SKIPPED
             Log.d(TAG, "An update was checked for less than a day ago; skipping")
             return null
         }
@@ -113,7 +118,6 @@ class UpdateManager(
             // application of the family — so it is not an error and, more
             // importantly, it is not a failure of the check.
             Log.d(TAG, "The manifest describes nothing usable for $packageName")
-            preferences.recordSuccessfulCheck(System.currentTimeMillis(), currentVersionCode)
             return null
         }
 
@@ -123,6 +127,8 @@ class UpdateManager(
         preferences.recordSuccessfulCheck(System.currentTimeMillis(), currentVersionCode)
 
         if (release.versionCode <= currentVersionCode) {
+            lastCheckState = CheckState.CURRENT
+            preferences.forgetOffered()
             Log.d(
                 TAG,
                 "Already current: installed ${currentVersionCode}, published ${release.versionCode}"
@@ -137,6 +143,7 @@ class UpdateManager(
         )
         // Remembered before it is shown: the offer must outlive the session that
         // found it, because the next check is a day away.
+        lastCheckState = CheckState.AVAILABLE
         preferences.rememberOffered(raw, release.versionCode)
         return release
     }
@@ -411,7 +418,7 @@ class UpdateManager(
         private const val TAG = "UpdateManager"
 
         /** How often the server is asked at most. */
-        private const val CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L
+        private const val CHECK_INTERVAL_MS = 15L * 60L * 1000L
 
         /**
          * The largest package this application will accept.

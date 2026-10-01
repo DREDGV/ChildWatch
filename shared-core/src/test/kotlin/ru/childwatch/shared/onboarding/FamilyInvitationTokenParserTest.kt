@@ -21,6 +21,13 @@ class FamilyInvitationTokenParserTest {
         assertNull(FamilyInvitationTokenParser.parse("childwatch://family/join?token=short"))
         assertNull(FamilyInvitationTokenParser.parse("https://example.test/?token=$token"))
     }
+
+    @Test
+    fun rejectsLookalikePathsCredentialsAndDuplicateTokens() {
+        assertNull(FamilyInvitationTokenParser.parse("childwatch://family/join-other?token=$token"))
+        assertNull(FamilyInvitationTokenParser.parse("childwatch://user@family/join?token=$token"))
+        assertNull(FamilyInvitationTokenParser.parse("childwatch://family/join?token=$token&token=${"b".repeat(64)}"))
+    }
 }
 
 class FamilyOnboardingRolePolicyTest {

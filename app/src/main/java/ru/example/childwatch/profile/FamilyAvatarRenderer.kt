@@ -18,6 +18,27 @@ data class FamilyAvatarPreset(val storageValue: String, @DrawableRes val drawabl
 object FamilyAvatarRenderer {
 
     private const val TAG = "FamilyAvatarRenderer"
+    private val mapPhotos = object : android.util.LruCache<String, android.graphics.Bitmap>(3 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: android.graphics.Bitmap): Int = value.byteCount
+    }
+    private val failedMapPhotos = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
+    /** IO only; keep a copy because clearing a Glide target can recycle its bitmap. */
+    fun preloadMapPhoto(context: Context, value: String?) {
+        val url = absoluteUrl(context, value) ?: return
+        if (mapPhotos.get(url) != null) return
+        val now = android.os.SystemClock.elapsedRealtime()
+        if (failedMapPhotos[url]?.let { now - it < 30_000L } == true) return
+        val target = Glide.with(context.applicationContext).asBitmap().load(url)
+            .override(256, 256).timeout(5000).submit()
+        try {
+            val bitmap = target.get(6, java.util.concurrent.TimeUnit.SECONDS)
+            val copy = bitmap.copy(android.graphics.Bitmap.Config.ARGB_8888, false)
+            if (copy != null) { mapPhotos.put(url, copy); failedMapPhotos.remove(url) }
+        } catch (error: Exception) {
+            failedMapPhotos[url] = android.os.SystemClock.elapsedRealtime()
+        } finally { Glide.with(context.applicationContext).clear(target) }
+    }
 
     /**
      * Where an uploaded picture lives, as the server writes it in a profile.
@@ -111,6 +132,8 @@ object FamilyAvatarRenderer {
         displayName: String? = null,
         @DrawableRes fallbackRes: Int = R.drawable.avatar_family_mint
     ) {
+        // A delayed network photo must not replace a newly chosen preset/local crop.
+        runCatching { Glide.with(view).clear(view) }
         view.imageTintList = null
         val letter = LetterAvatarFactory.create(view.context, displayName)
 
@@ -174,10 +197,11 @@ object FamilyAvatarRenderer {
         if (value.isBlank()) return null
         AvatarPresetCatalog.createDrawable(context, value)?.let { return it }
         legacyPreset(value)?.let { return ContextCompat.getDrawable(context, it.drawableRes) }
-        // A picture on the server cannot be turned into a drawable synchronously;
-        // [bind] fetches it. Drawing callers that need a bitmap fall back to the
-        // letter, which is better than fetching on the drawing thread.
-        if (value.startsWith(UPLOADED_AVATAR_PREFIX)) return null
+        // Map callers prefetch photos on IO; drawing only reads the bounded cache.
+        if (value.startsWith(UPLOADED_AVATAR_PREFIX)) {
+            val url = absoluteUrl(context, value) ?: return null
+            return mapPhotos.get(url)?.let { android.graphics.drawable.BitmapDrawable(context.resources, it) }
+        }
         return runCatching {
             context.contentResolver.openInputStream(Uri.parse(value))?.use { stream ->
                 Drawable.createFromStream(stream, value)

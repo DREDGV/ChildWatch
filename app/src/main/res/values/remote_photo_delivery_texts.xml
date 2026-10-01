@@ -1,0 +1,20 @@
+<resources>
+ <string name="remote_photo_gallery_more">Показать ещё</string>
+ <string name="remote_photo_gallery_retry">Не удалось обновить снимки. Нажмите здесь, чтобы повторить.</string>
+ <string name="remote_photo_request_remaining">Ожидаем снимок · осталось до %1$d с</string>
+ <string name="remote_photo_save_action">Сохранить на телефон</string>
+ <string name="remote_photo_share_action">Поделиться</string>
+ <string name="remote_photo_open_action">Открыть снимок</string>
+ <string name="remote_photo_upload_failed">Снимок сделан, но телефон ребёнка не смог загрузить его. Проверьте интернет и повторите запрос.</string>
+ <string name="remote_photo_storage_permission">Для сохранения разрешите доступ к хранилищу в настройках приложения.</string>
+ <string name="remote_photo_family_denied">Фото недоступно</string>
+ <string name="remote_photo_family_denied_hint">В настройках семьи нет разрешения на удалённое фото этого ребёнка.</string>
+ <string name="remote_photo_gallery_title">Галерея</string>
+ <string name="remote_photo_gallery_summary">Снимков: %1$d. Удерживайте фото, чтобы сохранить или поделиться.</string>
+ <string name="remote_photo_camera_back">Основная</string>
+ <string name="remote_photo_camera_front">Фронтальная</string>
+ <string name="remote_photo_gallery_all">Все снимки</string>
+ <string name="remote_photo_gallery_previous">Назад</string>
+ <string name="remote_photo_gallery_next">Далее</string>
+ <string name="remote_photo_gallery_page">Страница %1$d</string>
+</resources>

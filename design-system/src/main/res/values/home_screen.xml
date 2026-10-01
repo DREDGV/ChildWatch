@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cw_home_title">Моя семья</string>
+    <string name="cw_home_role_child">Ребёнок</string>
+    <string name="cw_home_role_adult">Взрослый</string>
+    <string name="cw_home_recent">Недавно на связи</string>
+    <string name="cw_home_seen_recently">Был на связи недавно</string>
+    <string name="cw_home_offline">Нет свежих данных</string>
+    <string name="cw_home_presence_unknown">Состояние неизвестно</string>
+    <string name="cw_home_selected">выбран</string>
+    <string name="cw_home_family_add">Вся семья и подключение участника</string>
+    <string name="cw_home_family_all">Вся семья</string>
+    <string name="cw_home_own_profile">Мой профиль</string>
+    <string name="cw_home_sound">Звук вокруг</string>
+    <string name="cw_home_sound_hint">Рядом с ребёнком</string>
+    <string name="cw_home_photo_hint">Новый снимок</string>
+    <string name="cw_home_chat_hint">Написать семье</string>
+    <string name="cw_home_usage">Активность</string>
+    <string name="cw_home_usage_hint">За день</string>
+    <string name="cw_home_signal">Сигнал</string>
+    <string name="cw_home_signal_hint">Позвать близкого</string>
+    <string name="cw_home_map">Карта семьи</string>
+    <string name="cw_home_map_hint">Где близкие</string>
+    <string name="cw_home_actions">Действия</string>
+    <string name="cw_home_phone_link">Связь этого телефона</string>
+    <string name="cw_home_attention">Настройка и работа в фоне</string>
+    <string name="cw_home_attention_short">Требует внимания</string>
+    <string name="cw_home_update_available">Есть обновление</string>
+    <string name="cw_home_details">Состояние телефона</string>
+    <string name="cw_home_settings">Настройки</string>
+    <string name="cw_home_close">Закрыть</string>
+    <string name="cw_home_child_running">Фоновая служба включена</string>
+    <string name="cw_home_child_stopped">Фоновая служба выключена</string>
+    <string name="cw_home_child_permission">Геолокация не разрешена</string>
+    <string name="cw_home_child_unconfigured">Подключение к семье не настроено</string>
+    <string name="cw_home_child_configured">Телефон подключён к семье</string>
+    <style name="Widget.ChildWatch.Home.Card" parent="Widget.ChildWatch.Card.Interactive">
+        <item name="cardCornerRadius">16dp</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeColor">@color/cw_color_diagnostics_outline</item>
+    </style>
+    <style name="TextAppearance.ChildWatch.Home.Title" parent="TextAppearance.ChildWatch.Title">
+        <item name="android:textSize">15sp</item>
+    </style>
+    <style name="TextAppearance.ChildWatch.Home.Supporting" parent="TextAppearance.ChildWatch.Body">
+        <item name="android:textSize">12sp</item>
+    </style>
+</resources>

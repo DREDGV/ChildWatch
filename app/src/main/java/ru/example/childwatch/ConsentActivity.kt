@@ -70,11 +70,9 @@ class ConsentActivity : AppCompatActivity() {
 
         Toast.makeText(this, getString(R.string.consent_given), Toast.LENGTH_SHORT).show()
 
-        if (PermissionHelper.hasAllRequiredPermissions(this)) {
-            proceedToMainActivity()
-        } else {
-            showPermissionDialog()
-        }
+        // Joining an adult must not require microphone or background location.
+        // Individual features request their permissions when the person uses them.
+        proceedToMainActivity()
     }
 
     private fun showPermissionDialog() {
@@ -206,8 +204,8 @@ class ConsentActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        if (hasConsent(this) && PermissionHelper.hasAllRequiredPermissions(this)) {
-            Log.d(TAG, "Consent given and all permissions granted, proceeding to main activity")
+        if (hasConsent(this)) {
+            Log.d(TAG, "Consent given, proceeding to family setup or main activity")
             proceedToMainActivity()
         }
     }

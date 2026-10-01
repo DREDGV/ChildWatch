@@ -37,6 +37,7 @@ import ru.example.childwatch.diagnostics.PingStatus
 import android.graphics.Color
 import ru.example.childwatch.network.DeviceStatus
 import ru.example.childwatch.network.NetworkClient
+import ru.example.childwatch.location.FamilyLocationSummary
 import ru.example.childwatch.network.WebSocketManager
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.profile.ParentParticipantNameResolver
@@ -86,8 +87,11 @@ class AudioStreamingActivity : AppCompatActivity() {
     private lateinit var audioPrefs: SharedPreferences
     private lateinit var secureSettings: SecureSettingsManager
     private lateinit var effectiveContextResolver: ParentEffectiveContextResolver
+    private var listeningTargetValidated = false
     private lateinit var participantNameResolver: ParentParticipantNameResolver
     private val networkClient by lazy { NetworkClient(this) }
+    private val familyLocationSummary by lazy { FamilyLocationSummary(this, networkClient) }
+    private var personLocationJob: Job? = null
     private val gson by lazy { Gson() }
 
     // Audio Filter Management
@@ -219,6 +223,28 @@ class AudioStreamingActivity : AppCompatActivity() {
         serverUrl = resolvedServerUrl
         secureSettings.setServerUrl(serverUrl)
 
+        lifecycleScope.launch {
+            val allowed = runCatching {
+                ru.example.childwatch.profile.ParentListeningTargetPolicy(this@AudioStreamingActivity)
+                    .isChildDevice(deviceId)
+            }.getOrDefault(false)
+            if (!isActive || isFinishing) return@launch
+            if (!allowed) {
+                Toast.makeText(this@AudioStreamingActivity, R.string.listen_child_only, Toast.LENGTH_LONG).show()
+                finish()
+                return@launch
+            }
+            if ((AudioPlaybackService.isPlaying || AudioPlaybackService.isSessionDesired(this@AudioStreamingActivity)) &&
+                AudioPlaybackService.sessionTargetId(this@AudioStreamingActivity) != deviceId) {
+                Toast.makeText(this@AudioStreamingActivity, R.string.listen_other_child_session, Toast.LENGTH_LONG).show()
+                finish()
+                return@launch
+            }
+            initializeValidatedListeningScreen()
+        }
+    }
+
+    private fun initializeValidatedListeningScreen() {
         loadAudioSettings()
         loadCachedStatus()
         setupUI()
@@ -234,11 +260,15 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
 
         updateUI()
+        listeningTargetValidated = true
+        resumeListeningScreen()
     }
 
     private fun resolveTargetDeviceIdForStreaming(): String? {
-        val fromIntent = intent.getStringExtra(EXTRA_DEVICE_ID)?.trim()
-        return effectiveContextResolver.resolveTargetDeviceCandidates(fromIntent).firstOrNull()
+        if (intent.hasExtra(EXTRA_DEVICE_ID)) {
+            return intent.getStringExtra(EXTRA_DEVICE_ID)?.trim()?.takeIf { it.isNotEmpty() }
+        }
+        return effectiveContextResolver.resolveTargetDeviceId()?.trim()?.takeIf { it.isNotEmpty() }
     }
 
     private fun loadAudioSettings() {
@@ -418,6 +448,8 @@ class AudioStreamingActivity : AppCompatActivity() {
 
     private fun applySelectedPerson(option: ParentLinkedChildOption) {
         deviceId = option.deviceId
+        binding.audioPersonLocation.text = getString(R.string.family_location_unavailable)
+        startPersonLocationUpdates()
         childBatteryLevel = null
         childCharging = null
         childStatusTimestamp = null
@@ -1012,14 +1044,26 @@ class AudioStreamingActivity : AppCompatActivity() {
                     !streamingStatus.ownerStale
 
             if (busyByAnotherParent) {
-                val ownerLabel = ownerDisplayName.ifBlank { ownerParentId }
-                busyOwnerLabel = ownerLabel
-                takeoverRequestSentAt = 0L
-                updateStatusBusy(ownerLabel)
-                finishStreamingTransition()
-                startTakeoverStatusPolling()
-                updateUI()
-                return@launch
+                // The server may admit a second adult from the same family to
+                // the existing stream. Ask it before presenting takeover UI.
+                val join = runCatching {
+                    networkClient.startAudioStreaming(
+                        serverUrl, deviceId, desiredRecordingEnabled,
+                        STREAM_TIMEOUT_MINUTES, selectedSampleRate
+                    )
+                }.getOrNull()
+                if (join?.success == true) {
+                    Log.i(TAG, "Joined the active family listening session")
+                } else {
+                    val ownerLabel = ownerDisplayName.ifBlank { ownerParentId }
+                    busyOwnerLabel = ownerLabel
+                    takeoverRequestSentAt = 0L
+                    updateStatusBusy(ownerLabel)
+                    finishStreamingTransition()
+                    startTakeoverStatusPolling()
+                    updateUI()
+                    return@launch
+                }
             }
 
             busyOwnerLabel = null
@@ -1371,6 +1415,12 @@ class AudioStreamingActivity : AppCompatActivity() {
             else -> getString(R.string.listen_state_stopped)
         }
         binding.statusText.setTextColor(getColor(android.R.color.white))
+        val firstAudioAt = AudioPlaybackService.firstChunkTimestamp
+        binding.sessionElapsedText.text = when {
+            !isPlaying -> getString(R.string.listen_session_elapsed_idle)
+            firstAudioAt <= 0L -> getString(R.string.listen_session_elapsed_waiting)
+            else -> formatListeningDuration((System.currentTimeMillis() - firstAudioAt).coerceAtLeast(0L))
+        }
         binding.statusBadgeCard.setCardBackgroundColor(
             if (isPlaying) Color.parseColor("#1FBBF7D0") else Color.parseColor("#1FFFFFFF")
         )
@@ -1420,15 +1470,17 @@ class AudioStreamingActivity : AppCompatActivity() {
 
             if (streamingStartTime > 0L) {
                 val currentTime = System.currentTimeMillis()
-                val duration = currentTime - streamingStartTime
+                val duration = if (firstAudioAt > 0L) currentTime - firstAudioAt else 0L
 
                 if (duration >= 0) {
                     val startTimeFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
                     binding.startTimeText.text = startTimeFormat.format(Date(streamingStartTime))
 
-                    val durationFormat = SimpleDateFormat("HH:mm:ss", Locale.getDefault())
-                    durationFormat.timeZone = TimeZone.getTimeZone("UTC")
-                    binding.durationText.text = durationFormat.format(Date(duration))
+                    binding.durationText.text = if (firstAudioAt > 0L) {
+                        formatListeningDuration(duration)
+                    } else {
+                        getString(R.string.listen_session_elapsed_waiting)
+                    }
                 }
             }
             binding.chunksReceivedText.text = AudioPlaybackService.chunksReceived.toString()
@@ -1440,8 +1492,26 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
     }
 
+    private fun formatListeningDuration(durationMs: Long): String {
+        val seconds = durationMs / 1000L
+        val hours = seconds / 3600L
+        val minutes = (seconds / 60L) % 60L
+        val remainder = seconds % 60L
+        return if (hours > 0L) {
+            String.format(Locale.getDefault(), "%d:%02d:%02d", hours, minutes, remainder)
+        } else {
+            String.format(Locale.getDefault(), "%02d:%02d", minutes, remainder)
+        }
+    }
+
     override fun onResume() {
         super.onResume()
+        if (!listeningTargetValidated) return
+        resumeListeningScreen()
+    }
+
+    private fun resumeListeningScreen() {
+        startPersonLocationUpdates()
         if (AudioPlaybackService.isSessionDesired(this) && !AudioPlaybackService.isPlaying) {
             AudioPlaybackService.restoreIfNeeded(this)
             bindPlaybackService()
@@ -1454,6 +1524,8 @@ class AudioStreamingActivity : AppCompatActivity() {
 
     override fun onPause() {
         super.onPause()
+        personLocationJob?.cancel()
+        personLocationJob = null
         stopChildStatusPolling()
         stopTakeoverStatusPolling()
     }
@@ -1472,6 +1544,19 @@ class AudioStreamingActivity : AppCompatActivity() {
             serviceBound = false
         }
         binding.advancedAudioVisualizer.stop()
+    }
+
+    private fun startPersonLocationUpdates() {
+        personLocationJob?.cancel()
+        personLocationJob = lifecycleScope.launch {
+            while (isActive) {
+                val requestedId = deviceId
+                val ownId = effectiveContextResolver.resolveOwnParentId()
+                val summary = familyLocationSummary.forPerson(requestedId, ownId)
+                if (requestedId == deviceId) binding.audioPersonLocation.text = summary
+                delay(30_000L)
+            }
+        }
     }
 
     private fun bindPlaybackService() {

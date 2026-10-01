@@ -1,272 +1,46 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.coordinatorlayout.widget.CoordinatorLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    xmlns:tools="http://schemas.android.com/tools"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@drawable/bg_main_gradient">
-
-    <com.google.android.material.appbar.AppBarLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@android:color/transparent"
-        app:elevation="0dp">
-
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-            android:paddingHorizontal="4dp"
-            app:navigationIcon="@drawable/ic_arrow_back"
-            app:navigationIconTint="@android:color/white"
-            app:title="@string/remote_camera_title"
-            app:titleCentered="true"
-            app:titleTextColor="@android:color/white" />
-
-    </com.google.android.material.appbar.AppBarLayout>
-
-    <androidx.core.widget.NestedScrollView
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:clipToPadding="false"
-        android:fillViewport="true"
-        android:paddingBottom="24dp"
-        app:layout_behavior="@string/appbar_scrolling_view_behavior">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingHorizontal="16dp"
-            android:paddingTop="12dp">
-
-            <!-- ═══════ Видоискатель ═══════ -->
-            <FrameLayout
-                android:layout_width="match_parent"
-                android:layout_height="260dp"
-                android:background="@drawable/bg_viewfinder">
-
-                <!-- Фон: последний полученный кадр или плейсхолдер -->
-                <ImageView
-                    android:id="@+id/imgLastPhoto"
-                    android:layout_width="match_parent"
-                    android:layout_height="match_parent"
-                    android:contentDescription="@string/remote_photo_preview"
-                    android:scaleType="centerCrop"
-                    android:visibility="gone"
-                    tools:ignore="ContentDescription" />
-
-                <ImageView
-                    android:id="@+id/imgViewfinderPlaceholder"
-                    android:layout_width="48dp"
-                    android:layout_height="48dp"
-                    android:layout_gravity="center"
-                    android:alpha="0.35"
-                    android:src="@drawable/ic_photo_placeholder"
-                    tools:ignore="ContentDescription" />
-
-                <!-- Пилюля выбора ребёнка (верхний левый угол) -->
-                <LinearLayout
-                    android:id="@+id/pillChildSelector"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="top|start"
-                    android:layout_marginStart="12dp"
-                    android:layout_marginTop="12dp"
-                    android:background="@drawable/bg_pill_overlay"
-                    android:clickable="true"
-                    android:focusable="true"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:paddingHorizontal="10dp"
-                    android:paddingVertical="6dp">
-
-                    <com.google.android.material.imageview.ShapeableImageView
-                        android:id="@+id/imgChildAvatar"
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:contentDescription="@string/family_profile_avatar_description"
-                        android:scaleType="centerCrop"
-                        android:src="@drawable/avatar_family_mint"
-                        app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.ChildWatch.Avatar" />
-
-                    <ImageView
-                        android:id="@+id/imgOnlineDot"
-                        android:layout_width="6dp"
-                        android:layout_height="6dp"
-                        android:layout_marginStart="6dp"
-                        android:src="@drawable/ic_dot_online_green"
-                        tools:ignore="ContentDescription" />
-
-                    <TextView
-                        android:id="@+id/tvChildName"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="6dp"
-                        android:textColor="@android:color/white"
-                        android:textSize="12sp"
-                        android:textStyle="bold"
-                        tools:text="Лёва" />
-
-                    <ImageView
-                        android:layout_width="12dp"
-                        android:layout_height="12dp"
-                        android:layout_marginStart="4dp"
-                        android:src="@drawable/ic_chevron_down"
-                        tools:ignore="ContentDescription" />
-
-                </LinearLayout>
-
-                <!-- Таймстемп последнего кадра (нижний правый угол) -->
-                <TextView
-                    android:id="@+id/tvTimestamp"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="bottom|end"
-                    android:layout_marginEnd="12dp"
-                    android:layout_marginBottom="12dp"
-                    android:background="@drawable/bg_pill_overlay"
-                    android:paddingHorizontal="8dp"
-                    android:paddingVertical="4dp"
-                    android:textColor="#C7C7CC"
-                    android:textSize="11sp"
-                    tools:text="2 мин назад" />
-
-                <!-- Статус-пилюля (под именем ребёнка) -->
-                <TextView
-                    android:id="@+id/statusText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="top|start"
-                    android:layout_marginStart="12dp"
-                    android:layout_marginTop="44dp"
-                    android:background="@drawable/bg_remote_photo_status_chip"
-                    android:paddingHorizontal="10dp"
-                    android:paddingVertical="4dp"
-                    android:text="@string/remote_camera_status_ready"
-                    android:textColor="@android:color/white"
-                    android:textSize="11sp"
-                    android:textStyle="bold"
-                    tools:text="Устройство на связи" />
-
-            </FrameLayout>
-
-            <!-- ═══════ Панель управления (3 круглые кнопки) ═══════ -->
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="16dp"
-                android:gravity="center"
-                android:orientation="horizontal">
-
-                <!-- Обновить (44dp) -->
-                <ImageView
-                    android:id="@+id/btnRefresh"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:background="@drawable/bg_circle_button_secondary"
-                    android:clickable="true"
-                    android:contentDescription="@string/remote_camera_refresh_gallery"
-                    android:focusable="true"
-                    android:padding="12dp"
-                    android:src="@drawable/ic_refresh"
-                    app:tint="?attr/colorOnSurface" />
-
-                <Space
-                    android:layout_width="28dp"
-                    android:layout_height="0dp" />
-
-                <!-- Сделать фото (72dp, акцентная) -->
-                <ImageView
-                    android:id="@+id/btnTakePhoto"
-                    android:layout_width="72dp"
-                    android:layout_height="72dp"
-                    android:background="@drawable/bg_circle_button_primary"
-                    android:clickable="true"
-                    android:contentDescription="@string/remote_camera_take_photo"
-                    android:focusable="true"
-                    android:padding="20dp"
-                    android:src="@drawable/ic_camera"
-                    app:tint="?attr/colorOnPrimary" />
-
-                <Space
-                    android:layout_width="28dp"
-                    android:layout_height="0dp" />
-
-                <!-- Сменить камеру (44dp) -->
-                <ImageView
-                    android:id="@+id/btnSwitchCamera"
-                    android:layout_width="44dp"
-                    android:layout_height="44dp"
-                    android:background="@drawable/bg_circle_button_secondary"
-                    android:clickable="true"
-                    android:contentDescription="@string/remote_camera_switch_camera"
-                    android:focusable="true"
-                    android:padding="12dp"
-                    android:src="@drawable/ic_camera_rotate"
-                    app:tint="?attr/colorOnSurface" />
-
-            </LinearLayout>
-
-            <!-- Подпись активной камеры -->
-            <TextView
-                android:id="@+id/tvCameraLabel"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:gravity="center"
-                android:textColor="?attr/colorOnSurfaceVariant"
-                android:textSize="12sp"
-                android:text="@string/remote_camera_hint_back" />
-
-            <!-- ═══════ Лента последних снимков ═══════ -->
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="20dp"
-                android:text="@string/remote_camera_recent_photos"
-                android:textAppearance="?attr/textAppearanceTitleMedium"
-                android:textColor="?attr/colorOnSurface" />
-
-            <TextView
-                android:id="@+id/tvPhotosEmptyHint"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:text="@string/remote_camera_gallery_subtitle_empty"
-                android:textAppearance="?attr/textAppearanceBodyMedium"
-                android:textColor="?attr/colorOnSurfaceVariant" />
-
-            <FrameLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp">
-
-                <androidx.recyclerview.widget.RecyclerView
-                    android:id="@+id/rvRecentPhotos"
-                    android:layout_width="match_parent"
-                    android:layout_height="72dp"
-                    android:clipToPadding="false"
-                    android:visibility="gone"
-                    tools:itemCount="4"
-                    tools:listitem="@layout/item_photo_thumbnail_horizontal"
-                    tools:visibility="visible" />
-
-                <com.google.android.material.progressindicator.CircularProgressIndicator
-                    android:id="@+id/progressIndicator"
-                    android:layout_width="40dp"
-                    android:layout_height="40dp"
-                    android:layout_gravity="center"
-                    android:indeterminate="true"
-                    android:visibility="gone"
-                    app:indicatorColor="?attr/colorPrimary"
-                    app:trackColor="?attr/colorSurfaceVariant" />
-
-            </FrameLayout>
-
-            <!-- Скрытые элементы для совместимости с Activity (не отображаются) -->
-        </LinearLayout>
-
-    </androidx.core.widget.NestedScrollView>
-
-</androidx.coordinatorlayout.widget.CoordinatorLayout>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+ android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="@color/cw_color_background">
+ <com.google.android.material.appbar.MaterialToolbar android:id="@+id/toolbar" android:layout_width="match_parent" android:layout_height="56dp"
+  app:title="@string/remote_camera_title" app:titleCentered="true" app:titleTextColor="?attr/colorOnSurface"
+  app:navigationIcon="@drawable/ic_arrow_back" app:navigationIconTint="?attr/colorOnSurface" />
+ <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical"
+  android:paddingHorizontal="16dp" android:paddingTop="4dp" android:paddingBottom="8dp">
+  <TextView android:id="@+id/personLocationText" android:layout_width="match_parent" android:layout_height="wrap_content"
+   android:maxLines="1" android:ellipsize="end" android:textSize="13sp" android:layout_marginBottom="8dp" android:text="@string/cw_distance_loading" android:textColor="?attr/colorOnSurfaceVariant" />
+  <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:minHeight="128dp" android:background="@drawable/bg_viewfinder">
+   <ImageView android:id="@+id/imgLastPhoto" android:layout_width="match_parent" android:layout_height="match_parent" android:scaleType="fitCenter" android:contentDescription="@string/remote_photo_preview" android:visibility="gone" />
+   <ImageView android:id="@+id/imgViewfinderPlaceholder" android:layout_width="40dp" android:layout_height="40dp" android:layout_gravity="center" android:src="@drawable/ic_photo_placeholder" android:importantForAccessibility="no" android:alpha="0.5" />
+   <TextView android:id="@+id/tvViewfinderHint" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" android:layout_gravity="center" android:textSize="13sp" android:textColor="?attr/colorOnSurface" android:gravity="center" />
+   <LinearLayout android:id="@+id/pillChildSelector" android:layout_width="wrap_content" android:layout_height="48dp" android:layout_gravity="top|start" android:layout_margin="8dp"
+    android:gravity="center_vertical" android:background="@drawable/bg_pill_overlay" android:clickable="true" android:focusable="true" android:paddingHorizontal="10dp">
+    <com.google.android.material.imageview.ShapeableImageView android:id="@+id/imgChildAvatar" android:layout_width="32dp" android:layout_height="32dp" android:scaleType="centerCrop" android:contentDescription="@string/family_profile_avatar_description" app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.ChildWatch.Avatar" />
+    <ImageView android:id="@+id/imgOnlineDot" android:layout_width="6dp" android:layout_height="6dp" android:visibility="gone" android:importantForAccessibility="no" />
+    <TextView android:id="@+id/tvChildName" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:maxWidth="124dp" android:maxLines="1" android:ellipsize="end" android:textSize="15sp" android:textColor="?attr/colorOnSurface" android:textStyle="bold" />
+    <TextView android:layout_width="24dp" android:layout_height="wrap_content" android:text="⌄" android:gravity="center" android:textColor="?attr/colorOnSurface" android:importantForAccessibility="no" />
+   </LinearLayout>
+   <TextView android:id="@+id/tvTimestamp" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="center|end" android:layout_margin="8dp" android:padding="6dp" android:textSize="11sp" android:textColor="?attr/colorOnSurface" android:background="@drawable/bg_pill_overlay" android:visibility="gone" />
+   <TextView android:id="@+id/statusText" android:minHeight="48dp" android:gravity="center_vertical" android:clickable="true" android:focusable="true" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="bottom|start" android:layout_margin="8dp" android:maxWidth="280dp" android:paddingHorizontal="10dp" android:paddingVertical="6dp" android:textSize="13sp" android:textColor="?attr/colorOnSurface" android:background="@drawable/bg_remote_photo_status_chip" android:accessibilityLiveRegion="polite" />
+  </FrameLayout>
+  <TextView android:id="@+id/tvRequestProgress" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="13sp" android:layout_marginTop="4dp" android:textColor="?attr/colorPrimary" android:visibility="gone" />
+  <com.google.android.material.button.MaterialButtonToggleGroup android:id="@+id/cameraToggle" android:layout_width="match_parent" android:layout_height="48dp" android:layout_marginTop="8dp" app:singleSelection="true" app:selectionRequired="true" app:checkedButton="@id/cameraBack">
+   <com.google.android.material.button.MaterialButton android:id="@+id/cameraBack" style="?attr/materialButtonOutlinedStyle" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:paddingHorizontal="6dp" android:text="@string/remote_photo_camera_back" android:textSize="12sp" app:icon="@drawable/ic_camera_rear" app:iconSize="20dp" app:iconPadding="6dp" app:cornerRadius="14dp" />
+   <com.google.android.material.button.MaterialButton android:id="@+id/cameraFront" style="?attr/materialButtonOutlinedStyle" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:paddingHorizontal="6dp" android:text="@string/remote_photo_camera_front" android:textSize="12sp" app:icon="@drawable/ic_camera_front" app:iconSize="20dp" app:iconPadding="6dp" app:cornerRadius="14dp" />
+  </com.google.android.material.button.MaterialButtonToggleGroup>
+  <LinearLayout android:layout_width="match_parent" android:layout_height="48dp" android:layout_marginTop="8dp" android:gravity="center_vertical">
+   <com.google.android.material.button.MaterialButton android:id="@+id/btnTakePhoto" android:layout_width="0dp" android:layout_weight="1" android:layout_height="48dp" android:text="@string/remote_camera_take_short" app:icon="@drawable/ic_camera" app:cornerRadius="14dp" />
+   <com.google.android.material.button.MaterialButton android:id="@+id/btnRefresh" style="?attr/materialButtonOutlinedStyle" android:layout_width="56dp" android:layout_height="48dp" android:layout_marginStart="8dp" android:padding="0dp" app:icon="@drawable/ic_refresh" app:iconGravity="textStart" app:iconPadding="0dp" android:contentDescription="@string/remote_camera_refresh_short" app:cornerRadius="14dp" />
+  </LinearLayout>
+  <LinearLayout android:layout_width="match_parent" android:layout_height="48dp" android:layout_marginTop="4dp" android:gravity="center_vertical">
+   <TextView android:id="@+id/tvGalleryTitle" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="@string/remote_photo_gallery_title" android:textSize="16sp" android:textStyle="bold" android:textColor="?attr/colorOnSurface" />
+   <com.google.android.material.button.MaterialButton android:id="@+id/btnGalleryMore" style="?attr/borderlessButtonStyle" android:layout_width="wrap_content" android:layout_height="48dp" android:text="@string/remote_photo_gallery_all" android:textSize="12sp" />
+  </LinearLayout>
+  <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
+   <androidx.recyclerview.widget.RecyclerView android:id="@+id/rvRecentPhotos" android:layout_width="match_parent" android:layout_height="160dp" android:visibility="gone" android:overScrollMode="never" />
+   <TextView android:id="@+id/tvPhotosEmptyHint" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/remote_camera_gallery_subtitle_empty" android:textSize="13sp" android:textColor="?attr/colorOnSurfaceVariant" />
+   <com.google.android.material.progressindicator.CircularProgressIndicator android:id="@+id/progressIndicator" android:layout_width="32dp" android:layout_height="32dp" android:layout_gravity="center" android:visibility="gone" android:indeterminate="true" />
+  </FrameLayout>
+  <View android:id="@+id/btnSwitchCamera" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+  <TextView android:id="@+id/tvCameraLabel" android:layout_width="0dp" android:layout_height="0dp" android:visibility="gone" />
+ </LinearLayout>
+</LinearLayout>

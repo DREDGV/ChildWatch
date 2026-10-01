@@ -38,6 +38,12 @@ android {
             debuggable true
             applicationIdSuffix ".debug"
             versionNameSuffix "-debug"
+            // The same key as the release build, so a debug build installs over one
+            // that already carries the permanent signature. Android refuses any
+            // update whose signature differs, and mixing keys is how that happens.
+            if (rootProject.ext.cwReleaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
         }
         release {
             minifyEnabled true

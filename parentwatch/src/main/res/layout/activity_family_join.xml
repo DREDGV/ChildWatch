@@ -1,4 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+    The one screen a new ChildDevice phone needs, told as two steps.
+
+    Step one takes the code from the adult's phone. Step two says what was
+    decided - which family, which person, which phone to pick up next - so the
+    child never has to understand the words "family", "invitation" or "member".
+-->
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     xmlns:tools="http://schemas.android.com/tools"
@@ -18,11 +25,12 @@
             android:layout_height="?attr/actionBarSize"
             android:background="@color/cw_color_surface"
             android:elevation="0dp"
-            android:title="Подключение к семье"
+            android:title="@string/child_join_toolbar_title"
             app:navigationIcon="@drawable/ic_arrow_back"
             app:titleTextColor="@color/cw_color_on_surface" />
 
         <androidx.core.widget.NestedScrollView
+            android:id="@+id/joinScroll"
             android:layout_width="match_parent"
             android:layout_height="0dp"
             android:layout_weight="1"
@@ -33,54 +41,92 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:paddingStart="24dp"
-                android:paddingTop="24dp"
-                android:paddingEnd="24dp"
-                android:paddingBottom="32dp">
+                android:paddingStart="@dimen/cw_space_6"
+                android:paddingTop="@dimen/cw_space_6"
+                android:paddingEnd="@dimen/cw_space_6"
+                android:paddingBottom="@dimen/cw_space_8">
 
                 <TextView
+                    android:id="@+id/joinTitleText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Добавьте этот телефон"
+                    android:text="@string/child_join_title"
                     android:textAppearance="@style/TextAppearance.Material3.HeadlineSmall"
                     android:textColor="@color/cw_color_on_surface"
                     android:textStyle="bold" />
 
                 <TextView
+                    android:id="@+id/joinSubtitleText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="На телефоне взрослого создайте приглашение. Оно определит семью и человека, которому принадлежит этот телефон."
+                    android:layout_marginTop="@dimen/cw_space_2"
+                    android:text="@string/child_join_subtitle"
                     android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
                     android:textColor="@color/cw_color_on_surface_variant" />
 
+                <TextView
+                    android:id="@+id/stepIndicatorText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/cw_space_4"
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Person.Meta"
+                    tools:text="Шаг 1 из 2" />
+
+                <!-- What is already true, when it is. -->
                 <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/linkedStateCard"
                     style="@style/Widget.ChildWatch.PersonCard"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="20dp">
+                    android:layout_marginTop="@dimen/cw_space_4"
+                    android:visibility="gone">
 
                     <LinearLayout
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:padding="18dp">
+                        android:padding="@dimen/cw_space_4">
+
+                        <TextView
+                            android:id="@+id/linkedStateTitle"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:textAppearance="@style/TextAppearance.ChildWatch.Status.Success" />
+
+                        <TextView
+                            android:id="@+id/linkedStateBody"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/cw_space_1"
+                            android:textAppearance="@style/TextAppearance.ChildWatch.Person.Supporting" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/howItWorksCard"
+                    style="@style/Widget.ChildWatch.PersonCard"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/cw_space_4">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="@dimen/cw_space_4">
 
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="Как это работает"
-                            android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                            android:textColor="@color/cw_color_on_surface"
-                            android:textStyle="bold" />
+                            android:text="@string/child_join_how_title"
+                            android:textAppearance="@style/TextAppearance.ChildWatch.Person.Name" />
 
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="8dp"
-                            android:text="1. Взрослый выбирает человека или создаёт нового.\n2. Вы сканируете одноразовый QR-код.\n3. Имя и аватар появляются одинаково во всех функциях ChildWatch."
-                            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                            android:textColor="@color/cw_color_on_surface_variant" />
+                            android:layout_marginTop="@dimen/cw_space_2"
+                            android:text="@string/child_join_how_steps"
+                            android:textAppearance="@style/TextAppearance.ChildWatch.Person.Supporting" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
 
@@ -89,18 +135,19 @@
                     style="@style/Widget.ParentWatch.Button"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="20dp"
-                    android:minHeight="52dp"
-                    android:text="Сканировать приглашение"
+                    android:layout_marginTop="@dimen/cw_space_5"
+                    android:minHeight="@dimen/cw_touch_target"
+                    android:text="@string/child_join_scan"
                     android:textAllCaps="false" />
 
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="16dp"
+                    android:layout_marginTop="@dimen/cw_space_4"
                     android:gravity="center"
-                    android:text="или вставьте ссылку"
-                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
+                    android:id="@+id/orPasteText"
+                    android:text="@string/child_join_or_paste"
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Person.Meta"
                     android:textColor="@color/cw_color_on_surface_variant" />
 
                 <com.google.android.material.textfield.TextInputLayout
@@ -108,8 +155,8 @@
                     style="@style/Widget.ChildWatch.TextInputLayout"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:hint="Ссылка приглашения">
+                    android:layout_marginTop="@dimen/cw_space_2"
+                    android:hint="@string/child_join_code_hint">
 
                     <com.google.android.material.textfield.TextInputEditText
                         android:id="@+id/codeInput"
@@ -126,27 +173,32 @@
                     style="@style/Widget.ParentWatch.Button.Outlined"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="Проверить приглашение"
+                    android:layout_marginTop="@dimen/cw_space_3"
+                    android:minHeight="@dimen/cw_touch_target"
+                    android:text="@string/child_join_check"
                     android:textAllCaps="false" />
 
                 <TextView
                     android:id="@+id/statusText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
+                    android:layout_marginTop="@dimen/cw_space_3"
                     android:gravity="center"
-                    android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Person.Supporting"
                     android:textColor="@color/cw_color_error"
                     android:visibility="gone"
                     tools:text="Приглашение больше не действует" />
 
+                <!--
+                    Step two: what was decided. It is a separate card so the person
+                    sees a confirmation rather than a form that suddenly grew.
+                -->
                 <com.google.android.material.card.MaterialCardView
                     android:id="@+id/previewCard"
                     style="@style/Widget.ChildWatch.PersonCard"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="20dp"
+                    android:layout_marginTop="@dimen/cw_space_5"
                     android:visibility="gone"
                     tools:visibility="visible">
 
@@ -154,20 +206,19 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical"
-                        android:padding="20dp">
+                        android:padding="@dimen/cw_space_5">
 
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:text="Проверьте данные"
-                            android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                            android:textColor="@color/cw_color_on_surface_variant" />
+                            android:text="@string/child_join_check_title"
+                            android:textAppearance="@style/TextAppearance.ChildWatch.Person.Supporting" />
 
                         <TextView
                             android:id="@+id/memberNameText"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="12dp"
+                            android:layout_marginTop="@dimen/cw_space_3"
                             android:textAppearance="@style/TextAppearance.Material3.HeadlineSmall"
                             android:textColor="@color/cw_color_on_surface"
                             android:textStyle="bold"
@@ -177,8 +228,8 @@
                             android:id="@+id/familyNameText"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
+                            android:layout_marginTop="@dimen/cw_space_1"
+                            android:textAppearance="@style/TextAppearance.ChildWatch.Person.Name"
                             android:textColor="@color/cw_color_primary"
                             tools:text="Семья Ермошкиных" />
 
@@ -186,39 +237,87 @@
                             android:id="@+id/roleText"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="10dp"
-                            android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
-                            android:textColor="@color/cw_color_on_surface_variant"
+                            android:layout_marginTop="@dimen/cw_space_3"
+                            android:textAppearance="@style/TextAppearance.ChildWatch.Person.Supporting"
                             tools:text="Роль: ребёнок" />
 
                         <TextView
                             android:id="@+id/invitedByText"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
-                            android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                            android:textColor="@color/cw_color_on_surface_variant"
+                            android:layout_marginTop="@dimen/cw_space_1"
+                            android:textAppearance="@style/TextAppearance.ChildWatch.Person.Meta"
                             tools:text="Приглашение создал: Григорий" />
 
                         <TextView
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="14dp"
-                            android:text="После подтверждения этот телефон будет принадлежать выбранному человеку. Изменить это можно будет только новым приглашением."
-                            android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                            android:textColor="@color/cw_color_on_surface_variant" />
+                            android:layout_marginTop="@dimen/cw_space_3"
+                            android:text="@string/child_join_confirm_note"
+                            android:textAppearance="@style/TextAppearance.ChildWatch.Person.Meta" />
 
                         <com.google.android.material.button.MaterialButton
                             android:id="@+id/acceptButton"
                             style="@style/Widget.ParentWatch.Button"
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="18dp"
-                            android:minHeight="52dp"
-                            android:text="Добавить телефон в семью"
+                            android:layout_marginTop="@dimen/cw_space_4"
+                            android:minHeight="@dimen/cw_touch_target"
+                            android:text="@string/child_join_accept"
                             android:textAllCaps="false" />
                     </LinearLayout>
                 </com.google.android.material.card.MaterialCardView>
+
+                <!-- Step two, finished: nothing left to do on this phone. -->
+                <com.google.android.material.card.MaterialCardView
+                    android:id="@+id/doneCard"
+                    style="@style/Widget.ChildWatch.PersonCard"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/cw_space_5"
+                    android:visibility="gone">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:padding="@dimen/cw_space_5">
+
+                        <TextView
+                            android:id="@+id/doneTitleText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:textAppearance="@style/TextAppearance.ChildWatch.Status.Success" />
+
+                        <TextView
+                            android:id="@+id/doneBodyText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/cw_space_2"
+                            android:textAppearance="@style/TextAppearance.ChildWatch.Person.Supporting" />
+
+                        <com.google.android.material.button.MaterialButton
+                            android:id="@+id/openAppButton"
+                            style="@style/Widget.ParentWatch.Button"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/cw_space_4"
+                            android:minHeight="@dimen/cw_touch_target"
+                            android:text="@string/child_join_open_app"
+                            android:textAllCaps="false" />
+                    </LinearLayout>
+                </com.google.android.material.card.MaterialCardView>
+
+                <!-- Nothing here is a dead end: this phone works without a family too. -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/laterButton"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/cw_space_3"
+                    android:minHeight="@dimen/cw_touch_target"
+                    android:text="@string/child_join_later"
+                    android:textAllCaps="false" />
             </LinearLayout>
         </androidx.core.widget.NestedScrollView>
     </LinearLayout>

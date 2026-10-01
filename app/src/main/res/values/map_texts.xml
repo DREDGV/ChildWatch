@@ -4,7 +4,12 @@
     <string name="map_startup_failed">Не удалось открыть карту</string>
     <string name="map_startup_failed_with_reason">Не удалось открыть карту: %1$s</string>
     <string name="map_init_failed_with_reason">Не удалось инициализировать карту: %1$s</string>
-    <string name="map_title_contacts">Карта контактов</string>
+    <string name="map_title_contacts">Карта семьи</string>
+    <string name="map_center_family">Показать всех на карте</string>
+    <string name="map_family_unavailable">Семья ещё не загружена. Обновите карту после подключения к серверу.</string>
+    <string name="map_family_load_error">Не удалось обновить координаты семьи. Показаны последние загруженные метки.</string>
+    <string name="map_family_no_locations">Участники семьи пока не передают координаты.</string>
+    <string name="map_family_updated_at">обн. %1$s</string>
     <string name="map_title_where_child">Где ребенок?</string>
     <string name="map_title_where_parents">Где родители?</string>
     <string name="map_title_default">Карта</string>

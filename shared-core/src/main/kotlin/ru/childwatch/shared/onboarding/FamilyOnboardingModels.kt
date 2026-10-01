@@ -177,17 +177,22 @@ object FamilyInvitationTokenParser {
     fun parse(rawValue: String?): String? {
         val raw = rawValue?.trim().orEmpty()
         if (tokenPattern.matches(raw)) return raw.lowercase()
-        if (!raw.startsWith("childwatch://family/join", ignoreCase = true)) return null
         return runCatching {
-            URI(raw).rawQuery
+            val uri = URI(raw)
+            if (!uri.scheme.equals("childwatch", ignoreCase = true) ||
+                !uri.host.equals("family", ignoreCase = true) || uri.path != "/join" ||
+                uri.userInfo != null || uri.port != -1 || uri.fragment != null) return null
+            val tokens = uri.rawQuery
                 ?.split('&')
                 ?.asSequence()
                 ?.mapNotNull { part ->
                     val separator = part.indexOf('=')
                     if (separator <= 0) null else part.substring(0, separator) to part.substring(separator + 1)
                 }
-                ?.firstOrNull { it.first == "token" }
-                ?.second
+                ?.filter { it.first == "token" }
+                ?.map { it.second }
+                ?.toList().orEmpty()
+            tokens.singleOrNull()
                 ?.takeIf(tokenPattern::matches)
                 ?.lowercase()
         }.getOrNull()

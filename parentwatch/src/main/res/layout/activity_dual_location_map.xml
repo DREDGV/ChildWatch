@@ -30,6 +30,23 @@
             app:title="@string/map_title_default"
             app:titleTextColor="@android:color/white" />
 
+        <HorizontalScrollView
+            android:id="@+id/familyStrip"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@color/cw_color_surface"
+            android:fillViewport="true"
+            android:scrollbars="none"
+            android:visibility="gone">
+
+            <LinearLayout
+                android:id="@+id/familyStripContent"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingHorizontal="8dp" />
+        </HorizontalScrollView>
+
     </com.google.android.material.appbar.AppBarLayout>
 
     <com.google.android.material.card.MaterialCardView

@@ -23,6 +23,7 @@ class CriticalAlertWorker(
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
         try {
+            ru.example.childwatch.location.FamilyPlaceSync.sync(applicationContext)
             val secureSettings = SecureSettingsManager(applicationContext)
             val effectiveContext = ParentEffectiveContextResolver(applicationContext).resolve()
             val deviceId = effectiveContext.linkedChildDeviceId.ifBlank {

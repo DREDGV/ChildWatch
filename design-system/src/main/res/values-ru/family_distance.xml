@@ -1,0 +1,12 @@
+<resources>
+    <string name="cw_distance_self">Это ваш телефон</string>
+    <string name="cw_distance_person_missing">Расстояние недоступно: нет координат человека</string>
+    <string name="cw_distance_own_missing">Расстояние недоступно: нет координат вашего телефона</string>
+    <string name="cw_distance_stale">Расстояние недоступно: координаты устарели</string>
+    <string name="cw_distance_inaccurate">Расстояние недоступно: низкая точность координат</string>
+    <string name="cw_distance_nearby">Рядом с вами · по прямой</string>
+    <string name="cw_distance_m">≈%1$d м · по прямой</string>
+    <string name="cw_distance_km">≈%1$s км · по прямой</string>
+    <string name="cw_distance_loading">Обновляем расстояние…</string>
+    <string name="cw_distance_unavailable">Расстояние недоступно: проверьте связь</string>
+</resources>

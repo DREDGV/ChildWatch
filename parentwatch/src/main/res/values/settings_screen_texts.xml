@@ -11,7 +11,7 @@
     <string name="settings_copy_id_button">Скопировать</string>
     <string name="settings_show_qr_button">Показать QR-код</string>
     <string name="settings_parent_link_title">Связь с родителем</string>
-    <string name="settings_parent_link_description">Чтобы связать устройство с родителем, отсканируйте QR-код с родительского приложения.</string>
+    <string name="settings_parent_link_description">Чтобы подключить этот телефон к семье, примите приглашение из приложения взрослого.</string>
     <string name="settings_parent_link_scan_button">Сканировать QR родителя</string>
     <string name="settings_parent_link_status_missing">Не подключено</string>
     <string name="settings_usage_card_title">Доступ к приложениям</string>
@@ -30,7 +30,7 @@
     <string name="settings_toast_vps_set">VPS URL установлен</string>
     <string name="settings_toast_localhost_set">Localhost URL установлен</string>
     <string name="settings_emergency_title">Экстренная остановка</string>
-    <string name="settings_emergency_message">Это немедленно остановит все функции: прослушку, геолокацию и фоновые процессы. Продолжить?</string>
+    <string name="settings_emergency_message">Это немедленно остановит передачу звука, геолокацию и фоновые процессы. Продолжить?</string>
     <string name="settings_emergency_confirm">Остановить все</string>
     <string name="settings_usage_permission_instructions">Найдите ChildDevice в списке и включите разрешение</string>
     <string name="settings_usage_permission_open_error">Не удалось открыть настройки разрешений</string>

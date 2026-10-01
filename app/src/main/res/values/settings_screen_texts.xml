@@ -1,9 +1,9 @@
 <resources>
-    <string name="settings_share_location_title">📍 Делиться моей локацией</string>
+    <string name="settings_share_location_title">Делиться моим местоположением</string>
     <string name="settings_share_location_description">Позволить ребенку видеть, где вы находитесь (обновление каждые 60 секунд)</string>
-    <string name="settings_link_child_title">👨‍👩‍👧 Связь с детским устройством</string>
-    <string name="settings_link_child_description">Покажите QR-код детскому устройству для синхронизации на карте</string>
-    <string name="settings_show_qr_button">📱 Показать QR-код</string>
+    <string name="settings_link_child_title">Подключение к семье</string>
+    <string name="settings_link_child_description">Пригласите нового человека или подключите новый телефон к участнику семьи.</string>
+    <string name="settings_show_qr_button">Показать приглашение</string>
 
     <string name="settings_scanned_qr">QR-код отсканирован: %1$s</string>
     <string name="settings_toast_vps_set">VPS URL установлен</string>

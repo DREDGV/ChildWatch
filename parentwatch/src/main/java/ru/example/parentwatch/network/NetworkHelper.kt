@@ -105,12 +105,27 @@ class NetworkHelper(private val context: Context) {
     /**
      * Upload location with device info to server
      */
+    suspend fun uploadLocationHistory(server: String, family: String, own: String, points: org.json.JSONArray): Boolean = withContext(Dispatchers.IO) {
+        try {
+            val data = JSONObject().put("familyId", family).put("ownDeviceId", own).put("kind", "child").put("points", points)
+            val request = Request.Builder().url(server.trimEnd('/') + "/api/location/history")
+                .post(data.toString().toRequestBody("application/json".toMediaType())).build()
+            client.newCall(request).execute().use { response ->
+                val result = response.body?.string()?.let { JSONObject(it) }
+                response.isSuccessful && result?.optBoolean("success") == true && result?.optInt("accepted") == points.length()
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (failure: Exception) { Log.w(TAG, "Location history remains queued", failure); false }
+    }
+
     suspend fun uploadLocationWithDeviceInfo(
         serverUrl: String,
         latitude: Double,
         longitude: Double,
         accuracy: Float,
-        deviceInfo: JSONObject
+        deviceInfo: JSONObject,
+        timestamp: Long = System.currentTimeMillis(),
+        measuredLocation: android.location.Location? = null
     ): Boolean = withContext(Dispatchers.IO) {
         val maxRetries = 3
 
@@ -122,7 +137,8 @@ class NetworkHelper(private val context: Context) {
                     put("latitude", latitude)
                     put("longitude", longitude)
                     put("accuracy", accuracy)
-                    put("timestamp", System.currentTimeMillis())
+                    put("timestamp", timestamp)
+                    measuredLocation?.let { ru.example.childwatch.designsystem.LocationMotion.put(this, it) }
                     put("deviceInfo", deviceInfo) // Include device info
                 }
 

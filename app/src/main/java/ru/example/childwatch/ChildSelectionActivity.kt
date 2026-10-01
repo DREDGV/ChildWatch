@@ -722,7 +722,17 @@ class ChildSelectionActivity : AppCompatActivity() {
     /**
      * Показать диалог редактирования устройства
      */
-    private fun showEditChildDialog(child: Child) {
+    private fun showEditChildDialog(cachedChild: Child) {
+        val person = familyOptionsByDevice[cachedChild.deviceId]
+        val child = if (person != null) cachedChild.copy(
+            name = person.displayName,
+            role = when (person.role) {
+                ru.childwatch.shared.family.FamilyRole.PARENT -> ContactRoles.PARENT
+                ru.childwatch.shared.family.FamilyRole.GUARDIAN -> ContactRoles.RELATIVE
+                ru.childwatch.shared.family.FamilyRole.CHILD -> ContactRoles.CHILD
+            },
+            avatarUrl = person.avatarKey ?: cachedChild.avatarUrl
+        ) else cachedChild
         selectedAvatarValue = child.avatarUrl ?: FamilyAvatarRenderer.presets[1].storageValue
         val dialogView = layoutInflater.inflate(R.layout.dialog_edit_child, null)
 
@@ -760,6 +770,16 @@ class ChildSelectionActivity : AppCompatActivity() {
         val roleOptions = arrayOf("Ребенок", "Родитель", "Родственник")
         roleInput.setSimpleItems(roleOptions)
         roleInput.setText(ContactRoles.label(child.role), false)
+        if (person != null) {
+            if (person.role == ru.childwatch.shared.family.FamilyRole.GUARDIAN) {
+                roleInput.setText(getString(R.string.family_editor_guardian), false)
+            }
+            roleInput.isEnabled = false
+            dialogView.findViewById<TextInputLayout>(R.id.roleInputLayout).apply {
+                isEndIconVisible = false
+                helperText = getString(R.string.family_editor_role_hint)
+            }
+        }
 
         val iconOptions = ContactIcons.options()
         iconInput.setSimpleItems(iconOptions.map { it.label }.toTypedArray())
@@ -852,7 +872,8 @@ class ChildSelectionActivity : AppCompatActivity() {
                 val newName = childNameInput.text.toString().trim()
                 val ageText = childAgeInput.text.toString().trim()
                 val phoneNumber = childPhoneInput.text.toString().trim()
-                val roleValue = ContactRoles.fromLabel(roleInput.text?.toString().orEmpty())
+                val roleValue = if (person != null) child.role
+                    else ContactRoles.fromLabel(roleInput.text?.toString().orEmpty())
                 val iconId = resolveIconId(iconInput.text?.toString().orEmpty())
                 val allowed = buildAllowedFeatures(
                     featureChatCheck.isChecked,
@@ -903,6 +924,22 @@ class ChildSelectionActivity : AppCompatActivity() {
     ) {
         lifecycleScope.launch {
             try {
+                val portableAvatar = if (newAvatarUrl?.startsWith("content://") == true) {
+                    when (val uploaded = ru.example.childwatch.profile.ProfilePhotoUploader(
+                        this@ChildSelectionActivity, networkClient
+                    ).upload(Uri.parse(newAvatarUrl))) {
+                        is ru.example.childwatch.profile.ProfilePhotoUpload.Stored -> uploaded.avatarValue
+                        else -> {
+                            showError(getString(when (uploaded) {
+                                ru.example.childwatch.profile.ProfilePhotoUpload.FileTooLarge -> R.string.profile_avatar_photo_too_large
+                                ru.example.childwatch.profile.ProfilePhotoUpload.UnsupportedFormat -> R.string.profile_avatar_photo_unsupported
+                                ru.example.childwatch.profile.ProfilePhotoUpload.Unreadable -> R.string.profile_avatar_photo_unreadable
+                                else -> R.string.profile_avatar_photo_failed
+                            }))
+                            return@launch
+                        }
+                    }
+                } else newAvatarUrl
                 val updatedChild = child.copy(
                     name = newName,
                     role = newRole,
@@ -910,13 +947,15 @@ class ChildSelectionActivity : AppCompatActivity() {
                     allowedFeatures = newAllowedFeatures,
                     age = newAge,
                     phoneNumber = newPhoneNumber,
-                    avatarUrl = newAvatarUrl ?: child.avatarUrl,  // Keep old avatar if no new one selected
+                    avatarUrl = portableAvatar ?: child.avatarUrl,
                     updatedAt = System.currentTimeMillis()
                 )
                 // The server directory is canonical.  Do not keep a local
                 // edit which the server did not confirm: it would re-create
                 // stale cards on the next screen refresh.
-                val linked = linkChildOnServer(child.deviceId, newName, newIconId)
+                val familyPerson = familyOptionsByDevice[child.deviceId]
+                val linked = if (!familyPerson?.memberId.isNullOrBlank()) true
+                    else linkChildOnServer(child.deviceId, newName, newIconId)
                 if (!linked) {
                     showError("Не удалось связаться с сервером. Профиль не изменён.")
                     return@launch

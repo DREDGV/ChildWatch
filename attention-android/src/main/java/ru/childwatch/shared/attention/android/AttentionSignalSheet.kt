@@ -69,6 +69,10 @@ class AttentionSignalSheet(
                 AttentionSignalStatus.STARTED
             )
             stopButton.visibility = if (canStop) View.VISIBLE else View.GONE
+            (sendButton.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
+                params.weight = if (canStop) 1f else 2f
+                sendButton.layoutParams = params
+            }
             sendButton.isEnabled = event.status.isTerminal
         }
     }
@@ -79,18 +83,25 @@ class AttentionSignalSheet(
             setPadding(dp(24), dp(16), dp(24), dp(24))
         }
         root.addView(text("Сигнал внимания", 24f, Typeface.BOLD))
-        root.addView(targetPersonCard().withTopMargin(12).withBottomMargin(16))
+        root.addView(text("Поможет человеку заметить ваш запрос, даже если телефон лежит рядом.", 14f, Typeface.NORMAL)
+            .withTopMargin(4))
+        root.addView(targetPersonCard().withTopMargin(16).withBottomMargin(16))
+
+        val settings = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(dp(16), dp(16), dp(16), dp(16))
+        }
 
         val durationSpinner = spinner(
             AttentionSignalContract.selectableDurationsMs.map { "${it / 1_000} сек" }
         ).also { it.setSelection(2) }
-        root.addView(label("Длительность"))
-        root.addView(durationSpinner)
+        settings.addView(label("Длительность"))
+        settings.addView(durationSpinner)
 
         val toneValues = AttentionTone.entries.toList()
         val toneSpinner = spinner(listOf("Сигнал", "Мелодия звонка", "Будильник", "Сирена"))
-        root.addView(label("Звук").withTopMargin(12))
-        root.addView(toneSpinner)
+        settings.addView(label("Звук").withTopMargin(12))
+        settings.addView(toneSpinner)
 
         val volumeText = label("Громкость: 100%").withTopMargin(12) as TextView
         val volumeSeek = SeekBar(context).apply {
@@ -104,8 +115,8 @@ class AttentionSignalSheet(
                 override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
             })
         }
-        root.addView(volumeText)
-        root.addView(volumeSeek)
+        settings.addView(volumeText)
+        settings.addView(volumeSeek)
 
         val vibrationSwitch = SwitchMaterial(context).apply {
             text = "Вибрация"
@@ -118,14 +129,23 @@ class AttentionSignalSheet(
         )
         val patternSpinner = spinner(listOf("Импульс", "Срочно", "SOS"))
         vibrationSwitch.setOnCheckedChangeListener { _, checked -> patternSpinner.isEnabled = checked }
-        root.addView(vibrationSwitch.withTopMargin(8))
-        root.addView(label("Ритм вибрации"))
-        root.addView(patternSpinner)
+        settings.addView(vibrationSwitch.withTopMargin(8))
+        settings.addView(label("Ритм вибрации"))
+        settings.addView(patternSpinner)
+        root.addView(MaterialCardView(context).apply {
+            radius = dp(20).toFloat()
+            cardElevation = 0f
+            addView(settings)
+        })
 
         statusText = text("Готов к отправке", 14f, Typeface.BOLD).apply {
-            setPadding(dp(12), dp(12), dp(12), dp(12))
+            setPadding(dp(16), dp(16), dp(16), dp(16))
         }
-        root.addView(statusText.withTopMargin(16))
+        root.addView(MaterialCardView(context).apply {
+            radius = dp(18).toFloat()
+            cardElevation = 0f
+            addView(statusText)
+        }.withTopMargin(16))
 
         val buttons = LinearLayout(context).apply {
             orientation = LinearLayout.HORIZONTAL
@@ -133,7 +153,7 @@ class AttentionSignalSheet(
         }
         sendButton = MaterialButton(context).apply {
             text = "Отправить"
-            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
+            layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f).apply {
                 marginEnd = dp(6)
             }
             setOnClickListener {
@@ -169,9 +189,17 @@ class AttentionSignalSheet(
                 statusText.text = "Отправка…"
                 sendButton.isEnabled = false
                 stopButton.visibility = View.VISIBLE
+                (sendButton.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
+                    params.weight = 1f
+                    sendButton.layoutParams = params
+                }
                 if (!sendRequest(AttentionSignalJson.requestToJson(request))) {
                     sendButton.isEnabled = true
                     stopButton.visibility = View.GONE
+                    (sendButton.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
+                        params.weight = 2f
+                        sendButton.layoutParams = params
+                    }
                     statusText.text = "Сигнал не отправлен: соединение ещё не готово"
                 }
             }

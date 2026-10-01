@@ -62,7 +62,7 @@ object OwnProfilePublisher {
                 )
             }.getOrNull()
 
-            if (response?.isSuccessful == true) {
+            if (response?.isSuccessful == true && response.body()?.success == true) {
                 // Refresh the cache so the new values survive synchronisation.
                 runCatching { resolver.refreshCanonicalDirectory(force = true) }
                     .onFailure { Log.w(TAG, "Directory refresh after publish failed", it) }

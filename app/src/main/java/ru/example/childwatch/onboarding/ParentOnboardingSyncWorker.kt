@@ -13,6 +13,7 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import org.json.JSONObject
 import ru.childwatch.shared.onboarding.FamilyBootstrapRequest
 import ru.childwatch.shared.onboarding.FamilyProfileConfirmationRequest
 import ru.childwatch.shared.onboarding.OnboardingMemberData
@@ -49,6 +50,10 @@ class ParentOnboardingSyncWorker(
          */
         private const val KEY_MAY_CREATE_FAMILY = "may_create_family"
 
+        /** The server's answer when a phone already belongs to a confirmed family. */
+        private const val DEVICE_ALREADY_ONBOARDED = "DEVICE_ALREADY_ONBOARDED"
+        private const val HTTP_CONFLICT = 409
+
         fun enqueue(
             context: Context,
             familyName: String,
@@ -62,6 +67,7 @@ class ParentOnboardingSyncWorker(
                         .putString(KEY_FAMILY_NAME, familyName)
                         .putString(KEY_DISPLAY_NAME, displayName)
                         .putString(KEY_AVATAR_VALUE, avatarValue)
+                        .putBoolean(KEY_MAY_CREATE_FAMILY, mayCreateFamily)
                         .build()
                 )
                 .setConstraints(
@@ -192,10 +198,33 @@ class ParentOnboardingSyncWorker(
                             avatarKey = portableAvatar
                         )
                     )
-                    response.body()
-                        ?.takeIf { response.isSuccessful && it.success }
-                        ?.member
-                        ?: return@withContext Result.retry()
+                    if (response.code() == HTTP_CONFLICT &&
+                        readErrorCode(response.errorBody()?.string()) == DEVICE_ALREADY_ONBOARDED
+                    ) {
+                        // The identity answer above can predate what the server knows,
+                        // and the server refuses a second family for a phone that already
+                        // has one. Retrying that refusal forever would leave the phone
+                        // synchronising endlessly, so it is treated as the success it
+                        // is: nothing was created, and a person must not see an error for
+                        // a family that already exists.
+                        Log.i(
+                            TAG,
+                            "Server reports this phone already belongs to a family; " +
+                                "nothing was created"
+                        )
+                        OnboardingMemberData(
+                            id = null,
+                            familyId = null,
+                            displayName = displayName,
+                            role = "PARENT",
+                            avatarKey = portableAvatar
+                        )
+                    } else {
+                        response.body()
+                            ?.takeIf { response.isSuccessful && it.success }
+                            ?.member
+                            ?: return@withContext Result.retry()
+                    }
                 }
 
                 existing.binding.memberBindingSource != "EXPLICIT" -> {
@@ -213,50 +242,20 @@ class ParentOnboardingSyncWorker(
                 }
 
                 else -> {
-                    // Only what actually differs is sent. An unconditional write used to
-                    // push the name cached on this phone over whatever the family held, so
-                    // a phone carrying an older name silently renamed the person for
-                    // everybody — which is how "Папа" became "Григорий" after a phone move.
-                    val nameChanged = displayName != existing.member.displayName.trim()
-                    val avatarChanged = portableAvatar != null &&
-                        portableAvatar != existing.member.avatarKey
-                    if (!nameChanged && !avatarChanged) {
-                        Log.i(TAG, "Profile already matches the family; nothing to send")
-                        OnboardingMemberData(
-                            id = existing.member.id,
-                            familyId = existing.familyId,
-                            displayName = existing.member.displayName,
-                            role = existing.member.role,
-                            avatarKey = existing.member.avatarKey
-                        )
-                    } else {
-                        val response = networkClient.updateFamilyMemberProfile(
-                            familyId = existing.familyId,
-                            memberId = existing.memberId,
-                            // Sending the name only when it changed keeps a phone with an
-                            // older copy from overwriting a newer one.
-                            displayName = displayName.takeIf { nameChanged },
-                            // The picture follows the same rule, and it has to: this value is
-                            // empty whenever the choice on this phone is a device-local image
-                            // or was never read, and sending that empty value deletes the
-                            // picture the family holds even though nothing changed.
-                            avatarKey = portableAvatar.takeIf { avatarChanged }
-                        )
-                        if (!response.isSuccessful || response.body()?.success != true) {
-                            return@withContext Result.retry()
-                        }
-                        OnboardingMemberData(
-                            id = existing.member.id,
-                            familyId = existing.familyId,
-                            displayName = displayName,
-                            role = existing.member.role,
-                            avatarKey = portableAvatar ?: existing.member.avatarKey
-                        )
-                    }
+                    // Joining an existing person hydrates this phone from the family.
+                    // Cached setup defaults are never an explicit profile edit.
+                    OnboardingMemberData(
+                        id = existing.member.id,
+                        familyId = existing.familyId,
+                        displayName = existing.member.displayName,
+                        role = existing.member.role,
+                        avatarKey = existing.member.avatarKey
+                    )
                 }
             }
 
-            updateLocalIdentity(member, avatarValue)
+            updateLocalIdentity(member, avatarValue,
+                preferFamilyAvatar = existing?.binding?.memberBindingSource == "EXPLICIT")
             applicationContext.getSharedPreferences(
                 ParentSetupActivity.PREFS_NAME,
                 Context.MODE_PRIVATE
@@ -271,9 +270,22 @@ class ParentOnboardingSyncWorker(
         }
     }
 
+    /**
+     * The machine-readable half of a server refusal.
+     *
+     * The message is written for a person and can be reworded at any time; the
+     * code is the part a client is allowed to decide on.
+     */
+    private fun readErrorCode(raw: String?): String? =
+        runCatching { JSONObject(raw.orEmpty()).optString("code") }
+            .getOrNull()
+            ?.trim()
+            ?.takeIf(String::isNotBlank)
+
     private suspend fun updateLocalIdentity(
         member: OnboardingMemberData,
-        localAvatarValue: String
+        localAvatarValue: String,
+        preferFamilyAvatar: Boolean
     ) {
         val database = ChildWatchDatabase.getInstance(applicationContext)
         val prefs = applicationContext.getSharedPreferences(
@@ -291,7 +303,7 @@ class ParentOnboardingSyncWorker(
                 accountId = member.id?.trim().takeUnless { it.isNullOrEmpty() }
                     ?: existing.accountId,
                 name = member.displayName,
-                avatarUrl = member.avatarKey
+                avatarUrl = if (preferFamilyAvatar) member.avatarKey else member.avatarKey
                     ?: localAvatarValue.takeIf(String::isNotBlank)
                     ?: existing.avatarUrl,
                 updatedAt = System.currentTimeMillis()

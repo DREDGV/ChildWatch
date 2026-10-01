@@ -1,923 +1,144 @@
-<?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:fillViewport="true"
-    android:background="?attr/colorSurface">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="24dp">
-
-        <!-- Header -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="24dp"
-            android:text="@string/settings"
-            android:textAlignment="center"
-            android:textAppearance="@style/TextAppearance.Material3.HeadlineMedium"
-            android:textColor="?attr/colorOnSurface" />
-
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardElevation="4dp"
-            app:cardCornerRadius="12dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:text="@string/profile_switch_title"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/profileSummaryText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="12dp"
-                    android:text="@string/profile_switch_no_active"
-                    android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                    android:textColor="?attr/colorOnSurfaceVariant" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal">
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/saveProfileButton"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="8dp"
-                        android:text="@string/profile_switch_save_current"
-                        style="@style/Widget.Material3.Button.OutlinedButton" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/switchProfileButton"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/profile_switch_manage"
-                        style="@style/Widget.Material3.Button" />
-
+<?xml version='1.0' encoding='utf-8'?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="@color/cw_color_background">
+    <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:id="@+id/settingsScroll" android:layout_weight="1" android:fillViewport="true" android:clipToPadding="false">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="16dp" android:paddingTop="8dp" android:paddingBottom="8dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_intro" android:textSize="13sp" android:textColor="@color/cw_color_on_surface_variant" android:layout_marginBottom="16dp" />
+            <ru.example.childwatch.designsystem.SettingsSection android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/settingsFamilySection" android:layout_marginBottom="10dp" app:cwSectionTitle="@string/cw_settings_family" app:cwSectionDescription="@string/cw_settings_family_hint" app:cwSectionIcon="@drawable/cw_home_heart">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="14dp" android:paddingBottom="14dp">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/settingsFamilySummary" android:text="@string/cw_settings_family" android:textSize="16sp" android:textColor="@color/cw_color_on_surface_variant" android:textStyle="bold" android:layout_marginBottom="8dp" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/ownProfileButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/cw_profile_title" style="@style/Widget.Material3.Button.OutlinedButton" android:minHeight="48dp" android:textAllCaps="false" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/editSelfNameButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/cw_profile_details" style="@style/Widget.Material3.Button.OutlinedButton" android:minHeight="48dp" android:textAllCaps="false" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/editSelfMarkerButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/participant_self_marker_button" style="@style/Widget.Material3.Button.OutlinedButton" android:minHeight="48dp" android:textAllCaps="false" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/selectChildButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_select_person" style="@style/Widget.Material3.Button.TonalButton" android:minHeight="48dp" android:textAllCaps="false" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/editChildCardButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_edit_person" style="@style/Widget.Material3.Button.OutlinedButton" android:minHeight="48dp" android:textAllCaps="false" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/scanQrButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="QR" app:icon="@android:drawable/ic_menu_camera" style="@style/Widget.Material3.Button.OutlinedButton" android:minHeight="48dp" android:textAllCaps="false" />
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_link_hint" android:textSize="13sp" android:textColor="@color/cw_color_on_surface_variant" android:layout_marginTop="12dp" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/showQrCodeBtn" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/settings_show_qr_button" android:textSize="16sp" app:icon="@android:drawable/ic_dialog_info" app:iconGravity="textStart" style="@style/Widget.Material3.Button" android:minHeight="48dp" android:textAllCaps="false" />
                 </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/editSelfNameButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/participant_self_name_button"
-                    style="@style/Widget.Material3.Button.OutlinedButton" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/editSelfMarkerButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/participant_self_marker_button"
-                    style="@style/Widget.Material3.Button.OutlinedButton" />
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Monitoring Settings Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardElevation="4dp"
-            app:cardCornerRadius="12dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:text="@string/monitoring_settings_title"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
-
-                <!-- Location Interval -->
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:hint="@string/location_interval"
-                    app:helperText="@string/location_interval_help"
-                    app:helperTextEnabled="true"
-                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/locationIntervalInput"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:inputType="number"
-                        android:text="30" />
-
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <!-- Audio Duration -->
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:hint="@string/audio_duration"
-                    app:helperText="@string/audio_duration_help"
-                    app:helperTextEnabled="true"
-                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/audioDurationInput"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:inputType="number"
-                        android:text="20" />
-
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <!-- Server URL -->
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:hint="@string/server_url"
-                    app:helperText="@string/server_url_help"
-                    app:helperTextEnabled="true"
-                    style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/serverUrlInput"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:inputType="textUri"
-                        android:text="" />
-
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <!-- Server URL Preset Buttons -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginBottom="16dp"
-                    android:gravity="center">
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/useVpsBtn"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="4dp"
-                        android:text="VPS"
-                        android:textSize="11sp"
-                        style="@style/Widget.Material3.Button" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/useLocalhostBtn"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Local"
-                        android:textSize="11sp"
-                        style="@style/Widget.Material3.Button.TonalButton" />
-
+            </ru.example.childwatch.designsystem.SettingsSection>
+            <ru.example.childwatch.designsystem.SettingsSection android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/settingsFeaturesSection" android:layout_marginBottom="10dp" app:cwSectionTitle="@string/cw_settings_sharing" app:cwSectionDescription="@string/cw_settings_sharing_hint" app:cwSectionIcon="@drawable/cw_home_map">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="14dp" android:paddingBottom="14dp">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="0dp" android:paddingTop="0dp">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="12dp">
+                            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_marginEnd="12dp" android:src="@android:drawable/ic_dialog_map" android:tint="?attr/colorPrimary" />
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/enable_location_monitoring" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="?attr/colorOnSurface" />
+                            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/locationMonitoringSwitch" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" />
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="12dp">
+                            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_marginEnd="12dp" android:src="@android:drawable/ic_media_play" android:tint="?attr/colorPrimary" />
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/enable_audio_monitoring" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="?attr/colorOnSurface" />
+                            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/audioMonitoringSwitch" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" />
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="12dp">
+                            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_marginEnd="12dp" android:src="@android:drawable/ic_menu_camera" android:tint="?attr/colorPrimary" />
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/enable_photo_monitoring" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="?attr/colorOnSurface" />
+                            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/photoMonitoringSwitch" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="false" />
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingVertical="12dp">
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/settings_share_location_title" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="?attr/colorOnSurface" />
+                            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/shareParentLocationSwitch" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" />
+                        </LinearLayout>
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginStart="4dp" android:layout_marginEnd="4dp" android:text="@string/settings_share_location_description" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="?attr/colorOnSurfaceVariant" android:alpha="0.7" />
+                    </LinearLayout>
                 </LinearLayout>
-
-                <!-- Child Device ID -->
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/child_device_id"
-                    android:textSize="14sp"
-                    android:layout_marginBottom="8dp" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:layout_marginBottom="16dp">
-
-                    <com.google.android.material.textfield.TextInputLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="8dp"
-                        android:hint="@string/child_device_id_hint"
-                        style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
-
-                        <com.google.android.material.textfield.TextInputEditText
-                            android:id="@+id/childDeviceIdInput"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:inputType="text" />
-
+            </ru.example.childwatch.designsystem.SettingsSection>
+            <ru.example.childwatch.designsystem.SettingsSection android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/settingsNotificationsSection" android:layout_marginBottom="10dp" app:cwSectionTitle="@string/cw_settings_notifications" app:cwSectionDescription="@string/cw_settings_notifications_hint" app:cwSectionIcon="@drawable/cw_home_bell">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="14dp" android:paddingBottom="14dp">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="0dp" android:paddingTop="0dp">
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:text="@string/notification_duration_label" android:textColor="?android:attr/textColorSecondary" android:textSize="14sp" />
+                        <com.google.android.material.slider.Slider android:id="@+id/notificationDurationSlider" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:stepSize="5" android:value="10" android:valueFrom="5" android:valueTo="30" />
+                        <TextView android:id="@+id/durationValueText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="center" android:layout_marginBottom="8dp" android:text="@string/notification_duration_default_value" android:textColor="?attr/colorPrimary" android:textSize="14sp" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="16dp" android:text="@string/notification_duration_hint" android:textColor="?android:attr/textColorSecondary" android:textSize="11sp" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:text="@string/notification_size_label" android:textColor="?android:attr/textColorSecondary" android:textSize="14sp" />
+                        <RadioGroup android:id="@+id/notificationSizeGroup" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="16dp" android:orientation="horizontal">
+                            <com.google.android.material.radiobutton.MaterialRadioButton android:id="@+id/notificationSizeCompact" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/notification_size_compact" android:textSize="12sp" />
+                            <com.google.android.material.radiobutton.MaterialRadioButton android:id="@+id/notificationSizeExpanded" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:checked="true" android:text="@string/notification_size_expanded" android:textSize="12sp" />
+                        </RadioGroup>
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:text="@string/notification_priority_label" android:textColor="?android:attr/textColorSecondary" android:textSize="14sp" />
+                        <com.google.android.material.slider.Slider android:id="@+id/notificationPrioritySlider" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:stepSize="1" android:value="2" android:valueFrom="0" android:valueTo="2" />
+                        <TextView android:id="@+id/priorityValueText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="center" android:layout_marginBottom="16dp" android:text="@string/notification_priority_high" android:textColor="?attr/colorPrimary" android:textSize="14sp" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="16dp" android:text="@string/notification_priority_hint" android:textColor="?android:attr/textColorSecondary" android:textSize="11sp" />
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:layout_marginTop="8dp" android:gravity="center_vertical" android:orientation="horizontal">
+                            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_marginEnd="12dp" android:src="@android:drawable/ic_lock_silent_mode_off" android:tint="?attr/colorPrimary" />
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/notification_sound_label" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="?attr/colorOnSurface" />
+                            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/notificationSoundSwitch" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" />
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:gravity="center_vertical" android:orientation="horizontal">
+                            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_marginEnd="12dp" android:src="@android:drawable/ic_lock_silent_mode_off" android:tint="?attr/colorPrimary" />
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/notification_vibration_label" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="?attr/colorOnSurface" />
+                            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/notificationVibrationSwitch" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" />
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:gravity="center_vertical" android:orientation="horizontal">
+                            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_marginEnd="12dp" android:src="@android:drawable/ic_menu_info_details" android:tint="?attr/colorPrimary" />
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/notification_badge_label" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="?attr/colorOnSurface" />
+                            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/notificationBadgeSwitch" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" />
+                        </LinearLayout>
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="16dp" android:text="@string/notification_badge_hint" android:textColor="?android:attr/textColorSecondary" android:textSize="11sp" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:text="@string/notification_preview_label" android:textColor="?android:attr/textColorSecondary" android:textSize="14sp" />
+                        <RadioGroup android:id="@+id/notificationPreviewGroup" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:orientation="horizontal">
+                            <com.google.android.material.radiobutton.MaterialRadioButton android:id="@+id/notificationPreviewPublic" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:checked="true" android:text="@string/notification_preview_public" android:textSize="12sp" />
+                            <com.google.android.material.radiobutton.MaterialRadioButton android:id="@+id/notificationPreviewPrivate" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/notification_preview_private" android:textSize="12sp" />
+                        </RadioGroup>
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="16dp" android:text="@string/notification_preview_hint" android:textColor="?android:attr/textColorSecondary" android:textSize="11sp" />
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:gravity="center_vertical" android:orientation="horizontal">
+                            <ImageView android:layout_width="24dp" android:layout_height="24dp" android:layout_marginEnd="12dp" android:src="@android:drawable/ic_lock_idle_alarm" android:tint="?attr/colorPrimary" />
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/notification_quiet_hours_label" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" android:textColor="?attr/colorOnSurface" />
+                            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/notificationQuietHoursSwitch" android:layout_width="wrap_content" android:layout_height="wrap_content" />
+                        </LinearLayout>
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="12dp" android:text="@string/notification_quiet_hours_hint" android:textColor="?android:attr/textColorSecondary" android:textSize="11sp" />
+                        <LinearLayout android:id="@+id/notificationQuietHoursButtons" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="16dp" android:gravity="center" android:orientation="horizontal" android:visibility="gone">
+                            <com.google.android.material.button.MaterialButton android:id="@+id/quietHoursStartButton" style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginEnd="4dp" android:layout_weight="1" android:textAllCaps="false" android:minHeight="48dp" />
+                            <com.google.android.material.button.MaterialButton android:id="@+id/quietHoursEndButton" style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="4dp" android:layout_weight="1" android:textAllCaps="false" android:minHeight="48dp" />
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center" android:orientation="horizontal">
+                            <com.google.android.material.button.MaterialButton android:id="@+id/testNotificationButton" style="@style/Widget.Material3.Button.TonalButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginEnd="4dp" android:layout_weight="1" android:text="@string/notification_test_button" android:textAllCaps="false" android:minHeight="48dp" />
+                            <com.google.android.material.button.MaterialButton android:id="@+id/openNotificationSettingsButton" style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_marginStart="4dp" android:layout_weight="1" android:text="@string/notification_system_button" android:textAllCaps="false" android:minHeight="48dp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                </LinearLayout>
+            </ru.example.childwatch.designsystem.SettingsSection>
+            <ru.example.childwatch.designsystem.SettingsSection android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/settingsPrivacySection" android:layout_marginBottom="10dp" app:cwSectionTitle="@string/cw_settings_privacy" app:cwSectionDescription="@string/cw_settings_privacy_hint" app:cwSectionIcon="@drawable/cw_home_shield">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="14dp" android:paddingBottom="14dp">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="0dp" android:paddingTop="0dp">
+                        <com.google.android.material.button.MaterialButton android:id="@+id/revokeConsentBtn" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:text="@string/revoke_consent" android:textSize="16sp" app:backgroundTint="?attr/colorError" app:icon="@android:drawable/ic_menu_close_clear_cancel" app:iconGravity="textStart" style="@style/Widget.Material3.Button.OutlinedButton" android:minHeight="48dp" android:textAllCaps="false" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/aboutBtn" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/about_app" android:textSize="16sp" app:icon="@android:drawable/ic_dialog_info" app:iconGravity="textStart" style="@style/Widget.Material3.Button.OutlinedButton" android:minHeight="48dp" android:textAllCaps="false" />
+                    </LinearLayout>
+                </LinearLayout>
+            </ru.example.childwatch.designsystem.SettingsSection>
+            <ru.example.childwatch.designsystem.SettingsSection android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/settingsAdvancedSection" android:layout_marginBottom="10dp" app:cwSectionTitle="@string/cw_settings_advanced" app:cwSectionDescription="@string/cw_settings_advanced_hint" app:cwSectionIcon="@drawable/cw_home_settings">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="14dp" android:paddingBottom="14dp">
+                    <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="16dp" android:hint="@string/location_interval" app:helperText="@string/location_interval_help" app:helperTextEnabled="true" style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+                        <com.google.android.material.textfield.TextInputEditText android:id="@+id/locationIntervalInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:text="30" />
                     </com.google.android.material.textfield.TextInputLayout>
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/selectChildButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginEnd="8dp"
-                        android:text="@string/profile_switch_pick_child_short"
-                        style="@style/Widget.Material3.Button.TonalButton" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/editChildCardButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginEnd="8dp"
-                        android:text="@string/main_child_card_button"
-                        style="@style/Widget.Material3.Button.OutlinedButton" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/scanQrButton"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="QR"
-                        app:icon="@android:drawable/ic_menu_camera"
-                        style="@style/Widget.Material3.Button.OutlinedButton" />
-
+                    <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="16dp" android:hint="@string/audio_duration" app:helperText="@string/audio_duration_help" app:helperTextEnabled="true" style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+                        <com.google.android.material.textfield.TextInputEditText android:id="@+id/audioDurationInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="number" android:text="20" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                    <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="8dp" android:hint="@string/server_url" app:helperText="@string/server_url_help" app:helperTextEnabled="true" style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+                        <com.google.android.material.textfield.TextInputEditText android:id="@+id/serverUrlInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="textUri" android:text="" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginBottom="16dp" android:gravity="center">
+                        <com.google.android.material.button.MaterialButton android:id="@+id/useVpsBtn" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="4dp" android:text="@string/cw_settings_server_default" android:textSize="13sp" style="@style/Widget.Material3.Button" android:minHeight="48dp" android:textAllCaps="false" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/useLocalhostBtn" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/cw_settings_server_local" android:textSize="13sp" style="@style/Widget.Material3.Button.TonalButton" android:minHeight="48dp" android:textAllCaps="false" />
+                    </LinearLayout>
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/child_device_id" android:textSize="14sp" android:layout_marginBottom="8dp" />
+                    <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:hint="@string/child_device_id_hint" style="@style/Widget.MaterialComponents.TextInputLayout.OutlinedBox">
+                        <com.google.android.material.textfield.TextInputEditText android:id="@+id/childDeviceIdInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="text" />
+                    </com.google.android.material.textfield.TextInputLayout>
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/child_device_id_help" android:textSize="12sp" android:textColor="?android:attr/textColorSecondary" android:layout_marginBottom="16dp" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_saved_profiles" android:textSize="16sp" android:textColor="@color/cw_color_on_surface_variant" android:textStyle="bold" android:layout_marginTop="16dp" android:layout_marginBottom="6dp" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_saved_profiles_hint" android:textSize="13sp" android:textColor="@color/cw_color_on_surface_variant" android:layout_marginBottom="8dp" />
+                        <TextView android:id="@+id/profileSummaryText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="12dp" android:text="@string/profile_switch_no_active" android:textAppearance="@style/TextAppearance.Material3.BodyMedium" android:textColor="?attr/colorOnSurfaceVariant" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/saveProfileButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/profile_switch_save_current" style="@style/Widget.Material3.Button.OutlinedButton" android:minHeight="48dp" android:textAllCaps="false" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/switchProfileButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/profile_switch_manage" style="@style/Widget.Material3.Button" android:minHeight="48dp" android:textAllCaps="false" />
+                    </LinearLayout>
+                    <com.google.android.material.button.MaterialButton android:id="@+id/resetSettingsBtn" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/reset_to_defaults" android:textSize="16sp" app:icon="@android:drawable/ic_menu_revert" app:iconGravity="textStart" style="@style/Widget.Material3.Button.OutlinedButton" android:minHeight="48dp" android:textAllCaps="false" />
                 </LinearLayout>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/child_device_id_help"
-                    android:textSize="12sp"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:layout_marginBottom="16dp" />
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Feature Toggles Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardElevation="4dp"
-            app:cardCornerRadius="12dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:text="@string/feature_toggles_title"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
-
-                <!-- Location Monitoring Toggle -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="12dp">
-
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_marginEnd="12dp"
-                        android:src="@android:drawable/ic_dialog_map"
-                        android:tint="?attr/colorPrimary" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/enable_location_monitoring"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
-                        android:textColor="?attr/colorOnSurface" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/locationMonitoringSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:checked="true" />
-
-                </LinearLayout>
-
-                <!-- Audio Monitoring Toggle -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="12dp">
-
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_marginEnd="12dp"
-                        android:src="@android:drawable/ic_media_play"
-                        android:tint="?attr/colorPrimary" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/enable_audio_monitoring"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
-                        android:textColor="?attr/colorOnSurface" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/audioMonitoringSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:checked="true" />
-
-                </LinearLayout>
-
-                <!-- Photo Monitoring Toggle -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="12dp">
-
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_marginEnd="12dp"
-                        android:src="@android:drawable/ic_menu_camera"
-                        android:tint="?attr/colorPrimary" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/enable_photo_monitoring"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
-                        android:textColor="?attr/colorOnSurface" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/photoMonitoringSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:checked="false" />
-
-                </LinearLayout>
-
-                <!-- Share Parent Location Switch -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:paddingVertical="12dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/settings_share_location_title"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
-                        android:textColor="?attr/colorOnSurface" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/shareParentLocationSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:checked="true" />
-
-                </LinearLayout>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="4dp"
-                    android:layout_marginEnd="4dp"
-                    android:text="@string/settings_share_location_description"
-                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                    android:textColor="?attr/colorOnSurfaceVariant"
-                    android:alpha="0.7" />
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-        <!-- Notification Settings Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardElevation="4dp"
-            app:cardCornerRadius="12dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:text="@string/notification_settings_title"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:text="@string/notification_duration_label"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="14sp" />
-
-                <com.google.android.material.slider.Slider
-                    android:id="@+id/notificationDurationSlider"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:stepSize="5"
-                    android:value="10"
-                    android:valueFrom="5"
-                    android:valueTo="30" />
-
-                <TextView
-                    android:id="@+id/durationValueText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:layout_marginBottom="8dp"
-                    android:text="@string/notification_duration_default_value"
-                    android:textColor="?attr/colorPrimary"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:text="@string/notification_duration_hint"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="11sp" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:text="@string/notification_size_label"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="14sp" />
-
-                <RadioGroup
-                    android:id="@+id/notificationSizeGroup"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:orientation="horizontal">
-
-                    <com.google.android.material.radiobutton.MaterialRadioButton
-                        android:id="@+id/notificationSizeCompact"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/notification_size_compact"
-                        android:textSize="12sp" />
-
-                    <com.google.android.material.radiobutton.MaterialRadioButton
-                        android:id="@+id/notificationSizeExpanded"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:checked="true"
-                        android:text="@string/notification_size_expanded"
-                        android:textSize="12sp" />
-
-                </RadioGroup>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:text="@string/notification_priority_label"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="14sp" />
-
-                <com.google.android.material.slider.Slider
-                    android:id="@+id/notificationPrioritySlider"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:stepSize="1"
-                    android:value="2"
-                    android:valueFrom="0"
-                    android:valueTo="2" />
-
-                <TextView
-                    android:id="@+id/priorityValueText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_gravity="center"
-                    android:layout_marginBottom="16dp"
-                    android:text="@string/notification_priority_high"
-                    android:textColor="?attr/colorPrimary"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:text="@string/notification_priority_hint"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="11sp" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:layout_marginTop="8dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_marginEnd="12dp"
-                        android:src="@android:drawable/ic_lock_silent_mode_off"
-                        android:tint="?attr/colorPrimary" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/notification_sound_label"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
-                        android:textColor="?attr/colorOnSurface" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/notificationSoundSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:checked="true" />
-
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_marginEnd="12dp"
-                        android:src="@android:drawable/ic_lock_silent_mode_off"
-                        android:tint="?attr/colorPrimary" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/notification_vibration_label"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
-                        android:textColor="?attr/colorOnSurface" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/notificationVibrationSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:checked="true" />
-
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_marginEnd="12dp"
-                        android:src="@android:drawable/ic_menu_info_details"
-                        android:tint="?attr/colorPrimary" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/notification_badge_label"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
-                        android:textColor="?attr/colorOnSurface" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/notificationBadgeSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:checked="true" />
-
-                </LinearLayout>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:text="@string/notification_badge_hint"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="11sp" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:text="@string/notification_preview_label"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="14sp" />
-
-                <RadioGroup
-                    android:id="@+id/notificationPreviewGroup"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:orientation="horizontal">
-
-                    <com.google.android.material.radiobutton.MaterialRadioButton
-                        android:id="@+id/notificationPreviewPublic"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:checked="true"
-                        android:text="@string/notification_preview_public"
-                        android:textSize="12sp" />
-
-                    <com.google.android.material.radiobutton.MaterialRadioButton
-                        android:id="@+id/notificationPreviewPrivate"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/notification_preview_private"
-                        android:textSize="12sp" />
-
-                </RadioGroup>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:text="@string/notification_preview_hint"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="11sp" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <ImageView
-                        android:layout_width="24dp"
-                        android:layout_height="24dp"
-                        android:layout_marginEnd="12dp"
-                        android:src="@android:drawable/ic_lock_idle_alarm"
-                        android:tint="?attr/colorPrimary" />
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/notification_quiet_hours_label"
-                        android:textAppearance="@style/TextAppearance.Material3.BodyLarge"
-                        android:textColor="?attr/colorOnSurface" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/notificationQuietHoursSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content" />
-
-                </LinearLayout>
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="12dp"
-                    android:text="@string/notification_quiet_hours_hint"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:textSize="11sp" />
-
-                <LinearLayout
-                    android:id="@+id/notificationQuietHoursButtons"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:gravity="center"
-                    android:orientation="horizontal"
-                    android:visibility="gone">
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/quietHoursStartButton"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginEnd="4dp"
-                        android:layout_weight="1"
-                        android:textAllCaps="false" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/quietHoursEndButton"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="4dp"
-                        android:layout_weight="1"
-                        android:textAllCaps="false" />
-
-                </LinearLayout>
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center"
-                    android:orientation="horizontal">
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/testNotificationButton"
-                        style="@style/Widget.Material3.Button.TonalButton"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginEnd="4dp"
-                        android:layout_weight="1"
-                        android:text="@string/notification_test_button"
-                        android:textAllCaps="false" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/openNotificationSettingsButton"
-                        style="@style/Widget.Material3.Button.OutlinedButton"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="4dp"
-                        android:layout_weight="1"
-                        android:text="@string/notification_system_button"
-                        android:textAllCaps="false" />
-
-                </LinearLayout>
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Privacy Settings Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardElevation="4dp"
-            app:cardCornerRadius="12dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:text="@string/privacy_settings_title"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
-
-                <!-- Revoke Consent Button -->
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/revokeConsentBtn"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:text="@string/revoke_consent"
-                    android:textSize="16sp"
-                    app:backgroundTint="?attr/colorError"
-                    app:icon="@android:drawable/ic_menu_close_clear_cancel"
-                    app:iconGravity="textStart"
-                    style="@style/Widget.Material3.Button.OutlinedButton" />
-
-                <!-- About Button -->
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/aboutBtn"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/about_app"
-                    android:textSize="16sp"
-                    app:icon="@android:drawable/ic_dialog_info"
-                    app:iconGravity="textStart"
-                    style="@style/Widget.Material3.Button.OutlinedButton" />
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Device Pairing Card (QR Code) -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardElevation="4dp"
-            app:cardCornerRadius="12dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:text="@string/settings_link_child_title"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="?attr/colorOnSurface"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="16dp"
-                    android:text="@string/settings_link_child_description"
-                    android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                    android:textColor="?attr/colorOnSurfaceVariant" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/showQrCodeBtn"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="@string/settings_show_qr_button"
-                    android:textSize="16sp"
-                    app:icon="@android:drawable/ic_dialog_info"
-                    app:iconGravity="textStart"
-                    style="@style/Widget.Material3.Button" />
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Action Buttons -->
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical">
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/saveSettingsBtn"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:text="@string/save_settings"
-                android:textSize="16sp"
-                app:icon="@android:drawable/ic_menu_save"
-                app:iconGravity="textStart" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/resetSettingsBtn"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/reset_to_defaults"
-                android:textSize="16sp"
-                app:icon="@android:drawable/ic_menu_revert"
-                app:iconGravity="textStart"
-                style="@style/Widget.Material3.Button.OutlinedButton" />
-
+            </ru.example.childwatch.designsystem.SettingsSection>
         </LinearLayout>
-
+    </ScrollView>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="16dp" android:paddingTop="6dp" android:paddingBottom="10dp" android:background="@color/cw_color_surface">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_save_hint" android:textSize="12sp" android:textColor="@color/cw_color_on_surface_variant" android:layout_marginBottom="2dp" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/saveSettingsBtn" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="0dp" android:text="@string/save_settings" android:textSize="16sp" app:icon="@android:drawable/ic_menu_save" app:iconGravity="textStart" android:minHeight="48dp" android:layout_marginTop="0dp" style="@style/Widget.ChildWatch.Button.Primary" />
     </LinearLayout>
-
-</ScrollView>
+</LinearLayout>

@@ -38,18 +38,18 @@ class LocationService : Service() {
         private const val TAG = "LocationService"
         private const val NOTIFICATION_ID = 1
         private const val CHANNEL_ID = "location_tracking"
-        private const val LOCATION_UPDATE_INTERVAL_BALANCED = 60_000L
+        private const val LOCATION_UPDATE_INTERVAL_BALANCED = 30_000L
         private const val LOCATION_FASTEST_INTERVAL_BALANCED = 30_000L
-        private const val LOCATION_UPDATE_INTERVAL_TRANSIT = 15_000L
-        private const val LOCATION_FASTEST_INTERVAL_TRANSIT = 7_000L
-        private const val LOCATION_UPDATE_INTERVAL_ACTIVE = 30_000L
-        private const val LOCATION_FASTEST_INTERVAL_ACTIVE = 15_000L
-        private const val LOCATION_UPLOAD_INTERVAL_BALANCED = 90_000L
-        private const val LOCATION_UPLOAD_INTERVAL_TRANSIT = 18_000L
-        private const val LOCATION_UPLOAD_INTERVAL_ACTIVE = 25_000L
+        private const val LOCATION_UPDATE_INTERVAL_TRANSIT = 5_000L
+        private const val LOCATION_FASTEST_INTERVAL_TRANSIT = 4_000L
+        private const val LOCATION_UPDATE_INTERVAL_ACTIVE = 5_000L
+        private const val LOCATION_FASTEST_INTERVAL_ACTIVE = 3_000L
+        private const val LOCATION_UPLOAD_INTERVAL_BALANCED = 60_000L
+        private const val LOCATION_UPLOAD_INTERVAL_TRANSIT = 5_000L
+        private const val LOCATION_UPLOAD_INTERVAL_ACTIVE = 5_000L
         private const val LOCATION_UPLOAD_DISTANCE_BALANCED_METERS = 35f
-        private const val LOCATION_UPLOAD_DISTANCE_TRANSIT_METERS = 10f
-        private const val LOCATION_UPLOAD_DISTANCE_ACTIVE_METERS = 10f
+        private const val LOCATION_UPLOAD_DISTANCE_TRANSIT_METERS = 5f
+        private const val LOCATION_UPLOAD_DISTANCE_ACTIVE_METERS = 5f
 
         /**
          * A fix worse than this is treated as a guess rather than a position.
@@ -71,13 +71,26 @@ class LocationService : Service() {
         private const val COMMAND_CHECK_INTERVAL_WS_DEGRADED = 10_000L
         private const val CHAT_SERVICE_RECOVERY_COOLDOWN_MS = 20_000L
         private const val REGISTRATION_RECOVERY_COOLDOWN_MS = 30_000L
-        private const val MOVING_SPEED_THRESHOLD_MPS = 1.4f
+        private const val MOVING_SPEED_THRESHOLD_MPS = 0.7f
         private const val FAST_TRANSIT_SPEED_THRESHOLD_MPS = 6.0f
         private const val MOVEMENT_DISTANCE_THRESHOLD_METERS = 20f
-        private const val MOVEMENT_TIME_WINDOW_MS = 45_000L
+        private const val MOVEMENT_TIME_WINDOW_MS = 120_000L
         private const val TRACKING_MODE_STICKINESS_MS = 45_000L
 
         const val ACTION_START = "start"
+        /** Check before startForegroundService: stopping afterward can still trigger Android's timeout. */
+        fun startTrackingService(context: Context, intent: Intent): Boolean {
+            val hasLocation = ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if (!hasLocation) {
+                context.getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
+                    .edit().putBoolean("service_running", false).apply()
+                Log.i("LocationService", "Location start skipped: permission unavailable")
+                return false
+            }
+            androidx.core.content.ContextCompat.startForegroundService(context, intent)
+            return true
+        }
         const val ACTION_STOP = "stop"
         const val ACTION_EMERGENCY_STOP = "emergency_stop"
         const val ACTION_START_AUDIO_STREAM = "start_audio_stream"
@@ -159,6 +172,7 @@ class LocationService : Service() {
     private var deviceId: String? = null
     private var serverUrl: String? = null
     private var commandCheckJob: Job? = null
+    private var deviceStatusJob: Job? = null
     private var registrationJob: Job? = null
     private var registrationRecoveryJob: Job? = null
     private var locationUpdatesStarted = false
@@ -273,7 +287,7 @@ class LocationService : Service() {
             }
         }
 
-        return START_STICKY
+        return if (isTracking) START_STICKY else START_NOT_STICKY
     }
 
     private fun startTracking(startIntent: Intent?) {
@@ -282,8 +296,15 @@ class LocationService : Service() {
             return
         }
 
-        // Start foreground service FIRST to avoid crash
-        promoteToForeground()
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            Log.i(TAG, "Tracking awaits location permission; family setup remains available")
+            prefs.edit().putBoolean("service_running", false).apply()
+            stopSelf()
+            return
+        }
+        // Android 14 validates permissions again during foreground promotion.
+        if (!promoteToForeground()) { stopSelf(); return }
         primeCameraForegroundAccessIfVisible()
 
         // Load settings (prefer intent extras to avoid async prefs race)
@@ -384,6 +405,7 @@ class LocationService : Service() {
                                 Toast.LENGTH_SHORT
                             ).show()
                         }
+                        startDeviceStatusUpdates()
                         startLocationUpdates()
                         locationUpdatesStarted = true
                         return@launch
@@ -400,9 +422,30 @@ class LocationService : Service() {
         }
     }
 
+    private fun startDeviceStatusUpdates() {
+        deviceStatusJob?.cancel()
+        deviceStatusJob = serviceScope.launch {
+            while (isActive && isTracking) {
+                try {
+                    val url = serverUrl?.takeIf { it.isNotBlank() } ?: break
+                    networkHelper.uploadDeviceStatus(
+                        url, DeviceInfoCollector.getDeviceInfo(this@LocationService)
+                    )
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Log.w(TAG, "Device activity snapshot postponed", error)
+                }
+                delay(60_000L)
+            }
+        }
+    }
+
     private fun stopTracking() {
         if (!isTracking) return
 
+        deviceStatusJob?.cancel()
+        deviceStatusJob = null
         registrationJob?.cancel()
         registrationJob = null
         registrationRecoveryJob?.cancel()
@@ -462,38 +505,44 @@ class LocationService : Service() {
         Log.d(TAG, "Location updates started")
     }
 
+    private val locationOutbox by lazy { ru.example.childwatch.designsystem.LocationOutbox(this) }
+    private fun outboxScope(): String? = ru.example.childwatch.designsystem.LocationOutbox.scope(
+        effectiveContextResolver.resolveServerUrl(), effectiveContextResolver.resolveFamilyId(), effectiveContextResolver.resolveChildDeviceId())
+
     private fun handleLocationUpdate(location: Location) {
-        Log.d(TAG, "Location update: ${location.latitude}, ${location.longitude}")
+        if (!ru.example.childwatch.designsystem.LocationQuality.usable(location)) return
         updateTrackingModeFromLocation(location)
-
-        if (!beginLocationUpload(location)) {
-            return
-        }
-
-        // Upload to server with device info
-        serviceScope.launch {
-            // Collect device info
-            val deviceInfo = DeviceInfoCollector.getDeviceInfo(
-                this@LocationService,
-                includeCurrentApp = DeviceInfoCollector.shouldIncludeAppUsageSnapshot()
-            )
-
-            val success = networkHelper.uploadLocationWithDeviceInfo(
-                serverUrl!!,
-                location.latitude,
-                location.longitude,
-                location.accuracy,
-                deviceInfo
-            )
-
-            finishLocationUpload(location, success)
-
-            if (success) {
-                val batteryStatus = DeviceInfoCollector.getBatteryStatus(this@LocationService)
-                updateNotification(
-                    getString(R.string.location_service_notification_active_with_battery, batteryStatus)
-                )
-            }
+        val scope = outboxScope()
+        val uploadServer = serverUrl ?: return
+        val own = effectiveContextResolver.resolveChildDeviceId()
+        if (uploadServer.trimEnd('/') != effectiveContextResolver.resolveServerUrl().trimEnd('/')) return
+        val family = effectiveContextResolver.resolveFamilyId()
+        val moving = currentTrackingMode != TrackingMode.BALANCED
+        serviceScope.launch(Dispatchers.IO) {
+            try { locationOutbox.enqueue(scope, location, moving) }
+            catch (error: Exception) { Log.w(TAG, "Cannot retain measured location", error) }
+            if (scope != outboxScope() || !beginLocationUpload(location)) return@launch
+            var success = false
+            try {
+                val deviceInfo = DeviceInfoCollector.getDeviceInfo(this@LocationService,
+                    includeCurrentApp = DeviceInfoCollector.shouldIncludeAppUsageSnapshot())
+                success = networkHelper.uploadLocationWithDeviceInfo(uploadServer, location.latitude,
+                    location.longitude, location.accuracy, deviceInfo, timestamp = location.time, measuredLocation = location)
+                if (success && scope == outboxScope()) {
+                    val batteryStatus = DeviceInfoCollector.getBatteryStatus(this@LocationService)
+                    updateNotification(getString(R.string.location_service_notification_active_with_battery, batteryStatus))
+                    locationOutbox.acknowledge(scope, location.time)
+                    if (!family.isNullOrBlank()) repeat(3) {
+                        if (scope != outboxScope()) return@launch
+                        val batch = locationOutbox.batch(scope, location.time)
+                        if (batch.length() == 0) return@launch
+                        if (!networkHelper.uploadLocationHistory(uploadServer, family, own, batch)) return@launch
+                        locationOutbox.acknowledge(scope, batch)
+                    }
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (error: Exception) { Log.w(TAG, "Location remains queued", error) }
+            finally { finishLocationUpload(location, success && scope == outboxScope()) }
         }
     }
 
@@ -531,7 +580,7 @@ class LocationService : Service() {
             .build()
     }
 
-    private fun promoteToForeground(contentText: String? = null) {
+    private fun promoteToForeground(contentText: String? = null): Boolean = try {
         val notification = createNotification(contentText)
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             ServiceCompat.startForeground(
@@ -543,6 +592,11 @@ class LocationService : Service() {
         } else {
             startForeground(NOTIFICATION_ID, notification)
         }
+        true
+    } catch (refused: SecurityException) {
+        Log.w(TAG, "Location foreground access refused", refused)
+        stopSelf()
+        false
     }
 
     private fun promoteToForegroundForAudio(): Boolean {
@@ -985,6 +1039,10 @@ class LocationService : Service() {
         }
     }
 
+    private fun effectiveTrackingMode(): TrackingMode =
+        if (isStreamingAudio || AudioStreamingService.isStreamingDesired(this)) TrackingMode.CRITICAL
+        else currentTrackingMode
+
     private fun buildLocationRequest(): LocationRequest {
         val trackingMode = effectiveTrackingMode()
         val (priority, interval, fastest, minDistance) = when (trackingMode) {
@@ -1015,7 +1073,8 @@ class LocationService : Service() {
         }
         return LocationRequest.Builder(priority, interval)
             .setMinUpdateIntervalMillis(fastest)
-            .setMinUpdateDistanceMeters(minDistance)
+            .setMinUpdateDistanceMeters(0f) // Heartbeats also while stationary.
+            .setMaxUpdateDelayMillis(if (trackingMode == TrackingMode.BALANCED) 30_000L else 0L)
             .build()
     }
 
@@ -1054,6 +1113,7 @@ class LocationService : Service() {
 
     private fun beginLocationUpload(location: Location): Boolean {
         synchronized(locationUploadStateLock) {
+            if (!ru.example.childwatch.designsystem.LocationQuality.usable(location)) return false
             if (locationUploadInFlight) {
                 return false
             }
@@ -1109,7 +1169,7 @@ class LocationService : Service() {
         }
 
         val distance = location.distanceTo(lastLocation)
-        if (distance >= minDistance) {
+        if (elapsed >= 3_000L && distance >= maxOf(minDistance, location.accuracy + lastLocation.accuracy)) {
             return true
         }
 
@@ -1168,38 +1228,10 @@ class LocationService : Service() {
             return TrackingMode.CRITICAL
         }
 
-        val measuredSpeed = location.speed.takeIf { it > 0f }
-        if (measuredSpeed != null) {
-            return when {
-                measuredSpeed >= FAST_TRANSIT_SPEED_THRESHOLD_MPS -> TrackingMode.CRITICAL
-                measuredSpeed >= MOVING_SPEED_THRESHOLD_MPS -> TrackingMode.TRANSIT
-                else -> TrackingMode.BALANCED
-            }
-        }
-
-        if (previous != null) {
-            val elapsed = (location.time - previous.time).takeIf { it > 0L }
-                ?: (System.currentTimeMillis() - lastTrackingModeChangeAt).coerceAtLeast(1L)
-            val distance = location.distanceTo(previous)
-            if (distance >= MOVEMENT_DISTANCE_THRESHOLD_METERS && elapsed <= MOVEMENT_TIME_WINDOW_MS) {
-                val inferredSpeed = distance / (elapsed / 1000f)
-                return when {
-                    inferredSpeed >= FAST_TRANSIT_SPEED_THRESHOLD_MPS -> TrackingMode.CRITICAL
-                    inferredSpeed >= MOVING_SPEED_THRESHOLD_MPS -> TrackingMode.TRANSIT
-                    else -> TrackingMode.BALANCED
-                }
-            }
-        }
-
-        return TrackingMode.BALANCED
-    }
-
-    private fun effectiveTrackingMode(): TrackingMode {
-        return if (isStreamingAudio || AudioStreamingService.isStreamingDesired(this)) {
-            TrackingMode.CRITICAL
-        } else {
-            currentTrackingMode
-        }
+        if (!ru.example.childwatch.designsystem.LocationQuality.moving(location, previous, MOVING_SPEED_THRESHOLD_MPS))
+            return TrackingMode.BALANCED
+        return if (location.hasSpeed() && location.speed >= FAST_TRANSIT_SPEED_THRESHOLD_MPS)
+            TrackingMode.CRITICAL else TrackingMode.TRANSIT
     }
 
     private fun trackingRank(mode: TrackingMode): Int = when (mode) {

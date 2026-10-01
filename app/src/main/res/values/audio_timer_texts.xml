@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="listen_session_elapsed_label">Длительность передачи звука</string>
+    <string name="listen_session_elapsed_idle">00:00</string>
+    <string name="listen_session_elapsed_waiting">Ожидание звука</string>
+</resources>

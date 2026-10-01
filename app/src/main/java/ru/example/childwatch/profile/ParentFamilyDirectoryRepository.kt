@@ -136,8 +136,11 @@ class ParentFamilyDirectoryRepository(context: Context) {
             ?.body()
             ?: return null
         val preferredFamilyId = contextResolver.resolveFamilyId().orEmpty().trim()
-        val membership = identity.memberships.firstOrNull { it.familyId == preferredFamilyId }
-            ?: identity.memberships.firstOrNull()
+        val membership = if (preferredFamilyId.isNotBlank()) {
+            identity.memberships.firstOrNull { it.familyId == preferredFamilyId }
+        } else {
+            identity.memberships.singleOrNull()
+        }
             ?: return null
         return membership.member.displayName to membership.member.avatarKey
     }
@@ -158,8 +161,11 @@ class ParentFamilyDirectoryRepository(context: Context) {
             ?.body()
             ?: return null
         val preferredFamilyId = contextResolver.resolveFamilyId().orEmpty().trim()
-        val membership = identity.memberships.firstOrNull { it.familyId == preferredFamilyId }
-            ?: identity.memberships.firstOrNull()
+        val membership = if (preferredFamilyId.isNotBlank()) {
+            identity.memberships.firstOrNull { it.familyId == preferredFamilyId }
+        } else {
+            identity.memberships.singleOrNull()
+        }
             ?: return null
         return membership.memberId.trim().takeIf(String::isNotBlank)
     }
@@ -173,8 +179,11 @@ class ParentFamilyDirectoryRepository(context: Context) {
             ?.body()
             ?: return false
         val preferredFamilyId = contextResolver.resolveFamilyId().orEmpty().trim()
-        val membership = identity.memberships.firstOrNull { it.familyId == preferredFamilyId }
-            ?: identity.memberships.firstOrNull()
+        val membership = if (preferredFamilyId.isNotBlank()) {
+            identity.memberships.firstOrNull { it.familyId == preferredFamilyId }
+        } else {
+            identity.memberships.singleOrNull()
+        }
             ?: return false
         val response = networkClient.updateFamilyMemberProfile(
             familyId = membership.familyId,

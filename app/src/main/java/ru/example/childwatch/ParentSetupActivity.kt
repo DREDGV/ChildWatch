@@ -681,103 +681,12 @@ class ParentSetupActivity : AppCompatActivity() {
     }
 
     private fun showInvitationEntry() {
-        val input = EditText(this).apply {
-            hint = getString(R.string.first_run_invitation_hint)
-            minLines = 2
-        }
-        MaterialAlertDialogBuilder(this)
-            .setTitle(R.string.first_run_invitation_title)
-            .setMessage(R.string.first_run_invitation_message)
-            .setView(input)
-            .setPositiveButton(R.string.first_run_invitation_continue) { _, _ ->
-                acceptInvitationValue(input.text?.toString())
-            }
-            .setNeutralButton(R.string.first_run_invitation_scan) { _, _ ->
-                qrScannerLauncher.launch(Intent(this, QrScannerActivity::class.java))
-            }
-            .setNegativeButton(R.string.first_run_invitation_cancel, null)
-            .show()
+        startActivity(Intent(this, FamilyJoinActivity::class.java))
     }
 
     private fun acceptInvitationValue(rawValue: String?) {
-        val token = FamilyInvitationTokenParser.parse(rawValue)
-        if (token == null) {
-            toast(getString(R.string.first_run_invitation_not_ours))
-            return
-        }
-        showLoading(true)
-        lifecycleScope.launch {
-            try {
-                check(networkClient.ensureOnboardingAuthentication()) {
-                    getString(R.string.first_run_registration_failed)
-                }
-                val preview = networkClient.previewFamilyInvitation(token)
-                val invitation = preview.body()?.invitation
-                check(preview.isSuccessful && invitation != null) {
-                    readServerError(preview.errorBody()?.string())
-                }
-                check(!invitation.isExpired && !invitation.isConsumed && !invitation.isRevoked) {
-                    getString(R.string.first_run_invitation_expired)
-                }
-                check(
-                    FamilyOnboardingRolePolicy.accepts(
-                        FamilyAppKind.PARENT_MONITOR,
-                        invitation.member.role
-                    )
-                ) {
-                    getString(R.string.first_run_invitation_child_app)
-                }
-                showLoading(false)
-                val summary = if (invitation.mode == "EXISTING_MEMBER") {
-                    getString(
-                        R.string.first_run_invitation_existing_summary,
-                        invitation.member.displayName,
-                        invitation.invitedBy
-                    )
-                } else {
-                    getString(
-                        R.string.first_run_invitation_new_summary,
-                        invitation.member.displayName,
-                        invitation.invitedBy
-                    )
-                }
-                MaterialAlertDialogBuilder(this@ParentSetupActivity)
-                    .setTitle(invitation.family.name)
-                    .setMessage(summary)
-                    .setPositiveButton(R.string.first_run_invitation_join) { _, _ ->
-                        completeInvitation(token)
-                    }
-                    .setNegativeButton(R.string.first_run_invitation_cancel, null)
-                    .show()
-            } catch (error: Exception) {
-                showLoading(false)
-                toast(error.message ?: getString(R.string.first_run_server_incomplete))
-            }
-        }
+        startActivity(Intent(this, FamilyJoinActivity::class.java).putExtra("invitation", rawValue))
     }
-
-    private fun completeInvitation(token: String) {
-        showLoading(true)
-        lifecycleScope.launch {
-            try {
-                val response = networkClient.acceptFamilyInvitation(token)
-                val result = response.body()
-                check(response.isSuccessful && result?.success == true) {
-                    readServerError(response.errorBody()?.string())
-                }
-                persistCompletedProfile(result!!.member, "", "")
-                getSharedPreferences("childwatch_prefs", MODE_PRIVATE).edit()
-                    .putString(ParentParticipantNameResolver.KEY_SELF_DISPLAY_NAME, result.member.displayName)
-                    .apply()
-                toast(getString(R.string.first_run_invitation_joined))
-                navigateToMain()
-            } catch (error: Exception) {
-                showLoading(false)
-                toast(error.message ?: getString(R.string.first_run_server_incomplete))
-            }
-        }
-    }
-
     private suspend fun persistCompletedProfile(
         member: OnboardingMemberData,
         email: String,

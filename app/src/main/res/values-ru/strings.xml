@@ -52,7 +52,11 @@
     <string name="device_info_last_sync">Обновлено</string>
     <string name="device_info_unknown">Неизвестно</string>
     <string name="device_info_not_available">Статус недоступен</string>
-    <string name="device_info_needs_pairing">Добавьте ID детского устройства в настройках, чтобы видеть статус.</string>
+    <string name="device_info_needs_pairing">Подключите телефон ребёнка, чтобы видеть его состояние.</string>
+    <string name="device_info_choose_child">Выберите ребёнка, состояние которого показывать.</string>
+    <string name="home_setup_notice_title">Завершите подключение</string>
+    <string name="home_setup_notice_body">Этот телефон ещё не подключён к семье, поэтому показывать пока нечего. Подключение занимает один шаг.</string>
+    <string name="home_setup_notice_action">Завершить настройку</string>
     <string name="device_info_charging_yes">Заряжается</string>
     <string name="device_info_charging_no">Не заряжается</string>
     <string name="device_info_loading">Обновление…</string>

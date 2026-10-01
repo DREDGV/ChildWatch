@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="family_consent_title">Добро пожаловать в ParentMonitor</string>
+    <string name="family_consent_body">Это приложение для взрослого. Подключитесь к своей семье по приглашению или создайте семью первым. Детский телефон подключается через ChildDevice.</string>
+    <string name="family_consent_privacy">Семейные данные доступны в соответствии с ролью и разрешениями. Согласие здесь не даёт разрешения слушать взрослого. Камера, местоположение и другие разрешения запрашиваются при использовании соответствующих функций.</string>
+    <string name="family_consent_features">Что можно делать в семье</string>
+    <string name="family_consent_location">Видеть людей на общей карте, если доступ разрешён</string>
+    <string name="family_consent_audio">Слушать только выбранный детский телефон при наличии семейного разрешения</string>
+    <string name="family_consent_photo">Общаться и запрашивать фото с детского телефона по семейным разрешениям</string>
+    <string name="family_receive_title">Подключиться к семье</string>
+    <string name="family_receive_subtitle">На уже подключённом телефоне взрослого откройте «Семья → Добавить человека». Получите приглашение для себя — создавать новую семью не нужно.</string>
+    <string name="family_receive_step_one">1 · Получите приглашение</string>
+    <string name="family_receive_step_two">2 · Проверьте человека и семью</string>
+    <string name="family_receive_scan">Сканировать QR-код</string>
+    <string name="family_receive_paste">Или вставьте ссылку приглашения</string>
+    <string name="family_receive_check">Проверить приглашение</string>
+    <string name="family_receive_confirm">Всё верно — подключить этот телефон</string>
+    <string name="family_receive_parent">Ваша роль: родитель</string>
+    <string name="family_receive_relative">Ваша роль: родственник</string>
+    <string name="family_receive_details">Приглашает: %1$s\nПриглашение действует до %2$s</string>
+    <string name="family_receive_existing">Этот телефон добавится к существующему человеку. Имя, аватар и роль сохранятся. Старые телефоны автоматически не отключаются.</string>
+    <string name="family_receive_new">В семье появится новый человек с указанным именем. Этот телефон подключится к его профилю.</string>
+    <string name="family_receive_success">Вы подключены</string>
+    <string name="family_receive_done">%1$s\n%2$s\n\nТелефон подключён. Доступные действия определяются вашей ролью и разрешениями в семье.</string>
+    <string name="family_receive_open">Открыть мою семью</string>
+    <string name="family_receive_invalid">Это не приглашение ChildWatch. Отсканируйте семейный QR-код или вставьте полную ссылку.</string>
+    <string name="family_receive_network">Не удалось связаться с семейным сервером. Проверьте интернет и адрес сервера в настройках; затем повторите проверку приглашения.</string>
+    <string name="family_receive_expired">Приглашение истекло, отозвано или уже использовано. Попросите взрослого создать новое для того же человека.</string>
+    <string name="family_receive_wrong_app">Это приглашение для ребёнка. Откройте его в ChildDevice на телефоне ребёнка. Взрослому нужно приглашение с ролью «Родитель» или «Родственник».</string>
+    <string name="family_receive_already_linked">Этот телефон уже принадлежит участнику семьи. Приглашение не меняет его владельца — проверьте подключение в настройках семьи.</string>
+</resources>

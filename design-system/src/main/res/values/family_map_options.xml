@@ -1,0 +1,11 @@
+<resources>
+    <string name="cw_map_view">Map view</string>
+    <string name="cw_map_distances">Distances to family · straight line</string>
+    <string name="cw_map_trails">Show movement trails · last 30 minutes</string>
+    <string name="cw_map_all_trails">Show trails for all available family members</string>
+    <string name="cw_map_apply">Apply</string>
+    <string name="cw_map_no_distance">No distance</string>
+    <string name="cw_map_self">You</string>
+    <string name="cw_map_family">Family · distances</string>
+    <string name="cw_map_no_members">No family members available</string>
+</resources>

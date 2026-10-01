@@ -1,6 +1,7 @@
 package ru.example.parentwatch.utils
 
 import android.content.Context
+import ru.childwatch.shared.family.ServerAddressValidator
 import ru.example.parentwatch.session.ChildActiveSessionStore
 
 object ServerUrlResolver {
@@ -20,18 +21,14 @@ object ServerUrlResolver {
 
     fun normalizeServerUrl(raw: String): String {
         val trimmed = extractUrlCandidate(raw)
-        if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
-            return trimmed
-        }
-
-        val looksLikeLocalOrIp = trimmed.startsWith("localhost", ignoreCase = true) ||
-            trimmed.matches(Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+(:\\d+)?$"))
-
-        return if (looksLikeLocalOrIp) {
-            "http://$trimmed"
+        val normalized = if (trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+            trimmed
         } else {
-            "https://$trimmed"
+            val looksLikeLocalOrIp = trimmed.startsWith("localhost", ignoreCase = true) ||
+                trimmed.matches(Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+(:\\d+)?$"))
+            if (looksLikeLocalOrIp) "http://$trimmed" else "https://$trimmed"
         }
+        return normalized.takeIf(ServerAddressValidator::isValid).orEmpty()
     }
 
     private fun extractUrlCandidate(raw: String): String {

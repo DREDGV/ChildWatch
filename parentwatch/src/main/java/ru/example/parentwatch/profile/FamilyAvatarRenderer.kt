@@ -62,6 +62,7 @@ object FamilyAvatarRenderer {
         displayName: String? = null,
         @DrawableRes fallbackRes: Int = R.drawable.ic_brand_childdevice
     ) {
+        AvatarImageLoader.forget(view)
         view.imageTintList = null
 
         if (AvatarImageLoader.isUploadedPicture(avatarValue)) {

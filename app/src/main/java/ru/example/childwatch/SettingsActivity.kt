@@ -24,6 +24,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.view.isVisible
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.Dispatchers
+import ru.childwatch.shared.family.ServerAddressValidator
 import ru.example.childwatch.contacts.ContactIcons
 import ru.example.childwatch.databinding.ActivitySettingsBinding
 import ru.example.childwatch.database.ChildWatchDatabase
@@ -106,6 +107,8 @@ class SettingsActivity : AppCompatActivity() {
     private val participantNameResolver by lazy { ParentParticipantNameResolver(this) }
     private val profileRuntimeCoordinator by lazy { ParentProfileRuntimeCoordinator(this) }
     private val networkClient by lazy { NetworkClient(this) }
+    private val ownProfilePhotoPicker = ru.example.childwatch.profile.ProfileImagePicker.registerLauncher(this)
+
     private var quietHoursStart = DEFAULT_QUIET_HOURS_START
     private var quietHoursEnd = DEFAULT_QUIET_HOURS_END
 
@@ -130,6 +133,10 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         binding = ActivitySettingsBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        ru.example.childwatch.designsystem.FamilyProfileEditor.restore(this, savedInstanceState) { binding.ownProfileButton.performClick() }
+        supportActionBar?.title = getString(R.string.settings)
+        supportActionBar?.setDisplayHomeAsUpEnabled(true)
+        supportActionBar?.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(getColor(R.color.cw_color_background)))
         
         prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         secureSettings = SecureSettingsManager(this)
@@ -137,6 +144,12 @@ class SettingsActivity : AppCompatActivity() {
 
         setupUI()
         loadSettings()
+        savedInstanceState?.let {
+            quietHoursStart = it.getString("settings_quiet_start") ?: quietHoursStart
+            quietHoursEnd = it.getString("settings_quiet_end") ?: quietHoursEnd
+            updateQuietHoursButtons()
+        }
+        setupUnsavedChangesProtection(savedInstanceState)
     }
 
     override fun onResume() {
@@ -145,7 +158,67 @@ class SettingsActivity : AppCompatActivity() {
             syncLinkedProfilesInBackground()
         }
     }
+
+    override fun onSupportNavigateUp(): Boolean {
+        onBackPressedDispatcher.onBackPressed()
+        return true
+    }
     
+
+    private var savedFormValues: List<String> = emptyList()
+    private var leaveSettingsDialog: androidx.appcompat.app.AlertDialog? = null
+
+    private fun currentFormValues(): List<String> = listOf(
+        binding.locationIntervalInput.text.toString(),
+        binding.audioDurationInput.text.toString(),
+        binding.serverUrlInput.text.toString(),
+        binding.childDeviceIdInput.text.toString(),
+        binding.locationMonitoringSwitch.isChecked.toString(),
+        binding.audioMonitoringSwitch.isChecked.toString(),
+        binding.photoMonitoringSwitch.isChecked.toString(),
+        binding.shareParentLocationSwitch.isChecked.toString(),
+        binding.notificationDurationSlider.value.toString(),
+        binding.notificationSizeCompact.isChecked.toString(),
+        binding.notificationPrioritySlider.value.toString(),
+        binding.notificationSoundSwitch.isChecked.toString(),
+        binding.notificationVibrationSwitch.isChecked.toString(),
+        binding.notificationBadgeSwitch.isChecked.toString(),
+        binding.notificationPreviewPrivate.isChecked.toString(),
+        binding.notificationQuietHoursSwitch.isChecked.toString(),
+        quietHoursStart,
+        quietHoursEnd
+    )
+
+    private fun setupUnsavedChangesProtection(state: android.os.Bundle?) {
+        savedFormValues = state?.getStringArrayList("settings_form_baseline") ?: currentFormValues()
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (currentFormValues() == savedFormValues) {
+                    finish()
+                    return
+                }
+                if (leaveSettingsDialog?.isShowing == true) return
+                leaveSettingsDialog = androidx.appcompat.app.AlertDialog.Builder(this@SettingsActivity)
+                    .setTitle(R.string.cw_settings_unsaved_title)
+                    .setMessage(R.string.cw_settings_unsaved_message)
+                    .setPositiveButton(R.string.cw_settings_unsaved_save) { _, _ -> saveSettings() }
+                    .setNegativeButton(R.string.cw_settings_unsaved_discard) { _, _ -> finish() }
+                    .setNeutralButton(R.string.cw_settings_unsaved_stay, null)
+                    .create()
+                leaveSettingsDialog?.setOnDismissListener { leaveSettingsDialog = null }
+                leaveSettingsDialog?.show()
+            }
+        })
+    }
+
+    override fun onSaveInstanceState(outState: android.os.Bundle) {
+        ru.example.childwatch.designsystem.FamilyProfileEditor.saveState(this, outState)
+        outState.putStringArrayList("settings_form_baseline", ArrayList(savedFormValues))
+        outState.putString("settings_quiet_start", quietHoursStart)
+        outState.putString("settings_quiet_end", quietHoursEnd)
+        super.onSaveInstanceState(outState)
+    }
+
     private fun setupUI() {
         binding.notificationDurationSlider.addOnChangeListener { _, value, _ ->
             binding.durationValueText.text = formatNotificationDuration(value.toInt())
@@ -183,6 +256,10 @@ class SettingsActivity : AppCompatActivity() {
 
         binding.switchProfileButton.setOnClickListener {
             showProfilePicker()
+        }
+
+        binding.ownProfileButton.setOnClickListener {
+            ru.example.childwatch.profile.OwnProfileEditor.show(this) { updateProfileSummary() }
         }
 
         binding.editSelfNameButton.setOnClickListener {
@@ -351,19 +428,27 @@ class SettingsActivity : AppCompatActivity() {
             val childDeviceId = binding.childDeviceIdInput.text.toString().trim()
 
             if (locationInterval == null || locationInterval < 10 || locationInterval > 300) {
+                binding.locationIntervalInput.error = getString(R.string.settings_validation_location_interval)
+                ru.example.childwatch.designsystem.SettingsSection.reveal(binding.locationIntervalInput)
                 Toast.makeText(this, R.string.settings_validation_location_interval, Toast.LENGTH_LONG).show()
                 return
             }
+            binding.locationIntervalInput.error = null
 
             if (audioDuration == null || audioDuration < 5 || audioDuration > 60) {
+                binding.audioDurationInput.error = getString(R.string.settings_validation_audio_duration)
+                ru.example.childwatch.designsystem.SettingsSection.reveal(binding.audioDurationInput)
                 Toast.makeText(this, R.string.settings_validation_audio_duration, Toast.LENGTH_LONG).show()
                 return
             }
+            binding.audioDurationInput.error = null
 
-            if (serverUrl.isEmpty() || (!serverUrl.startsWith("http://") && !serverUrl.startsWith("https://"))) {
-                Toast.makeText(this, R.string.settings_validation_server_url, Toast.LENGTH_LONG).show()
+            if (!ServerAddressValidator.isValid(serverUrl)) {
+                binding.serverUrlInput.error = getString(R.string.settings_validation_server_url)
+                ru.example.childwatch.designsystem.SettingsSection.reveal(binding.serverUrlInput)
                 return
             }
+            binding.serverUrlInput.error = null
 
             prefs.edit()
                 .putInt(KEY_LOCATION_INTERVAL, locationInterval)
@@ -548,8 +633,10 @@ class SettingsActivity : AppCompatActivity() {
 
                 when {
                     name.isBlank() -> Toast.makeText(this, R.string.profile_switch_validation_name, Toast.LENGTH_SHORT).show()
-                    serverUrl.isBlank() || (!serverUrl.startsWith("http://") && !serverUrl.startsWith("https://")) ->
-                        Toast.makeText(this, R.string.profile_switch_validation_server, Toast.LENGTH_SHORT).show()
+                    !ServerAddressValidator.isValid(serverUrl) -> {
+                        serverInput.error = getString(R.string.profile_switch_validation_server)
+                        serverInput.requestFocus()
+                    }
                     ownId.isBlank() -> Toast.makeText(this, R.string.profile_switch_validation_own_id, Toast.LENGTH_SHORT).show()
                     else -> {
                         val profile = existingProfile?.copy(
@@ -644,12 +731,20 @@ class SettingsActivity : AppCompatActivity() {
         val appliedChildId = appliedContext.linkedChildDeviceId.ifBlank { profile.linkedChildDeviceId }
         binding.serverUrlInput.setText(appliedServerUrl)
         binding.childDeviceIdInput.setText(appliedChildId)
+        // Profile application persists these fields immediately; keep other drafts dirty.
+        val appliedValues = currentFormValues()
+        savedFormValues = savedFormValues.mapIndexed { index, value ->
+            if (index == 2 || index == 3) appliedValues[index] else value
+        }
         updateProfileSummary()
 
         Toast.makeText(this, R.string.profile_switch_applied, Toast.LENGTH_SHORT).show()
     }
 
     private fun updateProfileSummary() {
+        binding.settingsFamilySummary.text = getString(
+            R.string.cw_settings_profile, participantNameResolver.resolveOwnParentDisplayName()
+        )
         val activeProfile = profileManager.getActiveProfile()
         val effectiveContext = effectiveContextResolver.resolve()
         val ownParentId = activeProfile?.ownParentDeviceId?.takeIf { it.isNotBlank() }
@@ -887,6 +982,11 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private suspend fun syncOwnParentNameToServer(newName: String): Boolean {
+        val directory = ru.example.childwatch.profile.ParentFamilyDirectoryRepository(this)
+        val ownProfile = runCatching { directory.loadOwnProfile() }.getOrNull() ?: return false
+        if (!runCatching { directory.updateOwnProfile(newName, ownProfile.second) }.getOrDefault(false)) {
+            return false
+        }
         val ownParentId = effectiveContextResolver.resolveOwnParentId().ifBlank {
             profileManager.resolveCurrentParentId()
         }.trim()
@@ -1307,40 +1407,6 @@ class SettingsActivity : AppCompatActivity() {
         }
     }
 
-    override fun onBackPressed() {
-        // Check if settings were modified
-        val currentLocationInterval = binding.locationIntervalInput.text.toString().toIntOrNull()
-        val currentAudioDuration = binding.audioDurationInput.text.toString().toIntOrNull()
-        val currentServerUrl = binding.serverUrlInput.text.toString().trim()
-        
-        val savedLocationInterval = prefs.getInt(KEY_LOCATION_INTERVAL, DEFAULT_LOCATION_INTERVAL)
-        val savedAudioDuration = prefs.getInt(KEY_AUDIO_DURATION, DEFAULT_AUDIO_DURATION)
-        val savedServerUrl = secureSettings.getServerUrl()
-        
-        val settingsChanged = (currentLocationInterval != savedLocationInterval ||
-                currentAudioDuration != savedAudioDuration ||
-                currentServerUrl != savedServerUrl ||
-                binding.locationMonitoringSwitch.isChecked != prefs.getBoolean(KEY_LOCATION_ENABLED, true) ||
-                binding.audioMonitoringSwitch.isChecked != prefs.getBoolean(KEY_AUDIO_ENABLED, true) ||
-                binding.photoMonitoringSwitch.isChecked != prefs.getBoolean(KEY_PHOTO_ENABLED, false))
-        
-        if (settingsChanged) {
-            AlertDialog.Builder(this)
-                .setTitle(R.string.settings_unsaved_title)
-                .setMessage(R.string.settings_unsaved_message)
-                .setPositiveButton(R.string.settings_unsaved_save) { _, _ ->
-                    saveSettings()
-                }
-                .setNegativeButton(R.string.settings_unsaved_discard) { _, _ ->
-                    super.onBackPressed()
-                }
-                .setNeutralButton(android.R.string.cancel, null)
-                .show()
-        } else {
-            super.onBackPressed()
-        }
-    }
-    
     /**
      * Check and request background location permission for Android 10+
      */

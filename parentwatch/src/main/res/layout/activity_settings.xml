@@ -1,707 +1,110 @@
-<?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:fillViewport="true"
-    android:background="?attr/colorSurface">
-
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingTop="16dp"
-        android:paddingBottom="24dp">
-
-        <!-- Top App Bar -->
-        <com.google.android.material.appbar.MaterialToolbar
-            android:id="@+id/toolbar"
-            android:layout_width="match_parent"
-            android:layout_height="?attr/actionBarSize"
-            android:background="@color/emerald_primary"
-            android:elevation="4dp"
-            app:navigationIcon="@drawable/ic_arrow_back"
-            app:navigationIconTint="@android:color/white"
-            app:title="Настройки"
-            app:titleTextColor="@android:color/white"
-            app:titleCentered="true" />
-
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="2dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="8dp"
-                    android:text="@string/profile_switch_title"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:textColor="?attr/colorOnSurface"
-                    android:gravity="center" />
-
-                <TextView
-                    android:id="@+id/profileSummaryText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="12dp"
-                    android:text="@string/profile_switch_no_active"
-                    android:textSize="13sp"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:gravity="center" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center">
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/saveProfileButton"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="8dp"
-                        android:text="@string/profile_switch_save_current"
-                        style="@style/Widget.ParentWatch.Button.Outlined" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/switchProfileButton"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/profile_switch_manage"
-                        style="@style/Widget.Material3.Button" />
-
+<?xml version='1.0' encoding='utf-8'?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="@color/cw_color_background">
+    <com.google.android.material.appbar.MaterialToolbar android:id="@+id/toolbar" android:layout_width="match_parent" android:layout_height="?attr/actionBarSize" android:background="@color/cw_color_background" android:elevation="0dp" app:navigationIcon="@drawable/ic_arrow_back" app:navigationIconTint="@color/cw_color_on_surface" app:title="@string/settings_screen_title" app:titleTextColor="@color/cw_color_on_surface" app:titleCentered="false" android:layout_marginBottom="0dp" android:padding="0dp" />
+    <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:id="@+id/settingsScroll" android:layout_weight="1" android:fillViewport="true" android:clipToPadding="false">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="16dp" android:paddingTop="8dp" android:paddingBottom="8dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_intro" android:textSize="13sp" android:textColor="@color/cw_color_on_surface_variant" android:layout_marginBottom="16dp" />
+            <ru.example.childwatch.designsystem.SettingsSection android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/settingsFamilySection" android:layout_marginBottom="10dp" app:cwSectionTitle="@string/cw_settings_family" app:cwSectionDescription="@string/cw_settings_family_hint" app:cwSectionIcon="@drawable/cw_home_heart">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="14dp" android:paddingBottom="14dp">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/settingsFamilySummary" android:text="@string/cw_settings_family" android:textSize="16sp" android:textColor="@color/cw_color_on_surface_variant" android:textStyle="bold" android:layout_marginBottom="8dp" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/ownProfileButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/cw_profile_title" android:textAllCaps="false" style="@style/Widget.ParentWatch.Button.Outlined" android:minHeight="48dp" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/editSelfNameButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/cw_profile_details" android:textAllCaps="false" style="@style/Widget.ParentWatch.Button.Outlined" android:minHeight="48dp" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/editSelfMarkerButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/participant_self_marker_button" android:textAllCaps="false" style="@style/Widget.ParentWatch.Button.Outlined" android:minHeight="48dp" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="0dp" android:paddingTop="0dp">
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Для работы функции &quot;Где родители?&quot; отсканируйте QR-код с родительского устройства" android:textSize="13sp" android:layout_marginBottom="12dp" android:textColor="?android:attr/textColorSecondary" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/scanParentQrButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="📷 Сканировать QR родителя" android:textSize="14sp" android:textAllCaps="false" style="@style/Widget.Material3.Button" android:minHeight="48dp" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/selectActiveParentButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/child_parent_link_manage_button" android:textAllCaps="false" android:visibility="gone" style="@style/Widget.ParentWatch.Button.Outlined" android:minHeight="48dp" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/releaseListeningLineButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/child_parent_link_release_listening_button" android:textAllCaps="false" style="@style/Widget.ParentWatch.Button.Outlined" android:minHeight="48dp" />
+                        <TextView android:id="@+id/parentIdStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/settings_parent_link_status_missing" android:textSize="13sp" android:layout_marginTop="8dp" android:textColor="?android:attr/textColorSecondary" android:gravity="center" />
+                    </LinearLayout>
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_child_access_hint" android:textSize="13sp" android:textColor="@color/cw_color_on_surface_variant" android:layout_marginTop="12dp" />
                 </LinearLayout>
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/editSelfNameButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/participant_self_name_button"
-                    android:textAllCaps="false"
-                    style="@style/Widget.ParentWatch.Button.Outlined" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/editSelfMarkerButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/participant_self_marker_button"
-                    android:textAllCaps="false"
-                    style="@style/Widget.ParentWatch.Button.Outlined" />
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Header (removed, now using toolbar) -->
-
-        <!-- Server Configuration Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="2dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="🌐 Сервер"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:layout_marginBottom="12dp"
-                    android:textColor="?attr/colorOnSurface"
-                    android:gravity="center" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="URL сервера"
-                    android:textSize="13sp"
-                    android:layout_marginBottom="6dp"
-                    android:textColor="?android:attr/textColorSecondary" />
-
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="12dp"
-                    app:boxBackgroundMode="outline">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/serverUrlInput"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:inputType="textUri"
-                        android:hint="https://childwatch-production.up.railway.app" />
-
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center">
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/useVpsBtn"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="4dp"
-                        android:text="VPS"
-                        android:textSize="14sp"
-                        android:textAllCaps="false"
-                        style="@style/Widget.Material3.Button" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/useLocalhostBtn"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="Local"
-                        style="@style/Widget.ParentWatch.Button.Outlined" />
-
+            </ru.example.childwatch.designsystem.SettingsSection>
+            <ru.example.childwatch.designsystem.SettingsSection android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/settingsBackgroundSection" android:layout_marginBottom="10dp" app:cwSectionTitle="@string/cw_settings_background" app:cwSectionDescription="@string/cw_settings_background_hint" app:cwSectionIcon="@drawable/cw_home_shield">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="14dp" android:paddingBottom="14dp">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_location_permissions" android:textAppearance="@style/TextAppearance.ChildWatch.Home.Title" android:layout_marginTop="14dp" android:layout_marginBottom="8dp" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="0dp" android:paddingTop="0dp">
+                        <TextView android:id="@+id/permissionsSummaryText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:lineSpacingExtra="4dp" android:textAppearance="@style/TextAppearance.Material3.BodyMedium" android:textColor="@color/cw_color_on_surface_variant" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/requestPermissionsButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="Запросить недостающие" android:textAllCaps="false" android:minHeight="48dp" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/openAppSettingsButton" style="@style/Widget.Material3.Button.OutlinedButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Открыть системные настройки приложения" android:textAllCaps="false" android:minHeight="48dp" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="10dp" android:text="Для отслеживания в фоне выберите разрешение геолокации «Всегда разрешать». Если система больше не показывает запрос, разрешение выдаётся только в системных настройках." android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="@color/cw_color_on_surface_variant" />
+                    </LinearLayout>
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_usage_access" android:textAppearance="@style/TextAppearance.ChildWatch.Home.Title" android:layout_marginTop="14dp" android:layout_marginBottom="8dp" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="0dp" android:paddingTop="0dp">
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Для отображения текущих запущенных приложений на устройстве ребенка необходимо разрешение 'Использование приложений'." android:textSize="13sp" android:layout_marginBottom="12dp" android:textColor="?android:attr/textColorSecondary" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/requestUsagePermissionButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Предоставить разрешение" style="@style/Widget.ParentWatch.Button.Outlined" android:minHeight="48dp" android:textAllCaps="false" />
+                        <TextView android:id="@+id/usagePermissionStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="@string/settings_usage_granted" android:textSize="14sp" android:gravity="center" android:visibility="gone" android:textColor="?attr/colorPrimary" />
+                    </LinearLayout>
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_service_control" android:textAppearance="@style/TextAppearance.ChildWatch.Home.Title" android:layout_marginTop="14dp" android:layout_marginBottom="8dp" />
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="0dp" android:paddingTop="0dp">
+                        <com.google.android.material.button.MaterialButton android:id="@+id/startStopServiceButton" android:layout_width="match_parent" android:layout_height="56dp" android:text="Запустить мониторинг" android:textAllCaps="false" android:textSize="16sp" style="@style/Widget.Material3.Button" app:cornerRadius="12dp" app:icon="@android:drawable/ic_media_play" android:minHeight="48dp" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/emergencyStopButtonSettings" android:layout_width="match_parent" android:layout_height="48dp" android:layout_marginTop="8dp" android:text="🚨 Экстренная остановка" style="@style/Widget.ParentWatch.Button.Outlined" app:cornerRadius="10dp" app:icon="@android:drawable/ic_delete" android:minHeight="48dp" android:textAllCaps="false" />
+                    </LinearLayout>
                 </LinearLayout>
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Device Configuration Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="2dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="📱 Устройство"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:layout_marginBottom="12dp"
-                    android:textColor="?attr/colorOnSurface"
-                    android:gravity="center" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="ID устройства"
-                    android:textSize="13sp"
-                    android:layout_marginBottom="6dp"
-                    android:textColor="?android:attr/textColorSecondary" />
-
-                <com.google.android.material.textfield.TextInputLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginBottom="12dp"
-                    app:boxBackgroundMode="outline">
-
-                    <com.google.android.material.textfield.TextInputEditText
-                        android:id="@+id/deviceIdText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Не настроен"
-                        android:textSize="14sp"
-                        android:fontFamily="monospace"
-                        android:inputType="none"
-                        android:focusable="false"
-                        android:clickable="true" />
-
-                </com.google.android.material.textfield.TextInputLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center">
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/copyIdButton"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="8dp"
-                        android:text="📋 Копировать"
-                        style="@style/Widget.ParentWatch.Button.Outlined" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/showQrButton"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="📱 QR-код"
-                        style="@style/Widget.ParentWatch.Button.Outlined" />
-
+            </ru.example.childwatch.designsystem.SettingsSection>
+            <ru.example.childwatch.designsystem.SettingsSection android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/settingsNotificationsSection" android:layout_marginBottom="10dp" app:cwSectionTitle="@string/cw_settings_notifications" app:cwSectionDescription="@string/cw_settings_notifications_hint" app:cwSectionIcon="@drawable/cw_home_bell">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="14dp" android:paddingBottom="14dp">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="0dp" android:paddingTop="0dp">
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Длительность отображения" android:textSize="13sp" android:layout_marginBottom="6dp" android:textColor="?android:attr/textColorSecondary" />
+                        <com.google.android.material.slider.Slider android:id="@+id/notificationDurationSlider" android:layout_width="match_parent" android:layout_height="wrap_content" android:valueFrom="5" android:valueTo="30" android:stepSize="5" android:value="10" android:layout_marginBottom="8dp" />
+                        <TextView android:id="@+id/durationValueText" android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="10 секунд" android:textSize="14sp" android:layout_gravity="center" android:layout_marginBottom="16dp" android:textColor="?attr/colorPrimary" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Уведомления о новых сообщениях будут автоматически скрываться через указанное время." android:textSize="11sp" android:layout_marginBottom="16dp" android:textColor="?android:attr/textColorSecondary" />
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_marginBottom="12dp">
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="🔊 Звук уведомлений" android:textSize="14sp" android:textColor="?attr/colorOnSurface" />
+                            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/notificationSoundSwitch" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" />
+                        </LinearLayout>
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                            <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="📳 Вибрация" android:textSize="14sp" android:textColor="?attr/colorOnSurface" />
+                            <com.google.android.material.switchmaterial.SwitchMaterial android:id="@+id/notificationVibrationSwitch" android:layout_width="wrap_content" android:layout_height="wrap_content" android:checked="true" />
+                        </LinearLayout>
+                    </LinearLayout>
                 </LinearLayout>
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Parent Device Connection Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="2dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="👨‍👩‍👧 Связь с родителем"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:layout_marginBottom="12dp"
-                    android:textColor="?attr/colorOnSurface"
-                    android:gravity="center" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Для работы функции &quot;Где родители?&quot; отсканируйте QR-код с родительского устройства"
-                    android:textSize="13sp"
-                    android:layout_marginBottom="12dp"
-                    android:textColor="?android:attr/textColorSecondary" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/scanParentQrButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="📷 Сканировать QR родителя"
-                    android:textSize="14sp"
-                    android:textAllCaps="false"
-                    style="@style/Widget.Material3.Button" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/selectActiveParentButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/child_parent_link_manage_button"
-                    android:textAllCaps="false"
-                    android:visibility="gone"
-                    style="@style/Widget.ParentWatch.Button.Outlined" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/releaseListeningLineButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="@string/child_parent_link_release_listening_button"
-                    android:textAllCaps="false"
-                    style="@style/Widget.ParentWatch.Button.Outlined" />
-
-                <TextView
-                    android:id="@+id/parentIdStatus"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="❌ Не подключено"
-                    android:textSize="13sp"
-                    android:layout_marginTop="8dp"
-                    android:textColor="?android:attr/textColorSecondary"
-                    android:gravity="center" />
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- App Tracking Permissions Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="2dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="📊 Отслеживание приложений"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:layout_marginBottom="12dp"
-                    android:textColor="?attr/colorOnSurface"
-                    android:gravity="center" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Для отображения текущих запущенных приложений на устройстве ребенка необходимо разрешение 'Использование приложений'."
-                    android:textSize="13sp"
-                    android:layout_marginBottom="12dp"
-                    android:textColor="?android:attr/textColorSecondary" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/requestUsagePermissionButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="🔓 Предоставить разрешение"
-                    style="@style/Widget.ParentWatch.Button.Outlined" />
-
-                <TextView
-                    android:id="@+id/usagePermissionStatus"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="✅ Разрешение предоставлено"
-                    android:textSize="14sp"
-                    android:gravity="center"
-                    android:visibility="gone"
-                    android:textColor="?attr/colorPrimary" />
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Permissions Card: shows what the device is actually allowed to do.
-             Without this the user had no way to see whether background location
-             or the microphone were granted, because the app only asked once on
-             the main screen and then never showed the result again. -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="2dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Разрешения"
-                    android:textAppearance="@style/TextAppearance.Material3.TitleMedium"
-                    android:textColor="@color/cw_color_on_surface"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/permissionsSummaryText"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:lineSpacingExtra="4dp"
-                    android:textAppearance="@style/TextAppearance.Material3.BodyMedium"
-                    android:textColor="@color/cw_color_on_surface_variant" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/requestPermissionsButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="12dp"
-                    android:text="Запросить недостающие"
-                    android:textAllCaps="false" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/openAppSettingsButton"
-                    style="@style/Widget.Material3.Button.OutlinedButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="Открыть системные настройки приложения"
-                    android:textAllCaps="false" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="Для отслеживания в фоне выберите разрешение геолокации «Всегда разрешать». Если система больше не показывает запрос, разрешение выдаётся только в системных настройках."
-                    android:textAppearance="@style/TextAppearance.Material3.BodySmall"
-                    android:textColor="@color/cw_color_on_surface_variant" />
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Notification Settings Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="2dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="🔔 Уведомления"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:layout_marginBottom="12dp"
-                    android:textColor="?attr/colorOnSurface"
-                    android:gravity="center" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="Длительность отображения"
-                    android:textSize="13sp"
-                    android:layout_marginBottom="6dp"
-                    android:textColor="?android:attr/textColorSecondary" />
-
-                <com.google.android.material.slider.Slider
-                    android:id="@+id/notificationDurationSlider"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:valueFrom="5"
-                    android:valueTo="30"
-                    android:stepSize="5"
-                    android:value="10"
-                    android:layout_marginBottom="8dp" />
-
-                <TextView
-                    android:id="@+id/durationValueText"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="10 секунд"
-                    android:textSize="14sp"
-                    android:layout_gravity="center"
-                    android:layout_marginBottom="16dp"
-                    android:textColor="?attr/colorPrimary" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="ℹ️ Уведомления о новых сообщениях будут автоматически скрываться через указанное время."
-                    android:textSize="11sp"
-                    android:layout_marginBottom="16dp"
-                    android:textColor="?android:attr/textColorSecondary" />
-
-                <!-- Sound Switch -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical"
-                    android:layout_marginBottom="12dp">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="🔊 Звук уведомлений"
-                        android:textSize="14sp"
-                        android:textColor="?attr/colorOnSurface" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/notificationSoundSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:checked="true" />
-
+            </ru.example.childwatch.designsystem.SettingsSection>
+            <ru.example.childwatch.designsystem.SettingsSection android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/settingsPrivacySection" android:layout_marginBottom="10dp" app:cwSectionTitle="@string/cw_settings_privacy" app:cwSectionDescription="@string/cw_settings_privacy_hint" app:cwSectionIcon="@drawable/cw_home_phone">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="14dp" android:paddingBottom="14dp">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="0dp" android:paddingTop="0dp">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center" android:weightSum="2">
+                            <com.google.android.material.button.MaterialButton android:id="@+id/openAboutButton" android:layout_width="0dp" android:layout_height="64dp" android:layout_weight="1" android:layout_marginEnd="4dp" android:text="@string/settings_about_button_multiline" android:gravity="center" android:paddingStart="8dp" android:paddingEnd="8dp" style="@style/Widget.ParentWatch.Button.Outlined" android:minHeight="48dp" android:textAllCaps="false" />
+                            <com.google.android.material.button.MaterialButton android:id="@+id/openStatsButton" android:layout_width="0dp" android:layout_height="64dp" android:layout_weight="1" android:layout_marginStart="4dp" android:text="📊\nСтатистика" android:gravity="center" android:paddingStart="8dp" android:paddingEnd="8dp" style="@style/Widget.ParentWatch.Button.Outlined" android:minHeight="48dp" android:textAllCaps="false" />
+                        </LinearLayout>
+                    </LinearLayout>
                 </LinearLayout>
-
-                <!-- Vibration Switch -->
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
-
-                    <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="📳 Вибрация"
-                        android:textSize="14sp"
-                        android:textColor="?attr/colorOnSurface" />
-
-                    <com.google.android.material.switchmaterial.SwitchMaterial
-                        android:id="@+id/notificationVibrationSwitch"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:checked="true" />
-
+            </ru.example.childwatch.designsystem.SettingsSection>
+            <ru.example.childwatch.designsystem.SettingsSection android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/settingsAdvancedSection" android:layout_marginBottom="10dp" app:cwSectionTitle="@string/cw_settings_advanced" app:cwSectionDescription="@string/cw_settings_advanced_hint" app:cwSectionIcon="@drawable/cw_home_settings">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="14dp" android:paddingBottom="14dp">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="0dp" android:paddingTop="0dp">
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="URL сервера" android:textSize="13sp" android:layout_marginBottom="6dp" android:textColor="?android:attr/textColorSecondary" />
+                        <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="12dp" app:boxBackgroundMode="outline">
+                            <com.google.android.material.textfield.TextInputEditText android:id="@+id/serverUrlInput" android:layout_width="match_parent" android:layout_height="wrap_content" android:inputType="textUri" android:hint="https://childwatch-production.up.railway.app" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center">
+                            <com.google.android.material.button.MaterialButton android:id="@+id/useVpsBtn" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="4dp" android:text="@string/cw_settings_server_default" android:textSize="13sp" android:textAllCaps="false" style="@style/Widget.Material3.Button" android:minHeight="48dp" />
+                            <com.google.android.material.button.MaterialButton android:id="@+id/useLocalhostBtn" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/cw_settings_server_local" style="@style/Widget.ParentWatch.Button.Outlined" android:minHeight="48dp" android:textAllCaps="false" android:textSize="13sp" />
+                        </LinearLayout>
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="0dp" android:paddingTop="0dp">
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="ID устройства" android:textSize="13sp" android:layout_marginBottom="6dp" android:textColor="?android:attr/textColorSecondary" />
+                        <com.google.android.material.textfield.TextInputLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="12dp" app:boxBackgroundMode="outline">
+                            <com.google.android.material.textfield.TextInputEditText android:id="@+id/deviceIdText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="Не настроен" android:textSize="14sp" android:fontFamily="monospace" android:inputType="none" android:focusable="false" android:clickable="true" />
+                        </com.google.android.material.textfield.TextInputLayout>
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center">
+                            <com.google.android.material.button.MaterialButton android:id="@+id/copyIdButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginEnd="8dp" android:text="📋 Копировать" style="@style/Widget.ParentWatch.Button.Outlined" android:minHeight="48dp" android:textAllCaps="false" />
+                            <com.google.android.material.button.MaterialButton android:id="@+id/showQrButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/settings_show_qr_button" style="@style/Widget.ParentWatch.Button.Outlined" android:minHeight="48dp" android:textAllCaps="false" />
+                        </LinearLayout>
+                    </LinearLayout>
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_saved_profiles" android:textSize="16sp" android:textColor="@color/cw_color_on_surface_variant" android:textStyle="bold" android:layout_marginTop="16dp" android:layout_marginBottom="6dp" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_saved_profiles_hint" android:textSize="13sp" android:textColor="@color/cw_color_on_surface_variant" android:layout_marginBottom="8dp" />
+                        <TextView android:id="@+id/profileSummaryText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginBottom="12dp" android:text="@string/profile_switch_no_active" android:textSize="13sp" android:textColor="?android:attr/textColorSecondary" android:gravity="center" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/saveProfileButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/profile_switch_save_current" style="@style/Widget.ParentWatch.Button.Outlined" android:minHeight="48dp" android:textAllCaps="false" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/switchProfileButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/profile_switch_manage" style="@style/Widget.Material3.Button" android:minHeight="48dp" android:textAllCaps="false" />
+                    </LinearLayout>
                 </LinearLayout>
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Service Controls Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="2dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="🛰️ Сервис мониторинга"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:layout_marginBottom="12dp"
-                    android:textColor="?attr/colorOnSurface"
-                    android:gravity="center" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/startStopServiceButton"
-                    android:layout_width="match_parent"
-                    android:layout_height="56dp"
-                    android:text="Запустить мониторинг"
-                    android:textAllCaps="false"
-                    android:textSize="16sp"
-                    style="@style/Widget.Material3.Button"
-                    app:cornerRadius="12dp"
-                    app:icon="@android:drawable/ic_media_play" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/emergencyStopButtonSettings"
-                    android:layout_width="match_parent"
-                    android:layout_height="48dp"
-                    android:layout_marginTop="8dp"
-                    android:text="🚨 Экстренная остановка"
-                    style="@style/Widget.ParentWatch.Button.Outlined"
-                    app:cornerRadius="10dp"
-                    app:icon="@android:drawable/ic_delete" />
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- About and Diagnostics Card -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="16dp"
-            app:cardCornerRadius="16dp"
-            app:cardElevation="2dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="20dp">
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="ℹ️ О приложении и диагностика"
-                    android:textSize="16sp"
-                    android:textStyle="bold"
-                    android:layout_marginBottom="12dp"
-                    android:textColor="?attr/colorOnSurface"
-                    android:gravity="center" />
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center"
-                    android:weightSum="2">
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/openAboutButton"
-                        android:layout_width="0dp"
-                        android:layout_height="64dp"
-                        android:layout_weight="1"
-                        android:layout_marginEnd="4dp"
-                        android:text="ℹ️\nО приложении"
-                        android:gravity="center"
-                        android:paddingStart="8dp"
-                        android:paddingEnd="8dp"
-                        style="@style/Widget.ParentWatch.Button.Outlined" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/openStatsButton"
-                        android:layout_width="0dp"
-                        android:layout_height="64dp"
-                        android:layout_weight="1"
-                        android:layout_marginStart="4dp"
-                        android:text="📊\nСтатистика"
-                        android:gravity="center"
-                        android:paddingStart="8dp"
-                        android:paddingEnd="8dp"
-                        style="@style/Widget.ParentWatch.Button.Outlined" />
-                </LinearLayout>
-
-            </LinearLayout>
-
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- Action Buttons -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/saveButton"
-            android:layout_width="match_parent"
-            android:layout_height="56dp"
-            android:layout_marginTop="8dp"
-            style="@style/Widget.Material3.Button"
-            android:text="💾 Сохранить настройки"
-            android:textSize="16sp"
-            app:icon="@android:drawable/ic_menu_save"
-            app:cornerRadius="12dp" />
-
-        <!-- Info Footer -->
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            android:text="ℹ️ Изменения вступят в силу после перезапуска мониторинга."
-            android:textSize="11sp"
-            android:gravity="center"
-            android:textColor="?android:attr/textColorSecondary" />
-
+            </ru.example.childwatch.designsystem.SettingsSection>
+        </LinearLayout>
+    </ScrollView>
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="16dp" android:paddingTop="6dp" android:paddingBottom="10dp" android:background="@color/cw_color_surface">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_settings_save_hint" android:textSize="12sp" android:textColor="@color/cw_color_on_surface_variant" android:layout_marginBottom="2dp" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/saveButton" android:layout_width="match_parent" android:layout_height="56dp" android:layout_marginTop="0dp" style="@style/Widget.ChildWatch.Button.Primary" android:text="💾 Сохранить настройки" android:textSize="16sp" app:icon="@android:drawable/ic_menu_save" app:cornerRadius="12dp" android:minHeight="48dp" android:layout_marginBottom="0dp" />
     </LinearLayout>
-
-</ScrollView>
+</LinearLayout>

@@ -26,14 +26,10 @@ import java.security.MessageDigest
  *    changes nothing at all and the next opportunity tries again.
  * 2. The version is compared as a **whole number**. That project's check matched a
  *    hardcoded `-alpha` shape in the version string, so the day it published a
- *    release that was no longer an alpha every installed copy quietly stopped seeing
- *    updates. The version name is never parsed here.
- * 3. A failed download **passes through `Throwable`**, so no failure of any kind can
- *    leave a partly written package behind on a phone nobody can easily reach.
- *
- * This matters more on this phone than on the parent's: it is the device that is
- * hardest to reach with a cable, so an update that arrives here is the whole point
- * of the feature.
+ *    release that was no longer an alpha every installed copy quietly stopped
+ *    seeing updates. The version name is never parsed here.
+ * 3. A failed download **passes through `Throwable`**, so no failure of any kind
+ *    can leave a partly written package behind or a progress bar on screen.
  *
  * Nothing in this class shows anything to the person. A failed check is a log line
  * and a retry; only a successful check that found a newer version is worth
@@ -45,6 +41,9 @@ class UpdateManager(
     private val currentVersionCode: Int = BuildConfig.VERSION_CODE
 ) {
 
+    enum class CheckState { SKIPPED, FAILED, CURRENT, AVAILABLE }
+    var lastCheckState = CheckState.SKIPPED
+        private set
     private val preferences = UpdatePreferences(context)
 
     /**
@@ -75,17 +74,18 @@ class UpdateManager(
     /**
      * Asks what has been published.
      *
-     * [serverBase] is the address the caller resolved from the one setting this
+     * [serverBase] is the address the caller resolved from the one setting the
      * application already keeps its server address in. It is passed in and remembered,
      * so the file is later fetched from the same host the manifest came from — this
      * class never reads that setting by itself.
      *
-     * Answers null when there is nothing to tell the person: no network, a server that
-     * does not answer, a manifest this code cannot read, or — most often — the
-     * installed version already being current. The caller cannot tell those apart, and
-     * should not: none of them deserves a message.
+     * Answers null when there is nothing to tell the person: no network, a server
+     * that does not answer, a manifest this code cannot read, or — most often —
+     * the installed version already being current. The caller cannot tell those
+     * apart, and should not: none of them deserves a message.
      */
-    suspend fun checkForUpdate(serverBase: String): UpdateRelease? {
+    suspend fun checkForUpdate(serverBase: String, force: Boolean = false): UpdateRelease? {
+        lastCheckState = CheckState.FAILED
         val base = serverBase.trim().trimEnd('/')
         if (base.isBlank()) {
             Log.d(TAG, "The update check is skipped: no server address is configured")
@@ -99,14 +99,15 @@ class UpdateManager(
         // "Server URL is not configured" — seen on the owner's phone, not in theory.
         serverBaseUrl = base
 
-        if (checkedRecently()) {
+        if (!force && checkedRecently()) {
+            lastCheckState = CheckState.SKIPPED
             Log.d(TAG, "An update was checked for less than a day ago; skipping")
             return null
         }
 
         val raw = NetworkClient(context).fetchUpdateManifest(base).getOrElse { error ->
-            // Deliberately no timestamp here. One failed attempt must not buy a day of
-            // silence: the next launch asks again.
+            // Deliberately no timestamp here. One failed attempt must not buy a day
+            // of silence: the next launch asks again.
             Log.w(TAG, "Update check failed and will be retried later", error)
             return null
         }
@@ -117,7 +118,6 @@ class UpdateManager(
             // application of the family — so it is not an error and, more
             // importantly, it is not a failure of the check.
             Log.d(TAG, "The manifest describes nothing usable for $packageName")
-            preferences.recordSuccessfulCheck(System.currentTimeMillis(), currentVersionCode)
             return null
         }
 
@@ -127,6 +127,8 @@ class UpdateManager(
         preferences.recordSuccessfulCheck(System.currentTimeMillis(), currentVersionCode)
 
         if (release.versionCode <= currentVersionCode) {
+            lastCheckState = CheckState.CURRENT
+            preferences.forgetOffered()
             Log.d(
                 TAG,
                 "Already current: installed ${currentVersionCode}, published ${release.versionCode}"
@@ -140,8 +142,8 @@ class UpdateManager(
                 "over installed ${currentVersionCode}"
         )
         // Remembered before it is shown: the offer must outlive the session that
-        // found it, because the next check is a day away. It matters most on this
-        // phone, which nobody can easily hand to an adult who saw a notice go away.
+        // found it, because the next check is a day away.
+        lastCheckState = CheckState.AVAILABLE
         preferences.rememberOffered(raw, release.versionCode)
         return release
     }
@@ -179,14 +181,14 @@ class UpdateManager(
      * Downloads the published package and checks it before returning.
      *
      * The order matters: the checksum is computed **while the bytes are being
-     * written**, so a wrong or truncated file is known to be wrong before anything is
-     * offered to the person. A package that fails any check is deleted here and never
-     * reaches the installer.
+     * written**, so a wrong or truncated file is known to be wrong before anything
+     * is offered to the person. A package that fails any check is deleted here and
+     * never reaches the installer.
      *
-     * [onProgress] is called with the number of bytes written so far, on the download
-     * thread, and is deliberately given a count rather than a percentage: the size in
-     * the manifest is the only total available, and a caller that wants a bar can
-     * decide for itself what to do with the count.
+     * [onProgress] is called with the number of bytes written so far, on the
+     * download thread, and is deliberately given a count rather than a percentage:
+     * the size in the manifest is the only total available, and a caller that wants
+     * a bar can decide for itself what to do with the count.
      */
     suspend fun downloadAndVerify(
         release: UpdateRelease,
@@ -230,8 +232,8 @@ class UpdateManager(
             }
 
             // The application's own cache directory, never the shared Downloads
-            // folder: a partly written package there would be visible to every other
-            // application and would survive this application's own cleanup.
+            // folder: a partly written package there would be visible to every
+            // other application and would survive this application's own cleanup.
             val file = safeCacheFile(release.fileName)
             deleteQuietly(file)
             target = file
@@ -255,8 +257,7 @@ class UpdateManager(
                         written += read
                         if (written > release.sizeBytes) {
                             // More bytes than announced: the manifest does not
-                            // describe this file, so it is not this file. The
-                            // download stops here instead of filling the phone.
+                            // describe this file, so it is not this file.
                             throw SizeExceeded()
                         }
                         output.write(buffer, 0, read)
@@ -278,10 +279,10 @@ class UpdateManager(
 
             val actualHash = digest.digest().joinToString("") { "%02x".format(it) }
             if (!actualHash.equals(release.sha256, ignoreCase = true)) {
-                // A checksum mismatch is the one failure that must never offer "try
-                // again": either the download was altered on the way or the manifest
-                // and the file are not the same release, and repeating the same
-                // request cannot change either.
+                // A checksum mismatch is the one failure that must never offer
+                // "try again": either the download was altered on the way or the
+                // manifest and the file are not the same release, and repeating the
+                // same request cannot change either.
                 Log.e(
                     TAG,
                     "Checksum mismatch: the manifest announced ${release.sha256}, " +
@@ -317,8 +318,8 @@ class UpdateManager(
             DownloadResult.Failure(DownloadFailure.CANCELLED, retryable = true)
         } catch (error: Throwable) {
             // Deliberately Throwable, not Exception: a download interrupted by an
-            // OutOfMemoryError or any other failure must still leave no file behind
-            // on the phone.
+            // OutOfMemoryError or any other failure must still leave no file
+            // behind on the phone.
             Log.w(TAG, "The update download did not finish", error)
             target?.let { deleteQuietly(it) }
             DownloadResult.Failure(DownloadFailure.DOWNLOAD_FAILED, retryable = true)
@@ -326,14 +327,17 @@ class UpdateManager(
     }
 
     /**
+     * Whether the connection is free to use without asking.
+     *
+     * An update is tens of megabytes, which is a real cost on a phone plan, so the
+     * download waits for a connection that is not metered and says so when it does.
+     * An unknown connection is treated as metered: the cautious answer costs a
+     * person a moment, the permissive one can cost them money.
+     */
+    /**
      * Whether there is a connection that actually reaches the internet.
      *
-     * Being metered is deliberately not part of this. An update is tens of megabytes
-     * and a phone plan is a real cost, but refusing to download over mobile made the
-     * update impossible on a device without Wi-Fi - and this is the application that
-     * is hardest to reach with a cable. The size is shown before the download starts,
-     * so the decision belongs to the person who saw it.
-     *
+     * Being metered is deliberately not part of this: see where it is used for why.
      * An unknown answer is treated as no connection, which only delays the attempt.
      */
     private fun hasUsableConnection(): Boolean {
@@ -362,7 +366,6 @@ class UpdateManager(
         val base = serverBaseUrl ?: throw IOException("Server URL is not configured")
         return base.trimEnd('/') + "/" + trimmed.trimStart('/')
     }
-
     /**
      * A file inside this application's cache directory.
      *
@@ -415,7 +418,7 @@ class UpdateManager(
         private const val TAG = "UpdateManager"
 
         /** How often the server is asked at most. */
-        private const val CHECK_INTERVAL_MS = 24L * 60L * 60L * 1000L
+        private const val CHECK_INTERVAL_MS = 15L * 60L * 1000L
 
         /**
          * The largest package this application will accept.
@@ -445,9 +448,9 @@ class UpdateManager(
          * The confirmation the system installer produced, waiting for a screen.
          *
          * A current Android version does not let an application open a window from
-         * the background, so the confirmation is handed to whatever screen is running
-         * instead of being launched blindly by the receiver. When no screen is
-         * running the receiver posts a notification, and the screen picks the
+         * the background, so the confirmation is handed to whatever screen is
+         * running instead of being launched blindly by the receiver. When no screen
+         * is running the receiver posts a notification, and the screen picks the
          * confirmation up from here as it resumes.
          */
         @Volatile

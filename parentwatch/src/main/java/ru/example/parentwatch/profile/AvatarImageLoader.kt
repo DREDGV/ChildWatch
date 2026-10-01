@@ -85,7 +85,8 @@ object AvatarImageLoader {
      */
     private val httpClient: OkHttpClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(15, TimeUnit.SECONDS)
+            .callTimeout(6, TimeUnit.SECONDS)
+            .connectTimeout(5, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)
             .build()
     }
@@ -224,6 +225,18 @@ object AvatarImageLoader {
                     }
                 }
             }
+    }
+
+    /** IO only, for markers which must have a drawable before the map is drawn. */
+    fun preloadMapPhoto(context: Context, value: String?) {
+        val app = context.applicationContext
+        val url = resolveUrl(app, value) ?: return
+        if (memoryCache.get(url) != null) return
+        val now = System.currentTimeMillis()
+        if (recentFailures[url]?.let { now - it < FAILURE_COOLDOWN_MS } == true) return
+        val bitmap = readFromCache(app, url) ?: download(app, url)
+        if (bitmap != null) { memoryCache.put(url, bitmap); recentFailures.remove(url) }
+        else recentFailures[url] = System.currentTimeMillis()
     }
 
     /** Drops a picture from both caches, for example after the person replaced it. */

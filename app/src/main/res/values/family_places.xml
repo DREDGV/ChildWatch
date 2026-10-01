@@ -1,0 +1,35 @@
+<resources>
+    <string name="family_places_title">Семейные места</string>
+    <string name="family_places_loading">Загружаем места…</string>
+    <string name="family_places_empty">Мест пока нет. Добавьте дом, школу или другое важное место.</string>
+    <string name="family_places_add">Добавить место</string>
+    <string name="family_places_name">Название места</string>
+    <string name="family_places_radius">Радиус: %1$d м</string>
+    <string name="family_places_enter">Уведомлять о входе</string>
+    <string name="family_places_exit">Уведомлять о выходе</string>
+    <string name="family_places_hint">Первый точный замер задаёт исходное состояние. Уведомления приходят после подтверждённого пересечения границы; без свежих координат событие определить нельзя.</string>
+    <string name="family_places_save">Сохранить</string>
+    <string name="family_places_cancel">Отмена</string>
+    <string name="family_places_error">Не удалось сохранить или загрузить место. Проверьте связь и попробуйте снова.</string>
+    <string name="family_places_permission">Для мест нужны разрешения на геолокацию и историю этого человека.</string>
+    <string name="family_places_choose">Выберите человека на карте.</string>
+    <string name="family_places_validation">Название от 2 до 80 символов; выберите вход или выход.</string>
+    <string name="family_places_pause">Приостановить уведомления</string>
+    <string name="family_places_resume">Включить уведомления</string>
+    <string name="family_places_delete">Удалить место</string>
+    <string name="family_places_delete_confirm">Удалить «%1$s» и прекратить его уведомления?</string>
+    <string name="family_places_notification_hint">Проверьте, что уведомления приложения и канал «Семейные места» разрешены.</string>
+    <string name="family_places_center">Точка: центр карты (%1$.5f, %2$.5f)</string>
+    <string name="family_places_member">Для: %1$s</string>
+    <string name="family_places_paused">Пауза</string>
+    <string name="family_places_active">Включено</string>
+    <string name="family_places_legacy">Места на этом телефоне (старые)</string>
+    <string name="family_places_family_overview">Семья · расстояния</string>
+    <string name="family_places_edit">Изменить место</string>
+    <string name="family_place_arrived">%1$s: прибыл(а) в «%2$s»</string>
+    <string name="family_place_left">%1$s: покинул(а) «%2$s»</string>
+    <string name="family_places_retry">Повторить</string>
+    <string name="family_places_notification_settings">Настройки уведомлений</string>
+    <string name="family_places_move_center">Перенести в центр карты</string>
+    <string name="family_places_saving">Сохраняем…</string>
+</resources>

@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="monitoring_location_permission_needed">Для геолокации разрешите приложению доступ к местоположению в настройках телефона.</string>
     <string name="home_child_brand">ChildWatch</string>
     <string name="home_child_protection_active">Защита активна</string>
     <string name="home_child_protection_subtitle">Связь с семьёй установлена</string>

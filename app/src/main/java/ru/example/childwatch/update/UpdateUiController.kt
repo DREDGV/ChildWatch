@@ -61,6 +61,7 @@ class UpdateUiController(
 
     /** The release currently being offered, if any. */
     private var offered: UpdateRelease? = null
+    private var checkJob: Job? = null
 
     /** The download dialog, held so that every path can close it. */
     private var progressDialog: AlertDialog? = null
@@ -77,7 +78,9 @@ class UpdateUiController(
      * Called on start and on every return to the foreground; the daily limit inside
      * [UpdateManager] is what stops that from being a request per resume.
      */
-    fun checkAndShowNotice() {
+    fun checkAndShowNotice(force: Boolean = false) {
+        if (checkJob?.isActive == true) return
+        if (force) Toast.makeText(context, R.string.update_check_running, Toast.LENGTH_SHORT).show()
         // An offer found earlier is still true, and the daily check limit must not be
         // what hides it: a person who missed the notice once had no way to see it
         // again until the next day. Shown first, then refreshed by the check below.
@@ -99,17 +102,29 @@ class UpdateUiController(
             null
         }
 
-        scope.launch {
+        checkJob = scope.launch {
             val release = try {
-                manager.checkForUpdate(serverUrl.orEmpty())
+                manager.checkForUpdate(serverUrl.orEmpty(), force)
             } catch (error: Throwable) {
                 // The check must never be able to interfere with the screen. Even a
                 // failure that is not an Exception ends here as a log line.
                 Log.w(TAG, "The update check did not complete", error)
                 null
-            } ?: return@launch
+            }
+            if (release == null) {
+                if (manager.lastCheckState == UpdateManager.CheckState.CURRENT) {
+                    hideNotice()
+                    offered = null
+                }
+                if (force) {
+                    val message = if (manager.lastCheckState == UpdateManager.CheckState.CURRENT)
+                        R.string.update_check_current else R.string.update_check_failed
+                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+                return@launch
+            }
 
-            if (!manager.shouldOffer(release)) {
+            if (!force && !manager.shouldOffer(release)) {
                 Log.d(TAG, "Version ${release.versionCode} was dismissed by the person")
                 return@launch
             }

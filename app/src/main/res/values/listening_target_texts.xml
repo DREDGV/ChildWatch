@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="listen_child_only">Передача звука доступна только для устройства ребёнка. Выберите ребёнка в семье.</string>
+    <string name="listen_other_child_session">Уже идёт передача звука другого ребёнка. Сначала остановите текущий сеанс.</string>
+    <string name="listen_checking_target">Проверяем устройство ребёнка…</string>
+</resources>

@@ -118,6 +118,15 @@
                     android:maxLines="2"
                     android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta"
                     android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/chatPersonLocation"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:paddingTop="3dp"
+                    android:text="@string/family_location_unavailable"
+                    android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Meta"
+                    android:visibility="gone" />
             </LinearLayout>
 
             <com.google.android.material.button.MaterialButton

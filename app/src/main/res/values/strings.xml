@@ -49,6 +49,16 @@
     <string name="device_info_unknown">Unknown</string>
     <string name="device_info_not_available">Status not available</string>
     <string name="device_info_needs_pairing">Add a child device ID in settings to see live status.</string>
+    <string name="device_info_choose_child">Choose which child to show the state of.</string>
+
+    <!--
+        Shown on the home screen while this phone is not yet part of the family. It
+        states what to do next rather than leaving the person to work it out, and it
+        is hidden as soon as the phone is connected.
+    -->
+    <string name="home_setup_notice_title">Finish connecting this phone</string>
+    <string name="home_setup_notice_body">This phone is not connected to the family yet, so there is nothing to show here. Connecting takes one step.</string>
+    <string name="home_setup_notice_action">Finish setup</string>
     <string name="device_info_charging_yes">Charging</string>
     <string name="device_info_charging_no">Not charging</string>
     <string name="device_info_loading">Updating...</string>
@@ -316,6 +326,12 @@
     <string name="audio_monitor_notification_channel_description">Уведомления для активной прослушки</string>
     <string name="audio_monitor_notification_title">ChildWatch - активна прослушка</string>
     <string name="remote_photo_preview">Миниатюра фотографии</string>
+    <string name="remote_camera_empty_preview">Новый снимок появится здесь после получения</string>
+    <string name="remote_camera_preview_unavailable">Снимок пока недоступен. Обновите галерею позже.</string>
+    <string name="remote_camera_privacy_hint">Снимок создаётся по запросу. Здесь показан последний полученный кадр, а не видео с камеры.</string>
+    <string name="remote_camera_refresh_short">Обновить</string>
+    <string name="remote_camera_take_short">Снять</string>
+    <string name="remote_camera_switch_short">Камера</string>
     <string name="chat_partner_child">Ребенок</string>
     <string name="chat_partner_device_id">ID: %1$s</string>
     <string name="chat_partner_unknown_id">не задан</string>

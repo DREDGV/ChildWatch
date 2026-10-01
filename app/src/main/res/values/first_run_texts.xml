@@ -1,0 +1,109 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Words for the first screen of ParentMonitor.
+
+    The screen describes what already exists before it asks anything, so the
+    text names plain things - "этот телефон", "телефон ребёнка", "подключить" -
+    and never asks the person to know what a family, an invitation or a member
+    is. No step is longer than one decision.
+-->
+<resources>
+
+    <!-- Step: what is already true -->
+    <string name="first_run_welcome_title">Добро пожаловать в ChildWatch</string>
+    <string name="first_run_welcome_subtitle">Настроим за два коротких шага. Ничего не потеряется, если закрыть приложение.</string>
+    <string name="first_run_checking_server">Проверяем, что уже подключено…</string>
+    <string name="first_run_step_format">Шаг %1$d из %2$d</string>
+    <string name="first_run_child_phone_fallback">телефон ребёнка</string>
+    <string name="first_run_already_title">Всё уже подключено</string>
+    <string name="first_run_retry_check">Проверить снова</string>
+
+    <!-- What the screen is allowed to say from the server's own answer -->
+    <string name="first_run_in_family_title">Этот телефон уже в семье «%1$s»</string>
+    <string name="first_run_in_family_body">Здесь вы — %1$s. Создавать семью или входить в неё не нужно.</string>
+    <string name="first_run_linked_child_title">Связь с телефоном ребёнка работает</string>
+    <string name="first_run_linked_child_body">Телефон ребёнка «%1$s» уже подключён. Этот телефон остаётся только подключить.</string>
+    <string name="first_run_linked_child_known">Подключённый телефон ребёнка: «%1$s».</string>
+    <string name="first_run_child_phones_many">Подключённые телефоны детей: %1$s.</string>
+    <string name="first_run_known_child_title">Уже есть подключённый телефон ребёнка</string>
+    <string name="first_run_known_child_body">Семья «%1$s» уже создана, и в ней есть телефон ребёнка — «%2$s». Создавать семью заново не нужно.</string>
+    <string name="first_run_known_child_without_family_name">Семья уже создана, и в ней есть телефон ребёнка — «%1$s». Создавать семью заново не нужно.</string>
+    <string name="first_run_known_child_body_unnamed">Семья уже создана, и телефон ребёнка в ней есть. Создавать семью заново не нужно.</string>
+    <string name="first_run_connect_title">Подключим этот телефон</string>
+    <string name="first_run_connect_subtitle">Семья и телефон ребёнка уже подключены — остался один шаг.</string>
+    <string name="first_run_connect_needs_code">Попросите взрослого участника семьи открыть «Настройки» → «Семья» → «Пригласить» и выбрать ваше существующее имя. Затем отсканируйте код на этом телефоне.</string>
+    <string name="first_run_empty_title">Этот телефон пока ни к чему не подключён</string>
+    <string name="first_run_empty_body">Это нормально для первого запуска. Выберите, что сделать — дальше подскажу, какой телефон взять в руки.</string>
+    <string name="first_run_offline_title">Сервер не отвечает</string>
+    <string name="first_run_offline_body">Сейчас нельзя проверить, подключён ли этот телефон к семье. Проверьте интернет и попробуйте снова — или войдите в приложение и настроите позже.</string>
+
+    <!-- Step 1: the person -->
+    <string name="first_run_name_hint">Как вас зовут?</string>
+    <string name="first_run_name_invalid">Введите имя — его увидят в семье</string>
+    <string name="first_run_own_photo">Или выбрать своё фото</string>
+
+    <!-- Step 2: the connection -->
+    <string name="first_run_choice_label">Что дальше?</string>
+    <string name="first_run_choice_subtitle">Выберите один вариант — это последний шаг.</string>
+    <string name="first_run_choice_start">Создать новую семью</string>
+    <string name="first_run_choice_start_hint">Если семьи ещё нет вообще. Название можно любое.</string>
+    <string name="first_run_choice_join">Войти в семью, которая уже есть</string>
+    <string name="first_run_choice_join_hint">Если вы уже есть в семье, попросите взрослого выбрать ваше имя при создании приглашения. На новом телефоне отсканируйте код.</string>
+    <string name="first_run_connect_action">Подключить этот телефон к семье</string>
+    <string name="first_run_next_phone_parent">Далее возьмите телефон родителя.</string>
+    <string name="first_run_next_phone_child">Далее возьмите телефон ребёнка — «%1$s».</string>
+    <string name="first_run_next_phone_parent_named">Далее возьмите телефон родителя — «%1$s».</string>
+
+    <!-- Step 2 form -->
+    <string name="first_run_family_name_hint">Название семьи</string>
+    <string name="first_run_create_action">Создать семью</string>
+    <string name="first_run_join_action">Войти в семью</string>
+    <string name="first_run_have_code">Код приглашения</string>
+    <string name="first_run_paste_code">Вставить код из приглашения.</string>
+
+    <!-- Optional contacts -->
+    <string name="first_run_optional_contacts">Контакты — по желанию</string>
+    <string name="first_run_optional_contacts_hint">Они не нужны для начала работы и всегда доступны в профиле.</string>
+    <string name="first_run_email_hint">Email</string>
+    <string name="first_run_phone_hint">Телефон</string>
+    <string name="first_run_email_invalid">Проверьте адрес email</string>
+    <string name="first_run_phone_invalid">Проверьте номер телефона</string>
+
+    <!-- Escape hatches on every screen -->
+    <string name="first_run_open_app">Открыть приложение без настройки</string>
+    <string name="first_run_continue">Продолжить</string>
+    <string name="first_run_connected">Телефон подключён к семье</string>
+    <string name="first_run_already_done">Этот телефон уже подключён — ничего делать не нужно.</string>
+    <string name="first_run_later_from_home">Настроить можно позже: главный экран → «Настройки» → «Семья».</string>
+    <string name="first_run_later_done">Хорошо. Настройку можно продолжить в настройках, в разделе «Семья».</string>
+
+    <!-- Invitation dialog and its outcomes -->
+    <string name="first_run_invitation_title">Войти в семью</string>
+    <string name="first_run_invitation_message">Попросите взрослого участника семьи открыть «Настройки» → «Семья» → «Пригласить». Если вы уже есть в семье, он должен выбрать ваше имя, чтобы история и доступ сохранились. Отсканируйте код или вставьте ссылку.</string>
+    <string name="first_run_invitation_hint">Код или ссылка приглашения</string>
+    <string name="first_run_invitation_continue">Продолжить</string>
+    <string name="first_run_invitation_scan">Сканировать код</string>
+    <string name="first_run_invitation_cancel">Отмена</string>
+    <string name="first_run_invitation_not_ours">Это не приглашение ChildWatch. Попросите создать новое.</string>
+    <string name="first_run_invitation_expired">Приглашение уже недействительно. Попросите создать новое.</string>
+    <string name="first_run_invitation_child_app">Это приглашение для детского приложения. Здесь можно подключить только взрослого.</string>
+    <string name="first_run_device_other_family">Этот телефон уже привязан к другой семье. Откройте раздел «Семья» и проверьте текущую связь.</string>
+    <string name="first_run_invitation_join">Подключить</string>
+    <string name="first_run_invitation_joined">Телефон подключён к семье</string>
+    <string name="first_run_invitation_summary">Вы присоединитесь как %1$s. Приглашение создал(а) %2$s.</string>
+    <string name="first_run_invitation_existing_summary">Этот телефон добавится к существующему участнику «%1$s». Его история и доступ сохранятся. Приглашение создал(а) %2$s.</string>
+    <string name="first_run_invitation_new_summary">В семье появится новый участник «%1$s». Если это ваш новый телефон и вы уже есть в семье, попросите приглашение для существующего участника. Приглашение создал(а) %2$s.</string>
+    <string name="first_run_registration_failed">Не удалось зарегистрировать телефон на сервере. Проверьте интернет.</string>
+    <string name="first_run_server_incomplete">Сервер не завершил настройку. Попробуйте ещё раз.</string>
+    <string name="first_run_finish_first">Сначала завершите настройку или нажмите «Настроить позже»</string>
+
+    <!-- Avatar picker -->
+    <string name="first_run_avatar_source_title">Фотография профиля</string>
+    <string name="first_run_avatar_source_builtin">Выбрать готовую картинку</string>
+    <string name="first_run_avatar_source_own">Выбрать своё фото</string>
+    <string name="first_run_avatar_picker_title">Выберите картинку</string>
+    <string name="first_run_avatar_picker_cancel">Отмена</string>
+
+    <!-- Connecting to a family the app can already see -->
+    <string name="first_run_connect_progress">Подключаем телефон к семье…</string>
+</resources>

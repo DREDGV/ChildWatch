@@ -48,11 +48,18 @@ object DeviceInfoCollector {
         return JSONObject().apply {
             put("battery", getBatteryInfo(context))
             put("device", getDeviceDetails())
-            if (includeCurrentApp) {
-                val appUsage = getAppUsageInfo(context)
+            put("camera", CameraDiagnostics.snapshot(context))
+            // Every status must carry the last collected usage snapshot: the server
+            // returns the newest status, so omitting it makes the activity list vanish.
+            // Reuse the cached JSON between scheduled collections, without querying Android.
+            if (includeCurrentApp || cachedAppUsageJson != null) {
+                val appUsage = if (includeCurrentApp) getAppUsageInfo(context)
+                    else JSONObject(cachedAppUsageJson ?: "{}")
                 put("currentApp", appUsage.optJSONObject("currentApp") ?: JSONObject())
                 put("recentApps", appUsage.optJSONArray("recentApps") ?: org.json.JSONArray())
-                lastUsageSnapshotUploadAt = System.currentTimeMillis()
+                put("appUsageCollectedAt", cachedAppUsageAt)
+                put("dailyUsage", appUsage.optJSONObject("dailyUsage") ?: JSONObject())
+                if (includeCurrentApp) lastUsageSnapshotUploadAt = System.currentTimeMillis()
             }
             put("timestamp", System.currentTimeMillis())
         }
@@ -70,6 +77,7 @@ object DeviceInfoCollector {
     /**
      * Get cached foreground + recent app information.
      */
+    @Synchronized
     private fun getAppUsageInfo(context: Context): JSONObject {
         val now = System.currentTimeMillis()
         cachedAppUsageJson?.takeIf { (now - cachedAppUsageAt) < APP_USAGE_CACHE_TTL_MS }?.let {
@@ -81,7 +89,27 @@ object DeviceInfoCollector {
         val result = if (appUsageTracker.hasUsageStatsPermission()) {
             val currentApp = appUsageTracker.getCurrentApp()
             val recentApps = appUsageTracker.getRecentApps(limit = 30)
+            // A locked device or unavailable Android event store must not stop
+            // battery/status uploads, or masquerade as zero minutes of activity.
+            val daily = runCatching { appUsageTracker.getDailyUsage() }.getOrNull()
             JSONObject().apply {
+                put("dailyUsage", JSONObject().apply {
+                    put("available", daily?.available == true)
+                    if (daily != null) {
+                        put("start", daily.start)
+                        put("end", daily.end)
+                        put("timeZone", java.util.TimeZone.getDefault().id)
+                        put("totalTime", daily.apps.sumOf { it.totalTimeInForeground })
+                        put("apps", org.json.JSONArray().apply {
+                            daily.apps.forEach { app -> put(JSONObject().apply {
+                                put("packageName", app.packageName)
+                                put("appName", app.appName)
+                                put("lastUsed", app.lastTimeUsed)
+                                put("totalTimeInForeground", app.totalTimeInForeground)
+                            }) }
+                        })
+                    }
+                })
                 put(
                     "currentApp",
                     if (currentApp != null) {

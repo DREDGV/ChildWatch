@@ -16,6 +16,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.core.view.isVisible
+import androidx.core.widget.doAfterTextChanged
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import com.google.gson.Gson
@@ -25,6 +26,7 @@ import ru.example.childwatch.databinding.ActivityMainMenuBinding
 import ru.example.childwatch.database.ChildWatchDatabase
 import ru.example.childwatch.network.DeviceStatus
 import ru.example.childwatch.network.NetworkClient
+import ru.example.childwatch.location.FamilyLocationSummary
 import ru.example.childwatch.remote.RemotePhotoCache
 import ru.example.childwatch.remote.RemotePhotoErrorMessages
 import ru.example.childwatch.update.UpdateManager
@@ -44,10 +46,9 @@ import ru.example.childwatch.profile.ParentActiveSessionStore
 import ru.example.childwatch.profile.ParentEffectiveContextProvider
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.profile.ParentFamilyDirectoryRepository
-import ru.example.childwatch.profile.ProfileEditDialog
-import ru.example.childwatch.profile.ProfileEditResult
+import ru.childwatch.shared.family.FamilyDirectorySnapshot
+import ru.childwatch.shared.family.ServerAddressValidator
 import ru.example.childwatch.profile.ProfileImagePicker
-import ru.example.childwatch.profile.ProfilePhotoSession
 import ru.example.childwatch.profile.FamilyAvatarRenderer
 import ru.example.childwatch.profile.ParentLinkedChildOption
 import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
@@ -64,6 +65,8 @@ import ru.example.childwatch.database.entity.Child
 import ru.childwatch.shared.family.FamilyPresenceState
 import ru.childwatch.shared.family.FamilyRole
 import ru.childwatch.shared.family.FeatureTargetResult
+import ru.example.childwatch.designsystem.HomeFamilyStrip
+import ru.example.childwatch.designsystem.HomeDetailSheet
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -80,6 +83,9 @@ import java.util.*
  * - Navigation to different features
  */
 class MainActivity : AppCompatActivity() {
+
+    private var homeSheet: com.google.android.material.bottomsheet.BottomSheetDialog? = null
+    private var homeDirectory: FamilyDirectorySnapshot? = null
 
     private lateinit var binding: ActivityMainMenuBinding
     private lateinit var prefs: SharedPreferences
@@ -99,6 +105,8 @@ class MainActivity : AppCompatActivity() {
     private var batteryOptimizationDialogDisplayed = false
     private val deviceInfoScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     private val networkClient by lazy { NetworkClient(this) }
+    private val familyLocationSummary by lazy { FamilyLocationSummary(this, networkClient) }
+    private var selectedLocationJob: Job? = null
     private val gson by lazy { Gson() }
 
     /**
@@ -127,6 +135,9 @@ class MainActivity : AppCompatActivity() {
     private var familySummaryJob: Job? = null
     private var lastStatusFetchTime = 0L
     private var selectedPersonAvatarValue: String? = null
+    private var selectedPersonCanBeListenedTo = false
+    private var statusDeviceId: String? = null
+    private var statusRequestGeneration = 0L
 
     /**
      * True while the update feature has claimed this screen as the place an installer
@@ -179,11 +190,18 @@ class MainActivity : AppCompatActivity() {
      */
     private val profilePhotoPickerLauncher = ProfileImagePicker.registerLauncher(this)
 
+    override fun onSaveInstanceState(outState: Bundle) {
+        ru.example.childwatch.designsystem.FamilyProfileEditor.saveState(this, outState)
+        super.onSaveInstanceState(outState)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
+        lifecycleScope.launch { ru.example.childwatch.location.FamilyPlaceSync.sync(this@MainActivity) }
         binding = ActivityMainMenuBinding.inflate(layoutInflater)
         setContentView(binding.root)
+        ru.example.childwatch.designsystem.FamilyProfileEditor.restore(this, savedInstanceState) { showProfileIdentityEditor(null) }
         
         prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
         secureSettings = SecureSettingsManager(this)
@@ -196,8 +214,10 @@ class MainActivity : AppCompatActivity() {
         // which build a phone is running. The line sits at the bottom of the
         // screen, under the diagnostics heading, not at the top: it is read when
         // a problem has to be reported, not when the application is opened.
+        binding.checkUpdatesButton.setOnClickListener { updateUi.checkAndShowNotice(force = true) }
         binding.appVersionText.text =
-            getString(R.string.home_version_line, BuildConfig.VERSION_NAME, BuildConfig.BUILD_STAMP)
+            "ParentMonitor · ${BuildConfig.VERSION_NAME}"
+        binding.appVersionText.contentDescription = getString(R.string.home_version_line, BuildConfig.VERSION_NAME, BuildConfig.BUILD_STAMP)
 
         setupUI()
         updateQuickProfileSummary()
@@ -255,6 +275,44 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun setupUI() {
+        binding.homeUpdateButton.setOnClickListener {
+            if (homeSheet?.isShowing != true) homeSheet = HomeDetailSheet.show(
+                binding.updateNoticeContainer, getString(R.string.cw_home_update_available)
+            )
+        }
+        binding.deviceInfoTitle.doAfterTextChanged {
+            binding.diagnosticsToggleButton.text = it?.toString().orEmpty()
+        }
+        binding.deviceInfoUpdatedValue.doAfterTextChanged {
+            binding.diagnosticsToggleButton.contentDescription = "${binding.deviceInfoTitle.text}. $it"
+        }
+        binding.selectedChildLocation.doAfterTextChanged {
+            binding.deviceInfoDistance.text = it?.toString().orEmpty()
+            binding.deviceInfoDistance.isVisible = binding.selectedChildLocation.isVisible
+        }
+        binding.diagnosticsToggleButton.setOnClickListener {
+            if (homeSheet?.isShowing != true) homeSheet = HomeDetailSheet.show(
+                binding.diagnosticsPanel, binding.deviceInfoTitle.text.toString()
+            )
+        }
+        binding.homeAttentionButton.setOnClickListener {
+            if (homeSheet?.isShowing != true) homeSheet = HomeDetailSheet.show(
+                binding.homeAttentionPanel, getString(R.string.cw_home_attention)
+            )
+        }
+        binding.homeContent.viewTreeObserver.addOnGlobalLayoutListener {
+            val needsAttention = binding.setupNoticeCard.visibility == View.VISIBLE ||
+                binding.powerSettingsCard.visibility == View.VISIBLE
+            if (binding.homeAttentionButton.isVisible != needsAttention) binding.homeAttentionButton.isVisible = needsAttention
+            val hasUpdate = (0 until binding.updateNoticeContainer.childCount).any {
+                binding.updateNoticeContainer.getChildAt(it).visibility == View.VISIBLE
+            }
+            if (binding.homeUpdateButton.isVisible != hasUpdate) binding.homeUpdateButton.isVisible = hasUpdate
+        }
+        binding.deviceUsageCard.setOnClickListener { binding.deviceUsageButton.performClick() }
+        binding.familyStrip.render(emptyList(), null,
+            { view, key, name -> FamilyAvatarRenderer.bind(view, key, name) },
+            { }, { binding.childSelectionContainer.performClick() }, true)
         setupBatteryOptimizationUi()
 
         // The card is named "Мой семейный профиль", so tapping it must open that
@@ -307,6 +365,10 @@ class MainActivity : AppCompatActivity() {
         // locationCard hidden; using parentLocationCard (DualLocationMapActivity) only
 
         binding.audioStreamingCard.setOnClickListener {
+            if (!selectedPersonCanBeListenedTo) {
+                showToast(getString(R.string.listen_child_only))
+                return@setOnClickListener
+            }
             val serverUrl = getConfiguredServerUrl()
             if (serverUrl.isNullOrBlank()) {
                 showToast(getString(R.string.server_url_missing))
@@ -314,7 +376,7 @@ class MainActivity : AppCompatActivity() {
             }
             val targetDeviceId = resolveFeatureTargetDeviceId("audio-listening")
             if (targetDeviceId.isNullOrBlank()) {
-                showDeviceIdOptions(serverUrl)
+                showToast(getString(R.string.listen_child_only))
                 return@setOnClickListener
             }
             val intent = Intent(this@MainActivity, AudioStreamingActivity::class.java).apply {
@@ -357,8 +419,9 @@ class MainActivity : AppCompatActivity() {
         binding.deviceUsageButton.setOnClickListener {
             openDeviceUsage()
         }
+        binding.deviceInfoRefreshButton.setOnClickListener { refreshChildDeviceStatus(force = true) }
         
-        // Location map card (legacy mode): parent + selected child
+        // Shared family map: every member who currently shares a location.
         findViewById<View>(R.id.parentLocationCard)?.setOnClickListener {
             val prefs = getSharedPreferences("childwatch_prefs", MODE_PRIVATE)
             val myId = contextProvider.current()?.selfDeviceId.orEmpty().ifBlank {
@@ -372,17 +435,14 @@ class MainActivity : AppCompatActivity() {
                     .firstOrNull { it.isNotBlank() }
                     .orEmpty()
             }
-            val otherId = resolveFeatureTargetDeviceId("map")
-            if (otherId.isNullOrBlank()) {
-                showToast(getString(R.string.main_toast_set_child_device_id))
-                return@setOnClickListener
-            }
+            val otherId = resolveFeatureTargetDeviceId("map").orEmpty()
             val intent = DualLocationMapActivity.createIntent(
                 context = this,
                 myRole = DualLocationMapActivity.ROLE_PARENT,
                 myId = myId,
                 otherId = otherId
             )
+            intent.putExtra(DualLocationMapActivity.EXTRA_SHOW_ALL, true)
             startActivity(intent)
         }
         
@@ -390,6 +450,9 @@ class MainActivity : AppCompatActivity() {
             val intent = Intent(this, SettingsActivity::class.java)
             startActivity(intent)
         }
+
+        // The way back into a first run that was postponed.
+        binding.setupNoticeButton.setOnClickListener { openFirstRunSetup() }
 
         // Child selection - use only container click handler
         try {
@@ -544,76 +607,7 @@ class MainActivity : AppCompatActivity() {
      * there too and would otherwise be reverted by the next synchronisation.
      */
     private fun showProfileIdentityEditor(existingProfile: ParentMonitorProfile?) {
-        val currentOwnId = existingProfile?.ownParentDeviceId?.ifBlank { null }
-            ?: effectiveContextResolver.resolveOwnParentId().ifBlank { profileManager.resolveCurrentParentId() }
-        val currentChildId = existingProfile?.linkedChildDeviceId?.ifBlank { null }
-            ?: effectiveContextResolver.resolveFocusedChildId().ifBlank { profileManager.resolveCurrentChildId() }
-        val currentServerUrl = existingProfile?.serverUrl?.ifBlank { null }
-            ?: effectiveContextResolver.resolveServerUrl().ifBlank { getConfiguredServerUrl().orEmpty() }
-        val currentChildName = existingProfile?.linkedChildDisplayName?.ifBlank { null }
-            ?: profileManager.resolveLinkedChildDisplayName(
-                childDeviceId = currentChildId,
-                serverUrl = currentServerUrl,
-                ownParentDeviceId = currentOwnId
-            )
-        val suggestedName = existingProfile?.name
-            ?.takeUnless { it == getString(R.string.profile_switch_current_name) }
-            ?: profileManager.buildSuggestedProfileName(currentChildName, currentChildId)
-
-        lifecycleScope.launch {
-            // The stored picture is read first, otherwise saving would clear it.
-            val stored = runCatching { familyDirectoryRepository.loadOwnProfile() }.getOrNull()
-            // A photograph chosen here is sent to the server by the editor itself, so
-            // it can be shown at once and stored on the family like any other.
-            val photoSession = ProfilePhotoSession(this@MainActivity, this@MainActivity)
-            ProfileEditDialog.show(
-                activity = this@MainActivity,
-                initialName = stored?.first?.takeIf { it.isNotBlank() } ?: suggestedName,
-                currentAvatarKey = stored?.second,
-                photoSession = photoSession
-            ) { result: ProfileEditResult ->
-                val profile = existingProfile?.copy(
-                    name = result.name,
-                    updatedAt = System.currentTimeMillis()
-                ) ?: profileManager.buildProfile(
-                    result.name,
-                    currentServerUrl,
-                    currentOwnId,
-                    currentChildId,
-                    currentChildName
-                )
-                profileManager.saveProfile(profile)
-                if (existingProfile?.id == profileManager.getActiveProfileId()) {
-                    applyQuickProfile(profile)
-                } else {
-                    updateQuickProfileSummary()
-                }
-                publishOwnProfile(result)
-            }
-        }
-    }
-
-    /**
-     * Sends this device's own name and picture to the family.
-     *
-     * The value passed here is the one the editor chose — a built-in avatar or the
-     * path of a picture the server now holds — so the family sees the same picture
-     * as this phone.
-     */
-    private fun publishOwnProfile(result: ProfileEditResult) {
-        lifecycleScope.launch {
-            val published = runCatching {
-                familyDirectoryRepository.updateOwnProfile(result.name, result.avatarKey)
-            }.getOrElse { error ->
-                Log.w(TAG, "Publishing the own profile failed", error)
-                false
-            }
-            showToast(
-                getString(
-                    if (published) R.string.profile_published else R.string.profile_publish_failed
-                )
-            )
-        }
+        ru.example.childwatch.profile.OwnProfileEditor.show(this) { updateQuickProfileSummary() }
     }
 
     private fun showProfileEditorDialog(existingProfile: ParentMonitorProfile?) {
@@ -801,6 +795,8 @@ class MainActivity : AppCompatActivity() {
             val directory = runCatching { familyDirectoryRepository.load().directory }
                 .onFailure { Log.w(TAG, "Unable to refresh family summary", it) }
                 .getOrNull() ?: return@launch
+            homeDirectory = directory
+            renderHomeFamily(directory)
             // Name, picture and role all come from this one member record, so the card
             // cannot mix one person's name with another person's face or role.
             val ownPerson = familyDirectoryRepository.ownPerson(
@@ -829,7 +825,37 @@ class MainActivity : AppCompatActivity() {
                 R.string.profile_card_role,
                 roleLabel(ownPerson?.member?.role)
             )
+            updateSetupNotice(directory)
+            binding.activeProfileCard.contentDescription = getString(R.string.cw_home_own_profile) + ": " + binding.activeProfileName.text
         }
+    }
+
+    /**
+     * Says on the main screen when the first run was left unfinished.
+     *
+     * Setup is reachable from the settings, but a person who skipped it must not
+     * have to hunt for it: the card appears only while no phone of the child is
+     * reached, and it opens the same screen the first run shows.
+     */
+    private fun updateSetupNotice(directory: FamilyDirectorySnapshot) {
+        val hasChildPhone = directory.targetPeople().any { it.primaryDevice() != null }
+        binding.setupNoticeCard.visibility = if (hasChildPhone) View.GONE else View.VISIBLE
+    }
+
+    /**
+     * Opens the first-run screen because the person asked for it.
+     *
+     * The "setup finished" flag is cleared first: setup is being continued, not
+     * repeated, and without clearing it the first-run screen would see a finished
+     * installation and close itself again. Nothing else is reset — the first-run
+     * screen asks the server what already exists before it asks anything.
+     */
+    private fun openFirstRunSetup() {
+        getSharedPreferences(ParentSetupActivity.PREFS_NAME, MODE_PRIVATE)
+            .edit()
+            .putBoolean(ParentSetupActivity.KEY_ONBOARDING_COMPLETED, false)
+            .apply()
+        startActivity(Intent(this, ParentSetupActivity::class.java))
     }
 
     /** How a family role is named in the interface. */
@@ -837,6 +863,33 @@ class MainActivity : AppCompatActivity() {
         FamilyRole.CHILD -> getString(R.string.family_role_child)
         FamilyRole.GUARDIAN -> getString(R.string.family_role_guardian)
         else -> getString(R.string.family_role_parent)
+    }
+
+    private fun renderHomeFamily(directory: FamilyDirectorySnapshot) {
+        val selectedId = directory.personByDeviceId(resolveSelectedChildIdForUi())?.member?.id
+        val people = directory.people.filter { it.member.id != directory.selfMemberId }
+        binding.familyStrip.render(people.map {
+            HomeFamilyStrip.Person(it.member.id, it.member.displayName, it.member.avatarKey)
+        }, selectedId, { view, key, name -> FamilyAvatarRenderer.bind(view, key, name) }, select@{ memberId ->
+            val person = directory.person(memberId) ?: return@select
+            val device = person.primaryDevice(resolveSelectedChildIdForUi())
+            if (device == null) {
+                binding.childSelectionContainer.performClick()
+            } else {
+                lifecycleScope.launch {
+                    val contact = ChildWatchDatabase.getInstance(this@MainActivity).childDao().getByDeviceId(device.deviceId)
+                    if (contact == null) {
+                        val options = runCatching { linkedChildOptionsProvider.getOptions() }.getOrNull()
+                        if (options == null || options.none { it.deviceId == device.deviceId }) {
+                            binding.childSelectionContainer.performClick()
+                            return@launch
+                        }
+                        linkedChildOptionsProvider.syncLocalChildren(options)
+                    }
+                    updateSelectedChild(device.deviceId, memberId, directory.family.id)
+                }
+            }
+        }, { binding.childSelectionContainer.performClick() }, true)
     }
 
     private fun describeProfileContextSource(source: String): String {
@@ -1119,17 +1172,19 @@ class MainActivity : AppCompatActivity() {
                     // Update appearance
                     if (isMonitoring) {
                         // Active state - red/danger color
-                        text = getString(R.string.stop_monitoring)
-                        setIconResource(R.drawable.ic_stop)
+                        text = ""
+                        contentDescription = getString(R.string.parent_service_stop)
+                        setIconResource(R.drawable.cw_home_toggle_on)
                         backgroundTintList = android.content.res.ColorStateList.valueOf(
-                            ContextCompat.getColor(context, android.R.color.holo_red_dark)
+                            ContextCompat.getColor(context, R.color.cw_color_surface)
                         )
                     } else {
                         // Inactive state - emerald/start color
-                        text = getString(R.string.start_monitoring)
-                        setIconResource(R.drawable.ic_play)
+                        text = ""
+                        contentDescription = getString(R.string.parent_service_start)
+                        setIconResource(R.drawable.cw_home_toggle_off)
                         backgroundTintList = android.content.res.ColorStateList.valueOf(
-                            ContextCompat.getColor(context, R.color.emerald_primary)
+                            ContextCompat.getColor(context, R.color.cw_color_surface)
                         )
                     }
                     
@@ -1149,7 +1204,7 @@ class MainActivity : AppCompatActivity() {
         
         if (isMonitoring) {
             // Active monitoring - bright green with pulsing animation
-            binding.statusText.text = getString(R.string.monitoring_active)
+            binding.statusText.text = getString(R.string.parent_service_active)
             binding.statusText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
             binding.statusIcon.setImageResource(android.R.drawable.presence_online)
             binding.statusIcon.setColorFilter(ContextCompat.getColor(this, android.R.color.holo_green_light))
@@ -1173,10 +1228,10 @@ class MainActivity : AppCompatActivity() {
                 val hours = runningTime / (1000 * 60 * 60)
                 val minutes = (runningTime % (1000 * 60 * 60)) / (1000 * 60)
                 val timeString = getString(R.string.service_running_time_value, hours, minutes)
-                binding.serviceRunningTimeText.text = getString(R.string.service_running_time, timeString)
+                binding.serviceRunningTimeText.text = getString(R.string.parent_service_uptime, timeString)
                 binding.serviceRunningTimeText.setTextColor(ContextCompat.getColor(this, android.R.color.holo_green_dark))
             } else {
-                binding.serviceRunningTimeText.text = getString(R.string.service_running_time, getString(R.string.unknown))
+                binding.serviceRunningTimeText.text = getString(R.string.parent_service_uptime, getString(R.string.unknown))
             }
             
             // Update feature status
@@ -1186,7 +1241,7 @@ class MainActivity : AppCompatActivity() {
             
         } else {
             // Inactive monitoring - gray
-            binding.statusText.text = getString(R.string.monitoring_inactive)
+            binding.statusText.text = getString(R.string.parent_service_inactive)
             binding.statusText.setTextColor(ContextCompat.getColor(this, android.R.color.darker_gray))
             binding.statusIcon.setImageResource(android.R.drawable.presence_offline)
             binding.statusIcon.setColorFilter(ContextCompat.getColor(this, android.R.color.darker_gray))
@@ -1195,7 +1250,7 @@ class MainActivity : AppCompatActivity() {
             binding.statusIcon.animate().cancel()
             binding.statusIcon.alpha = 1.0f
             
-            binding.serviceRunningTimeText.text = getString(R.string.service_running_time, getString(R.string.not_working))
+            binding.serviceRunningTimeText.text = getString(R.string.parent_service_uptime, getString(R.string.not_working))
             binding.serviceRunningTimeText.setTextColor(ContextCompat.getColor(this, android.R.color.darker_gray))
 
             // Update feature status
@@ -1265,13 +1320,22 @@ class MainActivity : AppCompatActivity() {
 
         val childDeviceId = resolveDeviceIdForStatus()
         if (childDeviceId.isNullOrEmpty()) {
-            binding.deviceInfoDeviceId.text = getString(R.string.device_info_device_id, getString(R.string.device_info_unknown))
-            latestDeviceStatus = null
-            showDeviceInfoMessage(getString(R.string.device_info_needs_pairing))
+            // Nothing is chosen on this device yet. That is not the same as having
+            // no child: the family already knows who they are, and asking a person
+            // for a device identifier is asking them to do the application's work.
+            // The family is consulted before giving up.
+            discoverChildFromFamily()
             return
         }
 
         binding.deviceInfoDeviceId.text = getString(R.string.device_info_device_id, childDeviceId)
+        if (statusDeviceId != childDeviceId) {
+            statusRequestGeneration++
+            deviceStatusJob?.cancel()
+            latestDeviceStatus = null
+            lastStatusFetchTime = 0L
+            statusDeviceId = childDeviceId
+        }
         val cachedStatus = latestDeviceStatus ?: loadCachedDeviceStatus()
         if (cachedStatus != null) {
             applyDeviceStatus(cachedStatus)
@@ -1282,6 +1346,66 @@ class MainActivity : AppCompatActivity() {
         }
 
         refreshChildDeviceStatus(force = false)
+    }
+
+    /**
+     * Finds the child to report on by asking the family, not the person.
+     *
+     * A phone that has been set up again has nothing stored locally, so this screen
+     * used to demand an identifier that the family already holds. The child is taken
+     * from the family when the answer is unambiguous — one child with one phone —
+     * and the person is asked only when it genuinely is not.
+     */
+    private fun discoverChildFromFamily() {
+        binding.deviceInfoStatusMessage.text = getString(R.string.device_info_loading)
+        binding.deviceInfoStatusMessage.isVisible = true
+        binding.deviceInfoContent.isVisible = false
+        binding.deviceInfoDeviceId.text =
+            getString(R.string.device_info_device_id, getString(R.string.device_info_unknown))
+
+        lifecycleScope.launch {
+            val directory = runCatching { familyDirectoryRepository.load().directory }
+                .onFailure { Log.w(TAG, "Unable to look up the child in the family", it) }
+                .getOrNull()
+            if (directory == null) {
+                showDeviceInfoMessage(getString(R.string.device_info_needs_pairing))
+                return@launch
+            }
+
+            val childDevices = directory.people
+                .filter { it.member.role == FamilyRole.CHILD }
+                .flatMap { person -> person.activeDevices.map { person to it } }
+
+            // Exactly one answer is used without asking; more than one is a real
+            // choice and belongs to the person.
+            val only = childDevices.singleOrNull()
+            if (only == null) {
+                showDeviceInfoMessage(
+                    if (childDevices.isEmpty()) {
+                        getString(R.string.device_info_needs_pairing)
+                    } else {
+                        getString(R.string.device_info_choose_child)
+                    }
+                )
+                return@launch
+            }
+
+            val (person, device) = only
+            Log.i(TAG, "Using ${device.deviceId} of ${person.member.displayName} from the family")
+            rememberChildDevice(device.deviceId)
+            updateDeviceInfoCard()
+        }
+    }
+
+    /** Remembers the discovered child so the choice is not made again on every visit. */
+    private fun rememberChildDevice(childDeviceId: String) {
+        runCatching {
+            val profile = profileManager.getActiveProfile()
+            if (profile != null && profile.linkedChildDeviceId.isBlank()) {
+                profileManager.saveProfile(profile.copy(linkedChildDeviceId = childDeviceId))
+                updateQuickProfileSummary()
+            }
+        }.onFailure { Log.w(TAG, "Could not remember the child device", it) }
     }
 
     private fun loadCachedDeviceStatus(): DeviceStatus? {
@@ -1295,8 +1419,7 @@ class MainActivity : AppCompatActivity() {
         binding.deviceInfoStatusMessage.isVisible = false
         binding.deviceInfoContent.isVisible = true
         val childDeviceId = resolveDeviceIdForStatus()
-        val cachedTimestamp = childDeviceId?.let { secureSettings.getLastDeviceStatusTimestampForDevice(it) }
-        val statusTimestamp = normalizeEpochMillis(status.timestamp ?: cachedTimestamp ?: 0L)
+        val statusTimestamp = normalizeEpochMillis(status.timestamp)
         val isStale = statusTimestamp?.let { System.currentTimeMillis() - it > DEVICE_STATUS_STALE_MS } == true
         if (statusTimestamp == null) {
             Log.w(TAG, "Device status timestamp missing")
@@ -1304,10 +1427,13 @@ class MainActivity : AppCompatActivity() {
             Log.d(TAG, "Device status is stale")
         }
 
-        binding.deviceInfoBatteryValue.text = status.batteryLevel
+        val batterySummary = status.batteryLevel
             ?.takeIf { it in 0..100 }
             ?.let { "$it%" }
             ?: getString(R.string.device_info_unknown)
+
+        binding.deviceInfoBatteryValue.text = getString(R.string.device_summary_battery, batterySummary)
+        binding.diagnosticsToggleButton.text = "${binding.deviceInfoTitle.text} · $batterySummary"
 
         binding.deviceInfoChargingValue.text = when {
             status.isCharging == true && !status.chargingType.isNullOrBlank() ->
@@ -1317,24 +1443,40 @@ class MainActivity : AppCompatActivity() {
             else -> getString(R.string.device_info_unknown)
         }
 
-        binding.deviceInfoTemperatureValue.text = status.temperature?.takeIf { it > 0 }?.let {
-            String.format(Locale.getDefault(), "%.1f C", it)
+        val temperatureSummary = status.temperature?.takeIf { it > 0 }?.let {
+            String.format(Locale.getDefault(), "%.1f °C", it)
         } ?: getString(R.string.device_info_unknown)
+        binding.deviceInfoTemperatureValue.text = getString(R.string.device_summary_temperature, temperatureSummary)
 
         val modelText = listOfNotNull(status.manufacturer, status.model)
             .joinToString(" ")
             .trim()
-        binding.deviceInfoModelValue.text = if (modelText.isNotEmpty()) modelText else getString(R.string.device_info_unknown)
+        binding.deviceInfoModelValue.text = getString(R.string.device_summary_model,
+            modelText.ifEmpty { getString(R.string.device_info_unknown) })
 
-        binding.deviceInfoCurrentAppValue.text = status.currentAppName?.takeIf { it.isNotBlank() }
-            ?: getString(R.string.device_info_unknown)
+        binding.deviceInfoCurrentAppValue.isVisible = selectedPersonCanBeListenedTo
+        binding.deviceInfoCurrentAppValue.text = getString(R.string.home_selected_last_app,
+            status.currentAppName?.takeIf { it.isNotBlank() }
+                ?: getString(R.string.device_usage_current_unknown))
+
+        binding.deviceInfoCameraValue.isVisible = selectedPersonCanBeListenedTo
+        binding.deviceInfoCameraValue.text = getString(R.string.photo_camera_diagnostics_line,
+            ru.example.childwatch.remote.PhotoReadinessSummary.fromStatus(this, status).summary)
+        binding.deviceInfoCameraValue.setOnClickListener {
+            if (selectedPersonCanBeListenedTo && latestDeviceStatus === status) {
+                com.google.android.material.dialog.MaterialAlertDialogBuilder(this)
+                    .setTitle(R.string.photo_camera_details_title)
+                    .setMessage(ru.example.childwatch.remote.PhotoReadinessSummary.fromStatus(this, status).details)
+                    .setPositiveButton(android.R.string.ok, null).show()
+            }
+        }
 
         binding.deviceInfoUpdatedValue.text = if (statusTimestamp != null) {
-            val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+            val timeFormat = SimpleDateFormat("dd.MM · HH:mm", Locale.getDefault())
             val base = timeFormat.format(Date(statusTimestamp))
-            if (isStale) "$base ${getString(R.string.device_info_stale_suffix)}" else base
+            getString(if (isStale) R.string.device_summary_stale else R.string.device_summary_updated, base)
         } else {
-            getString(R.string.device_info_unknown)
+            getString(R.string.home_selected_time_unknown)
         }
 
         latestDeviceStatus = status
@@ -1367,6 +1509,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         Log.d(TAG, "Fetching device status: deviceId=$childDeviceId serverUrl=$serverUrl")
+        if (statusDeviceId != childDeviceId) {
+            statusRequestGeneration++
+            deviceStatusJob?.cancel()
+            latestDeviceStatus = null
+            statusDeviceId = childDeviceId
+            lastStatusFetchTime = 0L
+            binding.deviceInfoContent.isVisible = false
+        }
 
         val now = System.currentTimeMillis()
         if (!force && now - lastStatusFetchTime < 60_000) {
@@ -1384,6 +1534,7 @@ class MainActivity : AppCompatActivity() {
         }
         
         lastStatusFetchTime = now
+        val generation = ++statusRequestGeneration
 
         binding.deviceInfoProgress.isVisible = true
         binding.deviceInfoStatusMessage.isVisible = false
@@ -1396,15 +1547,21 @@ class MainActivity : AppCompatActivity() {
                     val response = withContext(Dispatchers.IO) {
                         networkClient.getChildDeviceStatus(childDeviceId)
                     }
+                    if (generation != statusRequestGeneration || childDeviceId != resolveDeviceIdForStatus()) return@launch
+                    if (response.code() == 403) {
+                        latestDeviceStatus = null
+                        showDeviceInfoMessage(getString(R.string.home_selected_access_denied))
+                        return@launch
+                    }
                     if (response.isSuccessful) {
                         val status = response.body()?.status
                         if (status != null) {
-                            val normalizedTimestamp = normalizeEpochMillis(status.timestamp) ?: System.currentTimeMillis()
+                            val normalizedTimestamp = normalizeEpochMillis(status.timestamp)
                             val normalizedStatus = status.copy(timestamp = normalizedTimestamp)
                             secureSettings.setLastDeviceStatus(gson.toJson(normalizedStatus))
-                            secureSettings.setLastDeviceStatusTimestamp(normalizedTimestamp)
+                            if (normalizedTimestamp != null) secureSettings.setLastDeviceStatusTimestamp(normalizedTimestamp)
                             secureSettings.setLastDeviceStatusForDevice(childDeviceId, gson.toJson(normalizedStatus))
-                            secureSettings.setLastDeviceStatusTimestampForDevice(childDeviceId, normalizedTimestamp)
+                            if (normalizedTimestamp != null) secureSettings.setLastDeviceStatusTimestampForDevice(childDeviceId, normalizedTimestamp)
                             applyDeviceStatus(normalizedStatus)
                             return@launch
                         }
@@ -1415,19 +1572,16 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
 
-                if (latestDeviceStatus == null) {
-                    showDeviceInfoMessage(getString(R.string.device_info_not_available))
-                }
+                showStatusRefreshFailure()
             } catch (error: CancellationException) {
                 // Cancellation is expected here, so do not treat it as an error.
                 Log.d(TAG, "Device status fetch cancelled")
             } catch (error: Exception) {
+                if (generation != statusRequestGeneration || childDeviceId != resolveDeviceIdForStatus()) return@launch
                 Log.e(TAG, "Failed to load device status", error)
-                if (latestDeviceStatus == null) {
-                    showDeviceInfoMessage(getString(R.string.device_info_not_available))
-                }
+                showStatusRefreshFailure()
             } finally {
-                binding.deviceInfoProgress.isVisible = false
+                if (generation == statusRequestGeneration) binding.deviceInfoProgress.isVisible = false
             }
         }
     }
@@ -1450,6 +1604,15 @@ class MainActivity : AppCompatActivity() {
 
         } catch (e: Exception) {
             android.util.Log.e("Security", "Error performing security checks", e)
+        }
+    }
+
+    private fun showStatusRefreshFailure() {
+        if (latestDeviceStatus == null) {
+            showDeviceInfoMessage(getString(R.string.home_selected_no_data))
+        } else {
+            binding.deviceInfoStatusMessage.isVisible = true
+            binding.deviceInfoStatusMessage.setText(R.string.home_selected_refresh_failed)
         }
     }
     
@@ -1738,6 +1901,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun resolveDeviceIdForStatus(): String? {
+        resolveSelectedChildIdForUi()?.takeIf { it.isNotBlank() }?.let { return it }
         val preferred = effectiveContextResolver.resolveTargetDeviceId()
         if (!preferred.isNullOrBlank()) {
             return preferred
@@ -1749,13 +1913,15 @@ class MainActivity : AppCompatActivity() {
 
     private fun normalizeServerUrl(raw: String): String {
         val candidate = extractUrlCandidate(raw)
-        if (candidate.startsWith("http://", ignoreCase = true) || candidate.startsWith("https://", ignoreCase = true)) {
-            return candidate
+        val normalized = if (candidate.startsWith("http://", ignoreCase = true) ||
+            candidate.startsWith("https://", ignoreCase = true)) {
+            candidate
+        } else {
+            val looksLikeLocalOrIp = candidate.startsWith("localhost", ignoreCase = true) ||
+                candidate.matches(Regex("^\\d+\\.\\d+\\.\\d+(:\\d+)?$"))
+            if (looksLikeLocalOrIp) "http://$candidate" else "https://$candidate"
         }
-
-        val looksLikeLocalOrIp = candidate.startsWith("localhost", ignoreCase = true) ||
-            candidate.matches(Regex("^\\d+\\.\\d+\\.\\d+\\.\\d+(:\\d+)?$"))
-        return if (looksLikeLocalOrIp) "http://$candidate" else "https://$candidate"
+        return normalized.takeIf(ServerAddressValidator::isValid).orEmpty()
     }
 
     private fun extractUrlCandidate(raw: String): String {
@@ -1780,6 +1946,8 @@ class MainActivity : AppCompatActivity() {
     }
     
     override fun onDestroy() {
+        homeSheet?.dismiss()
+        homeSheet = null
         badgeRefreshJob?.cancel()
         deviceStatusJob?.cancel()
         deviceStatusRefreshJob?.cancel()
@@ -1844,6 +2012,7 @@ class MainActivity : AppCompatActivity() {
         runStartupTask("ensureParentLocationService") { ensureParentLocationService() }
         runStartupTask("initializeWebSocket") { initializeWebSocket() }
         runStartupTask("loadSelectedChild") { loadSelectedChild() }
+        runStartupTask("startSelectedLocationUpdates") { startSelectedLocationUpdates() }
         runStartupTask("updateQuickProfileSummary") { updateQuickProfileSummary() }
         // Returning to the foreground is the other moment an update is checked for.
         // At most once a day, and only after a check that succeeded: the limit is
@@ -1880,6 +2049,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        selectedLocationJob?.cancel()
+        selectedLocationJob = null
         badgeRefreshJob?.cancel()
         deviceStatusRefreshJob?.cancel()
         // The screen is no longer visible, so it is no longer the place the installer's
@@ -2019,7 +2190,19 @@ class MainActivity : AppCompatActivity() {
      * Show the placeholder state when no child has been selected yet.
      */
     private fun showDefaultChildSelection() {
+        selectedPersonCanBeListenedTo = false
+        statusRequestGeneration++
+        deviceStatusJob?.cancel()
+        statusDeviceId = null
+        latestDeviceStatus = null
+        lastStatusFetchTime = 0L
+        binding.deviceInfoTitle.setText(R.string.home_device_summary)
+        showDeviceInfoMessage(getString(R.string.home_selected_choose_person))
+        applySelectedPersonActions()
+        binding.selectedPersonActionsHint.setText(R.string.home_selected_choose_person)
         try {
+            binding.selectedChildLocation.isVisible = false
+            binding.deviceInfoDistance.isVisible = false
             binding.selectedChildName.text = getString(R.string.main_select_contact_placeholder_title)
             binding.selectedChildDeviceId.text = getString(R.string.main_select_contact_placeholder_subtitle)
             binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(0, "child"))
@@ -2118,10 +2301,10 @@ class MainActivity : AppCompatActivity() {
                         linkedChildOptionsProvider.getOptions()
                             .firstOrNull { it.deviceId == deviceId }
                     }.getOrNull()
-                    renderSelectedChild(child, canonical)
-
                     // Persist and activate the selection across runtime entry points.
                     persistSelectedChildCompat(deviceId, memberId, familyId)
+                    renderSelectedChild(child, canonical)
+                    startSelectedLocationUpdates()
                     profileRuntimeCoordinator.switchFocusedChild(
                         childDeviceId = deviceId,
                         focusedMemberId = memberId,
@@ -2167,9 +2350,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun renderSelectedChild(child: Child, option: ParentLinkedChildOption?) {
+        selectedPersonCanBeListenedTo = if (option != null) option.role == FamilyRole.CHILD
+            else child.role == ru.example.childwatch.contacts.ContactRoles.CHILD
+        binding.audioStreamingCard.isEnabled = selectedPersonCanBeListenedTo
+        binding.audioStreamingCard.alpha = if (selectedPersonCanBeListenedTo) 1f else 0.45f
+        binding.audioStreamingCard.contentDescription = if (selectedPersonCanBeListenedTo)
+            getString(R.string.home_action_listen) else getString(R.string.listen_child_only)
+        applySelectedPersonActions()
+        binding.selectedChildLocation.isVisible = true
+        binding.selectedChildLocation.setText(ru.example.childwatch.designsystem.R.string.cw_distance_loading)
         val displayName = option?.displayName?.trim()?.takeIf { it.isNotBlank() }
             ?: child.name.trim().ifBlank { getString(R.string.main_default_child_name) }
         binding.selectedChildName.text = displayName
+        binding.deviceInfoTitle.text = getString(R.string.home_selected_device_title, displayName)
         binding.selectedChildDeviceId.text = selectedChildMeta(child, option)
         binding.childSelectionContainer.contentDescription = getString(
             R.string.family_profile_edit_named,
@@ -2186,6 +2379,44 @@ class MainActivity : AppCompatActivity() {
             avatar,
             option?.displayName ?: child.name
         )
+        startSelectedLocationUpdates()
+        updateDeviceInfoCard()
+    }
+
+    private fun applySelectedPersonActions() {
+        homeDirectory?.let(::renderHomeFamily)
+        listOf<View>(binding.audioStreamingCard, binding.remoteCameraCard, binding.deviceUsageButton, binding.deviceUsageCard).forEach { view ->
+            view.isEnabled = selectedPersonCanBeListenedTo
+            view.alpha = if (selectedPersonCanBeListenedTo) 1f else 0.45f
+        }
+        binding.remoteCameraCard.contentDescription = if (selectedPersonCanBeListenedTo)
+            getString(R.string.home_action_photo) else getString(R.string.home_child_action_only)
+        binding.deviceUsageButton.contentDescription = if (selectedPersonCanBeListenedTo)
+            getString(R.string.home_action_activity) else getString(R.string.home_child_action_only)
+        binding.deviceUsageCard.contentDescription = binding.deviceUsageButton.contentDescription
+        binding.deviceInfoCameraValue.isVisible = selectedPersonCanBeListenedTo
+        binding.deviceInfoCurrentAppValue.isVisible = selectedPersonCanBeListenedTo
+        binding.selectedPersonActionsHint.text = getString(if (selectedPersonCanBeListenedTo)
+            R.string.home_selected_child_actions else R.string.home_selected_adult_actions)
+    }
+
+    private fun startSelectedLocationUpdates() {
+        if (!screenVisible) return
+        selectedLocationJob?.cancel()
+        selectedLocationJob = lifecycleScope.launch {
+            while (isActive) {
+                val requestedId = resolveSelectedChildIdForUi()
+                if (!requestedId.isNullOrBlank()) {
+                    val ownId = effectiveContextResolver.resolveOwnParentId()
+                    val summary = familyLocationSummary.forPerson(requestedId, ownId)
+                    if (requestedId == resolveSelectedChildIdForUi()) {
+                        binding.selectedChildLocation.text = summary
+                        binding.selectedChildLocation.isVisible = true
+                    }
+                }
+                delay(30_000L)
+            }
+        }
     }
 
     private fun selectedChildMeta(child: Child, option: ParentLinkedChildOption?): String {
@@ -2244,6 +2475,10 @@ class MainActivity : AppCompatActivity() {
      * Open remote camera activity
      */
     private fun openRemoteCamera() {
+        if (!selectedPersonCanBeListenedTo) {
+            showToast(getString(R.string.home_child_action_only))
+            return
+        }
         val targetDeviceId = resolveFeatureTargetDeviceId("remote-photo")
         if (targetDeviceId.isNullOrBlank()) {
             Toast.makeText(
@@ -2261,6 +2496,10 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun openDeviceUsage() {
+        if (!selectedPersonCanBeListenedTo) {
+            showToast(getString(R.string.home_child_action_only))
+            return
+        }
         val targetDeviceId = resolveFeatureTargetDeviceId("activity")
         if (targetDeviceId.isNullOrBlank()) {
             showToast(getString(R.string.device_usage_pairing_required))

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_selected_choose_person">Выберите человека, чтобы увидеть доступные действия.</string>
+    <string name="home_selected_child_actions">Фото, активность и звук вокруг — для выбранного ребёнка, если разрешены в семье.</string>
+    <string name="home_selected_adult_actions">Для взрослого доступны карта, сообщения и сигнал внимания.</string>
+    <string name="home_selected_refresh">Обновить состояние телефона</string>
+    <string name="home_selected_no_data">Состояние телефона ещё не получено. Проверьте интернет и работу приложения на нём, затем нажмите «Обновить состояние телефона».</string>
+    <string name="home_selected_refresh_failed">Свежие данные получить не удалось. Ниже сохранённый снимок; время его сбора указано отдельно.</string>
+    <string name="home_child_action_only">Фото, активность и звук вокруг доступны для ребёнка. Выберите ребёнка в семье.</string>
+    <string name="home_selected_device_title">Телефон · %1$s</string>
+    <string name="home_selected_last_app">Последнее приложение: %1$s</string>
+    <string name="home_selected_time_unknown">Время сбора данных неизвестно</string>
+    <string name="home_selected_access_denied">Семья не разрешила просмотр состояния этого телефона. Проверьте права участника.</string>
+</resources>

@@ -6,11 +6,11 @@
     <string name="device_usage_refresh">Обновить</string>
     <string name="device_usage_person">Активность: %1$s</string>
     <string name="device_usage_person_loading">Активность выбранного ребёнка</string>
-    <string name="device_usage_current_section">Сейчас открыто</string>
+    <string name="device_usage_current_section">Последнее замеченное приложение</string>
     <string name="device_usage_recent_section">Недавние приложения</string>
     <string name="device_usage_history_section">История переключений</string>
     <string name="device_usage_current_unknown">Нет данных о текущем приложении</string>
-    <string name="device_usage_permission_missing">На ChildDevice не выдан доступ к статистике использования.</string>
+    <string name="device_usage_permission_missing">На телефоне ребёнка откройте ChildDevice → Настройки → Доступ к статистике использования и разрешите доступ. После этого данные поступят при следующей синхронизации.</string>
     <string name="device_usage_recent_empty">Недавние приложения пока не поступили.</string>
     <string name="device_usage_history_empty">История активности пока пуста.</string>
     <string name="device_usage_status_unavailable">Не удалось загрузить активность приложений.</string>

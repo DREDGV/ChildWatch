@@ -325,17 +325,12 @@ class WebSocketClient(
                     else -> null
                 }
 
-                // Chunks are routed to this socket by server mapping, so keep stream alive even if
-                // local target ID drifted after contact migration.
-                if (sourceDeviceId.isNotEmpty() &&
-                    sourceDeviceId != childDeviceId &&
-                    !audioDeviceMismatchLogged
-                ) {
-                    audioDeviceMismatchLogged = true
-                    Log.w(
-                        TAG,
-                        "Audio chunk deviceId mismatch: expected=$childDeviceId actual=$sourceDeviceId; accepting stream"
-                    )
+                if (sourceDeviceId.isBlank() || sourceDeviceId != childDeviceId) {
+                    if (!audioDeviceMismatchLogged) {
+                        audioDeviceMismatchLogged = true
+                        Log.w(TAG, "Rejected audio from another device: expected=$childDeviceId actual=$sourceDeviceId")
+                    }
+                    return@Listener
                 }
 
                 if (sequence < 0) {
@@ -1110,6 +1105,11 @@ class WebSocketClient(
         onError: (String) -> Unit = {}
     ) {
         try {
+            val audioCommand = commandType == "start_audio_stream" || commandType == "stop_audio_stream"
+            if (audioCommand && registeredDeviceId != childDeviceId) {
+                onError("Audio target changed during registration")
+                return
+            }
             if (!isConnected) {
                 onError("Not connected to server")
                 return
@@ -1117,7 +1117,7 @@ class WebSocketClient(
 
             val commandData = JSONObject().apply {
                 put("type", commandType)
-                put("deviceId", registeredDeviceId.ifBlank { childDeviceId })
+                put("deviceId", if (audioCommand) childDeviceId else registeredDeviceId.ifBlank { childDeviceId })
                 val ownParentId = effectiveContextResolver?.resolveOwnParentId()?.trim().orEmpty()
                 if (ownParentId.isNotBlank()) {
                     put("parentId", ownParentId)

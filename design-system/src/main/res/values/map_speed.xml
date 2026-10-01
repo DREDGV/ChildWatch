@@ -1,0 +1,16 @@
+<resources>
+ <string name="cw_map_speeds">Show movement speed</string>
+ <string name="cw_map_speed_colors">Colour trails by speed</string>
+ <string name="cw_map_speed_value">≈ %1$d km/h</string>
+ <string name="cw_map_speed_unknown">Speed unknown</string>
+ <string name="cw_map_speed_legend_title">Trail speed</string>
+ <string name="cw_map_speed_legend">Teal 0–7 · blue 25 · purple 60 · orange 100+ km/h · grey: unknown</string>
+ <string name="cw_map_speed_help">Uses GPS speed when measurement accuracy is known. ≈ marks fallback displacement over 15–45 seconds; turns can lower it. This is not transport recognition. Stale or inaccurate data is unknown; grey is not zero. Gaps are not joined.</string>
+ <color name="cw_map_speed_slow">#126C67</color>
+ <color name="cw_map_speed_walk">#189B90</color>
+ <color name="cw_map_speed_medium">#1E74E8</color>
+ <color name="cw_map_speed_fast">#8250CB</color>
+ <color name="cw_map_speed_high">#DC7621</color>
+ <color name="cw_map_speed_unknown_color">#6D7976</color>
+ <string name="cw_map_speed_measured">%1$d km/h</string>
+</resources>

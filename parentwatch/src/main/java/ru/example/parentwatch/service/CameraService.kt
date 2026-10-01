@@ -102,6 +102,11 @@ class CameraService(private val context: Context) {
         return resolveCameraConfig(facing) != null
     }
 
+    @Synchronized fun cancelCapture(reason: String) {
+        lastFailureReason = reason
+        finalizeResult(null)
+    }
+
     fun consumeLastFailureReason(): String? = synchronized(this) {
         val reason = lastFailureReason
         lastFailureReason = null

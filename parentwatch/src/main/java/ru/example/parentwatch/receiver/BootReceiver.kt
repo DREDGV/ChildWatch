@@ -88,12 +88,9 @@ class BootReceiver : BroadcastReceiver() {
                 }
 
                 try {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                        context.startForegroundService(serviceIntent)
-                    } else {
-                        context.startService(serviceIntent)
+                    if (LocationService.startTrackingService(context, serviceIntent)) {
+                        Log.d(TAG, "LocationService restart requested after boot/update")
                     }
-                    Log.d(TAG, "LocationService restart requested after boot/update")
                 } catch (error: Exception) {
                     Log.e(TAG, "Unable to restart LocationService after boot/update", error)
                 }

@@ -182,6 +182,81 @@ class AppUsageTracker(private val context: Context) {
         }
     }
 
+    data class DailyUsage(val start: Long, val end: Long, val apps: List<AppUsageInfo>, val available: Boolean = true)
+
+    /** Count foreground intervals, clipped to the child's local calendar day. */
+    fun getDailyUsage(): DailyUsage {
+        val end = System.currentTimeMillis()
+        val start = Calendar.getInstance().apply {
+            timeInMillis = end
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
+        if (!hasUsageStatsPermission()) return DailyUsage(start, end, emptyList(), available = false)
+        val totals = mutableMapOf<String, Long>()
+        val lastUsed = mutableMapOf<String, Long>()
+        var active: String? = null
+        var beforeLock: String? = null
+        var openedAt = start
+        fun close(at: Long) {
+            active?.let { name ->
+                val duration = (at.coerceAtMost(end) - openedAt.coerceAtLeast(start)).coerceAtLeast(0L)
+                totals[name] = (totals[name] ?: 0L) + duration
+            }
+            active = null
+        }
+        // Yesterday's last transition identifies an app left open across midnight.
+        val events = usageStatsManager?.queryEvents(start - RECENT_WINDOW_MS, end)
+            ?: return DailyUsage(start, end, emptyList(), available = false)
+        var sawEvent = false
+        val event = UsageEvents.Event()
+        while (events.hasNextEvent()) {
+            events.getNextEvent(event)
+            sawEvent = true
+            when (event.eventType) {
+                UsageEvents.Event.MOVE_TO_FOREGROUND -> {
+                    beforeLock = null
+                    if (active != event.packageName) {
+                        close(event.timeStamp)
+                        active = event.packageName
+                        openedAt = event.timeStamp
+                    }
+                    if (event.timeStamp >= start) event.packageName?.let { lastUsed[it] = event.timeStamp }
+                }
+                UsageEvents.Event.MOVE_TO_BACKGROUND -> {
+                    if (beforeLock == event.packageName) beforeLock = null
+                    if (active == event.packageName) close(event.timeStamp)
+                }
+                UsageEvents.Event.SCREEN_NON_INTERACTIVE -> {
+                    beforeLock = active
+                    close(event.timeStamp)
+                }
+                UsageEvents.Event.KEYGUARD_HIDDEN -> {
+                    // Unlock can restore the same activity without another resume.
+                    if (active == null) {
+                        active = beforeLock
+                        openedAt = event.timeStamp
+                        active?.let { lastUsed[it] = event.timeStamp }
+                    }
+                    beforeLock = null
+                }
+                UsageEvents.Event.DEVICE_SHUTDOWN -> {
+                    close(event.timeStamp)
+                    beforeLock = null
+                }
+            }
+        }
+        close(end)
+        val apps = totals.filterValues { it > 0L }.mapNotNull { (name, duration) ->
+            createAppUsageInfo(name, lastUsed[name] ?: start, duration)
+        }.filter { it.packageName != context.packageName &&
+            packageManager.getLaunchIntentForPackage(it.packageName) != null
+        }.sortedByDescending { it.totalTimeInForeground }
+        return DailyUsage(start, end, apps, available = sawEvent)
+    }
+
     /**
      * Some Android builds omit launcher apps from queryUsageStats even though
      * their foreground events are present. Merge those events so games and

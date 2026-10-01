@@ -19,12 +19,15 @@ class RemotePhotoThumbnailAdapter(
      * although the server held the photographs.
      */
     private val tokenProvider: () -> String? = { null },
-    private val onPhotoClick: ((RemotePhotoItem) -> Unit)? = null
+    private val onPhotoClick: ((RemotePhotoItem) -> Unit)? = null,
+    private val onPhotoActions: ((RemotePhotoItem) -> Unit)? = null,
+    private val heightDp: Int = 72
 ) : ListAdapter<RemotePhotoItem, RemotePhotoThumbnailAdapter.ThumbnailViewHolder>(DiffCallback) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ThumbnailViewHolder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_photo_thumbnail_horizontal, parent, false)
+        view.layoutParams.height = (heightDp * parent.resources.displayMetrics.density).toInt()
         return ThumbnailViewHolder(view)
     }
 
@@ -36,6 +39,10 @@ class RemotePhotoThumbnailAdapter(
         private val imgThumbnail: ImageView = itemView.findViewById(R.id.imgThumbnail)
 
         fun bind(item: RemotePhotoItem) {
+            itemView.findViewById<android.widget.TextView>(R.id.tvPhotoDate).text =
+                java.text.SimpleDateFormat("dd MMM · HH:mm", java.util.Locale.getDefault()).format(java.util.Date(item.timestamp))
+            itemView.contentDescription = item.metaInfo
+            itemView.setOnLongClickListener { onPhotoActions?.invoke(item); onPhotoActions != null }
             Glide.with(imgThumbnail)
                 .load(AuthenticatedMedia.url(item.previewUrl, tokenProvider))
                 .diskCacheStrategy(DiskCacheStrategy.ALL)
@@ -47,6 +54,11 @@ class RemotePhotoThumbnailAdapter(
 
             itemView.setOnClickListener { onPhotoClick?.invoke(item) }
         }
+    }
+
+    override fun onViewRecycled(holder: ThumbnailViewHolder) {
+        Glide.with(holder.itemView).clear(holder.itemView.findViewById<ImageView>(R.id.imgThumbnail))
+        super.onViewRecycled(holder)
     }
 
     companion object DiffCallback : DiffUtil.ItemCallback<RemotePhotoItem>() {

@@ -65,14 +65,15 @@ class ParentProfileRuntimeCoordinator(context: Context) {
         }
 
         AudioPlaybackService.stopPlayback(appContext)
-        WebSocketManager.cleanup()
-        ChatBackgroundService.stop(appContext)
         if (effectiveContext.serverUrl.isNotBlank() && effectiveContext.linkedChildDeviceId.isNotBlank()) {
             ChatBackgroundService.start(
                 appContext,
                 effectiveContext.serverUrl,
                 effectiveContext.linkedChildDeviceId
             )
+        } else {
+            ChatBackgroundService.stop(appContext)
+            WebSocketManager.cleanup()
         }
 
         ParentLocationService.stop(appContext)

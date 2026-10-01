@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_family_heading">Моя семья</string>
+    <string name="home_family_supporting">Близкие, связь и местоположение</string>
+    <string name="home_diagnostics_show">Состояние устройства и связь ↓</string>
+    <string name="home_diagnostics_hide">Свернуть подробности ↑</string>
+</resources>

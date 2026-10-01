@@ -1,0 +1,10 @@
+<resources>
+    <string name="family_location_unavailable">Местоположение пока недоступно</string>
+    <string name="family_location_just_now">Обновлено сейчас</string>
+    <string name="family_location_minutes_ago">Обновлено %1$d мин назад</string>
+    <string name="family_location_hours_ago">Обновлено %1$d ч назад</string>
+    <string name="family_location_accuracy">точность ±%1$d м</string>
+    <string name="family_location_distance_m">≈%1$d м от вас</string>
+    <string name="family_location_nearby">рядом с вами</string>
+    <string name="family_location_distance_km">≈%1$s км от вас</string>
+</resources>

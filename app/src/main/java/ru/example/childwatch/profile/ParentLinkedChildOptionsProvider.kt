@@ -140,6 +140,12 @@ class ParentLinkedChildOptionsProvider(context: Context) {
         return result.values.sortedBy { it.displayName.lowercase() }
     }
 
+    private fun localRole(role: FamilyRole): String = when (role) {
+        FamilyRole.PARENT -> ru.example.childwatch.contacts.ContactRoles.PARENT
+        FamilyRole.GUARDIAN -> ru.example.childwatch.contacts.ContactRoles.RELATIVE
+        FamilyRole.CHILD -> ru.example.childwatch.contacts.ContactRoles.CHILD
+    }
+
     suspend fun syncLocalChildren(options: List<ParentLinkedChildOption>) {
         val normalized = options
             .filter { it.deviceId.isNotBlank() }
@@ -153,12 +159,14 @@ class ParentLinkedChildOptionsProvider(context: Context) {
                     Child(
                         deviceId = option.deviceId,
                         name = option.displayName.ifBlank { option.deviceId },
+                        role = localRole(option.role),
                         iconId = normalizedIconId
                     )
                 )
             } else {
                 val updated = existing.copy(
                     name = option.displayName.ifBlank { existing.name },
+                    role = localRole(option.role),
                     iconId = normalizedIconId,
                     avatarUrl = option.avatarKey ?: existing.avatarUrl,
                     lastSeenAt = option.lastSeenAt ?: existing.lastSeenAt,

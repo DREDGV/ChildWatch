@@ -24,6 +24,11 @@ android {
 
     // When a key exists, signing happens automatically: nobody has to remember to
     // pass anything, and a release cannot be published unsigned by accident.
+    //
+    // The debug build is signed with the same key on purpose. The phone in use
+    // carries a build signed with the permanent key, and Android refuses any update
+    // whose signature differs — so a debug-signed build could not be installed over
+    // it at all. One key everywhere removes that class of failure completely.
     if (rootProject.ext.cwReleaseSigningReady) {
         signingConfigs {
             release {
@@ -42,6 +47,11 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             // Signed with the project's permanent key when one is configured, so
             // this build can be installed over the one already on a phone.
+            if (rootProject.ext.cwReleaseSigningReady) {
+                signingConfig signingConfigs.release
+            }
+        }
+        debug {
             if (rootProject.ext.cwReleaseSigningReady) {
                 signingConfig signingConfigs.release
             }
