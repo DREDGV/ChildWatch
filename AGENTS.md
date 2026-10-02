@@ -37,6 +37,20 @@ the conversation — is what says whether something is still outstanding.
 - User restrictions on tests, builds and publication take precedence. Do permitted
   work and leave unmet verification explicit; do not request the same approval again.
 
+## Stage contract and restart path
+
+- Before editing, record in the chosen TODO item: the observable outcome, scope,
+  acceptance evidence, and any verification deferred by the owner. Keep this brief.
+- Follow the stage protocol in `docs/agent-workflow.md`. Work one coherent stage;
+  recommendations do not authorize a new task.
+- Before handing off, update that same TODO item with changed files, exact evidence,
+  remaining uncertainty, and one concrete resume step. Keep current state in TODO;
+  do not create a parallel feature list or progress queue.
+- Distinguish source validation, build, installed-device behavior, and deployed-server
+  behavior. A passing lower-level check cannot close a higher-level requirement.
+- Preserve pre-existing dirty files. A clean restart means a documented state,
+  not an automatic commit, reset, cleanup, installation, or publication.
+
 ## UI and design preparation
 
 - Before UI/UX/frontend work read `DESIGN.md`, the relevant section of
