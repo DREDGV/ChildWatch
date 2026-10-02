@@ -66,6 +66,7 @@ object GroupSettingsDialog {
         scope.launch {
             val settings = repository.loadGroupSettings(conversation.conversationId)
             activity.runOnUiThread {
+                if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                 if (settings == null) {
                     // The group could not be read: a connection problem, and one that
                     // says nothing about whether the group still exists.
@@ -107,11 +108,14 @@ object GroupSettingsDialog {
         private val onChanged: () -> Unit
     ) {
         private var dialog: AlertDialog? = null
+        private var closed = false
 
         /** Only the newest answer may draw, so a slow one cannot undo a fresh one. */
         private var requestToken = 0
 
         fun show(settings: ChatV2GroupSettingsResponse) {
+            if (closed || activity.isFinishing || activity.isDestroyed) return
+            dialog?.setOnDismissListener(null)
             if (dialog?.isShowing == true) dialog?.dismiss()
             val isGroup = settings.type.equals(ConversationType.GROUP.name, ignoreCase = true)
             val title = settings.title?.takeIf { it.isNotBlank() } ?: conversation.title
@@ -141,7 +145,10 @@ object GroupSettingsDialog {
                 .setView(scrollable(content))
                 .setNegativeButton(R.string.group_settings_close, null)
                 .create()
-                .also { it.show() }
+                .also {
+                    it.setOnDismissListener { closed = true; requestToken++ }
+                    it.show()
+                }
         }
 
         /** The composition of a group: who administers it, how many, and who. */
@@ -204,7 +211,7 @@ object GroupSettingsDialog {
             )
             parent.addView(
                 action(activity.getString(R.string.group_action_add_members)) {
-                    promptAddMembers(settings)
+                    promptAddMembers()
                 }
             )
             // Neither this device's own member nor the administrator is a candidate for
@@ -392,18 +399,36 @@ object GroupSettingsDialog {
          * group is left out of it. With nobody there to add the screen says so instead
          * of opening an empty list.
          */
-        private fun promptAddMembers(settings: ChatV2GroupSettingsResponse) {
+        private fun promptAddMembers() {
+            val token = ++requestToken
             scope.launch {
+                val settings = repository.loadGroupSettings(conversation.conversationId)
+                val refreshed = try {
+                    settings?.familyId?.takeIf { it.isNotBlank() }?.let { familyId ->
+                        kotlinx.coroutines.withTimeoutOrNull(15_000L) { repository.loadFamilyMembers(familyId) }
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) { null }
+                if (closed || token != requestToken || activity.isFinishing || activity.isDestroyed) return@launch
+                if (settings == null || refreshed == null) {
+                    GroupDialogs.toast(activity, activity.getString(R.string.group_settings_unavailable))
+                    return@launch
+                }
+                if (!settings.canManage) {
+                    onSettingsLoaded(settings)
+                    show(settings)
+                    GroupDialogs.toast(activity, activity.getString(R.string.group_read_only))
+                    return@launch
+                }
                 val present = settings.members.mapTo(mutableSetOf()) { it.memberId }
-                val candidates = repository.getCachedConversations()
-                    .firstOrNull { it.type == ConversationType.FAMILY }
-                    ?.members.orEmpty()
-                    .filterNot(ConversationMember::isLocalUser)
-                    .filterNot { it.memberId in present }
+                val candidates = refreshed
+                    .filterNot { it.memberId == settings.actorMemberId || it.memberId in present }
                     .distinctBy { it.memberId }
                     .sortedBy { it.displayName }
 
                 activity.runOnUiThread {
+                    if (closed || token != requestToken || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                     if (candidates.isEmpty()) {
                         GroupDialogs.toast(activity, activity.getString(R.string.group_members_empty))
                         return@runOnUiThread
@@ -697,22 +722,10 @@ object GroupSettingsDialog {
             val token = ++requestToken
             scope.launch {
                 onChanged()
+                if (closed || token != requestToken || activity.isFinishing || activity.isDestroyed) return@launch
                 val settings = repository.loadGroupSettings(conversation.conversationId)
-                val group = repository.getCachedConversations()
-                    .firstOrNull { it.conversationId == conversation.conversationId }
                 activity.runOnUiThread {
-                    if (token != requestToken) return@runOnUiThread
-                    // The server closes a group that fewer than two people are left in,
-                    // so a change may have ended the group itself. Saying which of the
-                    // two happened is the difference between a mistake and an outcome.
-                    if (group == null) {
-                        dialog?.dismiss()
-                        GroupDialogs.toast(
-                            activity,
-                            activity.getString(R.string.group_closed)
-                        )
-                        return@runOnUiThread
-                    }
+                    if (closed || token != requestToken || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                     if (settings == null) {
                         GroupDialogs.toast(activity, activity.getString(R.string.group_settings_unavailable))
                         return@runOnUiThread

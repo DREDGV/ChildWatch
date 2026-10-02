@@ -79,16 +79,27 @@ class LocationService : Service() {
 
         const val ACTION_START = "start"
         /** Check before startForegroundService: stopping afterward can still trigger Android's timeout. */
-        fun startTrackingService(context: Context, intent: Intent): Boolean {
+        fun startTrackingService(context: Context, intent: Intent, rememberIntent: Boolean = true): Boolean {
+            if (rememberIntent) MonitoringRecovery.enable(context)
+            else {
+                if (!MonitoringRecovery.isDesired(context)) return false
+                MonitoringRecovery.ensureScheduled(context)
+            }
             val hasLocation = ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
                 ActivityCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
             if (!hasLocation) {
                 context.getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
                     .edit().putBoolean("service_running", false).apply()
                 Log.i("LocationService", "Location start skipped: permission unavailable")
+                MonitoringRecovery.scheduleRetry(context)
                 return false
             }
-            androidx.core.content.ContextCompat.startForegroundService(context, intent)
+            try {
+                androidx.core.content.ContextCompat.startForegroundService(context, intent)
+            } catch (error: Exception) {
+                MonitoringRecovery.scheduleRetry(context)
+                throw error
+            }
             return true
         }
         const val ACTION_STOP = "stop"
@@ -103,6 +114,8 @@ class LocationService : Service() {
 
         @Volatile
         var isServiceAlive = false
+            private set
+        @Volatile var isMonitoringActive = false
             private set
 
         fun requestAudioStart(context: Context, recording: Boolean, sampleRate: Int = 24_000) {
@@ -281,8 +294,10 @@ class LocationService : Service() {
             null -> {
                 // Service restarted by system, resume tracking if it was running
                 Log.d(TAG, "Service restarted by system, resuming tracking")
-                if (!isTracking) {
+                if (!isTracking && MonitoringRecovery.isDesired(this)) {
                     startTracking(null)
+                } else if (!isTracking) {
+                    stopSelf()
                 }
             }
         }
@@ -364,6 +379,7 @@ class LocationService : Service() {
         }
 
         isTracking = true
+        isMonitoringActive = true
         locationUpdatesStarted = false
         currentTrackingMode = TrackingMode.BALANCED
         lastTrackingModeChangeAt = System.currentTimeMillis()
@@ -376,6 +392,8 @@ class LocationService : Service() {
         ChatBackgroundService.start(this, serverUrl!!, deviceId!!)
         // Register device with retries (network may be unavailable right after boot)
         startRegistrationLoop()
+        // Connectivity supervision must exist even before registration/GPS succeeds.
+        startCommandChecking()
         prefs.edit().putBoolean("service_running", true).apply()
 
         // Audio listening starts only from an explicit start_audio_stream command.
@@ -406,12 +424,12 @@ class LocationService : Service() {
                             ).show()
                         }
                         startDeviceStatusUpdates()
-                        startLocationUpdates()
-                        locationUpdatesStarted = true
-                        return@launch
+                        locationUpdatesStarted = startLocationUpdates()
+                        if (locationUpdatesStarted) return@launch
                     }
                     Log.e(TAG, "Failed to register device (attempt ${attempt + 1})")
                 } catch (e: Exception) {
+                    if (e is CancellationException) throw e
                     Log.e(TAG, "Registration error", e)
                 }
 
@@ -442,7 +460,9 @@ class LocationService : Service() {
     }
 
     private fun stopTracking() {
-        if (!isTracking) return
+        MonitoringRecovery.disable(this)
+        if (!isTracking) { stopSelf(); return }
+        commandCheckJob?.cancel()
 
         deviceStatusJob?.cancel()
         deviceStatusJob = null
@@ -456,6 +476,7 @@ class LocationService : Service() {
         stopSelf()
 
         isTracking = false
+        isMonitoringActive = false
         locationUpdatesStarted = false
         synchronized(locationUploadStateLock) {
             lastUploadedLocation = null
@@ -480,15 +501,11 @@ class LocationService : Service() {
         }
     }
 
-    private fun startLocationUpdates() {
-        if (ActivityCompat.checkSelfPermission(
-                this,
-                Manifest.permission.ACCESS_FINE_LOCATION
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
+    private fun startLocationUpdates(): Boolean {
+        if (ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED &&
+            ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             Log.e(TAG, "Location permission not granted")
-            stopSelf()
-            return
+            return false
         }
 
         val locationRequest = buildLocationRequest()
@@ -499,10 +516,8 @@ class LocationService : Service() {
             Looper.getMainLooper()
         )
 
-        // Start command checking
-        startCommandChecking()
-
         Log.d(TAG, "Location updates started")
+        return true
     }
 
     private val locationOutbox by lazy { ru.example.childwatch.designsystem.LocationOutbox(this) }
@@ -593,7 +608,7 @@ class LocationService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
         true
-    } catch (refused: SecurityException) {
+    } catch (refused: Exception) {
         Log.w(TAG, "Location foreground access refused", refused)
         stopSelf()
         false
@@ -727,8 +742,10 @@ class LocationService : Service() {
         commandCheckJob = serviceScope.launch {
             while (isTracking) {
                 try {
-                    checkStreamingCommands()
                     ensureBackgroundServicesHealthy()
+                    checkStreamingCommands()
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (e: Exception) {
                     Log.e(TAG, "Error checking commands", e)
                 }
@@ -996,7 +1013,7 @@ class LocationService : Service() {
             startRegistrationLoop()
         }
 
-        if (socketDegraded) {
+        if (socketDegraded && registrationJob?.isActive != true) {
             maybeRecoverRegistration(serverUrl, deviceId)
         }
 
@@ -1095,7 +1112,7 @@ class LocationService : Service() {
                 this,
                 Manifest.permission.ACCESS_FINE_LOCATION
             ) != PackageManager.PERMISSION_GRANTED
-        ) {
+        && ActivityCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             return
         }
         runCatching {
@@ -1278,6 +1295,8 @@ class LocationService : Service() {
 
     override fun onDestroy() {
         isServiceAlive = false
+        isMonitoringActive = false
+        prefs.edit().putBoolean("service_running", false).apply()
         ru.example.parentwatch.network.WebSocketManager.removePhotoRequestListener(photoRequestListener)
         commandCheckJob?.cancel()
         if (isStreamingAudio) {
@@ -1285,6 +1304,7 @@ class LocationService : Service() {
         }
         fusedLocationClient.removeLocationUpdates(locationCallback)
         serviceScope.cancel()
+        MonitoringRecovery.scheduleRetry(this)
         Log.d(TAG, "Service destroyed")
         super.onDestroy()
     }

@@ -111,6 +111,16 @@
                         android:textAppearance="@style/TextAppearance.Material3.BodySmall"
                         android:textColor="@color/cw_color_on_surface_variant" />
                 </LinearLayout>
+
+                <ImageButton
+                    android:id="@+id/collapseStatsButton"
+                    android:layout_width="48dp"
+                    android:layout_height="48dp"
+                    android:background="?attr/selectableItemBackgroundBorderless"
+                    android:contentDescription="@string/map_hide_details"
+                    android:padding="12dp"
+                    android:src="@android:drawable/ic_menu_close_clear_cancel"
+                    app:tint="@color/cw_color_on_surface_variant" />
             </LinearLayout>
 
             <TextView

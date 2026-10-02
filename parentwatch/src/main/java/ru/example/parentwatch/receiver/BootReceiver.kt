@@ -38,6 +38,12 @@ class BootReceiver : BroadcastReceiver() {
                 Log.d(TAG, "Boot-related action received: ${intent.action}")
 
                 val retryCount = intent.getIntExtra(EXTRA_RETRY_COUNT, 0)
+                if (!ru.example.parentwatch.service.MonitoringRecovery.isDesired(context)) {
+                    Log.i(TAG, "Monitoring was explicitly disabled; skipping recovery")
+                    return
+                }
+                ru.example.parentwatch.service.MonitoringRecovery.ensureScheduled(context)
+                ru.example.parentwatch.service.MonitoringRecovery.scheduleRetry(context)
 
                 val prefs = context.getSharedPreferences("parentwatch_prefs", Context.MODE_PRIVATE)
                 val sessionStore = ChildActiveSessionStore(context)
@@ -60,7 +66,7 @@ class BootReceiver : BroadcastReceiver() {
                     ?: sessionStore.resolveCurrentServerUrl().takeIf { it.isNotBlank() }
                     ?: ServerUrlResolver.getServerUrl(context)
 
-                val shouldStart = (wasRunning || autoStart) && !deviceId.isNullOrEmpty() && !serverUrl.isNullOrBlank()
+                val shouldStart = !deviceId.isNullOrEmpty() && !serverUrl.isNullOrBlank()
                 if (!shouldStart) {
                     Log.w(TAG, "Skipping auto-start: wasRunning=$wasRunning autoStart=$autoStart deviceId=$deviceId serverUrl=$serverUrl")
                     scheduleRetry(context, retryCount)
@@ -88,7 +94,7 @@ class BootReceiver : BroadcastReceiver() {
                 }
 
                 try {
-                    if (LocationService.startTrackingService(context, serviceIntent)) {
+                    if (LocationService.startTrackingService(context, serviceIntent, rememberIntent = false)) {
                         Log.d(TAG, "LocationService restart requested after boot/update")
                     }
                 } catch (error: Exception) {

@@ -42,6 +42,7 @@ class ChildProfileRuntimeCoordinator(context: Context) {
         if (monitoringEnabled) {
             restartMonitoring(effectiveContext)
         } else {
+            ru.example.parentwatch.service.MonitoringRecovery.disable(appContext)
             stopRealtimeServices()
             prefs.edit().putBoolean("service_running", false).apply()
         }

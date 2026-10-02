@@ -33,7 +33,7 @@ class PhotoUploadWorker(context: Context, parameters: WorkerParameters) : Corout
         }
         // Another active connection must not inherit this phone's queued images.
         if (!matches()) return@withContext Result.retry()
-        val network = NetworkClient(applicationContext)
+        val network = NetworkClient(applicationContext, listOf(server.trimEnd('/'), family, own))
         try {
             val outcome = network.uploadPhotoOutcome(server, file, request, captured, own)
             if (!outcome.uploaded && !outcome.retryable) {

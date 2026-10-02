@@ -25,6 +25,7 @@
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
+            <ViewStub android:id="@+id/pickupHomeStub" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout="@layout/cw_pickup_home" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="14sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:layout_marginTop="10dp" android:text="@string/cw_home_actions" />
             <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/chatCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_marginTop="6dp">
                 <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">

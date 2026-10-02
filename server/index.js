@@ -25,6 +25,7 @@ const createChatRoutes = require("./routes/chat");
 const createChatV2Routes = require("./routes/chat-v2");
 const locationRoutes = require("./routes/location");
 const familyPlacesRoutes = require("./routes/family-places");
+const pickupRoutes = require("./routes/pickups");
 const mediaRoutes = require("./routes/media");
 const streamingRoutes = require("./routes/streaming");
 const alertsRoutes = require("./routes/alerts");
@@ -245,6 +246,7 @@ streamingRoutes.init(commandManager, dbManager, wsManager);
 mediaRoutes.init(dbManager);
 locationRoutes.init(dbManager);
 familyPlacesRoutes.init(dbManager);
+pickupRoutes.init(dbManager);
 alertsRoutes.init(dbManager, wsManager);
 
 // API Routes. Chat v2 is mounted before the legacy compatibility router so
@@ -266,6 +268,7 @@ app.use(
 // requested device, so a raw deviceId from the client is never trusted.
 app.use("/api/location", authMiddleware.authenticate(), locationRoutes);
 app.use("/api/family-places", authMiddleware.authenticate(), familyPlacesRoutes);
+app.use("/api/pickups", authMiddleware.authenticate(), authMiddleware.rateLimit(60_000, 90), pickupRoutes);
 app.use("/api/media", authMiddleware.authenticate(), mediaRoutes);
 app.use("/api/streaming", authMiddleware.authenticate(), streamingRoutes);
 app.use("/api/debug", authMiddleware.authenticate(), debugRoutes);

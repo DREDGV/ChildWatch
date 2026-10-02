@@ -180,6 +180,7 @@ class RemoteCameraActivity : AppCompatActivity() {
             updateCameraLabel()
             loadPhotos()
             if (savedInstanceState?.getString("photo_scope") == photoScope()) {
+                waitingForUpload = savedInstanceState.getBoolean("photo_waiting_upload", false)
                 val request = savedInstanceState.getString("photo_request")
                 val remaining = (savedInstanceState.getLong("photo_deadline") - System.currentTimeMillis()).coerceIn(0L, PHOTO_RESPONSE_TIMEOUT_MS)
                 if (!request.isNullOrBlank() && remaining > 0) {
@@ -187,6 +188,14 @@ class RemoteCameraActivity : AppCompatActivity() {
                     pendingRequestId = request
                     pendingStartedAt = android.os.SystemClock.elapsedRealtime() - (PHOTO_RESPONSE_TIMEOUT_MS - remaining)
                     disableButtons(); startResponseTimeout(request)
+                } else if (!request.isNullOrBlank()) {
+                    timedOutRequestIds[request] = savedInstanceState.getLong("photo_deadline").coerceAtMost(System.currentTimeMillis()) to photoScope()
+                    if (isLateDeliveryFor(request)) recoverLatePhoto(request)
+                }
+                val lateRequest = savedInstanceState.getString("photo_late_request")
+                if (!lateRequest.isNullOrBlank() && lateRequest != request) {
+                    timedOutRequestIds[lateRequest] = savedInstanceState.getLong("photo_late_at") to photoScope()
+                    if (isLateDeliveryFor(lateRequest)) recoverLatePhoto(lateRequest)
                 }
             }
             ensureWebSocketReady()
@@ -763,7 +772,8 @@ class RemoteCameraActivity : AppCompatActivity() {
 
     private fun isLateDeliveryFor(requestId: String): Boolean {
         val timedOutAt = timedOutRequestIds[requestId] ?: return false
-        return timedOutAt.second == photoScope() && System.currentTimeMillis() - timedOutAt.first <= PHOTO_LATE_DELIVERY_GRACE_MS
+        val age = System.currentTimeMillis() - timedOutAt.first
+        return timedOutAt.second == photoScope() && age in 0..PHOTO_LATE_DELIVERY_GRACE_MS
     }
 
     private fun clearLateDelivery(requestId: String) {
@@ -971,7 +981,9 @@ class RemoteCameraActivity : AppCompatActivity() {
             .setView(panel).setPositiveButton(R.string.remote_photo_gallery_close, null).create()
         var page = 0
         var pageJob: Job? = null
+        var displayedIds: List<Long> = emptyList()
         fun loadPage(destination: Int) {
+            var repeatedPage = false
             pageJob?.cancel()
             previous.isEnabled = false; next.isEnabled = false
             retry.visibility = View.GONE
@@ -993,6 +1005,12 @@ class RemoteCameraActivity : AppCompatActivity() {
                     }
                     if (!response.isSuccessful) throw IllegalStateException("Gallery unavailable")
                     val files = response.body()?.photoFiles ?: throw IllegalStateException("Missing gallery")
+                    val ids = files.take(pageSize).map { it.id }
+                    if (destination != page && ids.isNotEmpty() && ids == displayedIds) {
+                        repeatedPage = true
+                        throw java.io.IOException("Server repeated the previous gallery page")
+                    }
+                    displayedIds = ids
                     page = destination
                     pageAdapter.submitList(files.take(pageSize).map(::photoItem))
                     loading.visibility = View.GONE
@@ -1005,7 +1023,7 @@ class RemoteCameraActivity : AppCompatActivity() {
                 } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
                 catch (error: Exception) {
                     if (scope == photoScope() && dialog.isShowing) {
-                        label.setText(R.string.remote_photo_gallery_retry)
+                        label.setText(if (repeatedPage) R.string.remote_photo_gallery_page_repeated else R.string.remote_photo_gallery_retry)
                         loading.visibility = View.GONE
                         previous.isEnabled = page > 0
                         retry.visibility = View.VISIBLE
@@ -1094,6 +1112,11 @@ class RemoteCameraActivity : AppCompatActivity() {
         state.putString("photo_scope", photoScope())
         state.putString("photo_child", childId)
         state.putString("photo_child_name", childName)
+        state.putBoolean("photo_waiting_upload", waitingForUpload)
+        val late = timedOutRequestIds.entries.filter { it.value.second == photoScope() && isLateDeliveryFor(it.key) }
+            .maxByOrNull { it.value.first }
+        state.putString("photo_late_request", late?.key)
+        state.putLong("photo_late_at", late?.value?.first ?: 0L)
         state.putString("photo_request", pendingRequestId)
         state.putString("photo_camera", selectedCameraFacing)
         state.putLong("photo_deadline", System.currentTimeMillis() +

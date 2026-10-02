@@ -530,28 +530,18 @@ class ChatConversationV2Activity : AppCompatActivity() {
     /**
      * Opens the group's settings from inside the conversation.
      *
-     * The family's membership is read first, because it is the only list a person may be
-     * added from; the group itself is read again after every change, so the name, the
-     * members and the header on this screen are the server's answer rather than an older
-     * copy of it.
+     * Settings read the group's current membership directly. The family roster is
+     * fetched on demand when adding people, rather than delaying every settings open.
      */
     private fun openGroupSettings() {
         if (conversation?.type != ConversationType.GROUP) return
-        lifecycleScope.launch {
-            runCatching { repository.refreshConversations(resolveTargetChildDeviceId()) }
-            val familyMembers = repository.getCachedConversations()
-                .firstOrNull { it.type == ConversationType.FAMILY }
-                ?.members
-                .orEmpty()
-            GroupManagementDialog.show(
-                activity = this@ChatConversationV2Activity,
-                scope = lifecycleScope,
-                repository = repository,
-                conversationId = conversationId,
-                familyMembers = familyMembers,
-                onRefresh = { reloadAfterGroupChange() }
-            )
-        }
+        GroupManagementDialog.show(
+            activity = this,
+            scope = lifecycleScope,
+            repository = repository,
+            conversationId = conversationId,
+            onRefresh = { reloadAfterGroupChange() }
+        )
     }
 
     /**

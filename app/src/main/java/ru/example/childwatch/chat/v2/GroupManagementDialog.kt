@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import ru.childwatch.shared.chat.ChatV2GroupSettingsResponse
 import ru.childwatch.shared.chat.ConversationMember
 import ru.childwatch.shared.chat.ConversationMemberRole
+import ru.childwatch.shared.chat.toDomain
 import ru.example.childwatch.R
 
 /**
@@ -41,8 +42,6 @@ object GroupManagementDialog {
      * Opens the screen for one group.
      *
      * @param conversationId the group, whose cached copy the caller has just refreshed
-     * @param familyMembers everybody in the family, the group's own members included,
-     *        because a family member is the only kind of person who may join it
      * @param onRefresh refreshes the conversation list and waits for it, so the next
      *        reading of the group is the server's and not a stale cache
      */
@@ -51,20 +50,13 @@ object GroupManagementDialog {
         scope: CoroutineScope,
         repository: ChatV2Repository,
         conversationId: String,
-        familyMembers: List<ConversationMember>,
         onRefresh: suspend () -> Unit
     ) {
         scope.launch {
-            val group = repository.getCachedConversation(conversationId)
             val settings = repository.loadGroupSettings(conversationId)
-            // A group the server no longer lists was closed or left; a group that cannot
-            // be read is a connection problem. They are said apart, because one of them
-            // means there is nothing left to manage and the other means trying again.
+            if (activity.isFinishing || activity.isDestroyed) return@launch
+            // A local cache miss does not establish that the server closed the group.
             when {
-                group == null -> GroupDialogs.toast(
-                    activity,
-                    activity.getString(R.string.group_gone)
-                )
                 settings == null -> GroupDialogs.toast(
                     activity,
                     activity.getString(R.string.group_settings_unavailable)
@@ -75,9 +67,8 @@ object GroupManagementDialog {
                         scope = scope,
                         repository = repository,
                         conversationId = conversationId,
-                        familyMembers = familyMembers,
                         onRefresh = onRefresh
-                    ).show(settings, group.members)
+                    ).show(settings)
                 }
             }
         }
@@ -96,20 +87,23 @@ object GroupManagementDialog {
         private val scope: CoroutineScope,
         private val repository: ChatV2Repository,
         private val conversationId: String,
-        private val familyMembers: List<ConversationMember>,
         private val onRefresh: suspend () -> Unit
     ) {
         private var dialog: AlertDialog? = null
+        private var closed = false
+        private var requestToken = 0
 
         /**
          * Draws the group as the server last described it.
          *
-         * [members] is the membership of the cached conversation, which the caller has
-         * just refreshed; the group's own answer carries the same people but also the
-         * question of who may change them, and one shape for a member everywhere keeps
-         * this screen and the chat header alike.
+         * Membership and administrative rights come from the same server snapshot.
          */
-        fun show(settings: ChatV2GroupSettingsResponse, members: List<ConversationMember>) {
+        fun show(settings: ChatV2GroupSettingsResponse) {
+            if (closed || activity.isFinishing || activity.isDestroyed) return
+            val members = settings.members.map {
+                it.toDomain(isLocalUser = it.memberId == settings.actorMemberId)
+            }.distinctBy(ConversationMember::memberId)
+            dialog?.setOnDismissListener(null)
             if (dialog?.isShowing == true) dialog?.dismiss()
             val canManage = settings.canManage
             // The identifier the server recognises this device by; it is what tells the
@@ -167,12 +161,6 @@ object GroupManagementDialog {
                 .filterNot { it.memberId == localMemberId || it.memberId == settings.adminMemberId }
                 .distinctBy(ConversationMember::memberId)
                 .sortedBy(ConversationMember::displayName)
-            val candidates = familyMembers
-                .filterNot(ConversationMember::isLocalUser)
-                .filterNot { familyMember -> members.any { it.memberId == familyMember.memberId } }
-                .distinctBy(ConversationMember::memberId)
-                .sortedBy(ConversationMember::displayName)
-
             content.addView(spacer((8 * density).toInt()))
             content.addView(divider())
             content.addView(spacer((8 * density).toInt()))
@@ -195,7 +183,7 @@ object GroupManagementDialog {
                 )
                 content.addView(
                     action(activity.getString(R.string.group_action_members_add)) {
-                        promptAddMembers(candidates)
+                        promptAddMembers()
                     }
                 )
                 content.addView(
@@ -231,7 +219,10 @@ object GroupManagementDialog {
                 .setView(scrollable(content))
                 .setNegativeButton(R.string.group_settings_close, null)
                 .create()
-                .also { it.show() }
+                .also {
+                    it.setOnDismissListener { closed = true; requestToken++ }
+                    it.show()
+                }
         }
 
         /**
@@ -257,7 +248,37 @@ object GroupManagementDialog {
                 .show()
         }
 
-        private fun promptAddMembers(candidates: List<ConversationMember>) {
+        private fun promptAddMembers() {
+            val token = ++requestToken
+            scope.launch {
+                val settings = repository.loadGroupSettings(conversationId)
+                val refreshed = try {
+                    settings?.familyId?.takeIf { it.isNotBlank() }?.let { familyId ->
+                        kotlinx.coroutines.withTimeoutOrNull(15_000L) { repository.loadFamilyMembers(familyId) }
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) { null }
+                if (closed || token != requestToken || activity.isFinishing || activity.isDestroyed) return@launch
+                if (settings == null || refreshed == null) {
+                    GroupDialogs.toast(activity, activity.getString(R.string.group_settings_unavailable))
+                    return@launch
+                }
+                if (!settings.canManage) {
+                    show(settings)
+                    GroupDialogs.toast(activity, activity.getString(R.string.group_read_only))
+                    return@launch
+                }
+                val present = settings.members.mapTo(mutableSetOf()) { it.memberId }
+                val candidates = refreshed
+                    .filterNot { it.memberId == settings.actorMemberId || it.memberId in present }
+                    .distinctBy(ConversationMember::memberId)
+                    .sortedBy(ConversationMember::displayName)
+                showMemberPicker(candidates)
+            }
+        }
+
+        private fun showMemberPicker(candidates: List<ConversationMember>) {
             if (candidates.isEmpty()) {
                 GroupDialogs.toast(activity, activity.getString(R.string.group_members_none_to_add))
                 return
@@ -421,27 +442,19 @@ object GroupManagementDialog {
 
         /** Reads the group again after a change, then draws what is left of it. */
         private fun refreshAndReopen() {
+            val token = ++requestToken
             scope.launch {
                 onRefresh()
+                if (closed || token != requestToken || activity.isFinishing || activity.isDestroyed) return@launch
                 val settings = repository.loadGroupSettings(conversationId)
-                val group = repository.getCachedConversation(conversationId)
                 activity.runOnUiThread {
-                    // The server closes a group that fewer than two people are left in,
-                    // so a change may have ended the group itself. Saying which of the
-                    // two happened is the difference between a mistake and an outcome.
+                    if (closed || token != requestToken || activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                     when {
-                        group == null -> {
-                            if (dialog?.isShowing == true) dialog?.dismiss()
-                            GroupDialogs.toast(
-                                activity,
-                                activity.getString(R.string.group_closed)
-                            )
-                        }
                         settings == null -> GroupDialogs.toast(
                             activity,
                             activity.getString(R.string.group_settings_unavailable)
                         )
-                        else -> show(settings, group.members)
+                        else -> show(settings)
                     }
                 }
             }

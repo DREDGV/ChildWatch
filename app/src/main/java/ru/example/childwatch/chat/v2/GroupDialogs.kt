@@ -27,6 +27,7 @@ internal object GroupDialogs {
     const val MAX_TITLE_LENGTH = 64
 
     fun toast(activity: Activity, message: String) {
+        if (activity.isFinishing || activity.isDestroyed) return
         android.widget.Toast.makeText(activity, message, android.widget.Toast.LENGTH_LONG).show()
     }
 
@@ -47,8 +48,11 @@ internal object GroupDialogs {
             try {
                 val applied = action()
                 activity.runOnUiThread {
+                    if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                     if (applied) onApplied() else toast(activity, activity.getString(R.string.group_error_generic))
                 }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (error: Exception) {
                 activity.runOnUiThread {
                     toast(activity, ChatV2ErrorText.failure(activity, error))

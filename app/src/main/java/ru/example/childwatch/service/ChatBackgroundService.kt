@@ -108,6 +108,7 @@ class ChatBackgroundService : LifecycleService() {
         lifecycleScope.launch {
             while (kotlinx.coroutines.currentCoroutineContext().isActive) {
                 ru.example.childwatch.location.FamilyPlaceSync.sync(this@ChatBackgroundService)
+                ru.example.childwatch.location.FamilyPickupSync.sync(this@ChatBackgroundService)
                 delay(30_000L)
             }
         }

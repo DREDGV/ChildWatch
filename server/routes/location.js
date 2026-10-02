@@ -273,10 +273,20 @@ router.get("/family/latest", async (req, res) => {
 });
 
 /** Recent recorded fixes for one visible family member, for a live map trail. */
-router.get("/family/trail/:memberId", async (req, res) => {
+router.get(["/family/trail/:memberId", "/family/history/:memberId"], async (req, res) => {
   try {
     const familyId = String(req.query.familyId || "").trim();
     const memberId = String(req.params.memberId || "").trim();
+    const historyPage = req.path.startsWith("/family/history/");
+    const ranged = historyPage || req.query.from !== undefined || req.query.to !== undefined;
+    const rangeFrom = Number(req.query.from);
+    const rangeTo = Number(req.query.to);
+    const requestedDevice = String(req.query.deviceId || "").trim();
+    if (ranged && (!Number.isSafeInteger(rangeFrom) || !Number.isSafeInteger(rangeTo) ||
+        rangeFrom <= 0 || rangeTo < rangeFrom || rangeTo - rangeFrom > 31 * 86400000 ||
+        rangeTo > Date.now() + 60000 || !requestedDevice)) {
+      return res.status(400).json({ code: "HISTORY_RANGE_INVALID", error: "Choose a period up to 31 days and a device" });
+    }
     if (!familyId || !memberId) {
       return res.status(400).json({ error: "Family and member are required", code: "FAMILY_TRAIL_TARGET_REQUIRED" });
     }
@@ -304,6 +314,9 @@ router.get("/family/trail/:memberId", async (req, res) => {
       return res.status(404).json({ error: "Member not found", code: "FAMILY_MEMBER_NOT_FOUND" });
     }
     const targetDevices = devices.filter((device) => device.memberId === memberId);
+    if (ranged && !targetDevices.some(device => device.deviceId === requestedDevice)) {
+      return res.status(403).json({ code: "HISTORY_DEVICE_DENIED", error: "Device does not belong to member" });
+    }
     await ensureSharedParentLocationTables();
     const now = Date.now();
     const latest = (await Promise.all(targetDevices.map(async (device) => ({
@@ -311,7 +324,7 @@ router.get("/family/trail/:memberId", async (req, res) => {
       point: await latestDevicePosition(sharedDatabase, device.deviceId),
     })))).filter(({ point }) => point && point.timestamp <= now + 60_000)
       .sort((a, b) => b.point.timestamp - a.point.timestamp)[0];
-    if (!latest || now - latest.point.timestamp > LAST_KNOWN_AGE_MS) {
+    if (!ranged && (!latest || now - latest.point.timestamp > LAST_KNOWN_AGE_MS)) {
       return res.json({ success: true, memberId, points: [] });
     }
     if (memberId !== actor.memberId) {
@@ -326,28 +339,52 @@ router.get("/family/trail/:memberId", async (req, res) => {
       ]);
       if (historyPermission?.allowed !== 1 || locationPermission?.allowed === 0 ||
           (locationPermission?.allowed !== 1 &&
-            now - latest.point.timestamp > LIVE_SHARING_AGE_MS)) {
+            (ranged || !latest || now - latest.point.timestamp > LIVE_SHARING_AGE_MS))) {
         return res.status(403).json({ error: "Location access denied", code: "LOCATION_ACCESS_DENIED" });
       }
     }
-    const forms = deviceAccess.idForms(latest.deviceId);
+    const historyDevice = ranged ? requestedDevice : latest.deviceId;
+    const forms = deviceAccess.idForms(historyDevice);
     if (!forms.length) return res.json({ success: true, memberId, points: [] });
+    if (historyPage) {
+      try {
+        const page = await require('../services/FamilyHistoryPageStore').read(sharedDatabase, forms, {
+          familyId, memberId, deviceId: historyDevice, actorId: actor.memberId,
+          from: rangeFrom, to: rangeTo, cursor: req.query.cursor,
+        });
+        await require('../services/LocationMotionStore').attach(sharedDatabase, forms, page.points);
+        return res.json({ success: true, familyId, memberId, deviceId: historyDevice,
+          from: rangeFrom, to: rangeTo, ...page });
+      } catch (error) {
+        if (error.code === 'HISTORY_CHANGED' || error.code === 'HISTORY_CURSOR_INVALID')
+          return res.status(error.code === 'HISTORY_CHANGED' ? 409 : 400).json({ code: error.code });
+        throw error;
+      }
+    }
     const placeholders = forms.map(() => "?").join(", ");
-    const from = now - 30 * 60 * 1000;
+    const from = ranged ? rangeFrom : now - 30 * 60 * 1000;
+    const to = ranged ? rangeTo : now + 60_000;
+    const cap = ranged ? 1000 : 600;
+    // Both legacy seconds and ISO dates exist in these tables. Filter before LIMIT.
+    const timeSql = `CASE WHEN typeof(timestamp) IN ('integer','real') OR
+      (CAST(timestamp AS TEXT) NOT GLOB '*[^0-9]*' AND CAST(timestamp AS TEXT) <> '')
+      THEN CASE WHEN CAST(timestamp AS REAL) < 100000000000
+        THEN CAST(timestamp AS REAL) * 1000 ELSE CAST(timestamp AS REAL) END
+      ELSE CAST(ROUND((julianday(timestamp) - 2440587.5) * 86400000) AS INTEGER) END`;
     const rows = (await Promise.all([
       sharedDatabase.all(
-        `SELECT latitude, longitude, accuracy, timestamp FROM locations
-         WHERE device_id IN (${placeholders}) ORDER BY timestamp DESC LIMIT 600`, forms),
+        `SELECT latitude, longitude, accuracy, (${timeSql}) AS timestamp FROM locations
+         WHERE device_id IN (${placeholders}) AND (${timeSql}) BETWEEN ? AND ? ORDER BY (${timeSql}) DESC LIMIT ?`, [...forms, from, to, cap]),
       sharedDatabase.all(
-        `SELECT latitude, longitude, accuracy, timestamp FROM parent_locations
-         WHERE parent_id IN (${placeholders}) ORDER BY timestamp DESC LIMIT 600`, forms),
+        `SELECT latitude, longitude, accuracy, (${timeSql}) AS timestamp FROM parent_locations
+         WHERE parent_id IN (${placeholders}) AND (${timeSql}) BETWEEN ? AND ? ORDER BY (${timeSql}) DESC LIMIT ?`, [...forms, from, to, cap]),
     ])).flat();
     const points = rows.map((row) => ({
       latitude: Number(row.latitude), longitude: Number(row.longitude),
       accuracy: row.accuracy == null ? null : Number(row.accuracy),
       timestamp: locationTimeMillis(row.timestamp),
     })).filter((point) => point.timestamp !== null && point.timestamp >= from &&
-      point.timestamp <= now + 60_000 && Number.isFinite(point.latitude) &&
+      point.timestamp <= to && Number.isFinite(point.latitude) &&
       Number.isFinite(point.longitude) && Math.abs(point.latitude) <= 90 &&
       Math.abs(point.longitude) <= 180)
       .sort((a, b) => a.timestamp - b.timestamp)
@@ -355,10 +392,10 @@ router.get("/family/trail/:memberId", async (req, res) => {
         point.timestamp !== ordered[index - 1].timestamp ||
         point.latitude !== ordered[index - 1].latitude ||
         point.longitude !== ordered[index - 1].longitude)
-      .slice(-600);
+      .slice(-cap);
     try { await require('../services/LocationMotionStore').attach(sharedDatabase, forms, points); }
     catch (error) { console.error('Trail motion read failed', error.message); }
-    return res.json({ success: true, memberId, deviceId: latest.deviceId, points });
+    return res.json({ success: true, memberId, deviceId: historyDevice, ...(ranged ? { from, to } : {}), points });
   } catch (error) {
     console.error("Get family trail error:", error);
     return res.status(500).json({ error: "Failed to get family trail", code: "FAMILY_TRAIL_ERROR" });

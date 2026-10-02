@@ -19,6 +19,7 @@ import ru.example.parentwatch.R
 internal object GroupDialogs {
 
     fun toast(activity: Activity, message: String) {
+        if (activity.isFinishing || activity.isDestroyed) return
         Toast.makeText(activity, message, Toast.LENGTH_LONG).show()
     }
 
@@ -38,8 +39,10 @@ internal object GroupDialogs {
     ) {
         scope.launch {
             val outcome = runCatching { action() }
+            (outcome.exceptionOrNull() as? kotlinx.coroutines.CancellationException)?.let { throw it }
             val applied = outcome.getOrNull() == true
             activity.runOnUiThread {
+                if (activity.isFinishing || activity.isDestroyed) return@runOnUiThread
                 if (applied) {
                     onApplied()
                 } else {

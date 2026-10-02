@@ -301,6 +301,8 @@ class AudioPlaybackService : LifecycleService() {
     @Volatile private var automaticStartBlocked = false
     @Volatile private var automaticStartSuppressedUntil = 0L
     @Volatile private var streamWasStale = false
+    @Volatile private var lastAudioProgressAt = 0L
+    @Volatile private var recoveryStopPosted = false
     private var lastCaptureErrorToastReason: String? = null
     private var lastCaptureErrorToastAt = 0L
 
@@ -641,6 +643,8 @@ class AudioPlaybackService : LifecycleService() {
 
                     isPlaying = true
                     AudioPlaybackService.isPlaying = true
+                    lastAudioProgressAt = android.os.SystemClock.elapsedRealtime()
+                    recoveryStopPosted = false
                     streamingStartTime = System.currentTimeMillis()
                     AudioPlaybackService.streamingStartTime = streamingStartTime
                     chunksReceived = 0
@@ -1283,11 +1287,15 @@ class AudioPlaybackService : LifecycleService() {
 
                 chunksReceived++
                 AudioPlaybackService.chunksReceived = chunksReceived
+                recoveryStopPosted = false
+                lastAudioProgressAt = android.os.SystemClock.elapsedRealtime()
                 lastChunkTimestamp = System.currentTimeMillis()
                 AudioPlaybackService.lastChunkTimestamp = lastChunkTimestamp
-                if (chunksReceived == 1) {
-                    firstChunkTimestamp = lastChunkTimestamp
-                    AudioPlaybackService.firstChunkTimestamp = lastChunkTimestamp
+                if (chunksReceived == 1 || streamWasStale) {
+                    if (chunksReceived == 1) {
+                        firstChunkTimestamp = lastChunkTimestamp
+                        AudioPlaybackService.firstChunkTimestamp = lastChunkTimestamp
+                    }
                     startCommandJob?.cancel()
                     startCommandJob = null
                     clearCaptureRetryGate()
@@ -1405,6 +1413,8 @@ class AudioPlaybackService : LifecycleService() {
 
         playbackJob = lifecycleScope.launch(Dispatchers.IO) {
             Log.d(TAG, "AUDIO playback loop started")
+            var observedTrack = audioTrack
+            var hardwareUnderruns = observedTrack?.underrunCount ?: 0
 
             while (isActive && isPlaying) {
                 try {
@@ -1412,7 +1422,9 @@ class AudioPlaybackService : LifecycleService() {
                     if (isBuffering) {
                         if (chunkQueue.size >= JITTER_BUFFER_MIN_FRAMES) {
                             isBuffering = false
-                            updateNotification("Playing...")
+                            observedTrack = audioTrack
+                            hardwareUnderruns = observedTrack?.underrunCount ?: 0
+                            updateNotification(getString(R.string.audio_playback_ready))
                             Log.d(TAG, "AUDIO buffer filled (${chunkQueue.size} frames), starting playback")
 
                             // Update status to playing.
@@ -1423,12 +1435,10 @@ class AudioPlaybackService : LifecycleService() {
                         }
                     }
 
-                    // Use poll() with timeout to keep the loop responsive.
-                    val chunk = withTimeoutOrNull(50) {
-                        // Blocking poll - will wait if queue empty
-                        val frame = chunkQueue.poll()
-                        frame
-                    }
+                    // Wait on the IO worker: an empty software queue is not proof
+                    // of an audible gap while AudioTrack still holds buffered PCM.
+                    val chunk = chunkQueue.poll(50, java.util.concurrent.TimeUnit.MILLISECONDS)
+                    ensureActive()
 
                     val track = audioTrack
                     if (track != null && isPlaying && track.playState != AudioTrack.PLAYSTATE_PLAYING) {
@@ -1450,25 +1460,27 @@ class AudioPlaybackService : LifecycleService() {
                             audioEnhancer.process(playbackChunk)
                         }
 
-                        // Write to AudioTrack
-                        val written = track.write(enhancedChunk, 0, enhancedChunk.size, AudioTrack.WRITE_BLOCKING)
-                        if (written < 0) {
-                            Log.e(TAG, "AudioTrack write error: $written")
-                            if (written == AudioTrack.ERROR_DEAD_OBJECT || written == AudioTrack.ERROR_INVALID_OPERATION) {
-                                initializeAudioTrack()
+                        // A short write does not discard the rest of this PCM frame.
+                        var offset = 0
+                        var writeFailed = false
+                        while (offset < enhancedChunk.size && isActive && isPlaying) {
+                            val written = track.write(enhancedChunk, offset,
+                                enhancedChunk.size - offset, AudioTrack.WRITE_BLOCKING)
+                            if (written <= 0) {
+                                Log.w(TAG, "AudioTrack write interrupted: $written, offset=$offset")
+                                if (written == AudioTrack.ERROR_DEAD_OBJECT || written == AudioTrack.ERROR_INVALID_OPERATION) {
+                                    initializeAudioTrack()
+                                    isBuffering = true
+                                    metricsManager.updateAudioStatus(AudioStatus.BUFFERING)
+                                }
+                                writeFailed = true
+                                delay(20)
+                                break
                             }
-                            delay(20)
-                            continue
+                            offset += written
+                            ensureActive()
                         }
-
-                        // Track underruns for diagnostics.
-                        if (written < enhancedChunk.size) {
-                            underrunCount++
-                            metricsManager.incrementUnderrun() // Diagnostics
-                            if (underrunCount < 10) { // Log first few
-                                Log.w(TAG, "AUDIO write underrun: wrote $written < ${enhancedChunk.size}")
-                            }
-                        }
+                        if (writeFailed || !isPlaying) continue
 
                         // Send chunk to waveform visualizer
                         waveformCallback?.invoke(enhancedChunk)
@@ -1477,17 +1489,29 @@ class AudioPlaybackService : LifecycleService() {
                             streamRecorder?.write(playbackChunk)
                         }
                     } else {
-                        // Queue empty: output silence, but keep the UI responsive.
-                        if (chunkQueue.isEmpty()) {
-                            underrunCount++
-                            metricsManager.incrementUnderrun() // Diagnostics
-                            if (underrunCount % 10 == 1) { // Log every 10th
-                                Log.w(TAG, "AUDIO queue empty (underrun #$underrunCount)")
-                            }
-                            delay(20) // Wait one frame before retrying
+                        if (track !== observedTrack) {
+                            observedTrack = track
+                            hardwareUnderruns = track?.underrunCount ?: 0
+                        }
+                        val currentUnderruns = track?.underrunCount ?: hardwareUnderruns
+                        val missed = (currentUnderruns - hardwareUnderruns).coerceAtLeast(0)
+                        hardwareUnderruns = currentUnderruns
+                        if (missed > 0) {
+                            underrunCount += missed
+                            repeat(missed) { metricsManager.incrementUnderrun() }
+                            Log.w(TAG, "AUDIO hardware underrun (+$missed); refilling jitter buffer")
+                            // Recover once per real output gap, rather than oscillating
+                            // between single arriving packets and an empty queue.
+                            track?.pause()
+                            track?.flush()
+                            isBuffering = true
+                            metricsManager.updateAudioStatus(AudioStatus.BUFFERING)
+                            updateNotification(getString(R.string.audio_playback_buffering))
                         }
                     }
 
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
                 } catch (e: Exception) {
                     Log.e(TAG, "AUDIO playback loop error", e)
                     delay(100) // Back off on error
@@ -1627,9 +1651,21 @@ class AudioPlaybackService : LifecycleService() {
         streamWatchdogJob?.cancel()
         streamWatchdogJob = lifecycleScope.launch(Dispatchers.IO) {
             while (isActive && isPlaying) {
-                val last = if (lastChunkTimestamp > 0) lastChunkTimestamp else streamingStartTime
-                val silenceFor = System.currentTimeMillis() - last
-                if (silenceFor > STREAM_STALE_AFTER_MS) {
+                val silenceFor = android.os.SystemClock.elapsedRealtime() - lastAudioProgressAt
+                if (silenceFor >= 60_000L && !recoveryStopPosted) {
+                    recoveryStopPosted = true
+                    val reason = if (automaticStartBlocked) currentStatus
+                        else getString(R.string.audio_recovery_timeout)
+                    mainHandler.post {
+                        if (isPlaying && recoveryStopPosted) {
+                            Toast.makeText(this@AudioPlaybackService, reason, Toast.LENGTH_LONG).show()
+                            stopPlayback()
+                            metricsManager.reportError(reason, ErrorSeverity.ERROR)
+                        }
+                    }
+                    return@launch
+                }
+                if (silenceFor > STREAM_STALE_AFTER_MS && !isAutomaticStartSuppressed()) {
                     if (!streamWasStale) {
                         streamWasStale = true
                         updateNotification(getString(R.string.listen_status_reconnecting))

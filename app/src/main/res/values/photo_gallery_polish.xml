@@ -5,4 +5,5 @@
     <string name="remote_photo_gallery_empty_guidance">Здесь появятся полученные снимки. Закройте галерею, чтобы сделать новое фото.</string>
     <string name="remote_photo_gallery_item_description">Открыть фото, %1$s</string>
     <string name="remote_photo_gallery_actions_description">Действия с фото, %1$s</string>
+    <string name="remote_photo_gallery_page_repeated">Сервер вернул ту же страницу. Обновите сервер или попробуйте позже.</string>
 </resources>

@@ -85,6 +85,8 @@ class ChatBackgroundService : LifecycleService() {
         }
 
         fun stop(context: Context) {
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(PREF_CHAT_DESIRED, false).commit()
             val intent = Intent(context, ChatBackgroundService::class.java).apply {
                 action = ACTION_STOP_SERVICE
             }
@@ -231,6 +233,12 @@ class ChatBackgroundService : LifecycleService() {
         // Initialize ChatManagerAdapter - will be fully initialized in onStartCommand with deviceId
         createNotificationChannel()
         ru.example.parentwatch.utils.NotificationManager.createNotificationChannels(this)
+        lifecycleScope.launch(Dispatchers.IO) {
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                ru.example.parentwatch.location.FamilyPickupSync.sync(this@ChatBackgroundService)
+                delay(30_000L)
+            }
+        }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -247,6 +255,10 @@ class ChatBackgroundService : LifecycleService() {
 
         // Service may be relaunched by the system with null intent; recover configuration from prefs
         if (intent == null) {
+            if (!isChatDesired()) {
+                stopSelf()
+                return START_NOT_STICKY
+            }
             val effectiveContext = effectiveContextResolver.resolveEffectiveContext()
             val serverUrl = effectiveContext?.serverUrl?.takeIf { it.isNotBlank() }
                 ?: activeSessionStore.resolveCurrentServerUrl().takeIf { it.isNotBlank() }

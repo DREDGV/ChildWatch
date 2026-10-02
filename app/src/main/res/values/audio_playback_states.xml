@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="audio_playback_ready">Звук поступает</string>
+    <string name="audio_playback_buffering">Восстанавливаем плавный звук</string>
+    <string name="audio_recovery_timeout">Звук не поступает. Проверьте связь и разрешение микрофона на телефоне ребёнка, затем запустите передачу снова.</string>
+</resources>

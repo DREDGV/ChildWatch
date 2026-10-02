@@ -245,6 +245,11 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
         override fun intercept(chain: Interceptor.Chain): Response {
             val originalRequest = chain.request()
             fun checkOwnStatusScope() {
+                originalRequest.tag(PickupRequestScope::class.java)?.let { pickup ->
+                    val actual = listOf(effectiveContextResolver.resolveServerUrl(), effectiveContextResolver.resolveFamilyId().orEmpty(),
+                        effectiveContextResolver.resolveSelfMemberId().orEmpty(), effectiveContextResolver.resolveOwnParentId())
+                    if (actual != pickup.identity) throw IOException("PICKUP_CONTEXT_CHANGED")
+                }
                 val expected = originalRequest.tag(OwnDeviceStatusScope::class.java)?.identity ?: expectedOwnScope ?: return
                 val current = listOf(effectiveContextResolver.resolveServerUrl().trimEnd('/'),
                     effectiveContextResolver.resolveFamilyId(), effectiveContextResolver.resolveOwnParentId())
@@ -689,14 +694,15 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
     }
 
     /** Bounded server history for the selected person's live map trail. */
-    suspend fun getFamilyTrail(familyId: String, memberId: String, expectedDeviceId: String? = null): List<ParentLocationData>? =
+    suspend fun getFamilyTrail(familyId: String, memberId: String, expectedDeviceId: String? = null, from: Long? = null, to: Long? = null): List<ParentLocationData>? =
         withContext(Dispatchers.IO) {
             try {
                 val serverUrl = getConfiguredServerUrl()?.takeIf(String::isNotBlank)
                     ?: return@withContext null
                 val family = java.net.URLEncoder.encode(familyId, "UTF-8")
                 val member = java.net.URLEncoder.encode(memberId, "UTF-8")
-                val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}/api/location/family/trail/$member?familyId=$family"
+                val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}/api/location/family/trail/$member?familyId=$family" +
+                    if (from != null && to != null) "&from=$from&to=$to&deviceId=${java.net.URLEncoder.encode(expectedDeviceId.orEmpty(), "UTF-8")}" else ""
                 val request = Request.Builder().url(url).get()
                     .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME).build()
                 client.newCall(request).execute().use { response ->
@@ -706,6 +712,7 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
                     }
                     val root = JSONObject(response.body?.string() ?: return@withContext null)
                     if (!root.optBoolean("success")) return@withContext null
+                    if (from != null && (root.optLong("from", -1) != from || root.optLong("to", -1) != to)) return@withContext null
                     if (expectedDeviceId != null && root.has("deviceId") && root.optString("deviceId") != expectedDeviceId) return@withContext null
                     val points = root.optJSONArray("points") ?: return@withContext emptyList()
                     buildList {
@@ -725,9 +732,59 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
                         }
                     }
                 }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
             } catch (error: Exception) {
                 Log.w(TAG, "Could not load family trail", error)
                 null
+            }
+        }
+
+    suspend fun getFamilyHistoryPage(familyId: String, memberId: String, deviceId: String, from: Long, to: Long, cursor: String? = null): FamilyHistoryPage =
+        withContext(Dispatchers.IO) {
+            try {
+                val serverUrl = getConfiguredServerUrl()?.takeIf(String::isNotBlank)
+                    ?: throw java.io.IOException("Invalid history response")
+                val family = java.net.URLEncoder.encode(familyId, "UTF-8")
+                val member = java.net.URLEncoder.encode(memberId, "UTF-8")
+                val device = java.net.URLEncoder.encode(deviceId, "UTF-8")
+                val continuation = cursor?.let { "&cursor=${java.net.URLEncoder.encode(it, "UTF-8")}" }.orEmpty()
+                val url = "${ensureHttpsUrl(serverUrl).trimEnd('/')}/api/location/family/history/$member?familyId=$family&deviceId=$device&from=$from&to=$to$continuation"
+                val request = Request.Builder().url(url).get()
+                    .addHeader("User-Agent", "ChildWatch/" + BuildConfig.VERSION_NAME).build()
+                client.newCall(request).execute().use { response ->
+                    if (!response.isSuccessful) {
+                        throw HistoryReadException(response.code)
+                    }
+                    val root = JSONObject(response.body?.string() ?: throw java.io.IOException("Invalid history response"))
+                    if (!root.optBoolean("success")) throw java.io.IOException("Invalid history response")
+                    if (from != null && (root.optLong("from", -1) != from || root.optLong("to", -1) != to)) throw java.io.IOException("Invalid history response")
+                    if (root.optString("deviceId") != deviceId || root.optString("memberId") != memberId || root.optString("familyId") != familyId) throw java.io.IOException("History context mismatch")
+                    val points = root.optJSONArray("points") ?: throw java.io.IOException("Missing history points")
+                    val data = buildList {
+                        for (index in 0 until points.length()) {
+                            val point = points.optJSONObject(index) ?: continue
+                            if (point.isNull("timestamp")) continue
+                            add(ParentLocationData(
+                                parentId = memberId,
+                                latitude = point.getDouble("latitude"),
+                                longitude = point.getDouble("longitude"),
+                                accuracy = if (point.isNull("accuracy")) 0f else point.optDouble("accuracy").toFloat(),
+                                timestamp = point.getLong("timestamp"),
+                                battery = null, speed = null, bearing = null,
+                                speedMps = if (point.isNull("speedMps")) null else point.optDouble("speedMps").toFloat(),
+                                speedAccuracyMps = if (point.isNull("speedAccuracyMps")) null else point.optDouble("speedAccuracyMps").toFloat()
+                            ))
+                        }
+                    }
+                    val more = root.getBoolean("hasMore")
+                    val next = if (root.isNull("nextCursor")) null else root.optString("nextCursor").takeIf { it.isNotBlank() }
+                    val revision = root.getString("revision")
+                    if (revision.isBlank() || (more && (next == null || data.isEmpty()))) throw java.io.IOException("Invalid history continuation")
+                    FamilyHistoryPage(data, next, more, revision)
+                }
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
             }
         }
 
@@ -1820,6 +1877,61 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
 
     fun resolveConfiguredServerUrl(): String? = getConfiguredServerUrl()
 
+    /** Pickup writes are never added to the generic offline upload queue. */
+    private data class PickupRequestScope(val identity: List<String>)
+    suspend fun pickupRequest(familyId: String, method: String = "GET", suffix: String = "",
+        body: JSONObject? = null, expectedScope: String): JSONObject = withContext(Dispatchers.IO) {
+        val expected = org.json.JSONArray(expectedScope).let { listOf(it.getString(0), it.getString(1), it.getString(2), it.getString(3)) }
+        val actual = listOf(effectiveContextResolver.resolveServerUrl(), effectiveContextResolver.resolveFamilyId().orEmpty(),
+            effectiveContextResolver.resolveSelfMemberId().orEmpty(), effectiveContextResolver.resolveOwnParentId())
+        if (actual != expected || familyId != expected[1]) throw IllegalStateException("PICKUP_CONTEXT_CHANGED")
+        val configured = resolveConfiguredServerUrl()?.takeIf { it.isNotBlank() }
+            ?: throw IllegalStateException("PICKUP_CONTEXT_MISSING")
+        val base = ensureHttpsUrl(configured).trimEnd('/')
+        val parsed = (base + "/api/pickups" + suffix).toHttpUrl()
+            .newBuilder().addQueryParameter("familyId", familyId).addQueryParameter("actorMemberId", expected[2]).build()
+        val builder = Request.Builder().url(parsed).tag(PickupRequestScope::class.java, PickupRequestScope(expected))
+        if (method == "POST") builder.post((body ?: JSONObject()).toString().toRequestBody("application/json".toMediaType()))
+        else builder.get()
+        client.newBuilder().callTimeout(25, TimeUnit.SECONDS).build().newCall(builder.build()).execute().use { response ->
+            val json = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrElse { JSONObject() }
+            if (!response.isSuccessful || !json.optBoolean("success"))
+                throw IllegalStateException("PICKUP_HTTP_${response.code}:" + json.optString("code", "PICKUP_UNAVAILABLE"))
+            val rows = json.optJSONArray("requests")
+            fun validatePickup(row: JSONObject) {
+                val validStatus = row.optString("status") in listOf("REQUESTED", "ACCEPTED", "EN_ROUTE", "ARRIVED", "HANDOFF", "COMPLETED", "CANCELLED", "EXPIRED")
+                val latitude = row.optDouble("latitude", Double.NaN)
+                val longitude = row.optDouble("longitude", Double.NaN)
+                if (row.optString("familyId") != familyId || row.optString("id").isBlank() ||
+                    row.optString("childMemberId").isBlank() || row.optLong("version") < 1L || !validStatus ||
+                    !latitude.isFinite() || kotlin.math.abs(latitude) > 90 ||
+                    !longitude.isFinite() || kotlin.math.abs(longitude) > 180 ||
+                    row.optJSONArray("ownActionIds") == null)
+                    throw IllegalStateException("PICKUP_INVALID_RESPONSE")
+            }
+            if (method == "GET" && (rows == null || json.optString("familyId") != familyId))
+                throw IllegalStateException("PICKUP_INVALID_RESPONSE")
+            if (method == "GET" && (json.optJSONObject("actor")?.optString("memberId") != expected[2] ||
+                json.getJSONObject("actor").optString("role") !in listOf("CHILD", "PARENT", "GUARDIAN")))
+                throw IllegalStateException("PICKUP_CONTEXT_CHANGED")
+            if (json.has("familyId") && json.getString("familyId") != familyId) throw IllegalStateException("PICKUP_CONTEXT_CHANGED")
+            if (rows != null) for (i in 0 until rows.length()) {
+                validatePickup(rows.getJSONObject(i))
+            }
+            if (method == "POST") {
+                val saved = json.optJSONObject("request") ?: throw IllegalStateException("PICKUP_INVALID_RESPONSE")
+                validatePickup(saved)
+                val expectedId = if (suffix.isBlank()) body?.optString("requestId").orEmpty() else suffix.split('/').getOrNull(1).orEmpty()
+                val operationId = body?.optString("actionId")?.takeIf { it.isNotBlank() } ?: body?.optString("requestId").orEmpty()
+                val receipts = saved.getJSONArray("ownActionIds")
+                if (saved.getString("id") != expectedId || operationId.isBlank() ||
+                    (0 until receipts.length()).none { receipts.optString(it) == operationId })
+                    throw IllegalStateException("PICKUP_INVALID_RESPONSE")
+            }
+            json
+        }
+    }
+
     /**
      * The release manifest: what the server has published for this application.
      *
@@ -2267,7 +2379,7 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
                     .post(requestBody)
                     .build()
 
-                client.newCall(request).execute().use { response ->
+                client.newBuilder().callTimeout(12, TimeUnit.SECONDS).build().newCall(request).execute().use { response ->
                     val body = response.body?.string()
                     val parsed = parseStreamingCommandResult(
                         deviceId = deviceId,
@@ -2287,7 +2399,8 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
                     }
                     parsed
                 }
-            } catch (e: Exception) {
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (e: Exception) {
                 Log.e(TAG, "Error starting audio streaming", e)
                 StreamingCommandResult(
                     success = false,
@@ -2743,3 +2856,7 @@ private fun JSONObject.toParentLocationData(fallbackId: String, idKey: String): 
         bearing = if (has("bearing") && !isNull("bearing")) optDouble("bearing", 0.0).toFloat() else null
     )
 }
+
+
+data class FamilyHistoryPage(val points: List<ParentLocationData>, val nextCursor: String?, val hasMore: Boolean, val revision: String)
+class HistoryReadException(val status: Int) : java.io.IOException("History response $status")

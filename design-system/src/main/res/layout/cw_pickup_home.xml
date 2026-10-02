@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/pickupHomeRoot" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+    <com.google.android.material.button.MaterialButton android:id="@+id/pickupHomeReopen"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:visibility="gone"
+        android:text="@string/pickup_home_open" style="@style/Widget.MaterialComponents.Button.TextButton" />
+    <com.google.android.material.card.MaterialCardView android:id="@+id/pickupHomeCard"
+        android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp"
+        app:cardCornerRadius="16dp" app:cardElevation="0dp" app:strokeWidth="1dp" app:strokeColor="@color/cw_color_outline_variant" app:cardBackgroundColor="@color/cw_color_surface">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="12dp">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <TextView android:id="@+id/pickupHomeTitle" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+                    android:text="@string/pickup_title" android:textSize="16sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/pickupHomeFold"
+                    android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/pickup_home_fold"
+                    style="@style/Widget.MaterialComponents.Button.TextButton" />
+            </LinearLayout>
+            <TextView android:id="@+id/pickupHomeFreshness" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textSize="13sp" android:minLines="2" android:textColor="@color/cw_color_on_surface_variant" />
+            <LinearLayout android:id="@+id/pickupHomeDetails" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
+                <TextView android:id="@+id/pickupHomeSummary" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp"
+                    android:textSize="16sp" android:minLines="4" android:textColor="@color/cw_color_on_surface" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/pickupHomeOpen" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:minHeight="48dp" android:text="@string/pickup_home_open" />
+                <com.google.android.material.button.MaterialButton android:id="@+id/pickupHomeHide" android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:minHeight="48dp" android:text="@string/pickup_home_hide" style="@style/Widget.MaterialComponents.Button.TextButton" />
+            </LinearLayout>
+        </LinearLayout>
+    </com.google.android.material.card.MaterialCardView>
+</LinearLayout>

@@ -121,7 +121,6 @@ class ChatConversationsActivity : AppCompatActivity() {
                 scope = lifecycleScope,
                 repository = repository,
                 conversationId = conversation.conversationId,
-                familyMembers = familyMembers(),
                 onRefresh = { refreshAwaitable() }
             )
             return

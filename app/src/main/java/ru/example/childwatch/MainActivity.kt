@@ -84,6 +84,45 @@ import java.util.*
  */
 class MainActivity : AppCompatActivity() {
 
+    private fun homePickupScope(): String {
+        val resolver = ru.example.childwatch.profile.ParentEffectiveContextResolver(this)
+        val family = resolver.resolveFamilyId()?.takeIf { it.isNotBlank() } ?: return ""
+        val member = resolver.resolveSelfMemberId()?.takeIf { it.isNotBlank() } ?: return ""
+        val server = resolver.resolveServerUrl().takeIf { it.isNotBlank() } ?: return ""
+        val own = resolver.resolveOwnParentId().takeIf { it.isNotBlank() } ?: return ""
+        return org.json.JSONArray(listOf(server, family, member, own)).toString()
+    }
+    private val homePickupCard by lazy {
+        ru.example.childwatch.designsystem.HomePickupCard(this,
+            findViewById<android.view.View>(R.id.pickupHomeRoot) ?: findViewById<android.view.ViewStub>(R.id.pickupHomeStub).inflate(),
+            object : ru.example.childwatch.designsystem.HomePickupCard.Host {
+                override fun scope(): String = homePickupScope()
+                override fun fetch(expectedScope: String, callback: ru.example.childwatch.designsystem.FamilyPickupController.Callback) {
+                    lifecycleScope.launch {
+                        try {
+                            if (expectedScope != homePickupScope()) throw IllegalStateException("PICKUP_CONTEXT_CHANGED")
+                            val family = org.json.JSONArray(expectedScope).getString(1)
+                            val response = networkClient.pickupRequest(family, expectedScope = expectedScope)
+                            if (expectedScope != homePickupScope()) throw IllegalStateException("PICKUP_CONTEXT_CHANGED")
+                            callback.complete(response, null)
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            callback.complete(null, "PICKUP_CANCELLED"); throw cancelled
+                        } catch (failure: Exception) {
+                            callback.complete(null, failure.message ?: "PICKUP_UNAVAILABLE")
+                        }
+                    }
+                }
+                override fun open(expectedScope: String) {
+                    if (expectedScope != homePickupScope()) return
+                    val resolver = ru.example.childwatch.profile.ParentEffectiveContextResolver(this@MainActivity)
+                    startActivity(DualLocationMapActivity.createIntent(this@MainActivity, DualLocationMapActivity.ROLE_PARENT,
+                        resolver.resolveOwnParentId(), resolver.resolveFocusedChildId()).apply {
+                        putExtra("open_pickups", true); putExtra("pickup_scope", expectedScope)
+                    })
+                }
+            })
+    }
+
     private var homeSheet: com.google.android.material.bottomsheet.BottomSheetDialog? = null
     private var homeDirectory: FamilyDirectorySnapshot? = null
 
@@ -1973,6 +2012,7 @@ class MainActivity : AppCompatActivity() {
     }
     
     override fun onDestroy() {
+        homePickupCard.dispose()
         homeSheet?.dismiss()
         homeSheet = null
         badgeRefreshJob?.cancel()
@@ -2019,6 +2059,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        homePickupCard.resume()
         prefs.edit().putBoolean("chat_open", false).apply()
         screenVisible = true
         // A notification may have opened this screen exactly to finish an
@@ -2076,6 +2117,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        homePickupCard.pause()
         selectedLocationJob?.cancel()
         selectedLocationJob = null
         badgeRefreshJob?.cancel()

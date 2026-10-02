@@ -28,6 +28,7 @@
                     <com.google.android.material.button.MaterialButton android:layout_width="48dp" android:layout_height="48dp" android:id="@+id/childSelectionEditIcon" android:text="" android:textAllCaps="false" android:minHeight="48dp" android:contentDescription="@string/main_child_card_button_hint" android:minWidth="0dp" android:padding="0dp" style="@style/Widget.ChildWatch.Button.Secondary" app:icon="@drawable/cw_home_edit" app:iconPadding="0dp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
+            <ViewStub android:id="@+id/pickupHomeStub" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout="@layout/cw_pickup_home" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="14sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:layout_marginTop="10dp" android:text="@string/cw_home_actions" />
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
                 <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/audioStreamingCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1" app:cardBackgroundColor="@color/cw_color_primary_container">

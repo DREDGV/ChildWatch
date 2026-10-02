@@ -72,6 +72,45 @@ import java.util.*
  */
 class MainActivity : AppCompatActivity() {
 
+    private fun homePickupScope(): String {
+        val resolver = ru.example.parentwatch.session.ChildEffectiveContextResolver(this)
+        val family = resolver.resolveFamilyId()?.takeIf { it.isNotBlank() } ?: return ""
+        val member = resolver.resolveSelfMemberId()?.takeIf { it.isNotBlank() } ?: return ""
+        val server = resolver.resolveServerUrl().takeIf { it.isNotBlank() } ?: return ""
+        val own = resolver.resolveChildDeviceId().takeIf { it.isNotBlank() } ?: return ""
+        return org.json.JSONArray(listOf(server, family, member, own)).toString()
+    }
+    private val homePickupCard by lazy {
+        ru.example.childwatch.designsystem.HomePickupCard(this,
+            findViewById<android.view.View>(R.id.pickupHomeRoot) ?: findViewById<android.view.ViewStub>(R.id.pickupHomeStub).inflate(),
+            object : ru.example.childwatch.designsystem.HomePickupCard.Host {
+                override fun scope(): String = homePickupScope()
+                override fun fetch(expectedScope: String, callback: ru.example.childwatch.designsystem.FamilyPickupController.Callback) {
+                    lifecycleScope.launch {
+                        try {
+                            if (expectedScope != homePickupScope()) throw IllegalStateException("PICKUP_CONTEXT_CHANGED")
+                            val family = org.json.JSONArray(expectedScope).getString(1)
+                            val response = networkClient.pickupRequest(family, expectedScope = expectedScope)
+                            if (expectedScope != homePickupScope()) throw IllegalStateException("PICKUP_CONTEXT_CHANGED")
+                            callback.complete(response, null)
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            callback.complete(null, "PICKUP_CANCELLED"); throw cancelled
+                        } catch (failure: Exception) {
+                            callback.complete(null, failure.message ?: "PICKUP_UNAVAILABLE")
+                        }
+                    }
+                }
+                override fun open(expectedScope: String) {
+                    if (expectedScope != homePickupScope()) return
+                    val resolver = ru.example.parentwatch.session.ChildEffectiveContextResolver(this@MainActivity)
+                    startActivity(DualLocationMapActivity.createIntent(this@MainActivity, DualLocationMapActivity.ROLE_CHILD,
+                        resolver.resolveChildDeviceId(), resolver.resolveParentDeviceId()).apply {
+                        putExtra("open_pickups", true); putExtra("pickup_scope", expectedScope)
+                    })
+                }
+            })
+    }
+
     private var homeSheet: com.google.android.material.bottomsheet.BottomSheetDialog? = null
     private var homeSelectedMemberId: String? = null
     private var homeSelectedDeviceId: String? = null
@@ -777,7 +816,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun applyQuickProfile(profile: ChildDeviceProfile) {
-        val wasRunning = prefs.getBoolean("service_running", false) || isServiceRunning
+        val wasRunning = ru.example.parentwatch.service.MonitoringRecovery.isDesired(this)
         profileRuntimeCoordinator.applyProfile(profile, wasRunning)
         syncDeviceIds()
 
@@ -1004,6 +1043,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        homePickupCard.resume()
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
                 val resolver = ru.example.parentwatch.session.ChildEffectiveContextResolver(this@MainActivity)
@@ -1088,11 +1128,11 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun recoverMonitoringServiceIfNeeded() {
-        val desiredRunning = prefs.getBoolean("service_running", false)
+        val desiredRunning = ru.example.parentwatch.service.MonitoringRecovery.isDesired(this)
         isServiceRunning = desiredRunning
 
         if (!desiredRunning) return
-        if (isLocationServiceAlive()) return
+        if (LocationService.isMonitoringActive) return
 
         Log.w("MainActivity", "LocationService expected active but not running, recovering")
         startLocationService()
@@ -1107,6 +1147,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        homePickupCard.pause()
         badgeRefreshJob?.cancel()
         // The screen is no longer visible, so it is no longer the place the installer's
         // confirmation may be opened from. The claim itself is kept: the receiver may
@@ -1219,6 +1260,7 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun stopLocationService() {
+        ru.example.parentwatch.service.MonitoringRecovery.disable(this)
         try {
             if (isServiceRunning) {
                 val serviceIntent = Intent(this, LocationService::class.java)
@@ -1242,6 +1284,7 @@ class MainActivity : AppCompatActivity() {
     }
     
     private fun emergencyStopAllFunctions() {
+        ru.example.parentwatch.service.MonitoringRecovery.disable(this)
         try {
         // Send EMERGENCY_STOP action to service
         val intent = Intent(this, LocationService::class.java).apply {
@@ -1438,6 +1481,7 @@ class MainActivity : AppCompatActivity() {
     }
     
     override fun onDestroy() {
+        homePickupCard.dispose()
         homeSheet?.dismiss()
         homeSheet = null
         super.onDestroy()

@@ -103,7 +103,9 @@ interface ChildWatchApi {
     suspend fun getLocationHistory(
         @Path("deviceId") deviceId: String,
         @Query("limit") limit: Int = 100,
-        @Query("offset") offset: Int = 0
+        @Query("offset") offset: Int = 0,
+        @Query("from") from: Long? = null,
+        @Query("to") to: Long? = null
     ): Response<LocationHistoryResponse>
 
     /**

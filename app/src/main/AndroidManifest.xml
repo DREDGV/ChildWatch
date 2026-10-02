@@ -9,6 +9,7 @@
     
     <!-- Audio recording permission -->
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     
     <!-- Camera permission (optional for photo capture) -->
     <uses-permission android:name="android.permission.CAMERA" />

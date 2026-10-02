@@ -1,0 +1,32 @@
+<resources>
+    <string name="cw_history_loading">Загружаем маршрут…</string>
+    <string name="cw_history_unavailable">Не удалось получить историю. Проверьте связь и доступ к геолокации. Попробуйте повторить загрузку позже.</string>
+    <string name="cw_history_retry">Повторить</string>
+    <string name="cw_history_choose_date">Выбрать дату…</string>
+    <string name="cw_history_empty">За выбранный период координат нет.</string>
+    <string name="cw_history_hint">Нажмите на время, чтобы увидеть точку на карте. Время указано в часовом поясе этого телефона.</string>
+    <string name="cw_history_limited">Показаны последние 1000 точек. Выберите один день, чтобы уточнить маршрут.</string>
+    <string name="cw_history_break">%1$s — %2$s: маршрут между точками неизвестен</string>
+    <string name="cw_history_accuracy">%1$s · точность ±%2$d м</string>
+    <string name="cw_history_uncertain">%1$s · точность неизвестна или недостаточна для маршрута</string>
+    <string name="cw_history_no_route">Нет достаточно точных координат для линии маршрута.</string>
+    <string name="cw_history_events">События</string>
+    <string name="cw_history_summary">Сводка</string>
+    <string name="cw_history_fold">Свернуть</string>
+    <string name="cw_history_expand">Развернуть</string>
+    <string name="cw_history_hide">Скрыть</string>
+    <string name="cw_history_reopen">Показать историю</string>
+    <string name="cw_history_now">Сейчас</string>
+    <string name="cw_history_time">Время на маршруте</string>
+    <string name="cw_history_partial">Загружено %1$d точек · день ещё загружается</string>
+    <string name="cw_history_complete">Загружено %1$d точек · время этого телефона</string>
+    <string name="cw_history_denied">Нет доступа к истории этого человека.</string>
+    <string name="cw_history_changed">История изменилась. Повторите загрузку дня.</string>
+    <string name="cw_history_partial_error">Загрузка прервалась. Уже полученные точки сохранены на карте.</string>
+    <string name="cw_history_waiting_part">Эта часть периода ещё не получена.</string>
+    <string name="cw_history_size_limit">Получена часть большого периода. Выберите один день для подробного просмотра.</string>
+    <string name="cw_history_gap">В это время надёжных координат нет.</string>
+    <string name="cw_history_gap_between">%1$s — %2$s · маршрут неизвестен</string>
+    <string name="cw_history_measured_at">Измерено в %1$s</string>
+    <string name="cw_history_more_events">Следующие участки</string>
+</resources>

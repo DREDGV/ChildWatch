@@ -974,7 +974,7 @@ class SettingsActivity : AppCompatActivity() {
 
     private fun applyProfile(profile: ChildDeviceProfile) {
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
-        val wasRunning = prefs.getBoolean("service_running", false)
+        val wasRunning = ru.example.parentwatch.service.MonitoringRecovery.isDesired(this)
 
         val appliedContext = profileRuntimeCoordinator.applyProfile(profile, wasRunning)
         val appliedServerUrl = appliedContext?.serverUrl.orEmpty().ifBlank { profile.serverUrl }
@@ -1408,6 +1408,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun stopMonitoring() {
+        ru.example.parentwatch.service.MonitoringRecovery.disable(this)
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         try {
             val intent = Intent(this, ru.example.parentwatch.service.LocationService::class.java).apply {
@@ -1425,6 +1426,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun emergencyStopAll() {
+        ru.example.parentwatch.service.MonitoringRecovery.disable(this)
         val prefs = getSharedPreferences(PREFS_NAME, MODE_PRIVATE)
         try {
             val intent = Intent(this, ru.example.parentwatch.service.LocationService::class.java).apply {
@@ -1956,7 +1958,7 @@ class SettingsActivity : AppCompatActivity() {
 
         persistSelectedParent(normalized, currentServerUrl, currentChildId)
 
-        val monitoringEnabled = prefs.getBoolean("service_running", false)
+        val monitoringEnabled = ru.example.parentwatch.service.MonitoringRecovery.isDesired(this)
         profileRuntimeCoordinator.refreshRuntime(monitoringEnabled)
         updateProfileSummary()
         updateParentConnectionStatus()
@@ -2012,7 +2014,7 @@ class SettingsActivity : AppCompatActivity() {
         }
         persistSelectedParent(replacementParentId, currentServerUrl, currentChildId)
 
-        val monitoringEnabled = prefs.getBoolean("service_running", false)
+        val monitoringEnabled = ru.example.parentwatch.service.MonitoringRecovery.isDesired(this)
         profileRuntimeCoordinator.refreshRuntime(monitoringEnabled)
         cacheLinkedParentsSnapshot(
             localParentId = replacementParentId,

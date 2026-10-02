@@ -101,9 +101,8 @@ class ChatV2Repository(
     /**
      * One conversation as this device last cached it, members and all.
      *
-     * A screen that works on a group reads it from here rather than from the answer of
-     * a group route: the same shape then describes a conversation wherever it is used,
-     * and the caller has one place to look for its membership.
+     * This snapshot can be stale. Group management reads membership and rights
+     * together from loadGroupSettings instead of treating this cache as authority.
      */
     suspend fun getCachedConversation(conversationId: String): Conversation? =
         conversations.getById(conversationId)?.let { row ->
@@ -513,8 +512,28 @@ class ChatV2Repository(
      * needed; the answer also says whether this device may change them.
      */
     suspend fun loadGroupSettings(conversationId: String): ChatV2GroupSettingsResponse? {
-        val response = runCatching { api.getChatV2GroupSettings(conversationId) }.getOrNull()
-        return response?.takeIf { it.isSuccessful }?.body()
+        return try {
+            kotlinx.coroutines.withTimeoutOrNull(15_000L) {
+                val response = api.getChatV2GroupSettings(conversationId)
+                response.takeIf { it.isSuccessful }?.body()?.takeIf {
+                    it.success && it.conversationId == conversationId
+                }
+            }
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /** Reads the family roster from this response, not from accumulated cached chats. */
+    suspend fun loadFamilyMembers(familyId: String): List<ru.childwatch.shared.chat.ConversationMember> {
+        val body = requireSuccessful(api.getChatV2Conversations(), "LIST_CONVERSATIONS")
+        if (!body.success) throw ChatV2RepositoryException("LIST_CONVERSATIONS_REJECTED")
+        val family = body.conversations.firstOrNull {
+            it.type.equals("FAMILY", true) && it.familyId == familyId
+        } ?: throw ChatV2RepositoryException("CONVERSATION_ACCESS_DENIED")
+        return family.members.map { it.toDomain() }
     }
 
     /**

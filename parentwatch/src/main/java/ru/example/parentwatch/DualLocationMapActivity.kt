@@ -150,7 +150,87 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var autoRefreshJob: Job? = null
     private var loadLocationsJob: Job? = null
     private var autoFitEnabled = true
-    private var isStatsCardCollapsed = false
+
+    private fun pickupScope(): String {
+        val resolver = ru.example.parentwatch.session.ChildEffectiveContextResolver(this)
+        val family = resolver.resolveFamilyId()?.takeIf { it.isNotBlank() } ?: return ""
+        val member = resolver.resolveSelfMemberId()?.takeIf { it.isNotBlank() } ?: return ""
+        val server = resolver.resolveServerUrl().takeIf { it.isNotBlank() } ?: return ""
+        val own = resolver.resolveChildDeviceId().takeIf { it.isNotBlank() } ?: return ""
+        return org.json.JSONArray(listOf(server, family, member, own)).toString()
+    }
+    private val pickupController by lazy {
+        ru.example.childwatch.designsystem.FamilyPickupController(this,
+            object : ru.example.childwatch.designsystem.FamilyPickupController.Host {
+                override fun scope(): String = pickupScope()
+                override fun meetingPoint(): DoubleArray? = if (::mapView.isInitialized)
+                    doubleArrayOf(mapView.mapCenter.latitude, mapView.mapCenter.longitude).also {
+                        autoFitEnabled = false; updateAutoFitUi()
+                    } else null
+                override fun focusPoint(latitude: Double, longitude: Double) {
+                    if (!::mapView.isInitialized) return
+                    leaveHistory()
+                    autoFitEnabled = false; updateAutoFitUi()
+                    pickupPointMarker?.let { mapView.overlays.remove(it) }
+                    pickupPointMarker = Marker(mapView).apply {
+                        position = GeoPoint(latitude, longitude)
+                        title = getString(R.string.pickup_meeting_point)
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        setOnMarkerClickListener { marker, _ ->
+                            mapView.overlays.remove(marker); pickupPointMarker = null; mapView.invalidate(); true
+                        }
+                    }.also { mapView.overlays.add(it) }
+                    pickupMarkerScope = pickupScope()
+                    mapView.controller.animateTo(GeoPoint(latitude, longitude))
+                    mapView.invalidate()
+                    Toast.makeText(this@DualLocationMapActivity, R.string.pickup_marker_hint, Toast.LENGTH_LONG).show()
+                }
+                override fun badge(active: Int) {
+                    if (pickupMarkerScope != pickupScope() && ::mapView.isInitialized) {
+                        pickupPointMarker?.let { mapView.overlays.remove(it) }; pickupPointMarker = null; mapView.invalidate()
+                    }
+                    val item = binding.toolbar.menu.findItem(93242) ?: return
+                    item.title = if (active > 0) getString(R.string.pickup_badge, active) else getString(R.string.pickup_title)
+                    item.isEnabled = true
+                }
+                override fun request(method: String, suffix: String, body: org.json.JSONObject?,
+                    callback: ru.example.childwatch.designsystem.FamilyPickupController.Callback) {
+                    val expected = pickupScope()
+                    lifecycleScope.launch {
+                        try {
+                            if (expected.isBlank() || expected != pickupScope()) throw IllegalStateException("PICKUP_CONTEXT_CHANGED")
+                            val parts = org.json.JSONArray(expected)
+                            val result = networkClient.pickupRequest(parts.getString(1), method, suffix, body, expectedScope = expected)
+                            if (expected != pickupScope()) throw IllegalStateException("PICKUP_CONTEXT_CHANGED")
+                            result.optJSONObject("actor")?.let {
+                                if (it.optString("memberId") != parts.getString(2)) throw IllegalStateException("PICKUP_CONTEXT_CHANGED")
+                            }
+                            callback.complete(result, null)
+                        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                            callback.complete(null, "PICKUP_CANCELLED"); throw cancelled
+                        } catch (failure: Exception) {
+                            callback.complete(null, failure.message ?: "PICKUP_UNAVAILABLE")
+                        }
+                    }
+                }
+            })
+    }
+    private var pickupPointMarker: Marker? = null
+    private var pickupMarkerScope: String = ""
+    private fun setupPickupEntry() {
+        if (binding.toolbar.menu.findItem(93242) == null) {
+            binding.toolbar.menu.add(0, 93242, 0, getString(R.string.pickup_title)).apply {
+                setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM)
+                setOnMenuItemClickListener { pickupController.show(); true }
+            }
+        }
+        pickupController.resume()
+        if (intent.getBooleanExtra("open_pickups", false)) {
+            intent.removeExtra("open_pickups")
+            if (intent.getStringExtra("pickup_scope") == pickupScope()) pickupController.show()
+        }
+    }
+    private var isStatsCardCollapsed = true
     private var isPersonDetailsExpanded = false
     private var liveModeUntilMs: Long = 0L
     private var lastLinkedSourceRes: Int? = null
@@ -444,11 +524,9 @@ class DualLocationMapActivity : AppCompatActivity() {
                 }
             })
             mapView.setOnTouchListener { _, event ->
+                if (event.action == MotionEvent.ACTION_DOWN) { collapseStatsCard(); historyPanel?.hide() }
                 if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_MOVE) {
-                    if (event.action == MotionEvent.ACTION_DOWN && binding.statsCard.visibility == View.VISIBLE) {
-                        collapseStatsCard()
-                    }
-                    if (autoFitEnabled) {
+                    if (autoFitEnabled && !isViewingHistory) {
                         autoFitEnabled = false
                         updateAutoFitUi()
                     }
@@ -471,19 +549,36 @@ class DualLocationMapActivity : AppCompatActivity() {
 
     private fun setupStatsCard() {
         binding.collapseStatsButton.setOnClickListener { collapseStatsCard() }
-        // Tapping the card reveals the details instead of hiding the card, which
-        // is what the parent application does: the compact part stays over the
-        // map and the person can look closer without losing the view.
         binding.statsCard.setOnClickListener {
             isPersonDetailsExpanded = !isPersonDetailsExpanded
-            binding.mapPersonDetails.visibility =
-                if (isPersonDetailsExpanded) View.VISIBLE else View.GONE
+            binding.mapPersonDetails.visibility = if (isPersonDetailsExpanded) View.VISIBLE else View.GONE
         }
+        onBackPressedDispatcher.addCallback(this, object : androidx.activity.OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() {
+                if (historyPanel?.isVisible == true) { historyPanel?.hide(); return }
+                if (isViewingHistory) { leaveHistory(); return }
+                val popupOpen = ::mapView.isInitialized && mapView.overlays
+                    .filterIsInstance<Marker>().any { it.isInfoWindowOpen }
+                if (binding.statsCard.visibility == View.VISIBLE || popupOpen) {
+                    collapseStatsCard()
+                } else {
+                    isEnabled = false
+                    onBackPressedDispatcher.onBackPressed()
+                    isEnabled = true
+                }
+            }
+        })
     }
 
     private fun collapseStatsCard() {
         isStatsCardCollapsed = true
+        isPersonDetailsExpanded = false
+        binding.mapPersonDetails.visibility = View.GONE
         binding.statsCard.visibility = View.GONE
+        if (::mapView.isInitialized) {
+            mapView.overlays.filterIsInstance<Marker>().forEach { it.closeInfoWindow() }
+            mapView.invalidate()
+        }
     }
 
     private fun expandStatsCard() {
@@ -521,15 +616,15 @@ class DualLocationMapActivity : AppCompatActivity() {
             binding.centerBothButton.isEnabled = false
             binding.centerBothButton.alpha = 0.4f
         }
-        binding.centerBothButton.setOnClickListener { autoFitEnabled = true; updateAutoFitUi(); centerOnAvailable() }
-        binding.centerMyButton.setOnClickListener {
+        binding.centerBothButton.setOnClickListener { leaveHistory(); autoFitEnabled = true; updateAutoFitUi(); centerOnAvailable() }
+        binding.centerMyButton.setOnClickListener { leaveHistory();
             autoFitEnabled = false
             updateAutoFitUi()
             if (!centerOnPoint(lastMyPoint)) {
                 Toast.makeText(this, getString(R.string.map_my_location_not_available), Toast.LENGTH_SHORT).show()
             }
         }
-        binding.centerOtherButton.setOnClickListener {
+        binding.centerOtherButton.setOnClickListener { leaveHistory();
             autoFitEnabled = false
             updateAutoFitUi()
             if (!centerOnPoint(lastOtherPoint)) {
@@ -543,7 +638,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         binding.centerOtherButton.setImageResource(resolveOtherMarkerIconRes())
     }
 
-    private fun updateAutoFitUi() { binding.centerBothButton.alpha = if (autoFitEnabled) 1.0f else 0.6f }
+    private fun updateAutoFitUi() { binding.centerBothButton.alpha = if (autoFitEnabled && !isViewingHistory) 1.0f else 0.6f }
 
     private fun centerOnPoint(point: GeoPoint?): Boolean {
         if (point == null) return false
@@ -567,11 +662,8 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun setupHistoryButton() {
-        if (historyTargetId().isNullOrBlank()) {
-            binding.historyButton.visibility = View.GONE
-            return
-        }
         binding.historyButton.setOnClickListener { showHistoryPeriodDialog() }
+        binding.historyButton.visibility = if (historySelectionKey().isBlank()) View.GONE else View.VISIBLE
     }
 
     private fun setupTimelineButton() {
@@ -602,11 +694,13 @@ class DualLocationMapActivity : AppCompatActivity() {
             getString(R.string.map_history_today),
             getString(R.string.map_history_yesterday),
             getString(R.string.map_history_week),
-            getString(R.string.map_history_month)
+            getString(R.string.map_history_month),
+            getString(ru.example.childwatch.designsystem.R.string.cw_history_choose_date)
         )
         android.app.AlertDialog.Builder(this)
-            .setTitle(R.string.map_history_select_period)
+            .setTitle(historyPersonName())
             .setItems(periods) { _, which ->
+                if (which == 4) { showHistoryDatePicker(); return@setItems }
                 val now = System.currentTimeMillis()
                 val calendar = java.util.Calendar.getInstance().apply {
                     timeInMillis = now
@@ -641,41 +735,13 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun loadTodayTimeline() {
-        val now = System.currentTimeMillis()
-        val calendar = java.util.Calendar.getInstance().apply {
-            timeInMillis = now
+        val day = java.util.Calendar.getInstance().apply {
             set(java.util.Calendar.HOUR_OF_DAY, 0)
             set(java.util.Calendar.MINUTE, 0)
             set(java.util.Calendar.SECOND, 0)
             set(java.util.Calendar.MILLISECOND, 0)
         }
-        val startOfToday = calendar.timeInMillis
-        lifecycleScope.launch {
-            try {
-                val history = fetchLocationHistory(startOfToday, now)
-                if (history.isNullOrEmpty()) {
-                    Toast.makeText(
-                        this@DualLocationMapActivity,
-                        getString(R.string.map_timeline_empty),
-                        Toast.LENGTH_SHORT
-                    ).show()
-                    return@launch
-                }
-
-                displayLocationHistory(history)
-                showTodayTimelineDialog(history)
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading today timeline", e)
-                Toast.makeText(
-                    this@DualLocationMapActivity,
-                    getString(
-                        R.string.map_history_load_error,
-                        e.message ?: getString(R.string.map_unknown_error)
-                    ),
-                    Toast.LENGTH_SHORT
-                ).show()
-            }
-        }
+        loadLocationHistory(day.timeInMillis, System.currentTimeMillis())
     }
 
     private suspend fun fetchLocationHistory(
@@ -704,7 +770,10 @@ class DualLocationMapActivity : AppCompatActivity() {
                 startTime = fromTimestamp,
                 endTime = toTimestamp,
                 limit = HISTORY_LIMIT
-            ).body()?.locations?.map {
+            ).let { response ->
+                if (!response.isSuccessful || response.body()?.success != true) return null
+                response.body()?.locations
+            }?.map {
                 ParentLocationData(
                     parentId = targetId,
                     latitude = it.latitude,
@@ -719,41 +788,181 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadLocationHistory(fromTimestamp: Long, toTimestamp: Long) {
-        lifecycleScope.launch {
-            try {
-                val history = fetchLocationHistory(fromTimestamp, toTimestamp)
+    private fun selectedHistoryCandidate() = currentFamilyCandidates.firstOrNull {
+        it.memberId.ifBlank { it.deviceId } == selectedFamilyCandidateId
+    }
 
-                if (history.isNullOrEmpty()) {
-                    Toast.makeText(
-                        this@DualLocationMapActivity,
-                        getString(R.string.map_history_no_data),
-                        Toast.LENGTH_SHORT
-                    ).show()
+    private fun historySelectionKey(): String = selectedHistoryCandidate()?.let {
+        "${ChildEffectiveContextResolver(this).resolveFamilyId()}:${it.memberId}:${it.deviceId}"
+    } ?: historyTargetId().orEmpty()
+
+    private fun historyPersonName(): String = selectedHistoryCandidate()?.title ?: otherMarkerTitle()
+
+    private var historyCursor: Marker? = null
+
+    private fun clearHistoryCursor() {
+        if (::mapView.isInitialized) {
+            historyCursor?.let { mapView.overlays.remove(it); it.closeInfoWindow() }
+            mapView.invalidate()
+        }
+        historyCursor = null
+    }
+
+    private fun historyAccessKey(): String = "${contextProvider.current()?.selfDeviceId}:${contextProvider.current()?.selfMemberId}:${historySelectionKey()}"
+
+    private var historyRequestToken = 0
+    private var historyLoadJob: kotlinx.coroutines.Job? = null
+    private var isViewingHistory = false
+    private var historyBoundKey: String? = null
+    private var historyBoundServer: String? = null
+
+    private fun ensureHistoryContext() {
+        if (isViewingHistory && (historyBoundKey != historyAccessKey() || historyBoundServer != networkClient.resolveConfiguredServerUrl())) leaveHistory()
+    }
+    private var historyPanel: ru.example.childwatch.designsystem.MapHistoryPanel? = null
+
+    private fun leaveHistory() {
+        historyRequestToken++
+        historyLoadJob?.cancel()
+        historyPanel?.dispose()
+        historyPanel = null
+        isViewingHistory = false
+        clearHistoryCursor()
+        if (::mapView.isInitialized) {
+            historyLines.forEach { mapView.overlays.remove(it) }
+            historyLines.clear()
+            historyStartMarker?.let { mapView.overlays.remove(it) }
+            historyEndMarker?.let { mapView.overlays.remove(it) }
+            historyStartMarker = null
+            historyEndMarker = null
+            mapView.invalidate()
+        }
+    }
+
+    private fun loadLocationHistory(fromTimestamp: Long, toTimestamp: Long) {
+        val target = historyAccessKey()
+        if (target.isBlank()) return
+        leaveHistory()
+        collapseStatsCard()
+        isViewingHistory = true
+        historyBoundKey = target
+        historyBoundServer = networkClient.resolveConfiguredServerUrl()
+        familyTrailLines.forEach { mapView.overlays.remove(it) }
+        familyTrailLines.clear()
+        autoFitEnabled = false
+        updateAutoFitUi()
+        val token = ++historyRequestToken
+        val server = networkClient.resolveConfiguredServerUrl()
+        val selected = selectedHistoryCandidate()
+        val family = ChildEffectiveContextResolver(this).resolveFamilyId()
+            ?: ChildFamilyDirectoryRepository(this).loadCached()?.family?.id
+        val device = selected?.deviceId
+        val member = selected?.memberId?.takeUnless { it.isBlank() || it.startsWith("self:") }
+        var centeredAt: Long? = null
+        val collected = mutableListOf<ParentLocationData>()
+        fun valid() = token == historyRequestToken && target == historyAccessKey() &&
+            server == networkClient.resolveConfiguredServerUrl() && !isFinishing && !isDestroyed
+        fun render(finished: Boolean) {
+            if (!valid()) return
+            val points = collected.mapNotNull { point ->
+                val time = normalizeTimestampMillis(point.timestamp) ?: return@mapNotNull null
+                if (time !in fromTimestamp..toTimestamp || !isValidCoordinate(point.latitude, point.longitude)) return@mapNotNull null
+                point.copy(timestamp = time)
+            }.distinctBy { Triple(it.timestamp, it.latitude, it.longitude) }.sortedBy { it.timestamp }
+            displayLocationHistory(points)
+            historyPanel?.update(points.map { MapRouteSegments.Fix(it.latitude, it.longitude, it.timestamp, it.accuracy, it.speedMps, it.speedAccuracyMps) }, finished)
+        }
+        historyPanel = ru.example.childwatch.designsystem.MapHistoryPanel(this, binding.root,
+            historyPersonName(), fromTimestamp, toTimestamp,
+            object : ru.example.childwatch.designsystem.MapHistoryPanel.Listener {
+                override fun onPoint(point: MapRouteSegments.Fix?) {
+                    if (!valid() || !::mapView.isInitialized) return
+                    clearHistoryCursor()
+                    if (point == null) return
+                    historyCursor = Marker(mapView).apply {
+                        position = GeoPoint(point.latitude, point.longitude)
+                        title = historyPersonName()
+                        snippet = formatTimestamp(point.timestampMs)
+                        icon = tintedDrawable(R.drawable.ic_route_start_marker, historyAccentColor())
+                        setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    }
+                    mapView.overlays.add(historyCursor)
+                    if (centeredAt != point.timestampMs) {
+                        mapView.controller.setCenter(GeoPoint(point.latitude, point.longitude))
+                        centeredAt = point.timestampMs
+                    }
+                    mapView.invalidate()
+                }
+                override fun onLive() { leaveHistory(); autoFitEnabled = true; updateAutoFitUi(); centerOnAvailable(); loadLocations() }
+                override fun onRetry() { if (valid()) loadLocationHistory(fromTimestamp, toTimestamp) }
+                override fun onEvents() {
+                    if (valid()) showTodayTimelineDialog(collected.mapNotNull { point ->
+                        normalizeTimestampMillis(point.timestamp)?.let { point.copy(timestamp = it) }
+                    }.filter { it.timestamp in fromTimestamp..toTimestamp && isValidCoordinate(it.latitude, it.longitude) }.sortedBy { it.timestamp })
+                }
+            })
+        historyLoadJob = lifecycleScope.launch {
+            try {
+                if (family == null || member == null || device == null) {
+                    val legacy = kotlinx.coroutines.withTimeout(30_000L) { fetchLocationHistory(fromTimestamp, toTimestamp) }
+                        ?: throw java.io.IOException("History unavailable")
+                    if (!valid()) return@launch
+                    collected.addAll(legacy)
+                    render(legacy.size < HISTORY_LIMIT)
+                    if (legacy.size >= HISTORY_LIMIT) historyPanel?.limited(true)
                     return@launch
                 }
-
-                displayLocationHistory(history)
-                showHistorySummary(history)
-
-                Toast.makeText(
-                    this@DualLocationMapActivity,
-                    getString(R.string.map_history_loaded_points, history.size),
-                    Toast.LENGTH_SHORT
-                ).show()
-            } catch (e: Exception) {
-                Log.e(TAG, "Error loading location history", e)
-                Toast.makeText(
-                    this@DualLocationMapActivity,
-                    getString(R.string.map_history_load_error, e.message ?: getString(R.string.map_unknown_error)),
-                    Toast.LENGTH_SHORT
-                ).show()
+                var cursor: String? = null
+                var revision: String? = null
+                val seen = mutableSetOf<String>()
+                do {
+                    val page = kotlinx.coroutines.withTimeout(30_000L) {
+                        networkClient.getFamilyHistoryPage(family, member, device, fromTimestamp, toTimestamp, cursor)
+                    }
+                    if (!valid()) return@launch
+                    if (revision != null && revision != page.revision) throw ru.example.parentwatch.network.HistoryReadException(409)
+                    revision = page.revision
+                    if (collected.size + page.points.size > 100_000) throw ru.example.parentwatch.network.HistoryReadException(413)
+                    collected.addAll(page.points)
+                    render(!page.hasMore)
+                    cursor = page.nextCursor
+                    if (page.hasMore && (cursor == null || !seen.add(cursor))) throw java.io.IOException("Repeated history page")
+                } while (page.hasMore)
+            } catch (error: kotlinx.coroutines.TimeoutCancellationException) {
+                if (valid()) historyPanel?.error(false, false)
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.e(TAG, "Could not load day history", error)
+                if (valid()) {
+                    val status = (error as? ru.example.parentwatch.network.HistoryReadException)?.status
+                    if (status == 401 || status == 403 || status == 409) {
+                        displayLocationHistory(emptyList())
+                        collected.clear()
+                    }
+                    if (status == 413) historyPanel?.limited(false)
+                    else historyPanel?.error(status == 401 || status == 403, status == 409)
+                }
             }
         }
     }
 
+    private fun showHistoryDatePicker() {
+        val day = java.util.Calendar.getInstance()
+        android.app.DatePickerDialog(this, { _, year, month, date ->
+            day.set(year, month, date, 0, 0, 0)
+            day.set(java.util.Calendar.MILLISECOND, 0)
+            val from = day.timeInMillis
+            day.add(java.util.Calendar.DAY_OF_YEAR, 1)
+            loadLocationHistory(from, minOf(day.timeInMillis - 1, System.currentTimeMillis()))
+        }, day.get(java.util.Calendar.YEAR), day.get(java.util.Calendar.MONTH), day.get(java.util.Calendar.DAY_OF_MONTH)).apply {
+            datePicker.maxDate = System.currentTimeMillis()
+        }.show()
+    }
+
     private fun displayLocationHistory(history: List<ParentLocationData>) {
         if (!isMapReady || !::mapView.isInitialized || isFinishing || isDestroyed) return
+        clearHistoryCursor()
         val fixes = history
             .sortedBy { it.timestamp }
             .filter { isValidCoordinate(it.latitude, it.longitude) }
@@ -770,7 +979,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         historyEndMarker?.let { mapView.overlays.remove(it) }
         historyStartMarker = null
         historyEndMarker = null
-        if (segments.isEmpty()) return
+        if (segments.isEmpty()) { mapView.invalidate(); return }
 
         segments.filter { it.size >= 2 }.forEachIndexed { index, segment ->
             val line = Polyline(mapView).apply {
@@ -859,6 +1068,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun loadLocations() {
+        ensureHistoryContext()
         if (!dependenciesReady || !isMapReady || !::mapView.isInitialized || isFinishing || isDestroyed) return
         if (loadLocationsJob?.isActive == true) return
         binding.loadingIndicator.visibility = View.VISIBLE
@@ -1055,7 +1265,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                 stale = isStale(otherTimestamp)
             )
             setOnMarkerClickListener { marker, _ ->
-                marker.showInfoWindow()
+                leaveHistory()
+                marker.closeInfoWindow()
                 expandStatsCard()
                 true
             }
@@ -1073,7 +1284,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             GeoPoint(otherLat, otherLon),
             linkedLocation.accuracy
         )
-        if (autoFitEnabled) centerMapOnBothLocations(myLat, myLon, otherLat, otherLon)
+        if (autoFitEnabled && !isViewingHistory) centerMapOnBothLocations(myLat, myLon, otherLat, otherLon)
         val etaInfo = parentLocationRepository.calculateETA(otherLat, otherLon, myLat, myLon, otherSpeed)
         bindLinkedStats(
             linkedLocation = linkedLocation,
@@ -1122,7 +1333,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             )
         }
         mapView.overlays.add(myMarker)
-        if (autoFitEnabled) {
+        if (autoFitEnabled && !isViewingHistory) {
             mapView.controller.setCenter(GeoPoint(lat, lon))
             mapView.controller.setZoom(15.0)
         }
@@ -1410,7 +1621,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             }
         }
 
-        if (autoFitEnabled) {
+        if (autoFitEnabled && !isViewingHistory) {
             myMarker?.position?.let { points += it }
             otherMarker?.position?.let { points += it }
             if (points.isNotEmpty()) {
@@ -1463,7 +1674,11 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun selectFamilyCandidate(candidate: FamilyMarkerCandidate, centerMap: Boolean = true) {
+        if (centerMap) { leaveHistory(); expandStatsCard() }
+        if (selectedFamilyCandidateId != candidate.memberId.ifBlank { candidate.deviceId }) { historyRequestToken++; clearHistoryCursor() }
         selectedFamilyCandidateId = candidate.memberId.ifBlank { candidate.deviceId }
+        binding.historyButton.visibility = View.VISIBLE
+        updateTimelineButtonVisibility()
         familyMarkers[selectedFamilyCandidateId]?.let { marker -> mapView.overlays.remove(marker); mapView.overlays.add(marker) }
         drawSelectedFamilyTrail()
         loadSelectedFamilyTrail(candidate)
@@ -1504,7 +1719,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         binding.movementStatusText.text = familySpeedText(candidate.memberId.ifBlank { candidate.deviceId }, candidate.timestamp).orEmpty()
         binding.pointMetaText.text = buildPointMetaText(location)
         loadPersonAddress(location)
-        binding.statsCard.visibility = View.VISIBLE
+        binding.statsCard.visibility = if (isStatsCardCollapsed) View.GONE else View.VISIBLE
     }
 
     private fun familySpeedText(id: String, time: Long?): String? {
@@ -1611,6 +1826,8 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun drawSelectedFamilyTrail() {
+        ensureHistoryContext()
+        if (isViewingHistory) return
         familyTrailLines.forEach(mapView.overlays::remove)
         familyTrailLines.clear()
         if (!mapOptions.trails()) { mapView.invalidate(); return }
@@ -2439,6 +2656,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun safeZoomToBoundingBox(points: List<GeoPoint>, fallback: GeoPoint?) {
+        if (isViewingHistory) return
         if (!::mapView.isInitialized || points.isEmpty()) return
         val validPoints = points.filter { isValidCoordinate(it.latitude, it.longitude) }
         if (validPoints.isEmpty()) return
@@ -2478,7 +2696,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private fun showTodayTimelineDialog(history: List<ParentLocationData>) {
         val lines = buildTodayTimelineLines(history)
         android.app.AlertDialog.Builder(this)
-            .setTitle(R.string.map_timeline_title)
+            .setTitle(historyPersonName())
             .setMessage(
                 if (lines.isEmpty()) {
                     getString(R.string.map_timeline_empty)
@@ -2486,6 +2704,7 @@ class DualLocationMapActivity : AppCompatActivity() {
                     lines.joinToString(separator = "\n")
                 }
             )
+            .setNeutralButton(ru.example.childwatch.designsystem.R.string.cw_history_summary) { _, _ -> showHistorySummary(history) }
             .setPositiveButton(android.R.string.ok, null)
             .show()
     }
@@ -2536,31 +2755,18 @@ class DualLocationMapActivity : AppCompatActivity() {
         val summary = buildRouteSummary(history)
         if (summary.pointCount == 0) return
 
-        val currentStatus = getString(
-            if (summary.currentlyMoving) {
-                R.string.map_history_status_moving
-            } else {
-                R.string.map_history_status_stationary
-            }
-        )
-
         val lines = mutableListOf(
             getString(R.string.map_history_summary_distance, formatDistance(summary.totalDistanceMeters)),
             getString(R.string.map_history_summary_duration, formatDuration((summary.lastTimestamp ?: 0L) - (summary.firstTimestamp ?: 0L))),
             getString(R.string.map_history_summary_points, summary.pointCount),
             getString(R.string.map_history_summary_last_seen, formatDateTime(summary.lastTimestamp)),
-            getString(R.string.map_history_summary_stops, summary.stopCount),
-            getString(R.string.map_history_summary_current_status, currentStatus)
+            getString(R.string.map_history_summary_stops, summary.stopCount)
         )
 
         lines += if (summary.longestStopDurationMs > 0L) {
             getString(R.string.map_history_summary_longest_stop, formatDuration(summary.longestStopDurationMs))
         } else {
             getString(R.string.map_history_summary_no_stop)
-        }
-
-        summary.currentStopDurationMs?.let { duration ->
-            lines += getString(R.string.map_history_summary_current_stop, formatDuration(duration))
         }
 
         android.app.AlertDialog.Builder(this)
@@ -2616,7 +2822,11 @@ class DualLocationMapActivity : AppCompatActivity() {
 
         for (point in sortedHistory.drop(1)) {
             val distance = calculateDistance(anchor.latitude, anchor.longitude, point.latitude, point.longitude)
-            if (distance <= STOP_RADIUS_METERS) {
+            val contiguous = MapRouteSegments.split(listOf(
+                MapRouteSegments.Fix(clusterEnd.latitude, clusterEnd.longitude, clusterEnd.timestamp, clusterEnd.accuracy),
+                MapRouteSegments.Fix(point.latitude, point.longitude, point.timestamp, point.accuracy)
+            )).any { it.size == 2 }
+            if (distance <= STOP_RADIUS_METERS && contiguous) {
                 clusterEnd = point
             } else {
                 val stop = MovementStop(clusterStart.timestamp, clusterEnd.timestamp)
@@ -2731,6 +2941,7 @@ class DualLocationMapActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        setupPickupEntry()
         binding.root.post {
             runCatching {
                 if (::mapView.isInitialized && !isFinishing && !isDestroyed) mapView.onResume()
@@ -2743,6 +2954,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        pickupController.pause()
         super.onPause()
         runCatching {
             if (::mapView.isInitialized) mapView.onPause()
@@ -2755,6 +2967,8 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        pickupController.dispose()
+        leaveHistory()
         super.onDestroy()
         autoRefreshJob?.cancel()
         loadLocationsJob?.cancel()
