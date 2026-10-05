@@ -5,11 +5,13 @@ import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.vanniktech.emoji.EmojiPopup
 import com.google.gson.Gson
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
@@ -193,6 +195,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
                 if (isNearBottom()) {
                     pendingNewMessages = 0
                     newMessagesButton.visibility = View.GONE
+                    recordVisibleMessages()
                 }
                 val manager = recyclerView.layoutManager as? LinearLayoutManager
                 if ((manager?.findFirstVisibleItemPosition() ?: Int.MAX_VALUE) <= 2) {
@@ -579,12 +582,43 @@ class ChatConversationV2Activity : AppCompatActivity() {
         }
     }
 
+    private var renderedMessages: List<ConversationMessage> = emptyList()
+    private var viewedWatermark = 0L
+
+    override fun onResume() {
+        super.onResume()
+        binding.messagesRecyclerView.post { recordVisibleMessages() }
+    }
+
+    private fun recordVisibleMessages() {
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || !isNearBottom()) return
+        val manager = binding.messagesRecyclerView.layoutManager as? LinearLayoutManager ?: return
+        val lastVisible = manager.findLastVisibleItemPosition()
+        if (lastVisible < 0) return
+        val sequence = renderedMessages.take(lastVisible + 1).maxOfOrNull { it.serverSequence ?: 0L } ?: 0L
+        if (sequence <= viewedWatermark) return
+        val previous = viewedWatermark
+        viewedWatermark = sequence // Deduplicate Room emissions before the transaction completes.
+        lifecycleScope.launch {
+            try {
+                if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || !recordViewedThrough(sequence)) {
+                    if (viewedWatermark == sequence) viewedWatermark = previous
+                }
+            } catch (cancelled: CancellationException) {
+                if (viewedWatermark == sequence) viewedWatermark = previous
+                throw cancelled
+            }
+        }
+    }
+
     private fun renderMessages(messages: List<ConversationMessage>, localMemberId: String?) {
         val wasNearBottom = isNearBottom()
         val added = (messages.size - previousMessageCount).coerceAtLeast(0)
         previousMessageCount = messages.size
         val rows = messages.map { it.toLegacy(localMemberId) }
         adapter?.submitMessages(rows) {
+            renderedMessages = messages
+            binding.messagesRecyclerView.post { recordVisibleMessages() }
             binding.emptyStateCard.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
             if (!initialScrollDone || wasNearBottom) {
                 initialScrollDone = true
@@ -688,10 +722,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
             runCatching { repository.cacheRealtimeMessage(dto) }
                 .onSuccess {
                     binding.connectionStatusText.setText(R.string.chat_v2_ready)
-                    if (dto.serverSequence > 0) {
-                        runCatching { repository.markDeliveredThrough(conversationId, dto.serverSequence) }
-                        runCatching { repository.markReadThrough(conversationId, dto.serverSequence) }
-                    }
+                    updateReadReceiptStatus()
                 }
                 .onFailure { syncOnce() }
         }
@@ -730,15 +761,34 @@ class ChatConversationV2Activity : AppCompatActivity() {
             if (displayedMessageLimit == INITIAL_MESSAGE_LIMIT) {
                 nextBeforeSequence = page.nextBeforeSequence
             }
-            val latestSequence = page.messages.maxOfOrNull { it.serverSequence ?: 0 } ?: 0
-            if (latestSequence > 0) {
-                runCatching { repository.markDeliveredThrough(conversationId, latestSequence) }
-                runCatching { repository.markReadThrough(conversationId, latestSequence) }
-            }
-            binding.connectionStatusText.setText(R.string.chat_v2_ready)
+            updateReadReceiptStatus()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
             binding.connectionStatusText.setText(R.string.chat_v2_offline)
         }
+    }
+
+    private suspend fun recordViewedThrough(sequence: Long): Boolean {
+        try {
+            repository.markReadThrough(conversationId, sequence)
+            updateReadReceiptStatus()
+            lifecycleScope.launch {
+                repository.flushReadReceipts()
+                updateReadReceiptStatus()
+            }
+            return true
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            binding.connectionStatusText.setText(R.string.chat_v2_offline)
+            return false
+        }
+    }
+
+    private suspend fun updateReadReceiptStatus() {
+        binding.connectionStatusText.setText(if (repository.hasPendingReadReceipt(conversationId))
+            R.string.chat_v2_read_receipt_pending else R.string.chat_v2_ready)
     }
 
     private fun isNearBottom(): Boolean {
@@ -750,6 +800,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
     private fun scrollToBottom() {
         val last = (adapter?.itemCount ?: 0) - 1
         if (last >= 0) binding.messagesRecyclerView.scrollToPosition(last)
+        binding.messagesRecyclerView.post { recordVisibleMessages() }
         pendingNewMessages = 0
         binding.newMessagesButton.visibility = View.GONE
     }

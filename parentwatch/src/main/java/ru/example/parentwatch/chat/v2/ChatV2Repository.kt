@@ -4,6 +4,7 @@ import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
 import com.google.gson.Gson
+import org.json.JSONObject
 import com.google.gson.JsonParser
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
@@ -24,6 +25,10 @@ import ru.childwatch.shared.chat.ChatV2PagingPolicy
 import ru.childwatch.shared.chat.ChatV2ReceiptDto
 import ru.childwatch.shared.chat.ChatV2ReceiptRequest
 import ru.childwatch.shared.chat.ChatV2RetryPolicy
+import ru.childwatch.shared.chat.ChatV2ReceiptScope
+import ru.childwatch.shared.chat.ChatV2ReadReceiptPolicy
+import kotlinx.coroutines.CancellationException
+import ru.childwatch.shared.chat.ChatV2UnreadMergePolicy
 import ru.childwatch.shared.chat.ChatV2SendMessageRequest
 import ru.childwatch.shared.chat.ChatV2TransferGroupAdminRequest
 import ru.childwatch.shared.chat.ChatV2UpdateGroupAvatarRequest
@@ -55,7 +60,9 @@ class ChatV2Repository(
     private val database: ParentWatchDatabase,
     private val api: ChildWatchApi,
     private val clock: () -> Long = { System.currentTimeMillis() },
-    private val idFactory: () -> String = { UUID.randomUUID().toString() }
+    private val idFactory: () -> String = { UUID.randomUUID().toString() },
+    private val receiptScope: ChatV2ReceiptScope? = null,
+    private val receiptScopeProvider: () -> ChatV2ReceiptScope? = { receiptScope }
 ) {
     private val gson = Gson()
     private val conversations = database.chatConversationV2Dao()
@@ -82,10 +89,23 @@ class ChatV2Repository(
             context: Context,
             serverUrl: String,
             networkClient: NetworkClient = NetworkClient(context.applicationContext)
-        ): ChatV2Repository = ChatV2Repository(
-            database = ParentWatchDatabase.getInstance(context.applicationContext),
-            api = networkClient.getChatV2Api(serverUrl)
-        )
+        ): ChatV2Repository {
+            val scope = resolveReceiptScope(context, serverUrl)
+            return ChatV2Repository(
+                database = ParentWatchDatabase.getInstance(context.applicationContext),
+                api = networkClient.getChatV2Api(serverUrl),
+                receiptScope = scope,
+                receiptScopeProvider = { resolveReceiptScope(context, serverUrl) }
+            )
+        }
+
+        private fun resolveReceiptScope(context: Context, serverUrl: String): ChatV2ReceiptScope? {
+            val resolver = ru.example.parentwatch.session.ChildEffectiveContextResolver(context.applicationContext)
+            val actualServer = resolver.resolveServerUrl().trimEnd('/')
+            if (actualServer != serverUrl.trimEnd('/')) return null
+            return ChatV2ReceiptScope(actualServer, resolver.resolveFamilyId().orEmpty(),
+                resolver.resolveSelfMemberId().orEmpty(), resolver.resolveChildDeviceId()).takeIf { it.isComplete() }
+        }
     }
 
     fun observeConversations(): Flow<List<Conversation>> = conversations.observeAll().map { rows ->
@@ -154,6 +174,7 @@ class ChatV2Repository(
                 )
             }
         }
+        flushReadReceipts()
         return getCachedConversations()
     }
 
@@ -264,6 +285,7 @@ class ChatV2Repository(
      * never prevents later rows in the same batch from being attempted.
      */
     suspend fun flushOutbox(limit: Int = OUTBOX_BATCH_SIZE): ChatV2FlushResult {
+        flushReadReceipts()
         val ready = outbox.getReady(clock(), limit.coerceIn(1, OUTBOX_BATCH_SIZE))
         var sent = 0
         var retryScheduled = 0
@@ -601,15 +623,78 @@ class ChatV2Repository(
     suspend fun markDeliveredThrough(conversationId: String, sequence: Long): ChatV2ReceiptDto =
         advanceReceipt(conversationId, deliveredThrough = sequence, readThrough = null)
 
-    suspend fun markReadThrough(conversationId: String, sequence: Long): ChatV2ReceiptDto =
-        advanceReceipt(conversationId, deliveredThrough = sequence, readThrough = sequence)
+    suspend fun markReadThrough(conversationId: String, sequence: Long) {
+        require(sequence >= 0)
+        val scope = activeReceiptScope() ?: throw ChatV2RepositoryException("READ_CONTEXT_UNAVAILABLE")
+        val now = clock()
+        database.withTransaction {
+            val conversation = conversations.getById(conversationId)
+                ?: throw ChatV2RepositoryException("READ_CONVERSATION_UNAVAILABLE")
+            if (conversation.familyId != scope.family || members.get(conversationId, scope.member)?.isLocalUser != true) {
+                throw ChatV2RepositoryException("READ_CONTEXT_MISMATCH")
+            }
+            if (activeReceiptScope() != scope) throw ChatV2RepositoryException("READ_CONTEXT_CHANGED")
+            val read = maxOf(conversation.lastReadSequence, sequence)
+            val key = org.json.JSONArray(listOf(scopeKey(scope), conversationId, read)).toString()
+            outbox.enqueueIfAbsent(ChatOutboxV2Entity(
+                clientMessageId = "read:" + key, conversationId = conversationId,
+                payloadJson = JSONObject().put("readThrough", read).toString(), text = scopeKey(scope),
+                clientSentAt = now, state = "READ_PENDING", nextAttemptAt = now,
+                createdAt = now, updatedAt = now
+            ))
+            conversations.updateSequenceState(conversationId, maxOf(conversation.lastSequence, read), read,
+                ChatV2ReadReceiptPolicy.unreadAfterViewing(conversation.lastSequence, read, conversation.unreadCount), now)
+            messages.markLocallyViewed(conversationId, read, scope.member)
+        }
+    }
+
+    suspend fun hasPendingReadReceipt(conversationId: String): Boolean {
+        val scope = activeReceiptScope() ?: return false
+        return outbox.pendingReadReceiptCount(scopeKey(scope), conversationId) > 0
+    }
+
+    private fun activeReceiptScope(): ChatV2ReceiptScope? = receiptScope
+        ?.takeIf { it.isComplete() && it == receiptScopeProvider() }
+
+    private fun scopeKey(scope: ChatV2ReceiptScope): String = org.json.JSONArray(
+        listOf(scope.server, scope.family, scope.member, scope.device)).toString()
+
+    suspend fun flushReadReceipts() {
+        val scope = activeReceiptScope() ?: return
+        val ready = outbox.getReadyReadReceipts(scopeKey(scope), clock(), OUTBOX_BATCH_SIZE)
+        for (item in ready) {
+            if (activeReceiptScope() != scope) return
+            val conversation = conversations.getById(item.conversationId) ?: continue
+            if (conversation.familyId != scope.family || members.get(item.conversationId, scope.member)?.isLocalUser != true) continue
+            val now = clock()
+            val lease = idFactory()
+            if (outbox.acquireReadReceipt(item.outboxId, lease, now + OUTBOX_LEASE_MS, now) != 1) continue
+            try {
+                val read = JSONObject(item.payloadJson).getLong("readThrough")
+                val receipt = advanceReceipt(item.conversationId, read, read, scope)
+                if (receipt.readThroughSequence < read) throw ChatV2RepositoryException("READ_ACK_BEHIND")
+                outbox.finishReadReceipt(item.outboxId, lease, "READ_SENT", clock(), item.attemptCount, null, clock())
+            } catch (cancelled: CancellationException) {
+                // The lease expires after process death/cancellation; the durable row remains pending.
+                throw cancelled
+            } catch (error: Exception) {
+                val attempts = (item.attemptCount + 1).coerceAtMost(30)
+                outbox.finishReadReceipt(item.outboxId, lease, "READ_PENDING",
+                    ChatV2RetryPolicy.nextAttemptAt(clock(), attempts), attempts,
+                    (error as? ChatV2RepositoryException)?.code ?: "READ_NETWORK_FAILURE", clock())
+                break // Avoid a batch of network timeouts delaying other chat work.
+            }
+        }
+    }
 
     private suspend fun advanceReceipt(
         conversationId: String,
         deliveredThrough: Long?,
-        readThrough: Long?
+        readThrough: Long?,
+        expectedScope: ChatV2ReceiptScope? = activeReceiptScope()
     ): ChatV2ReceiptDto {
         require((deliveredThrough ?: readThrough ?: -1) >= 0) { "Receipt sequence must not be negative" }
+        if (expectedScope == null || activeReceiptScope() != expectedScope) throw ChatV2RepositoryException("RECEIPT_CONTEXT_CHANGED")
         val response = api.sendChatV2Receipt(
             conversationId,
             ChatV2ReceiptRequest(deliveredThrough, readThrough)
@@ -618,8 +703,12 @@ class ChatV2Repository(
         val receipt = body.receipt
             ?.takeIf { body.success }
             ?: throw ChatV2RepositoryException("SEND_RECEIPT_REJECTED")
+        if (receipt.conversationId != conversationId || !ChatV2ReadReceiptPolicy.acceptsReceipt(expectedScope, activeReceiptScope(), receipt.memberId)) {
+            throw ChatV2RepositoryException("RECEIPT_CONTEXT_CHANGED")
+        }
         val now = clock()
         database.withTransaction {
+            if (activeReceiptScope() != expectedScope) throw ChatV2RepositoryException("RECEIPT_CONTEXT_CHANGED")
             val conversation = conversations.getById(conversationId)
             if (conversation != null) {
                 val lastRead = maxOf(conversation.lastReadSequence, receipt.readThroughSequence)
@@ -628,7 +717,7 @@ class ChatV2Repository(
                     conversationId,
                     lastSequence,
                     lastRead,
-                    (lastSequence - lastRead).coerceAtMost(Int.MAX_VALUE.toLong()).toInt(),
+                    ChatV2ReadReceiptPolicy.unreadAfterViewing(lastSequence, lastRead, conversation.unreadCount),
                     now
                 )
             }
@@ -721,7 +810,9 @@ class ChatV2Repository(
             updatedAt = maxOf(local.updatedAt, server.updatedAt),
             lastMessageAt = listOfNotNull(local.lastMessageAt, server.lastMessageAt).maxOrNull(),
             lastMessagePreview = server.lastMessagePreview ?: local.lastMessagePreview,
-            unreadCount = maxOf(local.unreadCount, server.unreadCount),
+            unreadCount = ChatV2UnreadMergePolicy.reconcileLegacy(
+                server.lastSequence, server.lastReadSequence, server.unreadCount, local.unreadCount
+            ),
             syncState = ChatConversationV2Entity.SYNC_STATE_SYNCED
         )
     }
@@ -741,7 +832,7 @@ class ChatV2Repository(
             createdAt = dto.serverCreatedAt,
             deliveredAt = deliveredAt,
             readAt = readAt,
-            isRead = incoming.deliveryState == ChatDeliveryState.READ.name,
+            isRead = existing?.isRead == true || incoming.deliveryState == ChatDeliveryState.READ.name,
             syncState = ChatMessageV2Entity.SYNC_STATE_SYNCED
         )
         if (existing == null) {
@@ -869,6 +960,10 @@ class ChatV2Repository(
         lastMessagePreview = incoming.lastMessagePreview ?: current.lastMessagePreview,
         lastSequence = maxOf(current.lastSequence, incoming.lastSequence),
         lastReadSequence = maxOf(current.lastReadSequence, incoming.lastReadSequence),
+        unreadCount = ChatV2UnreadMergePolicy.merge(
+            current.lastSequence, current.lastReadSequence, current.unreadCount,
+            incoming.lastSequence, incoming.lastReadSequence, incoming.unreadCount
+        ),
         lastReadAt = incoming.lastReadAt ?: current.lastReadAt
     )
 

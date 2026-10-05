@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_v2_read_receipt_pending">Прочитано здесь · ждём подтверждения сервера</string>
+</resources>

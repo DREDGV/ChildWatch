@@ -121,4 +121,10 @@ interface ChatMessageV2Dao {
         localMemberId: String?,
         readAt: Long
     ): Int
+    // Local viewing is not a server delivery/read acknowledgement.
+    @Query("UPDATE chat_messages_v2 SET is_read = 1 WHERE conversation_id = :conversationId " +
+        "AND server_sequence IS NOT NULL AND server_sequence <= :sequence " +
+        "AND sender_member_id != :selfMemberId")
+    suspend fun markLocallyViewed(conversationId: String, sequence: Long, selfMemberId: String): Int
+
 }
