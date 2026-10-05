@@ -1,10 +1,21 @@
 package ru.example.childwatch.attention
 
 import android.app.Activity
+import android.graphics.Typeface
+import android.view.Gravity
+import android.view.View
+import android.view.ViewGroup
+import android.widget.BaseAdapter
+import android.widget.ImageView
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.lifecycle.lifecycleScope
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import com.google.android.material.imageview.ShapeableImageView
+import com.google.android.material.shape.RelativeCornerSize
+import com.google.android.material.shape.ShapeAppearanceModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -127,10 +138,55 @@ object ParentAttentionSignalLauncher {
         candidates: List<SignalCandidate>,
         onChosen: (SignalCandidate) -> Unit
     ) {
-        val names = candidates.map { it.displayName }.toTypedArray()
+        fun dp(value: Int) = (value * activity.resources.displayMetrics.density).toInt()
+        val adapter = object : BaseAdapter() {
+            override fun getCount() = candidates.size
+            override fun getItem(position: Int) = candidates[position]
+            override fun getItemId(position: Int) = position.toLong()
+            override fun getView(position: Int, convertView: View?, parent: ViewGroup?): View {
+                val candidate = getItem(position)
+                val avatar = ShapeableImageView(activity).apply {
+                    scaleType = ImageView.ScaleType.CENTER_CROP
+                    shapeAppearanceModel = ShapeAppearanceModel.builder()
+                        .setAllCornerSizes(RelativeCornerSize(0.5f)).build()
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+                }
+                FamilyAvatarRenderer.bind(avatar, candidate.avatarValue, candidate.displayName)
+                val roleText = activity.getString(when (candidate.role) {
+                    FamilyRole.CHILD -> R.string.attention_signal_role_child
+                    FamilyRole.PARENT -> R.string.attention_signal_role_parent
+                    FamilyRole.GUARDIAN -> R.string.attention_signal_role_guardian
+                })
+                val details = LinearLayout(activity).apply {
+                    orientation = LinearLayout.VERTICAL
+                    addView(TextView(activity).apply {
+                        text = candidate.displayName
+                        textSize = 16f
+                        setTypeface(typeface, Typeface.BOLD)
+                    })
+                    addView(TextView(activity).apply {
+                        text = roleText
+                        textSize = 13f
+                    })
+                }
+                return LinearLayout(activity).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    minimumHeight = dp(72)
+                    setPadding(dp(24), dp(12), dp(24), dp(12))
+                    addView(avatar, LinearLayout.LayoutParams(dp(48), dp(48)))
+                    addView(details, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                        marginStart = dp(16)
+                    })
+                    contentDescription = "${candidate.displayName}, $roleText"
+                    importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_YES
+                    details.importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
+                }
+            }
+        }
         MaterialAlertDialogBuilder(activity)
             .setTitle(R.string.attention_signal_choose_recipient)
-            .setItems(names) { _, index ->
+            .setAdapter(adapter) { _, index ->
                 candidates.getOrNull(index)?.let(onChosen)
             }
             .setNegativeButton(R.string.attention_signal_choose_cancel, null)

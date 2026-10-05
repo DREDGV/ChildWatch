@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="usage_details_show">Подробнее о данных</string>
+    <string name="usage_details_hide">Свернуть подробности</string>
+    <string name="usage_details_expanded">Развёрнуто</string>
+    <string name="usage_details_collapsed">Свёрнуто</string>
     <string name="daily_usage_access_denied">Нет доступа к активности этого ребёнка. Проверьте разрешения участника в семье.</string>
     <string name="daily_usage_refresh_failed">Не удалось получить свежие данные. Показанный снимок не обновлён. Повторите загрузку кнопкой «Обновить».</string>
     <string name="daily_usage_unavailable">Телефон ребёнка пока не предоставил журнал дневной активности. Это не означает, что приложениями не пользовались. Ниже — последние известные приложения.</string>

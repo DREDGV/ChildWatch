@@ -5,6 +5,7 @@ import android.graphics.Typeface
 import android.view.Gravity
 import android.view.View
 import android.widget.ArrayAdapter
+import android.widget.AdapterView
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.SeekBar
@@ -83,7 +84,7 @@ class AttentionSignalSheet(
             setPadding(dp(24), dp(16), dp(24), dp(24))
         }
         root.addView(text("Сигнал внимания", 24f, Typeface.BOLD))
-        root.addView(text("Поможет человеку заметить ваш запрос, даже если телефон лежит рядом.", 14f, Typeface.NORMAL)
+        root.addView(text("Звук и вибрация помогут привлечь внимание к телефону.", 14f, Typeface.NORMAL)
             .withTopMargin(4))
         root.addView(targetPersonCard().withTopMargin(16).withBottomMargin(16))
 
@@ -107,13 +108,6 @@ class AttentionSignalSheet(
         val volumeSeek = SeekBar(context).apply {
             max = 100
             progress = 100
-            setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
-                override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
-                    volumeText.text = "Громкость: $progress%"
-                }
-                override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
-                override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
-            })
         }
         settings.addView(volumeText)
         settings.addView(volumeSeek)
@@ -128,18 +122,60 @@ class AttentionSignalSheet(
             AttentionVibrationPattern.SOS
         )
         val patternSpinner = spinner(listOf("Импульс", "Срочно", "SOS"))
-        vibrationSwitch.setOnCheckedChangeListener { _, checked -> patternSpinner.isEnabled = checked }
         settings.addView(vibrationSwitch.withTopMargin(8))
         settings.addView(label("Ритм вибрации"))
         settings.addView(patternSpinner)
+
+        val settingsSummary = text("", 14f, Typeface.NORMAL)
+        fun updateSettingsSummary() {
+            settingsSummary.text = buildString {
+                append(toneSpinner.selectedItem).append(", ")
+                append(AttentionSignalContract.selectableDurationsMs[durationSpinner.selectedItemPosition] / 1_000)
+                    .append(" сек, ").append(volumeSeek.progress).append("%")
+                append(if (vibrationSwitch.isChecked) ", с вибрацией" else ", без вибрации")
+            }
+        }
+        val settingsToggle = MaterialButton(context, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
+            text = "Настроить сигнал"
+            isAllCaps = false
+            minHeight = dp(48)
+            setOnClickListener {
+                val expanded = settings.visibility != View.VISIBLE
+                settings.visibility = if (expanded) View.VISIBLE else View.GONE
+                text = if (expanded) "Свернуть настройки" else "Настроить сигнал"
+            }
+        }
+        settings.visibility = View.GONE
+        val selectionListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) = updateSettingsSummary()
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+        durationSpinner.onItemSelectedListener = selectionListener
+        toneSpinner.onItemSelectedListener = selectionListener
+        volumeSeek.setOnSeekBarChangeListener(object : SeekBar.OnSeekBarChangeListener {
+            override fun onProgressChanged(seekBar: SeekBar?, progress: Int, fromUser: Boolean) {
+                volumeText.text = "Громкость: $progress%"
+                updateSettingsSummary()
+            }
+            override fun onStartTrackingTouch(seekBar: SeekBar?) = Unit
+            override fun onStopTrackingTouch(seekBar: SeekBar?) = Unit
+        })
+        vibrationSwitch.setOnCheckedChangeListener { _, checked ->
+            patternSpinner.isEnabled = checked
+            updateSettingsSummary()
+        }
+        updateSettingsSummary()
+        root.addView(settingsSummary)
+        root.addView(settingsToggle)
         root.addView(MaterialCardView(context).apply {
-            radius = dp(20).toFloat()
+            radius = dp(16).toFloat()
             cardElevation = 0f
             addView(settings)
         })
 
         statusText = text("Готов к отправке", 14f, Typeface.BOLD).apply {
-            setPadding(dp(16), dp(16), dp(16), dp(16))
+            setPadding(dp(16), dp(12), dp(16), dp(12))
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
         }
         root.addView(MaterialCardView(context).apply {
             radius = dp(18).toFloat()
@@ -152,7 +188,8 @@ class AttentionSignalSheet(
             weightSum = 2f
         }
         sendButton = MaterialButton(context).apply {
-            text = "Отправить"
+            text = "Отправить сигнал"
+            isAllCaps = false
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 2f).apply {
                 marginEnd = dp(6)
             }
@@ -189,6 +226,7 @@ class AttentionSignalSheet(
                 statusText.text = "Отправка…"
                 sendButton.isEnabled = false
                 stopButton.visibility = View.VISIBLE
+                stopButton.isEnabled = true
                 (sendButton.layoutParams as? LinearLayout.LayoutParams)?.let { params ->
                     params.weight = 1f
                     sendButton.layoutParams = params
@@ -204,8 +242,9 @@ class AttentionSignalSheet(
                 }
             }
         }
-        stopButton = MaterialButton(context).apply {
+        stopButton = MaterialButton(context, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
             text = "Остановить"
+            isAllCaps = false
             visibility = View.GONE
             layoutParams = LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f).apply {
                 marginStart = dp(6)
@@ -230,8 +269,9 @@ class AttentionSignalSheet(
         buttons.addView(stopButton)
         root.addView(buttons.withTopMargin(8))
 
-        val closeButton = MaterialButton(context).apply {
+        val closeButton = MaterialButton(context, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
             text = "Закрыть"
+            isAllCaps = false
             setOnClickListener { dialog.dismiss() }
         }
         root.addView(closeButton.withTopMargin(6))
@@ -262,12 +302,12 @@ class AttentionSignalSheet(
 
     private fun targetPersonCard(): MaterialCardView {
         val avatar = ShapeableImageView(context).apply {
-            layoutParams = LinearLayout.LayoutParams(dp(64), dp(64))
+            layoutParams = LinearLayout.LayoutParams(dp(48), dp(48))
             scaleType = ImageView.ScaleType.CENTER_CROP
             shapeAppearanceModel = ShapeAppearanceModel.builder()
-                .setAllCorners(CornerFamily.ROUNDED, dp(32).toFloat())
+                .setAllCorners(CornerFamily.ROUNDED, dp(24).toFloat())
                 .build()
-            contentDescription = "Аватар ${target.targetDisplayName}"
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
         }
         bindTargetAvatar?.invoke(avatar)
 
@@ -291,7 +331,7 @@ class AttentionSignalSheet(
             addView(details)
         }
         return MaterialCardView(context).apply {
-            radius = dp(22).toFloat()
+            radius = dp(16).toFloat()
             cardElevation = 0f
             addView(row)
         }

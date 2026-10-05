@@ -6,4 +6,7 @@
     <string name="attention_signal_choose_unavailable">Сначала выберите участника и восстановите связь</string>
     <!-- A person the server knows without a name still needs something to show. -->
     <string name="attention_signal_member_name_missing">Имя не указано</string>
+    <string name="attention_signal_role_child">Ребёнок</string>
+    <string name="attention_signal_role_parent">Родитель</string>
+    <string name="attention_signal_role_guardian">Близкий взрослый</string>
 </resources>

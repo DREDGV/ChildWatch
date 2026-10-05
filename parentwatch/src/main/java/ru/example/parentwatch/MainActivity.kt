@@ -169,6 +169,8 @@ class MainActivity : AppCompatActivity() {
     private val networkClient by lazy { NetworkClient(this) }
     private val familyOnboardingStore by lazy { ChildFamilyOnboardingStore(this) }
     private var badgeRefreshJob: Job? = null
+    private var badgeReadGeneration = 0
+    private var badgeDisplayedScope = ""
     private var familyOnboardingCheckStarted = false
 
     /**
@@ -1320,25 +1322,36 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun updateChatBadge() {
-        val adapter = chatManagerAdapter
-        if (adapter == null || !::chatBadge.isInitialized) return
-
+        if (!::chatBadge.isInitialized) return
+        val scope = homePickupScope()
+        val generation = ++badgeReadGeneration
+        if (scope != badgeDisplayedScope) {
+            chatBadge.visibility = View.GONE
+            badgeDisplayedScope = scope
+        }
+        if (scope.isBlank()) return
         lifecycleScope.launch(Dispatchers.IO) {
-            val unreadFromDb = try {
-                adapter.getUnreadCount()
-            } catch (e: Exception) {
-                Log.e("MainActivity", "Failed to load unread chat count", e)
-                0
+            val unread = try {
+                val context = org.json.JSONArray(scope)
+                val family = context.getString(1)
+                ru.example.parentwatch.chat.v2.ChatV2Repository.create(applicationContext, context.getString(0))
+                    .getCachedConversations()
+                    .filter { it.familyId == family }
+                    .sumOf { it.unreadCount.coerceAtLeast(0L) }
+                    .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w("MainActivity", "Unable to read current conversation badge", error)
+                return@launch
             }
-            val unread = maxOf(unreadFromDb, NotificationManager.getUnreadCount())
-
             withContext(Dispatchers.Main) {
-                if (unread > 0) {
-                    chatBadge.visibility = View.VISIBLE
-                    chatBadge.text = if (unread > 99) "99+" else unread.toString()
-                } else {
-                    chatBadge.visibility = View.GONE
-                }
+                if (generation != badgeReadGeneration || scope != homePickupScope()) return@withContext
+                // Same v2 conversations as the chat screen. Legacy notification counters
+                // must not resurrect a badge after those conversations have been read.
+                chatBadge.visibility = if (unread > 0) View.VISIBLE else View.GONE
+                chatBadge.text = if (unread > 99) "99+" else unread.toString()
+                Log.d("MainActivity", "Chat badge updated from current family conversations: $unread")
             }
         }
     }

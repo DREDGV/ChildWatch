@@ -125,6 +125,10 @@ class MainActivity : AppCompatActivity() {
 
     private var homeSheet: com.google.android.material.bottomsheet.BottomSheetDialog? = null
     private var homeDirectory: FamilyDirectorySnapshot? = null
+    private var homeDirectoryScope: String? = null
+    private var homeDirectoryIsCanonical = false
+    private var selectedHomeMetaScope: String? = null
+    private var selectedHomeRoleLabel: String? = null
 
     private lateinit var binding: ActivityMainMenuBinding
     private lateinit var prefs: SharedPreferences
@@ -171,6 +175,8 @@ class MainActivity : AppCompatActivity() {
     private var deviceStatusJob: Job? = null
     private var deviceStatusRefreshJob: Job? = null
     private var badgeRefreshJob: Job? = null
+    private var badgeReadGeneration = 0
+    private var badgeDisplayedScope = ""
     private var familySummaryJob: Job? = null
     private var ownHomeAvatarIdentity: List<String?>? = null
     private var selectedHomeAvatarIdentity: List<String?>? = null
@@ -828,14 +834,20 @@ class MainActivity : AppCompatActivity() {
             binding.activeProfileName.setText(R.string.profile_card_name_fallback)
         }
         familySummaryJob?.cancel()
+        val requestedScope = homePickupScope()
         familySummaryJob = lifecycleScope.launch {
-            val directory = runCatching { familyDirectoryRepository.load().directory }
+            val result = runCatching { familyDirectoryRepository.load() }
                 .onFailure {
                     if (it is CancellationException) throw it
                     Log.w(TAG, "Unable to refresh family summary", it)
                 }
                 .getOrNull() ?: return@launch
+            if (requestedScope != homePickupScope()) return@launch
+            val directory = result.directory
             homeDirectory = directory
+            homeDirectoryScope = requestedScope
+            homeDirectoryIsCanonical = result.source == ru.example.childwatch.profile.ParentFamilyDirectorySource.SERVER
+            refreshSelectedHomePresence()
             renderHomeFamily(directory)
             // Name, picture and role all come from this one member record, so the card
             // cannot mix one person's name with another person's face or role.
@@ -1490,7 +1502,6 @@ class MainActivity : AppCompatActivity() {
             ?: getString(R.string.device_info_unknown)
 
         binding.deviceInfoBatteryValue.text = getString(R.string.device_summary_battery, batterySummary)
-        binding.diagnosticsToggleButton.text = "${binding.deviceInfoTitle.text} · $batterySummary"
 
         binding.deviceInfoChargingValue.text = when {
             status.isCharging == true && !status.chargingType.isNullOrBlank() ->
@@ -1536,6 +1547,11 @@ class MainActivity : AppCompatActivity() {
         } else {
             getString(R.string.home_selected_time_unknown)
         }
+        binding.diagnosticsToggleButton.text = getString(
+            R.string.home_phone_state_summary, binding.deviceInfoTitle.text,
+            batterySummary, binding.deviceInfoUpdatedValue.text
+        )
+        binding.diagnosticsToggleButton.contentDescription = binding.diagnosticsToggleButton.text
 
         latestDeviceStatus = status
     }
@@ -2004,6 +2020,10 @@ class MainActivity : AppCompatActivity() {
         if (deviceStatusRefreshJob?.isActive == true) return
         deviceStatusRefreshJob = lifecycleScope.launch {
             while (isActive) {
+                if (screenVisible) {
+                    refreshSelectedHomePresence()
+                    updateQuickProfileSummary()
+                }
                 refreshChildDeviceStatus(force = true)
                 ru.example.childwatch.remote.ParentDeviceStatusReporter.report(this@MainActivity)
                 delay(30_000)
@@ -2133,55 +2153,36 @@ class MainActivity : AppCompatActivity() {
      * Update chat badge with unread message count
      */
     private fun updateChatBadge() {
-        lifecycleScope.launch(Dispatchers.IO) {
-            val unreadFromStore = try { chatManager.getUnreadCount() } catch (_: Exception) { 0 }
-            val unreadFromNotifications = try { ru.example.childwatch.utils.NotificationManager.getUnreadCount() } catch (_: Exception) { 0 }
-            val unreadFromConversations = readUnreadFromConversations()
-            // Conversation chat is the current storage, while the legacy store and
-            // notification tray remain valid fallbacks. Taking the maximum keeps
-            // the badge truthful for an installation that uses any of them
-            // without adding the same message up twice.
-            val unread = maxOf(unreadFromStore, unreadFromNotifications, unreadFromConversations)
-            withContext(Dispatchers.Main) {
-                if (unread > 0) {
-                    binding.chatBadge.visibility = View.VISIBLE
-                    binding.chatBadge.text = if (unread > 99) "99+" else unread.toString()
-                } else {
-                    binding.chatBadge.visibility = View.GONE
-                }
-                Log.d(
-                    "MainActivity",
-                    "Chat badge updated: $unread unread " +
-                        "(conversations=$unreadFromConversations, legacy=$unreadFromStore, " +
-                        "notifications=$unreadFromNotifications)"
-                )
-            }
+        val scope = homePickupScope()
+        val generation = ++badgeReadGeneration
+        if (scope != badgeDisplayedScope) {
+            binding.chatBadge.visibility = View.GONE
+            badgeDisplayedScope = scope
         }
-    }
-
-    /**
-     * Unread count from the conversation (v2) storage.
-     *
-     * The legacy count is capped at 100 stored messages and lags behind as soon
-     * as several conversations are in use, which is what made the home badge
-     * disagree with the conversation list.
-     */
-    private suspend fun readUnreadFromConversations(): Int {
-        return try {
-            val serverUrl = effectiveContextResolver.resolveServerUrl()
-                .ifBlank { getConfiguredServerUrl().orEmpty() }
-            if (serverUrl.isBlank()) return 0
-            val repository = ru.example.childwatch.chat.v2.ChatV2Repository.create(
-                applicationContext,
-                serverUrl
-            )
-            repository.getCachedConversations()
-                .sumOf { it.unreadCount.coerceAtLeast(0L) }
-                .coerceAtMost(Int.MAX_VALUE.toLong())
-                .toInt()
-        } catch (e: Exception) {
-            Log.w("MainActivity", "Unable to read unread conversations", e)
-            0
+        if (scope.isBlank()) return
+        lifecycleScope.launch(Dispatchers.IO) {
+            val unread = try {
+                val context = org.json.JSONArray(scope)
+                val family = context.getString(1)
+                ru.example.childwatch.chat.v2.ChatV2Repository.create(applicationContext, context.getString(0))
+                    .getCachedConversations()
+                    .filter { it.familyId == family }
+                    .sumOf { it.unreadCount.coerceAtLeast(0L) }
+                    .coerceAtMost(Int.MAX_VALUE.toLong()).toInt()
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w("MainActivity", "Unable to read current conversation badge", error)
+                return@launch
+            }
+            withContext(Dispatchers.Main) {
+                if (generation != badgeReadGeneration || scope != homePickupScope()) return@withContext
+                // Same v2 conversations as the chat screen. Legacy notification counters
+                // must not resurrect a badge after those conversations have been read.
+                binding.chatBadge.visibility = if (unread > 0) View.VISIBLE else View.GONE
+                binding.chatBadge.text = if (unread > 99) "99+" else unread.toString()
+                Log.d("MainActivity", "Chat badge updated from current family conversations: $unread")
+            }
         }
     }
 
@@ -2223,6 +2224,7 @@ class MainActivity : AppCompatActivity() {
      */
     private fun loadSelectedChild() {
         lifecycleScope.launch {
+            val requestedScope = selectedLocationScopeKey()
             try {
                 val selectedDeviceId = resolveSelectedChildIdForUi()
 
@@ -2230,6 +2232,7 @@ class MainActivity : AppCompatActivity() {
                     val database = ru.example.childwatch.database.ChildWatchDatabase.getInstance(this@MainActivity)
                     val childDao = database.childDao()
                     val child = childDao.getByDeviceId(selectedDeviceId)
+                    if (selectedLocationScopeKey() != requestedScope) return@launch
 
                     if (child != null) {
                         // Render local data immediately, then enrich it from the
@@ -2239,6 +2242,7 @@ class MainActivity : AppCompatActivity() {
                             linkedChildOptionsProvider.getOptions()
                                 .firstOrNull { it.deviceId == selectedDeviceId }
                         }.getOrNull()
+                        if (selectedLocationScopeKey() != requestedScope) return@launch
                         if (canonical != null) renderSelectedChild(child, canonical)
 
                         Log.d(TAG, "Selected child loaded: ${child.name}")
@@ -2248,7 +2252,10 @@ class MainActivity : AppCompatActivity() {
                 } else {
                     showDefaultChildSelection()
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
+                if (selectedLocationScopeKey() != requestedScope) return@launch
                 Log.e(TAG, "Failed to load selected child", e)
                 showDefaultChildSelection()
             }
@@ -2507,25 +2514,36 @@ class MainActivity : AppCompatActivity() {
             FamilyRole.CHILD -> getString(R.string.family_role_child)
             null -> ContactRoles.label(child.role)
         }
-        val presence = option?.presence?.takeUnless { it == FamilyPresenceState.UNKNOWN }
-            ?: run {
-                val lastSeenAt = normalizeEpochMillis(option?.lastSeenAt ?: child.lastSeenAt)
-                when {
-                    lastSeenAt == null -> FamilyPresenceState.UNKNOWN
-                    System.currentTimeMillis() - lastSeenAt <= 2 * 60_000L -> FamilyPresenceState.ONLINE
-                    System.currentTimeMillis() - lastSeenAt <= 24 * 60 * 60_000L -> {
-                        FamilyPresenceState.RECENTLY_ACTIVE
-                    }
-                    else -> FamilyPresenceState.OFFLINE
-                }
-            }
+        selectedHomeMetaScope = selectedLocationScopeKey()
+        selectedHomeRoleLabel = role
+        return getString(R.string.family_profile_role_and_status, role, selectedHomePresenceText())
+    }
+
+    private fun refreshSelectedHomePresence() {
+        if (selectedHomeMetaScope != selectedLocationScopeKey()) return
+        val role = selectedHomeRoleLabel ?: return
+        binding.selectedChildDeviceId.text = getString(
+            R.string.family_profile_role_and_status, role, selectedHomePresenceText())
+    }
+
+    private fun selectedHomePresenceText(): String {
+        val deviceId = resolveSelectedChildIdForUi()
+        val directory = homeDirectory?.takeIf { homeDirectoryScope == homePickupScope() }
+        // Use the chosen endpoint, never another phone's heartbeat for this person.
+        val device = directory?.personByDeviceId(deviceId)?.activeDevices
+            ?.firstOrNull { it.deviceId == deviceId }
+        val lastSeen = normalizeEpochMillis(device?.lastSeenAt)
+        val presence = ru.childwatch.shared.family.FamilyDeviceHeartbeatPolicy.presence(
+            lastSeen, homeDirectoryIsCanonical && directory != null,
+            System.currentTimeMillis())
+        val lastSeenText = lastSeen?.let { SimpleDateFormat("dd.MM · HH:mm", Locale.getDefault()).format(Date(it)) }.orEmpty()
         val status = when (presence) {
-            FamilyPresenceState.ONLINE -> getString(R.string.family_profile_presence_online)
-            FamilyPresenceState.RECENTLY_ACTIVE -> getString(R.string.family_profile_presence_recent)
-            FamilyPresenceState.OFFLINE -> getString(R.string.family_profile_presence_offline)
+            FamilyPresenceState.ONLINE -> getString(R.string.home_presence_recent_heartbeat)
+            FamilyPresenceState.RECENTLY_ACTIVE -> getString(R.string.home_presence_last_heartbeat, lastSeenText)
+            FamilyPresenceState.OFFLINE -> getString(R.string.home_presence_old_heartbeat, lastSeenText)
             FamilyPresenceState.UNKNOWN -> getString(R.string.family_profile_presence_unknown)
         }
-        return getString(R.string.family_profile_role_and_status, role, status)
+        return status
     }
 
     private fun persistSelectedChildCompat(

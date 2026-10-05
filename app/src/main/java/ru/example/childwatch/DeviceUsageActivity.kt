@@ -39,6 +39,7 @@ class DeviceUsageActivity : AppCompatActivity() {
     private var refreshJob: Job? = null
     private var usageScope: String? = null
     private var lastGoodDailySnapshot: DailySnapshot? = null
+    private var detailsExpanded = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -48,9 +49,7 @@ class DeviceUsageActivity : AppCompatActivity() {
         networkClient = NetworkClient(this)
         effectiveContextResolver = ParentEffectiveContextResolver(this)
         linkedChildOptionsProvider = ParentLinkedChildOptionsProvider(this)
-        ru.example.childwatch.location.PersonLocationStatus(this, binding.personLocationText, networkClient) {
-            resolveChildDeviceId()
-        }
+        detailsExpanded = savedInstanceState?.getBoolean("usage_details_expanded") ?: false
 
         binding.toolbar.navigationIcon = AppCompatResources.getDrawable(
             this,
@@ -59,7 +58,32 @@ class DeviceUsageActivity : AppCompatActivity() {
         binding.toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
 
         binding.refreshButton.setOnClickListener { loadUsage(force = true) }
+        binding.usageDetailsButton.setOnClickListener {
+            detailsExpanded = !detailsExpanded
+            updateDetailsUi()
+        }
+        updateDetailsUi()
         loadUsage(force = true)
+    }
+
+    private fun updateDetailsUi() {
+        binding.usageDetailsContainer.isVisible = detailsExpanded
+        binding.historyCard.isVisible = detailsExpanded && binding.recentAppsCard.isVisible
+        binding.usageDetailsButton.setText(if (detailsExpanded) R.string.usage_details_hide else R.string.usage_details_show)
+        androidx.core.view.ViewCompat.setStateDescription(binding.usageDetailsButton,
+            getString(if (detailsExpanded) R.string.usage_details_expanded else R.string.usage_details_collapsed))
+        listOf(binding.recentAppsContainer, binding.historyContainer).forEach { container ->
+            for (index in 0 until container.childCount) {
+                container.getChildAt(index).findViewById<TextView>(R.id.subtitleText)?.let { subtitle ->
+                    if (subtitle.tag == true) subtitle.isVisible = detailsExpanded && subtitle.text.isNotBlank()
+                }
+            }
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("usage_details_expanded", detailsExpanded)
+        super.onSaveInstanceState(outState)
     }
 
     private fun loadUsage(force: Boolean) {
@@ -112,7 +136,7 @@ class DeviceUsageActivity : AppCompatActivity() {
 
                 binding.currentAppCard.isVisible = true
                 binding.recentAppsCard.isVisible = true
-                binding.historyCard.isVisible = true
+                binding.historyCard.isVisible = detailsExpanded
                 binding.statusMessageText.isVisible = false
                 renderStatus(status)
                 val usageSnapshot = history.sortedByDescending { it.timestamp ?: 0L }
@@ -127,6 +151,7 @@ class DeviceUsageActivity : AppCompatActivity() {
                     ?: lastGoodDailySnapshot?.copy(isFromHistory = true)
                 renderDailyUsage(status, displayedSnapshot, history)
                 renderHistory(history.sortedByDescending { it.timestamp ?: 0L })
+                updateDetailsUi()
                 showLoading(false)
             } catch (error: CancellationException) {
                 throw error
@@ -255,12 +280,17 @@ class DeviceUsageActivity : AppCompatActivity() {
         val start = (daily?.get("start") as? Number)?.toLong()
         val end = (daily?.get("end") as? Number)?.toLong()
         if (snapshot == null || daily == null || start == null || end == null || end < start) {
+            binding.dailyDetailsText.text = ""
+            binding.dailyFreshnessText.text = ""
             val anyUsableInHistory = history.any { isDailyUsageUsable(it.raw?.get("dailyUsage")) }
             binding.dailySummaryText.text = dailyUnavailableMessage(status, history, anyUsableInHistory)
             binding.recentAppsEmptyText.isVisible = binding.recentAppsContainer.childCount == 0
             binding.recentAppsEmptyText.setText(R.string.device_usage_recent_empty)
             return
         }
+        // The fallback list was rendered first. A daily snapshot replaces it;
+        // mixing both lists duplicates apps and puts recent-launch data under a daily heading.
+        binding.recentAppsContainer.removeAllViews()
         val zone = java.util.TimeZone.getTimeZone(daily["timeZone"] as? String ?: "UTC")
         val dateFormat = java.text.SimpleDateFormat("d MMMM", Locale.getDefault()).apply { timeZone = zone }
         val rows = dailyUsageRows(daily)
@@ -272,17 +302,10 @@ class DeviceUsageActivity : AppCompatActivity() {
             ?: lastUsedTimes.filter { it in start..end }.maxOrNull()
 
         binding.appsSectionTitle.text = getString(R.string.daily_usage_heading, dateFormat.format(java.util.Date(start)))
-        binding.dailySummaryText.text = buildString {
-            val clockEnd = formatClock(end, zone)
-            append(getString(R.string.daily_usage_summary, formatDuration(total), rows.size, clockEnd))
-            append('\n')
-            append(getString(R.string.daily_usage_day_window, firstSeen?.let { formatClock(it, zone) } ?: "—", lastSeen?.let { formatClock(it, zone) } ?: "—"))
-            val ageNote = dailyDataAgeNote(snapshot, end, zone)
-            if (ageNote.isNotEmpty()) {
-                append('\n')
-                append(ageNote)
-            }
-        }
+        binding.dailySummaryText.text = getString(R.string.daily_usage_summary, formatDuration(total), rows.size, formatClock(end, zone))
+        binding.dailyDetailsText.text = getString(R.string.daily_usage_day_window,
+            firstSeen?.let { formatClock(it, zone) } ?: "—", lastSeen?.let { formatClock(it, zone) } ?: "—")
+        binding.dailyFreshnessText.text = dailyDataAgeNote(snapshot, end, zone)
         binding.recentAppsEmptyText.isVisible = rows.isEmpty()
         binding.recentAppsEmptyText.setText(R.string.daily_usage_empty)
         rows.forEach { app ->
@@ -314,17 +337,15 @@ class DeviceUsageActivity : AppCompatActivity() {
             timeZone = java.util.TimeZone.getDefault()
         }
         val endFormat = java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).apply { timeZone = zone }
-        return when {
-            collectedAt != null -> getString(
+        val collectedNote = collectedAt?.let { getString(
                 R.string.daily_usage_collected_at,
-                collectedAt,
-                collectedFormat.format(java.util.Date(collectedAt))
-            )
-            staleFlag || snapshot.isFromHistory -> getString(R.string.daily_usage_stale, endFormat.format(java.util.Date(end)))
-            System.currentTimeMillis() - end > 5 * DateUtils.MINUTE_IN_MILLIS ->
-                getString(R.string.daily_usage_stale, endFormat.format(java.util.Date(end)))
-            else -> ""
-        }
+                endFormat.format(java.util.Date(end)),
+                collectedFormat.format(java.util.Date(it))
+            ) }.orEmpty()
+        val staleNote = if (staleFlag || snapshot.isFromHistory ||
+            System.currentTimeMillis() - end > 5 * DateUtils.MINUTE_IN_MILLIS)
+            getString(R.string.daily_usage_stale, endFormat.format(java.util.Date(end))) else ""
+        return listOf(collectedNote, staleNote).filter { it.isNotBlank() }.joinToString("\n")
     }
 
     private fun readRecentApps(apps: List<DeviceRecentApp>?, raw: Map<String, Any?>?): List<DeviceRecentApp> {
@@ -360,6 +381,7 @@ class DeviceUsageActivity : AppCompatActivity() {
                 createUsageRow(
                     title = app.appName ?: app.packageName.orEmpty(),
                     subtitle = app.packageName ?: "",
+                    technicalSubtitle = true,
                     meta = listOfNotNull(
                         app.lastUsed?.takeIf { it > 0 }?.let {
                             // Relative time alone ("5 минут назад") is not a time of day:
@@ -421,18 +443,20 @@ class DeviceUsageActivity : AppCompatActivity() {
                     title = item.currentAppName?.takeIf { it.isNotBlank() }
                         ?: item.currentAppPackage.orEmpty(),
                     subtitle = item.currentAppPackage ?: "",
+                    technicalSubtitle = true,
                     meta = getString(R.string.device_usage_history_line, relativeTime, batteryLine)
                 )
             )
         }
     }
 
-    private fun createUsageRow(title: String, subtitle: String, meta: String) =
+    private fun createUsageRow(title: String, subtitle: String, meta: String, technicalSubtitle: Boolean = false) =
         LayoutInflater.from(this).inflate(R.layout.item_device_usage_row, binding.recentAppsContainer, false).apply {
             findViewById<TextView>(R.id.titleText).text = title
             findViewById<TextView>(R.id.subtitleText).apply {
                 text = subtitle
-                isVisible = subtitle.isNotBlank()
+                tag = technicalSubtitle
+                isVisible = subtitle.isNotBlank() && (!technicalSubtitle || detailsExpanded)
             }
             findViewById<TextView>(R.id.metaText).apply {
                 text = meta

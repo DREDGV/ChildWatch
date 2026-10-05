@@ -1,219 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
-    android:layout_width="match_parent"
-    android:layout_height="match_parent"
-    android:background="@color/cw_color_background"
-    android:orientation="vertical">
-
-    <com.google.android.material.appbar.MaterialToolbar
-        android:id="@+id/toolbar"
-        style="@style/Widget.ChildWatch.Toolbar"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:title="@string/device_usage_title" />
-
-    <ScrollView
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:fillViewport="true">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:paddingHorizontal="@dimen/cw_space_5"
-            android:paddingBottom="@dimen/cw_space_6">
-
-            <com.google.android.material.card.MaterialCardView
-                style="@style/Widget.ChildWatch.PersonCard.Selected"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/cw_space_3">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:padding="@dimen/cw_space_4">
-
-                    <com.google.android.material.imageview.ShapeableImageView
-                        android:id="@+id/personAvatar"
-                        style="@style/Widget.ChildWatch.Avatar.Small"
-                        android:contentDescription="@string/family_profile_avatar_description"
-                        android:scaleType="centerCrop"
-                        android:src="@drawable/avatar_family_mint" />
-
-                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
-                        android:layout_weight="1" android:layout_marginStart="@dimen/cw_space_3" android:orientation="vertical">
-                    <TextView
-                        android:id="@+id/deviceIdText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/device_usage_person_loading"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Person.Name" />
-                        <TextView android:id="@+id/personLocationText" android:layout_width="match_parent"
-                            android:layout_height="wrap_content" android:layout_marginTop="4dp"
-                            android:text="@string/cw_distance_loading" android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent" android:layout_height="match_parent" android:background="@color/cw_color_background" android:orientation="vertical">
+    <com.google.android.material.appbar.MaterialToolbar android:id="@+id/toolbar" style="@style/Widget.ChildWatch.Toolbar" android:layout_width="match_parent" android:layout_height="wrap_content" app:title="@string/device_usage_title" />
+    <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:fillViewport="true">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="@dimen/cw_space_5" android:paddingBottom="@dimen/cw_space_6">
+            <com.google.android.material.card.MaterialCardView style="@style/Widget.ChildWatch.PersonCard.Selected" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_3">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical" android:orientation="horizontal" android:padding="12dp">
+                    <com.google.android.material.imageview.ShapeableImageView android:id="@+id/personAvatar" style="@style/Widget.ChildWatch.Avatar.Small" android:contentDescription="@string/family_profile_avatar_description" android:scaleType="centerCrop" android:src="@drawable/avatar_family_mint" android:layout_width="40dp" android:layout_height="40dp" />
+                    <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="@dimen/cw_space_3" android:orientation="vertical">
+                        <TextView android:id="@+id/deviceIdText" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/device_usage_person_loading" android:textAppearance="@style/TextAppearance.Material3.TitleMedium" />
+                        <TextView android:id="@+id/personLocationText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="@string/cw_distance_loading" android:textAppearance="@style/TextAppearance.ChildWatch.Body" android:visibility="gone" />
                     </LinearLayout>
+                    <com.google.android.material.button.MaterialButton android:id="@+id/refreshButton" style="@style/Widget.ChildWatch.Button.Secondary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="0dp" android:text="@string/device_usage_refresh" android:layout_marginStart="8dp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
-
-            <ProgressBar
-                android:id="@+id/progressBar"
-                style="?android:attr/progressBarStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="@dimen/cw_space_6"
-                android:visibility="gone" />
-
-            <TextView
-                android:id="@+id/statusMessageText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/cw_space_3"
-                android:text="@string/device_usage_loading"
-                android:textAlignment="center"
-                android:textAppearance="@style/TextAppearance.ChildWatch.Body"
-                android:visibility="gone" />
-
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/currentAppCard"
-                style="@style/Widget.ChildWatch.Card"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/cw_space_4">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="@dimen/cw_space_4">
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/daily_usage_last_app"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
-
-                    <TextView
-                        android:id="@+id/currentAppText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_2"
-                        android:text="@string/device_usage_current_unknown"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Headline" />
-
-                    <TextView
-                        android:id="@+id/currentMetaText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_2"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
-
-                    <com.google.android.material.button.MaterialButton
-                        android:id="@+id/refreshButton"
-                        style="@style/Widget.ChildWatch.Button.Secondary"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_3"
-                        android:text="@string/device_usage_refresh" />
-
+            <ProgressBar android:id="@+id/progressBar" style="?android:attr/progressBarStyle" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_gravity="center_horizontal" android:layout_marginTop="@dimen/cw_space_6" android:visibility="gone" />
+            <TextView android:id="@+id/statusMessageText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_3" android:text="@string/device_usage_loading" android:textAlignment="center" android:textAppearance="@style/TextAppearance.ChildWatch.Body" android:visibility="gone" />
+            <com.google.android.material.card.MaterialCardView android:id="@+id/currentAppCard" style="@style/Widget.ChildWatch.Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_4">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="12dp">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/daily_usage_last_app" android:textAppearance="@style/TextAppearance.ChildWatch.Label" />
+                    <TextView android:id="@+id/currentAppText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_2" android:text="@string/device_usage_current_unknown" android:textAppearance="@style/TextAppearance.Material3.BodyLarge" />
                 </LinearLayout>
-
             </com.google.android.material.card.MaterialCardView>
-
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/recentAppsCard"
-                style="@style/Widget.ChildWatch.Card"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/cw_space_4">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="@dimen/cw_space_4">
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/device_usage_recent_section"
-                        android:id="@+id/appsSectionTitle"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Headline" />
-
-                    <TextView
-                        android:id="@+id/dailySummaryText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_2"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Body"
-                        android:visibility="gone" />
-
-                    <TextView
-                        android:id="@+id/recentAppsEmptyText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_3"
-                        android:text="@string/device_usage_recent_empty"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
-
-                    <LinearLayout
-                        android:id="@+id/recentAppsContainer"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_3"
-                        android:orientation="vertical" />
-
+            <com.google.android.material.card.MaterialCardView android:id="@+id/recentAppsCard" style="@style/Widget.ChildWatch.Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_4">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="@dimen/cw_space_4">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/device_usage_recent_section" android:id="@+id/appsSectionTitle" android:textAppearance="@style/TextAppearance.ChildWatch.Headline" />
+                    <TextView android:id="@+id/dailySummaryText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_2" android:textAppearance="@style/TextAppearance.Material3.TitleMedium" android:visibility="gone" />
+                    <TextView android:id="@+id/dailyFreshnessText" android:layout_width="match_parent" android:layout_height="wrap_content" android:textAppearance="@style/TextAppearance.Material3.BodySmall" android:textColor="@color/cw_color_on_surface_variant" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/usageDetailsButton" style="@style/Widget.ChildWatch.Button.Secondary" android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/usage_details_show" />
+                    <LinearLayout android:id="@+id/usageDetailsContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:visibility="gone">
+                        <TextView android:id="@+id/dailyDetailsText" android:layout_width="match_parent" android:layout_height="wrap_content" android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+                        <TextView android:id="@+id/currentMetaText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_2" android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/recentAppsEmptyText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_3" android:text="@string/device_usage_recent_empty" android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+                    <LinearLayout android:id="@+id/recentAppsContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_3" android:orientation="vertical" />
                 </LinearLayout>
-
             </com.google.android.material.card.MaterialCardView>
-
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/historyCard"
-                style="@style/Widget.ChildWatch.Card"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/cw_space_4"
-                android:layout_marginBottom="@dimen/cw_space_4">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="@dimen/cw_space_4">
-
-                    <TextView
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="@string/device_usage_history_section"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Headline" />
-
-                    <TextView
-                        android:id="@+id/historyEmptyText"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_3"
-                        android:text="@string/device_usage_history_empty"
-                        android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
-
-                    <LinearLayout
-                        android:id="@+id/historyContainer"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="@dimen/cw_space_3"
-                        android:orientation="vertical" />
-
+            <com.google.android.material.card.MaterialCardView android:id="@+id/historyCard" style="@style/Widget.ChildWatch.Card" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_4" android:layout_marginBottom="@dimen/cw_space_4" android:visibility="gone">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="@dimen/cw_space_4">
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/device_usage_history_section" android:textAppearance="@style/TextAppearance.ChildWatch.Headline" />
+                    <TextView android:id="@+id/historyEmptyText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_3" android:text="@string/device_usage_history_empty" android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
+                    <LinearLayout android:id="@+id/historyContainer" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="@dimen/cw_space_3" android:orientation="vertical" />
                 </LinearLayout>
-
             </com.google.android.material.card.MaterialCardView>
-
         </LinearLayout>
-
     </ScrollView>
-
 </LinearLayout>

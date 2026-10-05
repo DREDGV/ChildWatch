@@ -8,7 +8,11 @@
     <string name="home_selected_refresh_failed">Свежие данные получить не удалось. Ниже сохранённый снимок; время его сбора указано отдельно.</string>
     <string name="home_child_action_only">Фото, активность и звук вокруг доступны для ребёнка. Выберите ребёнка в семье.</string>
     <string name="home_selected_device_title">Телефон · %1$s</string>
+    <string name="home_phone_state_summary">%1$s · %2$s\n%3$s</string>
     <string name="home_selected_last_app">Последнее приложение: %1$s</string>
     <string name="home_selected_time_unknown">Время сбора данных неизвестно</string>
     <string name="home_selected_access_denied">Семья не разрешила просмотр состояния этого телефона. Проверьте права участника.</string>
+    <string name="home_presence_recent_heartbeat">Недавно на связи</string>
+    <string name="home_presence_last_heartbeat">Последняя связь: %1$s</string>
+    <string name="home_presence_old_heartbeat">Давно не было связи: %1$s</string>
 </resources>
