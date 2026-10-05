@@ -16,6 +16,8 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -34,6 +36,7 @@ import ru.example.parentwatch.utils.RemoteLogger
 import java.util.Arrays
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
+import ru.childwatch.shared.audio.AudioCaptureLoopPolicy
 
 /**
  * Child-side microphone capture for live listening.
@@ -68,7 +71,9 @@ class AudioStreamRecorder(
     private val streamScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val startInFlight = AtomicBoolean(false)
     private val stateGeneration = AtomicLong(0L)
+    private val captureLoopOwner = AtomicLong(0L)
     private val recoveryLock = Any()
+    private var recoveryOwner = 0L // Guarded by recoveryLock, including cancellation.
 
     private var audioRecord: AudioRecord? = null
     private var recordingJob: Job? = null
@@ -176,7 +181,9 @@ class AudioStreamRecorder(
         if (!streamingDesired) return
         Log.d(TAG, "AUDIO capture resume requested")
         capturePaused = false
-        stateGeneration.incrementAndGet()
+        // pauseCapture()/stopStreaming() already invalidate the previous loop.
+        // A duplicate resume must preserve the running loop's generation: otherwise
+        // it exits while isRecording stays true and repeated START cannot revive it.
         ensureCaptureRunning()
         if (!isRecording) {
             startRecoveryLoop("explicit_resume")
@@ -248,11 +255,13 @@ class AudioStreamRecorder(
         } ?: false
     }
 
-    private fun startActualRecording(expectedGeneration: Long) {
+    @Synchronized private fun startActualRecording(expectedGeneration: Long) {
         val url = serverUrl
         val id = deviceId
 
-        if (!shouldCapture(expectedGeneration)) return
+        // ensureCaptureRunning() may have checked the flag before another START
+        // acquired this monitor and initialized capture. Recheck under ownership.
+        if (isRecording || !shouldCapture(expectedGeneration)) return
 
         if (!startInFlight.compareAndSet(false, true)) {
             Log.d(TAG, "AUDIO start already in progress")
@@ -316,9 +325,35 @@ class AudioStreamRecorder(
             )
 
             recordingJob?.cancel()
+            val loopOwner = captureLoopOwner.incrementAndGet()
             recordingJob = streamScope.launch {
-                while (isRecording && shouldCapture(expectedGeneration)) {
-                    recordAndSendChunk()
+                var loopFailure: Exception? = null
+                try {
+                    while (isRecording && shouldCapture(expectedGeneration)) {
+                        recordAndSendChunk(expectedGeneration, loopOwner)
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    loopFailure = error
+                    Log.e(TAG, "AUDIO capture loop failed", error)
+                } finally {
+                    synchronized(this@AudioStreamRecorder) {
+                        if (AudioCaptureLoopPolicy.ownsCapture(
+                                loopOwner, captureLoopOwner.get(), expectedGeneration, stateGeneration.get()
+                            )) {
+                            // A completed coroutine is no longer a live capture even if
+                            // AudioRecord or a send callback failed outside recordChunk().
+                            isRecording = false
+                            releaseRecorder()
+                            if (loopFailure != null) {
+                                emitCaptureDiagnostic("audio_capture_loop_failed")
+                            }
+                            if (AudioCaptureLoopPolicy.mayRecover(streamingDesired, capturePaused)) {
+                                startRecoveryLoop("capture_loop_ended")
+                            }
+                        }
+                    }
                 }
             }
         } finally {
@@ -329,7 +364,7 @@ class AudioStreamRecorder(
         }
     }
 
-    private suspend fun recordAndSendChunk() {
+    private suspend fun recordAndSendChunk(expectedGeneration: Long, loopOwner: Long) {
         val client = WebSocketManager.getClient()
             ?: run {
                 requestSharedSocketReady()
@@ -347,7 +382,8 @@ class AudioStreamRecorder(
             return
         }
 
-        val audioData = recordChunk() ?: return
+        val audioData = recordChunk(expectedGeneration, loopOwner) ?: return
+        if (!shouldCapture(expectedGeneration) || captureLoopOwner.get() != loopOwner) return
         recoveryAttempt = 0
         hasLoggedSocketNotReady = false
         val sentSequence = sequence
@@ -436,9 +472,11 @@ class AudioStreamRecorder(
         audioRecord = null
     }
 
-    private fun recordChunk(): ByteArray? {
+    private fun recordChunk(expectedGeneration: Long, loopOwner: Long): ByteArray? {
+        fun fail(reason: String, extra: Map<String, Any?> = emptyMap()) =
+            handleCaptureFailure(reason, extra, expectedGeneration, loopOwner)
         val recorder = audioRecord ?: run {
-            handleCaptureFailure("audio_recorder_missing")
+            fail("audio_recorder_missing")
             return null
         }
         if (isRecorderSilenced(recorder)) {
@@ -448,7 +486,7 @@ class AudioStreamRecorder(
             } else {
                 false
             }
-            handleCaptureFailure(
+            fail(
                 "audio_capture_silenced",
                 mapOf(
                     "appVisible" to appVisible,
@@ -463,7 +501,7 @@ class AudioStreamRecorder(
             var offset = 0
             var emptyReads = 0
 
-            while (offset < FRAME_BYTES && isRecording) {
+            while (offset < FRAME_BYTES && isRecording && shouldCapture(expectedGeneration) && captureLoopOwner.get() == loopOwner) {
                 val remaining = FRAME_BYTES - offset
                 val read = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
                     recorder.read(buffer, offset, remaining, AudioRecord.READ_BLOCKING)
@@ -474,19 +512,19 @@ class AudioStreamRecorder(
                 when {
                     read == AudioRecord.ERROR_DEAD_OBJECT || read == AudioRecord.ERROR_INVALID_OPERATION -> {
                         Log.e(TAG, "AUDIO read error: $read")
-                        handleCaptureFailure("audio_read_error", mapOf("code" to read))
+                        fail("audio_read_error", mapOf("code" to read))
                         return null
                     }
                     read < 0 -> {
                         Log.e(TAG, "AUDIO negative read: $read")
-                        handleCaptureFailure("audio_read_error", mapOf("code" to read))
+                        fail("audio_read_error", mapOf("code" to read))
                         return null
                     }
                     read == 0 -> {
                         emptyReads += 1
                         if (emptyReads >= 3) {
                             Log.w(TAG, "AUDIO repeated empty reads while filling frame")
-                            handleCaptureFailure(
+                            fail(
                                 "audio_empty_reads",
                                 mapOf("count" to emptyReads)
                             )
@@ -503,7 +541,7 @@ class AudioStreamRecorder(
             if (offset == FRAME_BYTES) buffer else null
         } catch (e: Exception) {
             Log.e(TAG, "AUDIO read exception", e)
-            handleCaptureFailure(
+            fail(
                 "audio_read_exception",
                 mapOf("error" to (e.message ?: "unknown"))
             )
@@ -511,7 +549,15 @@ class AudioStreamRecorder(
         }
     }
 
-    private fun handleCaptureFailure(reason: String, extra: Map<String, Any?> = emptyMap()) {
+    @Synchronized private fun handleCaptureFailure(
+        reason: String,
+        extra: Map<String, Any?>,
+        expectedGeneration: Long,
+        loopOwner: Long
+    ) {
+        if (!AudioCaptureLoopPolicy.ownsCapture(
+                loopOwner, captureLoopOwner.get(), expectedGeneration, stateGeneration.get()
+            )) return
         if (!isRecording && audioRecord == null) return
         isRecording = false
         releaseRecorder()
@@ -521,7 +567,7 @@ class AudioStreamRecorder(
         }
     }
 
-    private fun releaseRecorder() {
+    @Synchronized private fun releaseRecorder() {
         try {
             audioRecord?.let { recorder ->
                 runCatching {
@@ -563,25 +609,40 @@ class AudioStreamRecorder(
 
         synchronized(recoveryLock) {
             if (recoveryJob?.isActive == true) return
-            recoveryJob = streamScope.launch {
-                Log.w(TAG, "AUDIO recovery loop started: reason=$reason")
-                while (streamingDesired && !capturePaused && !isRecording) {
-                    val index = recoveryAttempt.coerceIn(0, CAPTURE_RETRY_DELAYS_MS.lastIndex)
-                    val retryDelayMs = CAPTURE_RETRY_DELAYS_MS[index]
-                    recoveryAttempt = (recoveryAttempt + 1).coerceAtMost(CAPTURE_RETRY_DELAYS_MS.size)
-                    delay(retryDelayMs)
-                    if (!streamingDesired || capturePaused || isRecording) break
-                    ensureCaptureRunning()
-                }
-                synchronized(recoveryLock) {
-                    recoveryJob = null
+            val owner = ++recoveryOwner
+            // Publish the job before it can finish, so an immediate startup failure
+            // cannot leave a completed job installed over a newly rearmed one.
+            recoveryJob = streamScope.launch(start = CoroutineStart.LAZY) {
+                try {
+                    Log.w(TAG, "AUDIO recovery loop started: reason=$reason")
+                    while (streamingDesired && !capturePaused && !isRecording) {
+                        val index = recoveryAttempt.coerceIn(0, CAPTURE_RETRY_DELAYS_MS.lastIndex)
+                        val retryDelayMs = CAPTURE_RETRY_DELAYS_MS[index]
+                        recoveryAttempt = (recoveryAttempt + 1).coerceAtMost(CAPTURE_RETRY_DELAYS_MS.size)
+                        delay(retryDelayMs)
+                        if (!streamingDesired || capturePaused || isRecording) break
+                        ensureCaptureRunning()
+                    }
+                } finally {
+                    val rearm = synchronized(recoveryLock) {
+                        val ownsRecovery = owner == recoveryOwner
+                        if (ownsRecovery) recoveryJob = null
+                        AudioCaptureLoopPolicy.rearmRecovery(
+                            ownsRecovery, streamingDesired, capturePaused, isRecording
+                        )
+                    }
+                    // Capture can fail between ensureCaptureRunning() and ownership
+                    // release. Rearm only after this job no longer blocks a retry.
+                    if (rearm) startRecoveryLoop("recovery_handoff")
                 }
             }
+            recoveryJob?.start()
         }
     }
 
     private fun cancelRecoveryLoop() {
         synchronized(recoveryLock) {
+            recoveryOwner++
             recoveryJob?.cancel()
             recoveryJob = null
             recoveryAttempt = 0

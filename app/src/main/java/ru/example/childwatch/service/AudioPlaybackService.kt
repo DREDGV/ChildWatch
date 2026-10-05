@@ -28,6 +28,7 @@ import org.json.JSONObject
 import java.io.File
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
+import java.util.concurrent.atomic.AtomicLong
 import ru.example.childwatch.MainActivity
 import ru.example.childwatch.R
 import ru.example.childwatch.audio.AudioEnhancer
@@ -43,6 +44,7 @@ import ru.example.childwatch.network.WebSocketClient
 import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.utils.SecureSettingsManager
 import ru.example.childwatch.utils.AlertNotifier
+import ru.childwatch.shared.audio.AudioPlaybackFocusState
 
 /**
  * Foreground Service for audio playback
@@ -220,8 +222,7 @@ class AudioPlaybackService : LifecycleService() {
 
     // Improvement: Audio Focus for handling calls/notifications
     private var audioManager: AudioManager? = null
-    private var wasPlayingBeforeFocusLoss = false
-    private var pausedByTransientFocusLoss = false
+    private val playbackFocusState = AudioPlaybackFocusState()
     private var previousAudioMode: Int = AudioManager.MODE_NORMAL
     private var previousSpeakerphoneState: Boolean = false
 
@@ -232,15 +233,12 @@ class AudioPlaybackService : LifecycleService() {
             AudioManager.AUDIOFOCUS_LOSS -> {
                 // Lost focus for unknown duration - stop playback
                 Log.w(TAG, "AUDIOFOCUS_LOSS - stopping playback")
-                wasPlayingBeforeFocusLoss = isPlaying
-                pausedByTransientFocusLoss = false
                 stopPlayback()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
                 // Lost focus temporarily (e.g., incoming call)
                 Log.w(TAG, "AUDIOFOCUS_LOSS_TRANSIENT - pausing temporarily")
-                wasPlayingBeforeFocusLoss = isPlaying
-                pausedByTransientFocusLoss = isPlaying
+                playbackFocusState.onTransientLoss(isPlaying)
                 pausePlayback()
             }
             AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
@@ -252,11 +250,10 @@ class AudioPlaybackService : LifecycleService() {
                 // Regained focus
                 Log.i(TAG, "AUDIOFOCUS_GAIN - resumed")
                 audioTrack?.setVolume(1.0f) // Restore volume
-                if (pausedByTransientFocusLoss && wasPlayingBeforeFocusLoss && !isPlaying) {
+                if (playbackFocusState.consumeResumeRequest() && !isPlaying) {
                     Log.d(TAG, "Resuming playback after transient focus loss")
                     resumePlaybackAfterFocusGain()
                 }
-                pausedByTransientFocusLoss = false
             }
             else -> {
                 Log.d(TAG, "Unknown audio focus change: $focusChange")
@@ -297,12 +294,13 @@ class AudioPlaybackService : LifecycleService() {
     private var streamWatchdogJob: Job? = null
     private val startCommandThrottleLock = Any()
     private val captureRetryLock = Any()
+    private val playbackCommandGeneration = AtomicLong(0L)
     private var lastStartCommandSentAt = 0L
     @Volatile private var automaticStartBlocked = false
     @Volatile private var automaticStartSuppressedUntil = 0L
     @Volatile private var streamWasStale = false
     @Volatile private var lastAudioProgressAt = 0L
-    @Volatile private var recoveryStopPosted = false
+    @Volatile private var recoveryWindowStartedAt = 0L
     private var lastCaptureErrorToastReason: String? = null
     private var lastCaptureErrorToastAt = 0L
 
@@ -537,6 +535,7 @@ class AudioPlaybackService : LifecycleService() {
 
             clearCaptureRetryGate()
             streamWasStale = false
+            playbackCommandGeneration.incrementAndGet()
 
             this.deviceId = deviceId
             this.serverUrl = serverUrl
@@ -644,7 +643,7 @@ class AudioPlaybackService : LifecycleService() {
                     isPlaying = true
                     AudioPlaybackService.isPlaying = true
                     lastAudioProgressAt = android.os.SystemClock.elapsedRealtime()
-                    recoveryStopPosted = false
+                    recoveryWindowStartedAt = lastAudioProgressAt
                     streamingStartTime = System.currentTimeMillis()
                     AudioPlaybackService.streamingStartTime = streamingStartTime
                     chunksReceived = 0
@@ -715,8 +714,13 @@ class AudioPlaybackService : LifecycleService() {
     private fun pausePlayback() {
         Log.d(TAG, "Pausing audio playback")
         isPlaying = false
+        playbackCommandGeneration.incrementAndGet()
 
-        // Stop playback job but keep everything else
+        // Focus pause is intentional; do not retry or expire the recovery budget during it.
+        startCommandJob?.cancel()
+        startCommandJob = null
+        streamWatchdogJob?.cancel()
+        streamWatchdogJob = null
         playbackJob?.cancel()
         playbackJob = null
 
@@ -736,14 +740,24 @@ class AudioPlaybackService : LifecycleService() {
         if (audioTrack == null) {
             initializeAudioTrack()
         }
-        runCatching { audioTrack?.play() }
-            .onFailure { Log.w(TAG, "AudioTrack resume after focus gain failed: ${it.message}") }
+        val track = audioTrack
+        if (track == null || runCatching { track.play() }.isFailure) {
+            Log.w(TAG, "Cannot resume AudioTrack after focus gain")
+            stopPlayback()
+            return
+        }
+        // Preserve real packet timestamps. A call must not consume the silence timeout.
+        recoveryWindowStartedAt = android.os.SystemClock.elapsedRealtime()
         isPlaying = true
         AudioPlaybackService.isPlaying = true
         if (playbackJob?.isActive != true) {
             startPlaybackJob()
         }
-        updateNotification(resolveListeningStatus())
+        startStreamWatchdog()
+        if (chunksReceived == 0 && !isAutomaticStartSuppressed()) {
+            startStartCommandRepeater()
+        }
+        updateNotification(if (automaticStartBlocked) currentStatus else resolveListeningStatus())
     }
 
     private fun resetIncomingAudioState(reason: String) {
@@ -770,6 +784,8 @@ class AudioPlaybackService : LifecycleService() {
         // CRITICAL: Set flags FIRST to stop all loops
         isPlaying = false
         AudioPlaybackService.isPlaying = false
+        playbackCommandGeneration.incrementAndGet()
+        playbackFocusState.onStop()
         firstChunkTimestamp = 0L
         AudioPlaybackService.firstChunkTimestamp = 0L
         val stopDeviceId = deviceId
@@ -1287,7 +1303,6 @@ class AudioPlaybackService : LifecycleService() {
 
                 chunksReceived++
                 AudioPlaybackService.chunksReceived = chunksReceived
-                recoveryStopPosted = false
                 lastAudioProgressAt = android.os.SystemClock.elapsedRealtime()
                 lastChunkTimestamp = System.currentTimeMillis()
                 AudioPlaybackService.lastChunkTimestamp = lastChunkTimestamp
@@ -1549,6 +1564,7 @@ class AudioPlaybackService : LifecycleService() {
     }
 
     private suspend fun sendAutomaticStartCommand(reason: String) {
+        if (!isPlaying) return
         if (isAutomaticStartSuppressed()) {
             Log.d(TAG, "Automatic start suppressed (reason=$reason)")
             return
@@ -1570,9 +1586,13 @@ class AudioPlaybackService : LifecycleService() {
      * Send start command via both HTTP (polling compatibility) and WebSocket (real-time).
      */
     private suspend fun sendStartCommand(reason: String) {
+        if (!isPlaying) return
         val id = deviceId
         val url = serverUrl
         if (id.isNullOrBlank() || url.isNullOrBlank()) return
+        val generation = playbackCommandGeneration.get()
+        fun sessionStillActive() = isPlaying && deviceId == id && serverUrl == url &&
+            playbackCommandGeneration.get() == generation
 
         val now = android.os.SystemClock.elapsedRealtime()
         val shouldSend = synchronized(startCommandThrottleLock) {
@@ -1597,6 +1617,8 @@ class AudioPlaybackService : LifecycleService() {
         val httpTargets = if (shouldFanOut) targets else listOf(id)
         var blockedByOtherParent = false
         httpTargets.forEach { targetId ->
+            currentCoroutineContext().ensureActive()
+            if (!sessionStillActive()) return
             runCatching {
                 val result = networkClient?.startAudioStreaming(
                     url,
@@ -1605,6 +1627,8 @@ class AudioPlaybackService : LifecycleService() {
                     STREAM_TIMEOUT_MINUTES,
                     requestedSampleRate
                 )
+                currentCoroutineContext().ensureActive()
+                if (!sessionStillActive()) return
                 if (result?.busy == true) {
                     blockedByOtherParent = true
                     val ownerLabel =
@@ -1618,9 +1642,14 @@ class AudioPlaybackService : LifecycleService() {
                     }
                     updateNotification(busyText)
                 }
-            }.onFailure { Log.w(TAG, "HTTP start command failed for $targetId: ${it.message}") }
+            }.onFailure {
+                if (it is CancellationException) throw it
+                Log.w(TAG, "HTTP start command failed for $targetId: ${it.message}")
+            }
         }
 
+        currentCoroutineContext().ensureActive()
+        if (!sessionStillActive()) return
         if (blockedByOtherParent) {
             stopPlayback()
             return
@@ -1649,23 +1678,29 @@ class AudioPlaybackService : LifecycleService() {
      */
     private fun startStreamWatchdog() {
         streamWatchdogJob?.cancel()
+        val generation = playbackCommandGeneration.get()
         streamWatchdogJob = lifecycleScope.launch(Dispatchers.IO) {
-            while (isActive && isPlaying) {
-                val silenceFor = android.os.SystemClock.elapsedRealtime() - lastAudioProgressAt
-                if (silenceFor >= 60_000L && !recoveryStopPosted) {
-                    recoveryStopPosted = true
+            var timeoutPosted = false
+            while (isActive && isPlaying && playbackCommandGeneration.get() == generation) {
+                val silenceFor = android.os.SystemClock.elapsedRealtime() -
+                    maxOf(lastAudioProgressAt, recoveryWindowStartedAt)
+                if (silenceFor < 60_000L) timeoutPosted = false
+                if (silenceFor >= 60_000L && !timeoutPosted) {
+                    timeoutPosted = true
                     val reason = if (automaticStartBlocked) currentStatus
                         else getString(R.string.audio_recovery_timeout)
                     mainHandler.post {
-                        if (isPlaying && recoveryStopPosted) {
+                        // A packet or focus transition may have arrived while this was queued.
+                        val stillSilentFor = android.os.SystemClock.elapsedRealtime() -
+                            maxOf(lastAudioProgressAt, recoveryWindowStartedAt)
+                        if (isPlaying && stillSilentFor >= 60_000L && playbackCommandGeneration.get() == generation) {
                             Toast.makeText(this@AudioPlaybackService, reason, Toast.LENGTH_LONG).show()
                             stopPlayback()
                             metricsManager.reportError(reason, ErrorSeverity.ERROR)
                         }
                     }
-                    return@launch
                 }
-                if (silenceFor > STREAM_STALE_AFTER_MS && !isAutomaticStartSuppressed()) {
+                if (silenceFor > STREAM_STALE_AFTER_MS && silenceFor < 60_000L && !isAutomaticStartSuppressed()) {
                     if (!streamWasStale) {
                         streamWasStale = true
                         updateNotification(getString(R.string.listen_status_reconnecting))

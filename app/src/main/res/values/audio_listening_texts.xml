@@ -126,7 +126,7 @@
     <string name="listen_status_recording">Идет запись</string>
     <string name="listen_status_connecting">Подключение к телефону…</string>
     <string name="listen_status_reconnecting">Восстановление связи</string>
-    <string name="listen_child_microphone_blocked">Android заблокировал микрофон после перезагрузки. Нажмите уведомление на детском телефоне, чтобы восстановить передачу звука.</string>
+    <string name="listen_child_microphone_blocked">Не удалось получать звук с микрофона детского телефона. Откройте на нём приложение, чтобы повторить подключение.</string>
     <string name="listen_child_microphone_permission_missing">На детском телефоне не разрешен доступ к микрофону.</string>
     <string name="listen_child_microphone_start_failed">Не удалось запустить микрофон детского телефона.</string>
     <string name="listen_recording_saved_enabled">Запись потока включена</string>
