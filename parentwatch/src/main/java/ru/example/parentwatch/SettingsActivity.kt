@@ -333,6 +333,9 @@ class SettingsActivity : AppCompatActivity() {
         // Permissions card
         binding.requestPermissionsButton.setOnClickListener { requestMissingPermissions() }
         binding.openAppSettingsButton.setOnClickListener { openAppSettings() }
+        binding.assistantRecoveryButton.setOnClickListener {
+            startActivity(Intent(this, ru.example.parentwatch.debug.AssistantPilotControlActivity::class.java))
+        }
         updatePermissionsSummary()
 
         // Service controls

@@ -117,7 +117,9 @@ class NetworkClient(private val context: Context, private val expectedPhotoScope
     /**
      * Get current authentication token
      */
-    fun getAuthToken(): String? = authToken ?: tokenManager.getAuthToken()
+    // Another service can rotate credentials while this client remains alive.
+    // Always read the persisted current token, as ParentMonitor already does.
+    fun getAuthToken(): String? = tokenManager.getAuthToken()
     
     /**
      * Register device and get authentication token
@@ -1650,7 +1652,25 @@ class NetworkClient(private val context: Context, private val expectedPhotoScope
                 )
             } else {
                 val serverUrl = checkNotNull(getConfiguredServerUrl())
-                call(createRetrofitClient(serverUrl).create(ChildWatchApi::class.java))
+                val ownDeviceId = effectiveContextResolver.resolveChildDeviceId()
+                val api = createRetrofitClient(serverUrl).create(ChildWatchApi::class.java)
+                val first = call(api)
+                if (first.code() != 401 || ownDeviceId.isBlank()) return first
+
+                fun sameIdentity(): Boolean =
+                    getConfiguredServerUrl()?.trimEnd('/') == serverUrl.trimEnd('/') &&
+                        effectiveContextResolver.resolveChildDeviceId() == ownDeviceId
+
+                if (!sameIdentity()) return first
+                // This small Retrofit client only adds Bearer headers. A saved token can be
+                // rejected after a server restart; recover the same device, never its binding.
+                Log.w(TAG, "Onboarding credential rejected; recovering this device once")
+                val refreshed = refreshToken(serverUrl)
+                if (!sameIdentity()) return first
+                val restored = refreshed ?: registerDevice(serverUrl)
+                if (restored.isNullOrBlank() || !sameIdentity()) return first
+                first.errorBody()?.close()
+                call(api)
             }
         } catch (error: Exception) {
             Log.e(TAG, "Family onboarding request failed", error)

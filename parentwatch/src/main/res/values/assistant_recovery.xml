@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="assistant_recovery_title">Работа после перезагрузки</string>
+    <string name="assistant_recovery_explanation">Чтобы звук и фото были доступны после перезагрузки, один раз выберите ChildWatch системным помощником вместо нынешнего. Android сохраняет выбор. Обычный рабочий стол не меняется.</string>
+    <string name="assistant_recovery_privacy">При включённом мониторинге родители с разрешением семьи смогут запрашивать звук и фото. Запись сопровождается уведомлением и системными индикаторами. Выбор помощника сам по себе не включает запись. Семейная панель открывается только по вызову.</string>
+    <string name="assistant_recovery_limit">На проверенном Moto звук и фото восстановились после перезагрузки и обычной разблокировки. Работа до первой разблокировки и на других моделях ещё проверяется.</string>
+    <string name="assistant_recovery_choose">Настроить один раз</string>
+    <string name="assistant_recovery_steps">В настройках Android откройте «Цифровой ассистент по умолчанию» и выберите наше приложение. Оно может называться ChildDevice или ChildWatch. Подтвердите системный запрос, если он появится.</string>
+    <string name="assistant_recovery_selected">Android выбрал ChildWatch. Повторный выбор после перезагрузки не требуется.</string>
+    <string name="assistant_recovery_monitoring_off">Мониторинг выключен. Эта настройка не запускает его автоматически.</string>
+    <string name="assistant_recovery_pending">Настройка начата: выберите наше приложение в Android.</string>
+    <string name="assistant_recovery_off">Автоматическое восстановление через помощника не настроено.</string>
+    <string name="assistant_recovery_restore">Вернуть прежнего помощника</string>
+    <string name="assistant_recovery_disable">Отключить восстановление через помощника</string>
+    <string name="assistant_recovery_restore_first">Сначала выберите прежнего помощника или «Нет» в настройках Android, затем отключите восстановление здесь.</string>
+    <string name="assistant_recovery_close">Готово</string>
+    <string name="assistant_family_title">Семейный помощник</string>
+    <string name="assistant_family_chat">Открыть семейный чат</string>
+    <string name="assistant_family_app">Открыть ChildWatch</string>
+    <string name="assistant_family_close">Закрыть</string>
+</resources>

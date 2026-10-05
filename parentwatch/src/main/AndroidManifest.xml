@@ -53,6 +53,7 @@
          are not otherwise visible to ChildDevice. Limit discovery to ordinary
          launcher applications instead of requesting QUERY_ALL_PACKAGES. -->
     <queries>
+        <intent><action android:name="android.speech.RecognitionService" /></intent>
         <intent>
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LAUNCHER" />
@@ -69,6 +70,20 @@
     android:theme="@style/Theme.ParentWatch"
         android:usesCleartextTraffic="true"
         tools:targetApi="31">
+        <activity android:name=".debug.AssistantPilotControlActivity" android:enabled="true"
+            android:exported="false" android:label="@string/assistant_recovery_title" />
+        <service android:name=".debug.FamilyRecognitionService" android:enabled="false"
+            android:exported="true" android:permission="android.permission.BIND_SPEECH_RECOGNITION">
+            <intent-filter><action android:name="android.speech.RecognitionService" /></intent-filter>
+        </service>
+        <service android:name=".debug.FamilyAssistantService" android:label="Семейный помощник ChildWatch"
+            android:enabled="false" android:exported="true" android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <intent-filter><action android:name="android.service.voice.VoiceInteractionService" /></intent-filter>
+            <meta-data android:name="android.voice_interaction" android:resource="@xml/family_assistant" />
+        </service>
+        <service android:name=".debug.FamilyAssistantSessionService" android:enabled="false"
+            android:exported="true" android:permission="android.permission.BIND_VOICE_INTERACTION" />
+
 
         <!-- Main Activity -->
         <activity
@@ -187,6 +202,29 @@
             android:enabled="true"
             android:exported="false"
             android:foregroundServiceType="camera" />
+
+        <!-- Optional fully managed test-device enrollment. Ordinary installs gain no role. -->
+        <receiver
+            android:name=".management.ChildDeviceAdminReceiver"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data android:name="android.app.device_admin" android:resource="@xml/child_device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
+                <action android:name="android.app.action.PROFILE_PROVISIONING_COMPLETE" />
+            </intent-filter>
+        </receiver>
+        <activity
+            android:name=".management.ManagedProvisioningActivity"
+            android:exported="true"
+            android:permission="android.permission.BIND_DEVICE_ADMIN"
+            android:theme="@android:style/Theme.NoDisplay">
+            <intent-filter>
+                <action android:name="android.app.action.GET_PROVISIONING_MODE" />
+                <action android:name="android.app.action.ADMIN_POLICY_COMPLIANCE" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
 
         <!-- Boot Receiver -->
         <receiver

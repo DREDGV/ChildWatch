@@ -1,6 +1,35 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <service android:name=".debug.AssistantLabVoiceService" android:enabled="false"
+            android:exported="true" android:permission="android.permission.BIND_VOICE_INTERACTION">
+            <intent-filter><action android:name="android.service.voice.VoiceInteractionService" /></intent-filter>
+            <meta-data android:name="android.voice_interaction" android:resource="@xml/family_assistant" />
+        </service>
+        <service android:name=".debug.AssistantCaptureProbeService" android:enabled="false"
+            android:exported="false" android:foregroundServiceType="microphone|camera" />
+        <!-- Debug pilot: no Home candidate until the owner explicitly opts in. -->
+        <activity android:name=".debug.HomePilotControlActivity"
+            android:label="@string/home_pilot_title"
+            android:enabled="false" android:exported="true" />
+        <activity android:name=".debug.HomeRecoveryProbeActivity"
+            android:label="@string/home_probe_name"
+            android:enabled="false" android:exported="true"
+            android:launchMode="singleTask">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+        <receiver android:name=".debug.HomeProbeSetupReceiver"
+            android:enabled="false" android:exported="true" />
+        <receiver android:name=".debug.HomeProbeBootReceiver"
+            android:enabled="false" android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
         <receiver
             android:name=".debug.EmulatorLabReceiver"
             android:enabled="true"

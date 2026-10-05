@@ -187,6 +187,7 @@ class PhotoCaptureService : Service() {
     private var cameraForegroundPrimed = false
     private var foregroundPromotionSucceeded = false
     private var captureWatchdog: Job? = null
+    private var audioPausedForPhoto = false
     private val requestLock = Any()
     private val activePhotoRequests = mutableSetOf<String>()
     private val recentPhotoRequests = ArrayDeque<String>()
@@ -256,8 +257,11 @@ class PhotoCaptureService : Service() {
             return START_NOT_STICKY
         }
 
-        if (intent?.action == ACTION_PREPARE_CAMERA_FOREGROUND || AppVisibilityTracker.isVisible()) {
-            val primed = promoteToCameraForeground() && AppVisibilityTracker.isVisible()
+        val eligibleForCamera = AppVisibilityTracker.isVisible() ||
+            ru.example.parentwatch.management.ManagedDeviceAccess.isDeviceOwner(this) ||
+            AssistantRecoveryAccess.isSelected(this)
+        if (intent?.action == ACTION_PREPARE_CAMERA_FOREGROUND || eligibleForCamera) {
+            val primed = promoteToCameraForeground() && eligibleForCamera
             if (primed && !cameraForegroundPrimed) {
                 cameraForegroundPrimed = true
                 Log.i(TAG, "PhotoCaptureService camera access primed while app is visible")
@@ -710,7 +714,13 @@ class PhotoCaptureService : Service() {
         WebSocketManager.removeCommandListener(commandListener)
         listenersRegistered = false
         captureWatchdog?.cancel()
-        cameraService?.release()
+        // release() closes camera handles but does not deliver the capture callback.
+        // A stopped photo service must still release its temporary audio pause.
+        try {
+            cameraService?.release()
+        } finally {
+            resumeAudioAfterPhoto()
+        }
         cameraService = null
 
         serviceScope.cancel()
@@ -718,14 +728,21 @@ class PhotoCaptureService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
-    private fun pauseAudioForPhoto() {
-        LocationService.pauseAudioCaptureForPhoto(this)
-        AudioStreamingService.pauseCaptureForPhoto(this)
+    @Synchronized private fun pauseAudioForPhoto() {
+        audioPausedForPhoto = true
+        runCatching { LocationService.pauseAudioCaptureForPhoto(this) }
+            .onFailure { Log.w(TAG, "Could not pause location-service audio for photo", it) }
+        runCatching { AudioStreamingService.pauseCaptureForPhoto(this) }
+            .onFailure { Log.w(TAG, "Could not pause legacy audio for photo", it) }
     }
 
-    private fun resumeAudioAfterPhoto() {
-        LocationService.resumeAudioCaptureAfterPhoto(this)
-        AudioStreamingService.resumeCaptureAfterPhoto(this)
+    @Synchronized private fun resumeAudioAfterPhoto() {
+        if (!audioPausedForPhoto) return
+        audioPausedForPhoto = false
+        runCatching { LocationService.resumeAudioCaptureAfterPhoto(this) }
+            .onFailure { Log.w(TAG, "Could not resume location-service audio after photo", it) }
+        runCatching { AudioStreamingService.resumeCaptureAfterPhoto(this) }
+            .onFailure { Log.w(TAG, "Could not resume legacy audio after photo", it) }
     }
 
     private fun createNotificationChannel() {

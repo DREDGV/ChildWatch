@@ -661,7 +661,9 @@ class LocationService : Service() {
             return false
         }
         if (cameraForegroundPrimed) return true
-        if (!AppVisibilityTracker.isVisible()) {
+        if (!AppVisibilityTracker.isVisible() &&
+            !ru.example.parentwatch.management.ManagedDeviceAccess.isDeviceOwner(this) &&
+            !AssistantRecoveryAccess.isSelected(this)) {
             Log.d(TAG, "Camera foreground access not primed: no visible activity")
             return false
         }

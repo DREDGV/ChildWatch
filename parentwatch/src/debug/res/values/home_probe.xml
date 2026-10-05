@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_probe_name">ChildWatch — проверочный домашний экран</string>
+    <string name="home_probe_title">Мой телефон</string>
+    <string name="home_probe_monitoring">Мониторинг включён в ChildWatch</string>
+    <string name="home_probe_disabled">Мониторинг выключен в ChildWatch</string>
+    <string name="home_probe_family">Открыть ChildWatch</string>
+    <string name="home_probe_apps">Приложения</string>
+    <string name="home_probe_restore">Выбрать домашний экран</string>
+    <string name="home_probe_unavailable">Не удалось открыть приложение</string>
+    <string name="home_pilot_title">Восстановление после перезагрузки</string>
+    <string name="home_pilot_explanation">Проверочный домашний экран ChildWatch показывает приложения и восстанавливает ранее включённый мониторинг, когда Android выводит его на экран. Звук и фото запускаются обычными запросами родителя. Системный домашний экран выбираете вы.</string>
+    <string name="home_pilot_selected">Домашний экран ChildWatch выбран</string>
+    <string name="home_pilot_not_selected">Домашний экран ChildWatch пока не выбран</string>
+    <string name="home_pilot_session_present">Настройки подключения сохранены. Доставку данных ещё нужно проверить с родительского телефона.</string>
+    <string name="home_pilot_setup_needed">Сначала подключите этот телефон к семье в ChildWatch.</string>
+    <string name="home_pilot_choose">Выбрать домашний экран ChildWatch</string>
+    <string name="home_pilot_restore">Вернуть прежний домашний экран</string>
+    <string name="home_pilot_disable">Отключить проверочный режим</string>
+    <string name="home_pilot_restore_first">Сначала выберите прежний домашний экран в настройках Android.</string>
+    <string name="home_pilot_unlock">После перезагрузки потребуется обычное первое разблокирование телефона. Надёжность звука, фото и доставки в этом режиме ещё проверяем.</string>
+    <string name="home_pilot_settings">Настройка и возврат домашнего экрана</string>
+    <string name="home_pilot_services_active">Служба мониторинга запущена. Связь и звук проверяются с родительского телефона.</string>
+    <string name="home_pilot_recovery_pending">Восстанавливаем ранее включённый мониторинг…</string>
+    <string name="home_pilot_recovery_failed">Не удалось запустить службу. Откройте ChildWatch и проверьте разрешения.</string>
+</resources>
