@@ -23,7 +23,9 @@ async function save(db, deviceId, point) {
     [deviceId, timestamp, Number(point.latitude), Number(point.longitude), motion.speed, motion.accuracy]);
   if (Date.now() - (cleaned.get(db) || 0) > 5*60*1000) {
     cleaned.set(db, Date.now());
-    await db.run('DELETE FROM location_motion WHERE timestamp<?', [Date.now()-48*60*60*1000]);
+    // The window is the shared position policy (three months), not the former
+    // 48 hours: speed and accuracy belong to a fix that is still inside it.
+    await db.run('DELETE FROM location_motion WHERE timestamp<?', [require('./LocationRetention').cutoffFor()]);
   }
 }
 async function attach(db, forms, points) {

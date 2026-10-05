@@ -627,15 +627,26 @@ app.post(
           "unknown",
       });
 
-      // Save location to database
-      await dbManager.saveLocation(deviceId, {
-        latitude,
-        longitude,
-        accuracy,
-        timestamp,
-        speedMps: req.body.speedMps,
-        speedAccuracyMps: req.body.speedAccuracyMps,
-      });
+      // Save location to database. A fix from outside the retention window is not
+      // written at all: the next sweep would delete it immediately, and a parent
+      // reading history right now would watch a point appear and vanish again.
+      // The response stays successful on purpose — retrying a permanently
+      // out-of-window fix helps nobody.
+      const acceptance = require('./services/LocationRetention').acceptanceOf(timestamp);
+      if (acceptance.accepted) {
+        await dbManager.saveLocation(deviceId, {
+          latitude,
+          longitude,
+          accuracy,
+          timestamp,
+          speedMps: req.body.speedMps,
+          speedAccuracyMps: req.body.speedAccuracyMps,
+        });
+      } else {
+        console.warn(
+          `[${new Date().toISOString()}] Location from ${deviceId} refused: ${acceptance.code}`
+        );
+      }
 
       // Log activity
       await dbManager.logActivity(deviceId, {
@@ -1596,6 +1607,14 @@ app.use(authMiddleware.notFoundHandler());
 // Cleanup interval for streaming sessions
 setInterval(() => {
   commandManager.cleanup();
+  // Positional retention: pruneIfDue owns the interval (one sweep per hour), the
+  // deletes are batched, and nothing here runs on a request path.
+  require('./services/LocationRetention')
+    .pruneIfDue(dbManager)
+    .then((result) => {
+      if (result.swept) console.log('Location retention sweep', JSON.stringify(result.removed));
+    })
+    .catch((error) => console.error('Location retention sweep failed', error.message));
 }, 60000); // Every minute
 
 // Do not accept HTTP or WebSocket traffic before additive migrations and the

@@ -767,19 +767,14 @@ router.post("/parent/:parentId", async (req, res) => {
         });
       } catch (error) { console.error('Parent place notification processing failed', error.message); }
 
-      // Clean up old locations (keep last 1000)
+      // Parent fixes expire by TIME, not by count. The previous rule kept the
+      // newest 20 000 rows per parent, so the real window followed the upload rate
+      // (about 27.8 hours at one fix per five seconds) instead of the agreed three
+      // months, while the neighbouring comment still promised 1000 rows. The
+      // hourly sweep in LocationRetention drops what the time window drops anyway.
       await db.run(
-        `
-            DELETE FROM parent_locations 
-            WHERE parent_id = ? 
-            AND id NOT IN (
-                SELECT id FROM parent_locations 
-                WHERE parent_id = ? 
-                ORDER BY timestamp DESC 
-                LIMIT 20000
-            )
-        `,
-        [authorizedParentId, authorizedParentId]
+        `DELETE FROM parent_locations WHERE parent_id = ? AND timestamp < ?`,
+        [authorizedParentId, require('../services/LocationRetention').cutoffFor()]
       );
     });
 

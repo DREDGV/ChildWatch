@@ -76,12 +76,15 @@ class AuthMiddleware {
      * Middleware for rate limiting
      */
     rateLimit(windowMs = 60000, maxRequests = 60) {
+        // Each declared endpoint/group owns its budget. Location polling must
+        // not consume the camera, registration or token-refresh allowance.
+        const limiter = new DataValidator();
         return (req, res, next) => {
             try {
                 const identifier = req.deviceId || req.ip;
                 // The declared maximum is now enforced, not merely advertised in
                 // the X-RateLimit-Limit header as it used to be.
-                const rateLimit = this.validator.checkRateLimit(identifier, windowMs, maxRequests);
+                const rateLimit = limiter.checkRateLimit(identifier, windowMs, maxRequests);
                 
                 if (!rateLimit.allowed) {
                     res.set({

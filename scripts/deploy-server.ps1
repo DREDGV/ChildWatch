@@ -187,12 +187,34 @@ Say 'files replaced and they parse in place'
 
 $restart = @'
 set -e
-log_path=/home/adminuser/.pm2/logs/childwatch-out.log
-mark=$(wc -l < "$log_path" 2>/dev/null || echo 0)
+log_path=''
+for candidate in /home/adminuser/.pm2/logs/childwatch-out.log /home/adminuser/.pm2/logs/childwatch-out-0.log; do
+    if [ -r "$candidate" ]; then log_path=$candidate; break; fi
+    if sudo -n -iu adminuser test -r "$candidate" 2>/dev/null; then log_path=$candidate; break; fi
+done
+if [ -z "$log_path" ]; then echo 'no readable pm2 log was found; the restart is attempted below anyway'; fi
+count_lines() {
+    if [ -z "$log_path" ]; then echo 0; return; fi
+    value=$(wc -l < "$log_path" 2>/dev/null | tr -d ' \t\r\n' || true)
+    case "$value" in ''|*[!0-9]*) echo 0 ;; *) echo "$value" ;; esac
+}
+mark=$(count_lines)
+echo "--- log lines before the restart: $mark (${log_path:-none}) ---"
 sudo -iu adminuser pm2 restart childwatch --update-env
 sleep 15
-echo '--- the log while starting ---'
-tail -n +$((mark + 1)) "$log_path" 2>/dev/null | tail -n 80
+now=$(count_lines)
+echo "--- log lines after the restart: $now ---"
+if [ -z "$log_path" ]; then
+    echo 'nothing to show: no readable log file was found'
+elif [ "$now" -lt "$mark" ]; then
+    echo 'the log is shorter than before the restart (pm2 rotated it); showing the current tail'
+    tail -n 80 "$log_path"
+elif [ "$now" -eq "$mark" ]; then
+    echo 'the log did not grow yet; showing the current tail'
+    tail -n 40 "$log_path"
+else
+    tail -n +$((mark + 1)) "$log_path" | tail -n 80
+fi
 echo '--- the log is read ---'
 '@
 $restartResult = ($restart | & $ssh -i $key -o UserKnownHostsFile=$knownHosts -o ConnectTimeout=60 $server 'bash -s' 2>&1 | Out-String).Trim()
