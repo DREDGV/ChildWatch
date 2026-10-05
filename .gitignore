@@ -201,3 +201,7 @@ tmp-*
 # Local build snapshots and deployment bundles (source remains tracked).
 .runtime/
 releases/**/*.zip
+
+# Python helpers leave local bytecode beside their sources.
+__pycache__/
+*.py[cod]

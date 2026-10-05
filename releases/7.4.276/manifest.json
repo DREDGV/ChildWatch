@@ -1,0 +1,29 @@
+{
+    "schema":  1,
+    "generatedAt":  1790917276545,
+    "generatedBy":  "scripts\\stage-release.ps1",
+    "apps":  {
+                 "child":  {
+                               "packageName":  "ru.example.parentwatch.debug",
+                               "versionCode":  2000000276,
+                               "versionName":  "7.4.276-debug",
+                               "buildType":  "debug",
+                               "sizeBytes":  38087768,
+                               "sha256":  "8a1bf8523e2c5de175e4f7dcdc67ef6863f1fee061b518f02a89f5d44cf806fb",
+                               "file":  "ChildDevice-7.4.276-debug.apk",
+                               "signingCertSha256":  "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+                               "notes":  ""
+                           },
+                 "parent":  {
+                                "packageName":  "ru.example.childwatch",
+                                "versionCode":  2000000276,
+                                "versionName":  "7.4.276",
+                                "buildType":  "debug",
+                                "sizeBytes":  45258054,
+                                "sha256":  "31c2e89883add0dad2e166033bc4921d638c7b24423b8a24315813d5d411331a",
+                                "file":  "ParentMonitor-7.4.276.apk",
+                                "signingCertSha256":  "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+                                "notes":  ""
+                            }
+             }
+}
