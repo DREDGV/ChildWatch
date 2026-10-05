@@ -145,8 +145,8 @@
                 tools:text="Заряд: 62% · Точность: ±18 м · Обновлено: 40 сек назад" />
 
             <!-- The compact part above stays visible over the map. Details are
-                 revealed only after tapping the card, so they do not hide the
-                 actual location. Same behaviour as the parent application. -->
+            revealed only after tapping the card, so they do not hide the
+            actual location. Same behaviour as the parent application. -->
             <LinearLayout
                 android:id="@+id/mapPersonDetails"
                 android:layout_width="match_parent"
@@ -163,137 +163,137 @@
                     android:textAppearance="@style/TextAppearance.Material3.BodySmall"
                     android:textColor="@color/cw_color_on_surface_variant" />
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:contentDescription="@string/map_distance_label"
-                    android:src="@drawable/ic_distance"
-                    app:tint="@color/primary" />
-
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/map_distance_label"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="12sp" />
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:contentDescription="@string/map_distance_label"
+                        android:src="@drawable/ic_distance"
+                        app:tint="@color/primary" />
 
-                    <TextView
-                        android:id="@+id/distanceText"
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="@color/text_primary"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        tools:text="1.2 km" />
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/map_distance_label"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/distanceText"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="--"
+                            android:textColor="@color/text_primary"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            tools:text="1.2 km" />
+
+                    </LinearLayout>
 
                 </LinearLayout>
 
-            </LinearLayout>
-
-            <View
-                android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:layout_marginVertical="8dp"
-                android:background="@color/divider" />
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
-
-                <ImageView
-                    android:layout_width="24dp"
-                    android:layout_height="24dp"
-                    android:contentDescription="@string/map_eta_label"
-                    android:src="@drawable/ic_time"
-                    app:tint="@color/primary" />
+                <View
+                    android:layout_width="match_parent"
+                    android:layout_height="1dp"
+                    android:layout_marginVertical="8dp"
+                    android:background="@color/divider" />
 
                 <LinearLayout
-                    android:layout_width="0dp"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp"
-                    android:layout_weight="1"
-                    android:orientation="vertical">
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="@string/map_eta_label"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="12sp" />
+                    <ImageView
+                        android:layout_width="24dp"
+                        android:layout_height="24dp"
+                        android:contentDescription="@string/map_eta_label"
+                        android:src="@drawable/ic_time"
+                        app:tint="@color/primary" />
 
-                    <TextView
-                        android:id="@+id/etaText"
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:text="--"
-                        android:textColor="@color/text_primary"
-                        android:textSize="16sp"
-                        android:textStyle="bold"
-                        tools:text="~15 min" />
+                        android:layout_marginStart="12dp"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="@string/map_eta_label"
+                            android:textColor="@color/text_secondary"
+                            android:textSize="12sp" />
+
+                        <TextView
+                            android:id="@+id/etaText"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="--"
+                            android:textColor="@color/text_primary"
+                            android:textSize="16sp"
+                            android:textStyle="bold"
+                            tools:text="~15 min" />
+
+                    </LinearLayout>
 
                 </LinearLayout>
 
-            </LinearLayout>
+                <TextView
+                    android:id="@+id/movementStatusText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:textColor="@color/text_primary"
+                    android:textSize="15sp"
+                    android:textStyle="bold"
+                    tools:text="В движении" />
 
-            <TextView
-                android:id="@+id/movementStatusText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="8dp"
-                android:textColor="@color/text_primary"
-                android:textSize="15sp"
-                android:textStyle="bold"
-                tools:text="В движении" />
+                <TextView
+                    android:id="@+id/pointMetaText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:ellipsize="end"
+                    android:maxLines="1"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp"
+                    tools:text="Сервер | 40 сек назад | ±18 м | 62%" />
 
-            <TextView
-                android:id="@+id/pointMetaText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:ellipsize="end"
-                android:maxLines="1"
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp"
-                tools:text="Сервер | 40 сек назад | ±18 м | 62%" />
+                <TextView
+                    android:id="@+id/updateCadenceText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:gravity="start"
+                    android:text="@string/map_updated_every_30s"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="11sp" />
 
-            <TextView
-                android:id="@+id/updateCadenceText"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="4dp"
-                android:gravity="start"
-                android:text="@string/map_updated_every_30s"
-                android:textColor="@color/text_secondary"
-                android:textSize="11sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/timelineButton"
-                style="?attr/materialButtonOutlinedStyle"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="start"
-                android:layout_marginTop="8dp"
-                android:insetTop="0dp"
-                android:insetBottom="0dp"
-                android:minHeight="40dp"
-                android:text="@string/map_timeline_button"
-                app:icon="@drawable/ic_history" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/timelineButton"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="start"
+                    android:layout_marginTop="8dp"
+                    android:insetTop="0dp"
+                    android:insetBottom="0dp"
+                    android:minHeight="40dp"
+                    android:text="@string/map_timeline_button"
+                    app:icon="@drawable/ic_history" />
 
             </LinearLayout>
 
@@ -357,6 +357,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/map_live_mode_button"
+            app:backgroundTint="@color/cw_color_primary"
             android:textColor="@android:color/white"
             app:icon="@drawable/ic_time"
             app:iconTint="@android:color/white" />
@@ -372,69 +373,112 @@
             android:layout_height="wrap_content"
             android:contentDescription="@string/map_refresh"
             android:src="@drawable/ic_refresh"
+            app:backgroundTint="@color/cw_color_primary"
             app:tint="@android:color/white" />
 
     </LinearLayout>
 
     <LinearLayout
-        android:id="@+id/centerButtonsContainer"
-        android:layout_width="wrap_content"
+        android:id="@+id/bottomMapControls"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_gravity="end|bottom"
+        android:layout_gravity="bottom"
         android:layout_margin="16dp"
-        android:gravity="end"
         android:orientation="vertical">
-
-        <com.google.android.material.floatingactionbutton.FloatingActionButton
-            android:id="@+id/centerBothButton"
+        <LinearLayout
+            android:id="@+id/centerButtonsContainer"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
+            android:layout_gravity="end"
             android:layout_marginBottom="12dp"
-            android:contentDescription="@string/map_center_both"
-            android:src="@drawable/ic_distance"
-            app:fabSize="mini"
-            app:tint="@android:color/white" />
+            android:gravity="end"
+            android:orientation="vertical">
 
-        <com.google.android.material.floatingactionbutton.FloatingActionButton
-            android:id="@+id/centerMyButton"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="12dp"
-            android:contentDescription="@string/map_center_me"
-            android:src="@drawable/ic_parent_marker"
-            app:fabSize="mini"
-            app:tint="@android:color/white" />
+            <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+                android:id="@+id/centerBothButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:contentDescription="@string/map_center_both"
+                app:icon="@drawable/ic_distance"
+                android:text="@string/cw_map_focus_family"
+                android:textColor="@color/cw_color_on_primary"
+                android:minHeight="48dp"
+                android:minWidth="0dp"
+                android:singleLine="false"
+                android:paddingHorizontal="12dp"
+                app:backgroundTint="@color/cw_color_primary"
+                app:iconTint="@android:color/white" />
 
-        <com.google.android.material.floatingactionbutton.FloatingActionButton
-            android:id="@+id/centerOtherButton"
-            android:layout_width="wrap_content"
+            <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+                android:id="@+id/centerMyButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="12dp"
+                android:contentDescription="@string/map_center_me"
+                app:icon="@drawable/ic_parent_marker"
+                android:text="@string/cw_map_focus_me"
+                android:textColor="@color/cw_color_on_primary"
+                android:minHeight="48dp"
+                android:minWidth="0dp"
+                android:singleLine="false"
+                android:paddingHorizontal="12dp"
+                app:backgroundTint="@color/cw_color_primary"
+                app:iconTint="@android:color/white" />
+
+            <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+                android:id="@+id/centerOtherButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:contentDescription="@string/map_center_other"
+                app:icon="@drawable/ic_child_marker"
+                android:text="@string/cw_map_focus_selected"
+                android:textColor="@color/cw_color_on_primary"
+                android:minHeight="48dp"
+                android:minWidth="0dp"
+                android:singleLine="false"
+                android:paddingHorizontal="12dp"
+                app:backgroundTint="@color/cw_color_primary"
+                app:iconTint="@android:color/white" />
+        </LinearLayout>
+        <LinearLayout
+            android:id="@+id/bottomMapActions"
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:contentDescription="@string/map_center_other"
-            android:src="@drawable/ic_child_marker"
-            app:fabSize="mini"
-            app:tint="@android:color/white" />
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+            <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+                android:id="@+id/historyButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginHorizontal="4dp"
+                android:minWidth="0dp"
+                android:minHeight="48dp"
+                android:singleLine="false"
+                android:paddingHorizontal="8dp"
+                app:backgroundTint="@color/cw_color_primary"
+                android:text="@string/map_history_button"
+                android:textColor="@android:color/white"
+                app:icon="@drawable/ic_history"
+                app:iconTint="@android:color/white" />
+
+            <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
+                android:id="@+id/attentionSignalButton"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginHorizontal="4dp"
+                android:minWidth="0dp"
+                android:minHeight="48dp"
+                android:singleLine="false"
+                android:paddingHorizontal="8dp"
+                app:backgroundTint="@color/cw_color_primary"
+                android:text="Позвать"
+                android:textColor="@android:color/white"
+                app:icon="@android:drawable/ic_lock_idle_alarm"
+                app:iconTint="@android:color/white" />
+        </LinearLayout>
     </LinearLayout>
-
-    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/historyButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="end|bottom"
-        android:layout_margin="16dp"
-        android:text="@string/map_history_button"
-        android:textColor="@android:color/white"
-        app:icon="@drawable/ic_history"
-        app:iconTint="@android:color/white" />
-
-    <com.google.android.material.floatingactionbutton.ExtendedFloatingActionButton
-        android:id="@+id/attentionSignalButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center_horizontal|bottom"
-        android:layout_margin="16dp"
-        android:text="Позвать"
-        android:textColor="@android:color/white"
-        app:icon="@android:drawable/ic_lock_idle_alarm"
-        app:iconTint="@android:color/white" />
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

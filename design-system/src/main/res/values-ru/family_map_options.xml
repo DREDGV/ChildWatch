@@ -1,5 +1,10 @@
 <resources>
-    <string name="cw_map_view">Вид карты</string>
+    <string name="cw_map_view">Слои</string>
+    <string name="cw_map_hide_family">Скрыть ряд семьи</string>
+    <string name="cw_map_show_family">Показать ряд семьи</string>
+    <string name="cw_map_focus_family">Все</string>
+    <string name="cw_map_focus_me">Я</string>
+    <string name="cw_map_focus_selected">Выбранный</string>
     <string name="cw_map_distances">Расстояния до семьи · по прямой</string>
     <string name="cw_map_trails">След движения · последние 30 минут</string>
     <string name="cw_map_all_trails">Следы всех доступных членов семьи</string>

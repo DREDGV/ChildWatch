@@ -1,5 +1,10 @@
 <resources>
-    <string name="cw_map_view">Map view</string>
+    <string name="cw_map_view">Layers</string>
+    <string name="cw_map_hide_family">Hide family row</string>
+    <string name="cw_map_show_family">Show family row</string>
+    <string name="cw_map_focus_family">All</string>
+    <string name="cw_map_focus_me">Me</string>
+    <string name="cw_map_focus_selected">Selected</string>
     <string name="cw_map_distances">Distances to family · straight line</string>
     <string name="cw_map_trails">Show movement trails · last 30 minutes</string>
     <string name="cw_map_all_trails">Show trails for all available family members</string>

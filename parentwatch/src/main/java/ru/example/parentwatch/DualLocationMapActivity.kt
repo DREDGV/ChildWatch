@@ -297,6 +297,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         try {
             binding = ActivityDualLocationMapBinding.inflate(layoutInflater)
             setContentView(binding.root)
+            binding.root.viewTreeObserver.addOnGlobalLayoutListener { alignBottomMapControls() }
             binding.distanceText.visibility = if (mapOptions.distances()) View.VISIBLE else View.GONE
             binding.appBarLayout.addOnLayoutChangeListener { _, _, _, _, _, _, _, _, _ ->
                 positionMapControlsBelowHeader()
@@ -570,6 +571,50 @@ class DualLocationMapActivity : AppCompatActivity() {
         })
     }
 
+    private fun alignBottomMapControls() {
+        // Details and bottom actions must never occupy the same touch area.
+        // A vertical stack cannot fit between the header and actions in landscape.
+        val landscape = resources.configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE
+        val orientation = if (landscape) android.widget.LinearLayout.HORIZONTAL else android.widget.LinearLayout.VERTICAL
+        if (binding.centerButtonsContainer.orientation != orientation) binding.centerButtonsContainer.orientation = orientation
+        val centerParams = binding.centerButtonsContainer.layoutParams as? android.widget.LinearLayout.LayoutParams
+        val centerGravity = if (landscape) android.view.Gravity.CENTER_HORIZONTAL else android.view.Gravity.END
+        val centerWidth = if (landscape) android.view.ViewGroup.LayoutParams.MATCH_PARENT else android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+        if (centerParams != null && (centerParams.gravity != centerGravity || centerParams.width != centerWidth)) {
+            centerParams.gravity = centerGravity
+            centerParams.width = centerWidth
+            binding.centerButtonsContainer.layoutParams = centerParams
+        }
+        val gap = (12f * resources.displayMetrics.density).toInt()
+        for (index in 0 until binding.centerButtonsContainer.childCount) {
+            val button = binding.centerButtonsContainer.getChildAt(index)
+            val params = button.layoutParams as? android.widget.LinearLayout.LayoutParams ?: continue
+            val last = index == binding.centerButtonsContainer.childCount - 1
+            val bottomGap = if (!landscape && !last) gap else 0
+            val endGap = if (landscape && !last) gap else 0
+            val width = if (landscape) 0 else android.view.ViewGroup.LayoutParams.WRAP_CONTENT
+            val weight = if (landscape) 1f else 0f
+            if (params.bottomMargin != bottomGap || params.marginEnd != endGap || params.width != width || params.weight != weight) {
+                params.width = width
+                params.weight = weight
+                params.bottomMargin = bottomGap
+                params.marginEnd = endGap
+                button.layoutParams = params
+            }
+        }
+        val cardVisible = binding.statsCard.visibility == View.VISIBLE
+        val centers = if (cardVisible) View.GONE else View.VISIBLE
+        if (binding.centerButtonsContainer.visibility != centers) {
+            binding.centerButtonsContainer.visibility = centers
+        }
+        val params = binding.statsCard.layoutParams as? android.view.ViewGroup.MarginLayoutParams ?: return
+        val bottom = binding.bottomMapActions.height + (32f * resources.displayMetrics.density).toInt()
+        if (params.bottomMargin != bottom) {
+            params.bottomMargin = bottom
+            binding.statsCard.layoutParams = params
+        }
+    }
+
     private fun collapseStatsCard() {
         isStatsCardCollapsed = true
         isPersonDetailsExpanded = false
@@ -616,7 +661,10 @@ class DualLocationMapActivity : AppCompatActivity() {
             binding.centerBothButton.isEnabled = false
             binding.centerBothButton.alpha = 0.4f
         }
-        binding.centerBothButton.setOnClickListener { leaveHistory(); autoFitEnabled = true; updateAutoFitUi(); centerOnAvailable() }
+        binding.centerBothButton.setOnClickListener { leaveHistory(); autoFitEnabled = true; updateAutoFitUi()
+            val points = currentFamilyCandidates.map { GeoPoint(it.latitude, it.longitude) }
+            if (points.isNotEmpty()) safeZoomToBoundingBox(points, points.firstOrNull()) else centerOnAvailable()
+        }
         binding.centerMyButton.setOnClickListener { leaveHistory();
             autoFitEnabled = false
             updateAutoFitUi()
@@ -627,15 +675,18 @@ class DualLocationMapActivity : AppCompatActivity() {
         binding.centerOtherButton.setOnClickListener { leaveHistory();
             autoFitEnabled = false
             updateAutoFitUi()
-            if (!centerOnPoint(lastOtherPoint)) {
+            val selectedPoint = currentFamilyCandidates.firstOrNull {
+                it.memberId.ifBlank { it.deviceId } == selectedFamilyCandidateId
+            }?.let { GeoPoint(it.latitude, it.longitude) } ?: lastOtherPoint
+            if (!centerOnPoint(selectedPoint)) {
                 Toast.makeText(this, getString(R.string.map_other_location_not_available), Toast.LENGTH_SHORT).show()
             }
         }
     }
 
     private fun updateCenterIcons() {
-        binding.centerMyButton.setImageResource(resolveMyMarkerIconRes())
-        binding.centerOtherButton.setImageResource(resolveOtherMarkerIconRes())
+        binding.centerMyButton.setIconResource(resolveMyMarkerIconRes())
+        binding.centerOtherButton.setIconResource(resolveOtherMarkerIconRes())
     }
 
     private fun updateAutoFitUi() { binding.centerBothButton.alpha = if (autoFitEnabled && !isViewingHistory) 1.0f else 0.6f }
@@ -1240,6 +1291,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         val myIcon = resolveMyMarkerIconRes()
         val otherIcon = resolveOtherMarkerIconRes()
         myMarker = Marker(mapView).apply {
+            setInfoWindow(null) // Participant details use the closeable app card.
             position = GeoPoint(myLat, myLon)
             title = selfMarkerTitle()
             snippet = formatMarkerSnippet(getString(R.string.map_my_location), myTimestamp)
@@ -1253,6 +1305,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             )
         }
         otherMarker = Marker(mapView).apply {
+            setInfoWindow(null) // Participant details use the closeable app card.
             position = GeoPoint(otherLat, otherLon)
             title = otherMarkerTitle()
             snippet = formatMarkerSnippet(getString(R.string.map_other_location), otherTimestamp)
@@ -1316,6 +1369,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         connectionLine?.let { mapView.overlays.remove(it) }
         clearFamilyMarkers()
         myMarker = Marker(mapView).apply {
+            setInfoWindow(null) // Participant details use the closeable app card.
             position = GeoPoint(lat, lon)
             this.title = title
             snippet = formatMarkerSnippet(snippetLabel, timestamp)
@@ -1654,6 +1708,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         candidates.forEachIndexed { index, candidate ->
             val key = candidate.memberId.ifBlank { candidate.deviceId }
             val marker = Marker(mapView).apply {
+                setInfoWindow(null) // Participant details use the closeable app card.
                 position = truePoints[index]
                 title = candidate.title
                 snippet = formatMarkerSnippet(candidate.title, candidate.timestamp)
@@ -1720,6 +1775,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         binding.pointMetaText.text = buildPointMetaText(location)
         loadPersonAddress(location)
         binding.statsCard.visibility = if (isStatsCardCollapsed) View.GONE else View.VISIBLE
+        renderFamilyMotion()
     }
 
     private fun familySpeedText(id: String, time: Long?): String? {
@@ -1751,12 +1807,15 @@ class DualLocationMapActivity : AppCompatActivity() {
             },
             MapMemberStrip.AvatarBinder { view, avatar, name ->
                 FamilyAvatarRenderer.bind(view, avatar, name)
-            }
+            },
+            true,
+            selectedFamilyCandidateId
         ) { entry ->
             currentFamilyCandidates.firstOrNull {
                 it.memberId.ifBlank { it.deviceId } == entry.id
             }?.let(::selectFamilyCandidate)
         }
+        binding.familyStrip.visibility = if (mapOptions.familyVisible() && currentFamilyCandidates.isNotEmpty()) View.VISIBLE else View.GONE
         currentFamilyCandidates.firstOrNull { it.memberId.ifBlank { it.deviceId } == selectedFamilyCandidateId }?.let { binding.movementStatusText.text = familySpeedText(it.memberId.ifBlank { it.deviceId }, it.timestamp).orEmpty() }
     }
 
@@ -1984,15 +2043,37 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun resolveMovementStatusText(linkedLocation: ParentLocationData): Int {
-        val normalizedTimestamp = normalizeTimestampMillis(linkedLocation.timestamp)
-        if (normalizedTimestamp != null && isStale(normalizedTimestamp)) {
-            return R.string.map_stats_status_stale
-        }
+        val timestamp = normalizeTimestampMillis(linkedLocation.timestamp)
+            ?: return R.string.map_stats_status_unknown
+        val now = System.currentTimeMillis()
+        if (now - timestamp > 45_000L) return R.string.map_stats_motion_stale
 
-        val speed = linkedLocation.speed ?: 0f
+        // Match the current phone, not merely the selected person: an old phone's
+        // track must never supply movement for its replacement.
+        val motionId = familyMotionDevices.entries.firstOrNull {
+            it.value == linkedLocation.parentId
+        }?.key
+        val fixes = motionId?.let { familyTrailFixes[it] }.orEmpty()
+            .filter { it.timestampMs <= timestamp }.toMutableList()
+        val currentFix = MapRouteSegments.Fix(
+            linkedLocation.latitude, linkedLocation.longitude, timestamp,
+            linkedLocation.accuracy, linkedLocation.speedMps, linkedLocation.speedAccuracyMps
+        )
+        // Family cards omit sensor fields; retain the same fix's original quality.
+        val matchingFix = fixes.any {
+            it.timestampMs == timestamp && it.latitude == linkedLocation.latitude &&
+                it.longitude == linkedLocation.longitude && it.accuracyMeters == linkedLocation.accuracy
+        }
+        if (!matchingFix) {
+            fixes.removeAll { it.timestampMs == timestamp }
+            fixes += currentFix
+        }
+        val speedKmh = ru.example.childwatch.designsystem.MapSpeed.latest(
+            fixes.sortedBy { it.timestampMs }, timestamp, now
+        ) ?: return R.string.map_stats_status_unknown
         return when {
-            speed >= 6f -> R.string.map_stats_status_transit
-            speed >= MOVING_SPEED_THRESHOLD_MPS -> R.string.map_stats_status_moving
+            speedKmh >= 6f * 3.6 -> R.string.map_stats_status_transit
+            speedKmh >= MOVING_SPEED_THRESHOLD_MPS * 3.6 -> R.string.map_stats_status_moving
             else -> R.string.map_stats_status_stationary
         }
     }

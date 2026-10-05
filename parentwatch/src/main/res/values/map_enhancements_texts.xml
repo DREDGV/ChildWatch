@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="map_stats_status_unknown">Движение неизвестно</string>
+    <string name="map_stats_motion_stale">Движение: данные устарели</string>
     <string name="map_stats_status_stationary">&#x041D;&#x0430; &#x043C;&#x0435;&#x0441;&#x0442;&#x0435;</string>
     <string name="map_stats_status_moving">&#x0412; &#x0434;&#x0432;&#x0438;&#x0436;&#x0435;&#x043D;&#x0438;&#x0438;</string>
     <string name="map_stats_status_transit">&#x041F;&#x043E;&#x0445;&#x043E;&#x0436;&#x0435;, &#x0435;&#x0434;&#x0435;&#x0442;</string>
