@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "generatedAt": 1791226863004,
+  "generatedBy": "scripts\\stage-release.ps1",
+  "apps": {
+    "child": {
+      "packageName": "ru.example.parentwatch.debug",
+      "versionCode": 2000000288,
+      "versionName": "7.4.288-debug",
+      "buildType": "debug",
+      "sizeBytes": 38278696,
+      "sha256": "0a90875c2c252f9fe3e384d32760af0f791c68bf2ba384cf6fb5edf58758bd33",
+      "file": "ChildDevice-7.4.288-debug.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": "Улучшены восстановление звука, прочтение чата, управление картой и экраны семьи, активности и сигнала."
+    },
+    "parent": {
+      "packageName": "ru.example.childwatch",
+      "versionCode": 2000000288,
+      "versionName": "7.4.288",
+      "buildType": "debug",
+      "sizeBytes": 45398360,
+      "sha256": "f56b37dc7b497939864a36f53430a85d5a1c6f2bef92f8216fd3f4f358fb7575",
+      "file": "ParentMonitor-7.4.288.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": "Улучшены восстановление звука, прочтение чата, управление картой и экраны семьи, активности и сигнала."
+    }
+  }
+}
