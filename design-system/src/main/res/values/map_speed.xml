@@ -1,4 +1,6 @@
 <resources>
+ <string name="cw_map_speed_stale">Speed: outdated data</string>
+ <string name="cw_map_motion">Smooth avatar movement</string>
  <string name="cw_map_speeds">Show movement speed</string>
  <string name="cw_map_speed_colors">Colour trails by speed</string>
  <string name="cw_map_speed_value">≈ %1$d km/h</string>

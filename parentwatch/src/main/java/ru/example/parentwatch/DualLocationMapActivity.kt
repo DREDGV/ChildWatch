@@ -235,6 +235,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var liveModeUntilMs: Long = 0L
     private var lastLinkedSourceRes: Int? = null
     private val mapOptions by lazy { ru.example.childwatch.designsystem.FamilyMapOptions(this) }
+    private val markerMotion = ru.example.childwatch.designsystem.MapMarkerMotion()
     private val familyTrailJobs = mutableMapOf<String, Job>()
     private val familyTrailAllowed = mutableSetOf<String>()
     private var ownDistancePoint: ru.example.childwatch.designsystem.FamilyDistance.Point? = null
@@ -288,7 +289,8 @@ class DualLocationMapActivity : AppCompatActivity() {
         val avatarValue: String? = null,
         val accuracy: Float? = null,
         val speedMps: Float? = null,
-        val speedAccuracyMps: Float? = null
+        val speedAccuracyMps: Float? = null,
+        val batterySnapshot: ru.example.childwatch.designsystem.BatterySnapshot? = null
     )
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -463,6 +465,7 @@ class DualLocationMapActivity : AppCompatActivity() {
 
     override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
         mapOptions.install(binding.toolbar) {
+            markerMotion.clear()
             binding.distanceText.visibility = if (mapOptions.distances()) View.VISIBLE else View.GONE
             if (!mapOptions.trails() && !mapOptions.speeds()) familyTrailJobs.values.forEach { it.cancel() }
             renderFamilyMotion()
@@ -895,6 +898,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         if (target.isBlank()) return
         leaveHistory()
         collapseStatsCard()
+        markerMotion.clear()
         isViewingHistory = true
         historyBoundKey = target
         historyBoundServer = networkClient.resolveConfiguredServerUrl()
@@ -1525,7 +1529,8 @@ class DualLocationMapActivity : AppCompatActivity() {
                             role = location.role.ifBlank { ROLE_PARENT },
                             avatarValue = location.avatarKey,
                             accuracy = location.accuracy,
-                            speedMps = location.speedMps, speedAccuracyMps = location.speedAccuracyMps
+                            speedMps = location.speedMps, speedAccuracyMps = location.speedAccuracyMps,
+                            batterySnapshot = location.batterySnapshot
                         )
                     }
                 if (fromFamily.isNotEmpty()) return@withContext fromFamily
@@ -1693,6 +1698,10 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun placeFamilyMarkers(candidates: List<FamilyMarkerCandidate>) {
+        val motionScope = networkClient.resolveConfiguredServerUrl() + "\n" + ChildEffectiveContextResolver(this).resolveFamilyId().orEmpty()
+        val motionEnabled = mapOptions.motion() && !isViewingHistory &&
+            lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+        markerMotion.retain(candidates.mapTo(mutableSetOf()) { it.memberId.ifBlank { it.deviceId } })
         familyMarkers.values.forEach(mapView.overlays::remove)
         familyMarkers.clear()
         val icons = candidates.map { candidate ->
@@ -1721,6 +1730,13 @@ class DualLocationMapActivity : AppCompatActivity() {
             }
             familyMarkers[key] = marker
             mapView.overlays.add(marker)
+            markerMotion.update(motionScope, key,
+                ru.example.childwatch.designsystem.MapMarkerMotionPolicy.Fix(
+                    candidate.deviceId, candidate.latitude, candidate.longitude,
+                    candidate.timestamp?.let(::normalizeTimestampMillis) ?: 0L, (candidate.accuracy ?: 0f).toDouble()),
+                motionEnabled,
+                { latitude, longitude -> marker.position = GeoPoint(latitude, longitude) },
+                { mapView.invalidate() })
         }
         selectedFamilyCandidateId?.let { familyMarkers[it] }?.let { marker ->
             mapView.overlays.remove(marker)
@@ -1764,7 +1780,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             ?: getString(R.string.map_location_unavailable)
         binding.mapPersonSummaryText.text = getString(
             R.string.map_person_summary,
-            getString(R.string.map_person_battery_unknown), accuracy, updated
+            candidate.batterySnapshot?.label(this) ?: getString(R.string.map_person_battery_unknown), accuracy, updated
         )
         binding.mapPersonCoordinatesText.text = getString(
             R.string.map_person_coordinates, candidate.latitude, candidate.longitude
@@ -1781,6 +1797,8 @@ class DualLocationMapActivity : AppCompatActivity() {
     private fun familySpeedText(id: String, time: Long?): String? {
         if (!mapOptions.speeds()) return null
         val timestamp = time?.let(::normalizeTimestampMillis) ?: 0L
+        if (timestamp > 0L && System.currentTimeMillis() - timestamp > 45_000L)
+            return getString(ru.example.childwatch.designsystem.R.string.cw_map_speed_stale)
         val fixes = familyTrailFixes[id].orEmpty().sortedBy { it.timestampMs }
         val speed = ru.example.childwatch.designsystem.MapSpeed.latest(fixes, timestamp, System.currentTimeMillis())
         val measured = fixes.lastOrNull()?.takeIf { it.timestampMs == timestamp }?.let { ru.example.childwatch.designsystem.MapSpeed.measured(it) }
@@ -3035,6 +3053,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        markerMotion.clear()
         pickupController.pause()
         super.onPause()
         runCatching {
@@ -3048,6 +3067,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        markerMotion.clear()
         pickupController.dispose()
         leaveHistory()
         super.onDestroy()

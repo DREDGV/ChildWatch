@@ -1,0 +1,5 @@
+<resources>
+    <string name="cw_battery_charging"> · charging</string>
+    <string name="cw_battery_capture">%1$s · measured %2$s</string>
+    <string name="cw_battery_capture_stale">%1$s · outdated, measured %2$s</string>
+</resources>

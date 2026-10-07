@@ -13,6 +13,7 @@ public final class FamilyMapOptions {
     public boolean allTrails() { return prefs.getBoolean("all_trails", false); }
     public boolean speeds() { return prefs.getBoolean("speeds", true); }
     public boolean speedColors() { return prefs.getBoolean("speed_colors", true); }
+    public boolean motion() { return prefs.getBoolean("motion", true); }
     public boolean familyVisible() { return prefs.getBoolean("family_visible", true); }
     public void install(MaterialToolbar toolbar, Runnable changed) {
         toolbar.getMenu().removeItem(93243);
@@ -29,15 +30,17 @@ public final class FamilyMapOptions {
         layers.setShowAsAction(android.view.MenuItem.SHOW_AS_ACTION_IF_ROOM);
         layers.setOnMenuItemClickListener(item -> {
             Context context = toolbar.getContext();
-            boolean[] choices = {distances(), trails(), allTrails(), speeds(), speedColors()};
+            boolean[] choices = {distances(), trails(), allTrails(), speeds(), speedColors(), motion()};
             androidx.appcompat.app.AlertDialog options = new MaterialAlertDialogBuilder(context).setTitle(R.string.cw_map_view)
                 .setMultiChoiceItems(new String[]{context.getString(R.string.cw_map_distances),
                     context.getString(R.string.cw_map_trails), context.getString(R.string.cw_map_all_trails),
-                    context.getString(R.string.cw_map_speeds), context.getString(R.string.cw_map_speed_colors)}, choices,
+                    context.getString(R.string.cw_map_speeds), context.getString(R.string.cw_map_speed_colors),
+                    context.getString(R.string.cw_map_motion)}, choices,
                     (dialog, index, checked) -> choices[index] = checked)
                 .setPositiveButton(R.string.cw_map_apply, (dialog, which) -> {
                     prefs.edit().putBoolean("distances", choices[0]).putBoolean("trails", choices[1])
-                        .putBoolean("all_trails", choices[2]).putBoolean("speeds", choices[3]).putBoolean("speed_colors", choices[4]).apply(); changed.run();
+                        .putBoolean("all_trails", choices[2]).putBoolean("speeds", choices[3]).putBoolean("speed_colors", choices[4])
+                        .putBoolean("motion", choices[5]).apply(); changed.run();
                 }).setNeutralButton(R.string.cw_map_speed_legend_title, null)
                 .setNegativeButton(android.R.string.cancel, null).create();
             options.setOnShowListener(ignored -> options.getButton(android.content.DialogInterface.BUTTON_NEUTRAL)

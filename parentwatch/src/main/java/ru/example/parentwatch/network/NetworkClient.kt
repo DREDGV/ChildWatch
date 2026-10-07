@@ -587,6 +587,7 @@ class NetworkClient(private val context: Context, private val expectedPhotoScope
                                 longitude = item.getDouble("longitude"),
                                 accuracy = if (item.isNull("accuracy")) null else item.optDouble("accuracy").toFloat(),
                                 timestamp = item.getLong("timestamp"),
+                                batterySnapshot = ru.example.childwatch.designsystem.BatterySnapshot.fromFamilyPoint(item),
                                 speedMps = if (item.isNull("speedMps")) null else item.optDouble("speedMps").toFloat(),
                                 speedAccuracyMps = if (item.isNull("speedAccuracyMps")) null else item.optDouble("speedAccuracyMps").toFloat()
                             )
@@ -2456,7 +2457,8 @@ data class FamilyLiveLocation(
     val accuracy: Float?,
     val timestamp: Long,
     val speedMps: Float? = null,
-    val speedAccuracyMps: Float? = null
+    val speedAccuracyMps: Float? = null,
+    val batterySnapshot: ru.example.childwatch.designsystem.BatterySnapshot? = null
 )
 
 private fun JSONObject.toParentLocationData(fallbackId: String, idKey: String): ParentLocationData {

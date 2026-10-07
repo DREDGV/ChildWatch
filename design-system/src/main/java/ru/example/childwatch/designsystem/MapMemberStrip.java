@@ -143,11 +143,13 @@ public final class MapMemberStrip {
                 distance.setMaxLines(2);
                 tile.addView(distance);
             }
-            if (!compact && entry.speed != null) {
+            if (entry.speed != null && (!compact || selected)) {
                 TextView speed = new TextView(context);
                 speed.setText(entry.speed); speed.setTextSize(11f);
-                speed.setTextColor(context.getColor(R.color.cw_color_on_surface_variant));
-                speed.setGravity(Gravity.CENTER); speed.setMaxLines(2); tile.addView(speed);
+                speed.setTextColor(context.getColor(selected ? R.color.cw_color_primary : R.color.cw_color_on_surface_variant));
+                if (selected) speed.setTypeface(null, android.graphics.Typeface.BOLD);
+                if (compact) speed.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                speed.setGravity(Gravity.CENTER); speed.setMaxLines(compact ? 3 : 2); tile.addView(speed);
             }
             tile.setContentDescription(entry.name + ", " + entry.age + (entry.distance == null ? "" : ", " + entry.distance) + (entry.speed == null ? "" : ", " + entry.speed));
             if (compact) {

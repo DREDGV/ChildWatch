@@ -252,6 +252,11 @@ router.get("/family/latest", async (req, res) => {
           return null;
         }
       }
+      let battery = null;
+      try {
+        battery = await require('../services/FamilyBatterySnapshot').read(
+          sharedDatabase, latest.deviceId, deviceAccess.idForms(latest.deviceId), now);
+      } catch (error) { console.error('Family battery read failed', error.message); }
       return {
         memberId: member.id,
         displayName: member.displayName,
@@ -259,6 +264,7 @@ router.get("/family/latest", async (req, res) => {
         avatarKey: member.avatarKey,
         deviceId: latest.deviceId,
         ...latest.point,
+        battery,
       };
     }))).filter(Boolean);
 

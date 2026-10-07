@@ -277,6 +277,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
     private val serverPlaceOverlays = mutableListOf<Polygon>()
     private val mapOptions by lazy { ru.example.childwatch.designsystem.FamilyMapOptions(this) }
+    private val markerMotion = ru.example.childwatch.designsystem.MapMarkerMotion()
     private val familyTrailJobs = mutableMapOf<String, Job>()
     private val familyTrailAllowed = mutableSetOf<String>()
     private var ownDistancePoint: ru.example.childwatch.designsystem.FamilyDistance.Point? = null
@@ -544,6 +545,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     
     override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
         mapOptions.install(binding.toolbar) {
+            markerMotion.clear()
             binding.distanceText.visibility = if (mapOptions.distances()) View.VISIBLE else View.GONE
             if (!mapOptions.trails() && !mapOptions.speeds()) familyTrailJobs.values.forEach { it.cancel() }
             renderFamilyMotion()
@@ -1138,6 +1140,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         if (target.isBlank()) return
         leaveHistory()
         collapseStatsCard()
+        markerMotion.clear()
         isViewingHistory = true
         historyBoundKey = target
         historyBoundServer = networkClient.resolveConfiguredServerUrl()
@@ -2823,13 +2826,14 @@ class DualLocationMapActivity : AppCompatActivity() {
     private fun bindPersonLocationCard(
         displayName: String,
         avatarValue: String?,
-        location: ParentLocationData
+        location: ParentLocationData,
+        batterySnapshot: ru.example.childwatch.designsystem.BatterySnapshot? = null
     ) {
         binding.mapPersonName.text = displayName.trim().ifBlank { otherMarkerTitle() }
         FamilyAvatarRenderer.bind(binding.mapPersonAvatar, avatarValue)
         binding.mapPersonStatus.text = getString(resolveMovementStatusText(location))
 
-        val battery = location.battery?.takeIf { it in 0..100 }?.let { "$it%" }
+        val battery = batterySnapshot?.label(this) ?: location.battery?.takeIf { it in 0..100 }?.let { "$it%" }
             ?: getString(R.string.map_person_battery_unknown)
         val accuracy = location.accuracy.takeIf { it.isFinite() && it > 0f }?.let {
             getString(R.string.map_person_accuracy_meters, it.toInt().coerceAtLeast(1))
@@ -3153,6 +3157,10 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun placeFamilyMarkers(locations: List<FamilyLiveLocation>) {
+        val motionScope = networkClient.resolveConfiguredServerUrl() + "\n" + (ru.example.childwatch.profile.ParentEffectiveContextResolver(this).resolveFamilyId() ?: liveFamilyId).orEmpty()
+        val motionEnabled = mapOptions.motion() && !isViewingHistory &&
+            lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+        markerMotion.retain(locations.mapTo(mutableSetOf()) { it.memberId })
         contactMarkers.values.forEach(mapView.overlays::remove)
         contactMarkers.clear()
         val icons = locations.map { location ->
@@ -3180,6 +3188,13 @@ class DualLocationMapActivity : AppCompatActivity() {
             }
             contactMarkers[location.memberId] = marker
             mapView.overlays.add(marker)
+            markerMotion.update(motionScope, location.memberId,
+                ru.example.childwatch.designsystem.MapMarkerMotionPolicy.Fix(
+                    location.deviceId, location.latitude, location.longitude,
+                    normalizeTimestampMillis(location.timestamp) ?: 0L, (location.accuracy ?: 0f).toDouble()),
+                motionEnabled,
+                { latitude, longitude -> marker.position = GeoPoint(latitude, longitude) },
+                { mapView.invalidate() })
         }
         selectedFamilyMemberId?.let { contactMarkers[it] }?.let { marker ->
             mapView.overlays.remove(marker)
@@ -3222,7 +3237,7 @@ class DualLocationMapActivity : AppCompatActivity() {
                 it.timestamp, it.accuracy ?: 0f) } ?: ownDistancePoint,
             location.memberId == liveSelfMemberId || location.deviceId == myId)
         binding.etaText.text = "—"
-        bindPersonLocationCard(location.displayName, location.avatarKey, selected)
+        bindPersonLocationCard(location.displayName, location.avatarKey, selected, location.batterySnapshot)
         familyPlacesController.refresh()
         binding.movementStatusText.text = familySpeedText(location.memberId, location.timestamp).orEmpty()
         binding.pointMetaText.text = buildPointMetaText(selected)
@@ -3234,6 +3249,8 @@ class DualLocationMapActivity : AppCompatActivity() {
     private fun familySpeedText(id: String, time: Long?): String? {
         if (!mapOptions.speeds()) return null
         val timestamp = time?.let(::normalizeTimestampMillis) ?: 0L
+        if (timestamp > 0L && System.currentTimeMillis() - timestamp > 45_000L)
+            return getString(ru.example.childwatch.designsystem.R.string.cw_map_speed_stale)
         val fixes = familyTrailFixes[id].orEmpty().sortedBy { it.timestampMs }
         val speed = ru.example.childwatch.designsystem.MapSpeed.latest(fixes, timestamp, System.currentTimeMillis())
         val measured = fixes.lastOrNull()?.takeIf { it.timestampMs == timestamp }?.let { ru.example.childwatch.designsystem.MapSpeed.measured(it) }
@@ -3369,6 +3386,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun loadLegacyContactsLocations() {
+        markerMotion.clear()
         loadLocationsJob = lifecycleScope.launch {
             try {
                 val contacts = withContext(Dispatchers.IO) { database.childDao().getAll() }
@@ -3962,6 +3980,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
     
     override fun onPause() {
+        markerMotion.clear()
         pickupController.pause()
         super.onPause()
         if (::mapView.isInitialized) {
@@ -3973,6 +3992,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
     
     override fun onDestroy() {
+        markerMotion.clear()
         pickupController.dispose()
         leaveHistory()
         super.onDestroy()
