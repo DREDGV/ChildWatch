@@ -380,6 +380,11 @@ class ChatBackgroundService : LifecycleService() {
         // Cleanup and reinitialize WebSocket
         WebSocketManager.cleanup(preserveChatV2 = true)
         backgroundListenerRegistered = false
+        // Cleanup removes manager listeners. The service can outlive that transport,
+        // so cached handles must be recreated and registered for the new context.
+        // Otherwise a received request_photo silently has no capture dispatcher.
+        photoRequestListener = null
+        backgroundMessageSentListener = null
 
         // Use coroutine for delayed connection with retry logic
         reconnectInProgress = true
