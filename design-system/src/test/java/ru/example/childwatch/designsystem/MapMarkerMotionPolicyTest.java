@@ -39,4 +39,12 @@ public class MapMarkerMotionPolicyTest {
         assertEquals(180, Math.abs(middle), 0.000001);
         assertEquals(-179.9999, MapMarkerMotionPolicy.longitudeAt(179.9999, -179.9999, 1), .000001);
     }
+    @Test public void duplicateViewRenderIsNotANewMeasurement() {
+        assertTrue(MapMarkerMotionPolicy.sameMeasurement(fix("a", .001, 0, 3), fix("a", .001, 0, 3)));
+        assertFalse(MapMarkerMotionPolicy.sameMeasurement(fix("a", .001, 0, 3), fix("b", .001, 0, 3)));
+        assertFalse(MapMarkerMotionPolicy.sameMeasurement(fix("a", .001, 0, 3), fix("a", .001, 1, 3)));
+        assertFalse(MapMarkerMotionPolicy.sameMeasurement(fix("a", .001, 0, 3), fix("a", .002, 0, 3)));
+        assertFalse(MapMarkerMotionPolicy.sameMeasurement(fix("a", .001, 0, 3), fix("a", .001, 0, 4)));
+        assertFalse(MapMarkerMotionPolicy.sameMeasurement(null, fix("a", .001, 0, 3)));
+    }
 }

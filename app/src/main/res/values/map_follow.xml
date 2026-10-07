@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="map_follow_start">Следить</string>
+    <string name="map_follow_active">Следим</string>
+    <string name="map_follow_start_description">Следить за выбранным человеком на карте</string>
+    <string name="map_follow_stop_description">Отключить слежение за выбранным человеком</string>
+    <string name="map_follow_no_fresh_point">Выберите человека со свежим местоположением</string>
+</resources>

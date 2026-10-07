@@ -113,6 +113,19 @@
                         android:textColor="@color/cw_color_on_surface_variant" />
                 </LinearLayout>
 
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/mapPersonFollowButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:minWidth="0dp"
+                    android:minHeight="48dp"
+                    android:paddingHorizontal="8dp"
+                    android:text="@string/map_follow_start"
+                    android:textAllCaps="false"
+                    android:textSize="12sp"
+                    android:checkable="true"
+                    style="@style/Widget.MaterialComponents.Button.TextButton" />
+
                 <ImageButton
                     android:id="@+id/collapseStatsButton"
                     android:layout_width="48dp"

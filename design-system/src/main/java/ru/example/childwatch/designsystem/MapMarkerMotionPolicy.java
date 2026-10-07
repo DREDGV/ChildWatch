@@ -25,6 +25,14 @@ public final class MapMarkerMotionPolicy {
             && fix.timeMs > 0 && fix.timeMs <= now && now - fix.timeMs <= 45_000;
     }
 
+    public static boolean sameMeasurement(Fix first, Fix second) {
+        return first != null && second != null && first.deviceId != null
+            && first.deviceId.equals(second.deviceId) && first.timeMs == second.timeMs
+            && Double.compare(first.latitude, second.latitude) == 0
+            && Double.compare(first.longitude, second.longitude) == 0
+            && Double.compare(first.accuracy, second.accuracy) == 0;
+    }
+
     public static boolean shouldAnimate(Fix previous, Fix next, long now) {
         if (!usable(previous, now) || !usable(next, now)
                 || !previous.deviceId.equals(next.deviceId)) return false;

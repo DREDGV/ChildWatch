@@ -278,6 +278,10 @@ class DualLocationMapActivity : AppCompatActivity() {
     private val serverPlaceOverlays = mutableListOf<Polygon>()
     private val mapOptions by lazy { ru.example.childwatch.designsystem.FamilyMapOptions(this) }
     private val markerMotion = ru.example.childwatch.designsystem.MapMarkerMotion()
+    private val mapFollow = ru.example.childwatch.designsystem.MapFollowSelection()
+    private var followTouchX = 0f
+    private var followTouchY = 0f
+
     private val familyTrailJobs = mutableMapOf<String, Job>()
     private val familyTrailAllowed = mutableSetOf<String>()
     private var ownDistancePoint: ru.example.childwatch.designsystem.FamilyDistance.Point? = null
@@ -545,6 +549,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     
     override fun onCreateOptionsMenu(menu: android.view.Menu): Boolean {
         mapOptions.install(binding.toolbar) {
+            stopMapFollow()
             markerMotion.clear()
             binding.distanceText.visibility = if (mapOptions.distances()) View.VISIBLE else View.GONE
             if (!mapOptions.trails() && !mapOptions.speeds()) familyTrailJobs.values.forEach { it.cancel() }
@@ -682,6 +687,15 @@ class DualLocationMapActivity : AppCompatActivity() {
             })
 
             mapView.setOnTouchListener { _, event ->
+                if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+                    followTouchX = event.x; followTouchY = event.y
+                }
+                val slop = android.view.ViewConfiguration.get(this).scaledTouchSlop
+                if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN ||
+                    (event.actionMasked == MotionEvent.ACTION_MOVE &&
+                        (kotlin.math.abs(event.x - followTouchX) > slop || kotlin.math.abs(event.y - followTouchY) > slop))) {
+                    if (mapFollow.active()) stopMapFollow()
+                }
                 if (event.action == MotionEvent.ACTION_DOWN) { collapseStatsCard(); historyPanel?.hide() }
                 if (event.action == MotionEvent.ACTION_DOWN || event.action == MotionEvent.ACTION_MOVE) {
                     if (autoFitEnabled && !isViewingHistory) {
@@ -808,6 +822,65 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
     }
 
+    private data class FollowPoint(val member: String, val device: String, val latitude: Double, val longitude: Double, val time: Long)
+
+    private fun followScope(): String = networkClient.resolveConfiguredServerUrl() + "\n" + (ru.example.childwatch.profile.ParentEffectiveContextResolver(this).resolveFamilyId() ?: liveFamilyId).orEmpty()
+
+    private fun selectedFollowPoint(): FollowPoint? = currentFamilyLocations.firstOrNull { it.memberId == selectedFamilyMemberId }?.let {
+        FollowPoint(it.memberId, it.deviceId, it.latitude, it.longitude,
+            it.timestamp?.let(::normalizeTimestampMillis) ?: 0L)
+    }
+
+    private fun updateFollowUi() {
+        val text = if (mapFollow.active()) R.string.map_follow_active else R.string.map_follow_start
+        binding.centerOtherButton.setText(text)
+        binding.centerOtherButton.contentDescription = getString(if (mapFollow.active()) R.string.map_follow_stop_description else R.string.map_follow_start_description)
+        binding.mapPersonFollowButton.setText(text)
+        binding.mapPersonFollowButton.contentDescription = binding.centerOtherButton.contentDescription
+        binding.mapPersonFollowButton.isChecked = mapFollow.active()
+    }
+
+    private fun stopMapFollow() {
+        mapFollow.stop()
+        updateFollowUi()
+    }
+
+    private fun toggleMapFollow() {
+        if (mapFollow.active()) { stopMapFollow(); return }
+        val point = selectedFollowPoint()
+        if (point == null || !point.latitude.isFinite() || !point.longitude.isFinite() ||
+            !mapFollow.start(followScope(), point.member, point.device, point.time, System.currentTimeMillis())) {
+            Toast.makeText(this, R.string.map_follow_no_fresh_point, Toast.LENGTH_SHORT).show()
+            updateFollowUi()
+            return
+        }
+        leaveHistory()
+        collapseStatsCard()
+        autoFitEnabled = false
+        updateAutoFitUi()
+        updateFollowUi()
+        followMarkerPosition(point.member, point.device, point.latitude, point.longitude)
+    }
+
+    private fun refreshMapFollow() {
+        if (!mapFollow.active()) return
+        val point = selectedFollowPoint()
+        if (point == null || !mapFollow.refresh(followScope(), point.member, point.device, point.time, System.currentTimeMillis())) {
+            stopMapFollow()
+            return
+        }
+        val position = contactMarkers[point.member]?.position ?: GeoPoint(point.latitude, point.longitude)
+        followMarkerPosition(point.member, point.device, position.latitude, position.longitude)
+    }
+
+    private fun followMarkerPosition(member: String, device: String, latitude: Double, longitude: Double) {
+        if (!mapFollow.matches(followScope(), member, device) || isViewingHistory ||
+            !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return
+        val center = mapView.mapCenter
+        if (kotlin.math.abs(center.latitude - latitude) > 0.00000001 || kotlin.math.abs(center.longitude - longitude) > 0.00000001)
+            mapView.controller.setCenter(GeoPoint(latitude, longitude))
+    }
+
     private fun setupCenterButtons() {
         updateCenterIcons()
         updateAutoFitUi()
@@ -821,7 +894,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             binding.centerBothButton.alpha = 0.4f
         }
 
-        binding.centerBothButton.setOnClickListener { leaveHistory();
+        binding.centerBothButton.setOnClickListener { stopMapFollow(); leaveHistory();
             autoFitEnabled = true
             updateAutoFitUi()
             if (showAllContacts && familyLivePoints.isNotEmpty()) {
@@ -831,7 +904,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             }
         }
 
-        binding.centerMyButton.setOnClickListener { leaveHistory();
+        binding.centerMyButton.setOnClickListener { stopMapFollow(); leaveHistory();
             autoFitEnabled = false
             updateAutoFitUi()
             if (!centerOnPoint(lastMyPoint)) {
@@ -839,16 +912,9 @@ class DualLocationMapActivity : AppCompatActivity() {
             }
         }
 
-        binding.centerOtherButton.setOnClickListener { leaveHistory();
-            autoFitEnabled = false
-            updateAutoFitUi()
-            val selectedPoint = currentFamilyLocations.firstOrNull { it.memberId == selectedFamilyMemberId }
-                ?.let { GeoPoint(it.latitude, it.longitude) }
-                ?: lastOtherPoint.takeUnless { showAllContacts }
-            if (!centerOnPoint(selectedPoint)) {
-                Toast.makeText(this, getString(R.string.map_other_location_not_available), Toast.LENGTH_SHORT).show()
-            }
-        }
+        binding.centerOtherButton.setOnClickListener { toggleMapFollow() }
+        binding.mapPersonFollowButton.setOnClickListener { toggleMapFollow() }
+        updateFollowUi()
     }
 
     private fun updateCenterIcons() {
@@ -1141,6 +1207,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         leaveHistory()
         collapseStatsCard()
         markerMotion.clear()
+        stopMapFollow()
         isViewingHistory = true
         historyBoundKey = target
         historyBoundServer = networkClient.resolveConfiguredServerUrl()
@@ -3153,10 +3220,13 @@ class DualLocationMapActivity : AppCompatActivity() {
             familyInitiallyCentered = true
         }
         placeFamilyMarkers(visible)
+        refreshMapFollow()
         mapView.invalidate()
     }
 
     private fun placeFamilyMarkers(locations: List<FamilyLiveLocation>) {
+        if (mapFollow.active() && !locations.any { mapFollow.matches(followScope(), it.memberId, it.deviceId) }) stopMapFollow()
+        if (mapFollow.active()) refreshMapFollow()
         val motionScope = networkClient.resolveConfiguredServerUrl() + "\n" + (ru.example.childwatch.profile.ParentEffectiveContextResolver(this).resolveFamilyId() ?: liveFamilyId).orEmpty()
         val motionEnabled = mapOptions.motion() && !isViewingHistory &&
             lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
@@ -3170,7 +3240,7 @@ class DualLocationMapActivity : AppCompatActivity() {
                 ?: ContextCompat.getDrawable(this, ContactIcons.resolve(0, location.role))?.mutate()?.also {
                     DrawableCompat.setTint(it, accent)
                 }
-            MapAvatarIcon.create(this, portrait, accent, isStale(location.timestamp))
+            MapAvatarIcon.create(this, portrait, accent, isStale(location.timestamp), familyMarkerSpeedText(location.memberId, location.timestamp))
         }
         val truePoints = locations.map { GeoPoint(it.latitude, it.longitude) }
         locations.forEachIndexed { index, location ->
@@ -3193,7 +3263,10 @@ class DualLocationMapActivity : AppCompatActivity() {
                     location.deviceId, location.latitude, location.longitude,
                     normalizeTimestampMillis(location.timestamp) ?: 0L, (location.accuracy ?: 0f).toDouble()),
                 motionEnabled,
-                { latitude, longitude -> marker.position = GeoPoint(latitude, longitude) },
+                { latitude, longitude ->
+                    marker.position = GeoPoint(latitude, longitude)
+                    followMarkerPosition(location.memberId, location.deviceId, latitude, longitude)
+                },
                 { mapView.invalidate() })
         }
         selectedFamilyMemberId?.let { contactMarkers[it] }?.let { marker ->
@@ -3205,6 +3278,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     private fun selectFamilyLocation(location: FamilyLiveLocation, centerMap: Boolean = true) {
         if (centerMap) { leaveHistory(); expandStatsCard() }
         if (selectedFamilyMemberId != location.memberId) { historyRequestToken++; clearHistoryCursor() }
+        if (mapFollow.active() && !mapFollow.matches(followScope(), location.memberId, location.deviceId)) stopMapFollow()
         selectedFamilyMemberId = location.memberId
         binding.historyButton.visibility = View.VISIBLE
         updateTimelineButtonVisibility()
@@ -3246,19 +3320,45 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
 
+    private fun familySpeedValue(id: String, time: Long?): Pair<Double?, Boolean> {
+        val timestamp = time?.let(::normalizeTimestampMillis) ?: 0L
+        val now = System.currentTimeMillis()
+        if (timestamp <= 0L || timestamp > now || now - timestamp > 45_000L) return null to false
+        val point = currentFamilyLocations.firstOrNull { it.memberId == id &&
+            it.timestamp?.let(::normalizeTimestampMillis) == timestamp }
+        val direct = point?.let {
+            ru.example.childwatch.designsystem.MapSpeed.measured(
+                ru.example.childwatch.designsystem.MapRouteSegments.Fix(it.latitude, it.longitude, timestamp,
+                    it.accuracy ?: 0f, it.speedMps, it.speedAccuracyMps))
+        }
+        if (direct != null) return direct to true
+        val fixes = familyTrailFixes[id].orEmpty().sortedBy { it.timestampMs }
+        val speed = ru.example.childwatch.designsystem.MapSpeed.latest(fixes, timestamp, now)
+        val measured = fixes.lastOrNull()?.takeIf { it.timestampMs == timestamp }?.let { ru.example.childwatch.designsystem.MapSpeed.measured(it) }
+        // An overlapping GPS uncertainty area is not a measured stationary speed.
+        return (if (speed == 0.0 && measured == null) null else speed) to (measured != null)
+    }
+
+    private fun familyMarkerSpeedText(id: String, time: Long?): String? {
+        if (!mapOptions.speeds()) return null
+        val (speed, measured) = familySpeedValue(id, time)
+        return speed?.let {
+            if (measured) getString(ru.example.childwatch.designsystem.R.string.cw_map_speed_measured, Math.round(it))
+            else ru.example.childwatch.designsystem.MapSpeed.text(this, it)
+        }
+    }
+
     private fun familySpeedText(id: String, time: Long?): String? {
         if (!mapOptions.speeds()) return null
         val timestamp = time?.let(::normalizeTimestampMillis) ?: 0L
         if (timestamp > 0L && System.currentTimeMillis() - timestamp > 45_000L)
             return getString(ru.example.childwatch.designsystem.R.string.cw_map_speed_stale)
-        val fixes = familyTrailFixes[id].orEmpty().sortedBy { it.timestampMs }
-        val speed = ru.example.childwatch.designsystem.MapSpeed.latest(fixes, timestamp, System.currentTimeMillis())
-        val measured = fixes.lastOrNull()?.takeIf { it.timestampMs == timestamp }?.let { ru.example.childwatch.designsystem.MapSpeed.measured(it) }
-        return if (speed != null && measured != null) getString(ru.example.childwatch.designsystem.R.string.cw_map_speed_measured, Math.round(speed))
-            else ru.example.childwatch.designsystem.MapSpeed.text(this, speed)
+        return familyMarkerSpeedText(id, time) ?: getString(ru.example.childwatch.designsystem.R.string.cw_map_speed_unknown)
     }
 
     private fun renderFamilyMotion() {
+        mapView.removeCallbacks(repositionFamilyMarkers)
+        mapView.post(repositionFamilyMarkers)
         MapMemberStrip.render(
             binding.familyStripContent,
             currentFamilyLocations.map { location ->
@@ -3980,6 +4080,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
     
     override fun onPause() {
+        stopMapFollow()
         markerMotion.clear()
         pickupController.pause()
         super.onPause()
