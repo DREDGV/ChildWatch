@@ -1,0 +1,2 @@
+8bacd3f3a0e17babc03d5bdf83fea9a0f0aaec6e5a3601dca8ae74d66ed89f19  server/routes/location.js
+a35cd33932799094312b77f5a2e00308a3ba596374c4291f7a99b62ebeed3cce  server/services/FamilyBatterySnapshot.js

@@ -1,0 +1,3 @@
+9682cc242fc6ff5b88dd027282eedddce007a45638c1bacd0294a5e6cd643e47  manifest.json
+45c171dfc842b2af7a6edc16d38d521a87e178853ff36177d66b8fb6e771bb48  ParentMonitor-7.4.291.apk
+a86be324c5eb1c357f0c2bb6b2172e639e3176f6bbdb8dbc0da56007eb9009f0  ChildDevice-7.4.291-debug.apk
