@@ -132,7 +132,7 @@ function Invoke-Build {
                        else { 'no verdict in output' }
             Write-Stage ("gradle: {0} in {1} s" -f $verdict, [int]$sw.Elapsed.TotalSeconds)
             if ($verdict -ne 'BUILD SUCCESSFUL') {
-                ($text -split "`n") | Where-Object { $_ -match '^e: |error:|FAILURE' } |
+                ($text -split "`n") | Where-Object { $_ -match '^e: |error:|FAILURE' -or $verdict -eq 'no verdict in output' } |
                     Select-Object -First 20 | ForEach-Object { Write-Host ("    " + $_.Trim()) }
                 return $false
             }
