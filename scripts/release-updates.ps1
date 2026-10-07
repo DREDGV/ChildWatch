@@ -15,6 +15,7 @@
 
 param(
     [switch]$PreflightOnly,
+    [ValidateRange(0, 2100000000)]
     [int]$VersionCode = 0
 )
 
@@ -29,6 +30,7 @@ $ssh = Join-Path $env:SystemRoot 'System32\OpenSSH\ssh.exe'
 $scp = Join-Path $env:SystemRoot 'System32\OpenSSH\scp.exe'
 $publicBase = 'http://31.28.27.96:3000'
 . (Join-Path $PSScriptRoot 'update-version-guard.ps1')
+. (Join-Path $PSScriptRoot 'version-policy.ps1')
 $expectedFingerprint = '4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d'
 
 function Say($text) { Write-Host ("[{0}] {1}" -f (Get-Date -Format 'HH:mm:ss'), $text) }
@@ -70,21 +72,18 @@ function Read-PublishedManifest {
     catch { Stop-With 'published manifest is invalid JSON' }
 }
 $published = Read-PublishedManifest
-$highestCode = 0L
+$versionState = Get-CwVersionState $repo
+$highestCode = $versionState.issued
 foreach ($appName in @('parent', 'child')) {
     $code = 0L
     if (-not [long]::TryParse([string]$published.apps.$appName.versionCode, [ref]$code) -or $code -le 0) { Stop-With 'published version code is missing or invalid' }
     $highestCode = [Math]::Max($highestCode, $code)
 }
-Get-ChildItem (Join-Path $repo 'releases') -Filter manifest.json -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-    try { $local = Get-Content -LiteralPath $_.FullName -Raw | ConvertFrom-Json -ErrorAction Stop
-        foreach ($appName in @('parent', 'child')) { $code=0L; if ([long]::TryParse([string]$local.apps.$appName.versionCode,[ref]$code)) { $highestCode=[Math]::Max($highestCode,$code) } }
-    } catch { Stop-With 'a local release manifest is unreadable; choose a verified new number' }
-}
-if ($VersionCode -eq 0) {
-    if ($highestCode -ge 2147483647) { Stop-With 'version code limit reached' }
-    $VersionCode = [int]($highestCode + 1)
-} elseif ($VersionCode -le $highestCode) { Stop-With "requested code $VersionCode is not newer than staged/published $highestCode" }
+$versionState.issued = $highestCode
+try {
+    $requestedCode = if ($VersionCode -eq 0) { $null } else { $VersionCode }
+    $VersionCode = [int](Resolve-CwVersionCode $versionState $requestedCode)
+} catch { Stop-With $_.Exception.Message }
 Say "new explicit version code: $VersionCode"
 
 Head 'step 1 of 5: building both applications, signed with the project key'

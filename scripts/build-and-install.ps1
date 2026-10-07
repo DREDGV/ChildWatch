@@ -25,6 +25,7 @@ param(
 
     [string]$ConnectedChildSerial = '',
 
+    [ValidateRange(0, 2100000000)]
     [int]$VersionCode = 0,
 
     [ValidateSet('debug', 'release')]
@@ -34,14 +35,14 @@ param(
     [switch]$BuildOnly,
 
     # Seconds to allow one assemble invocation before it is called stuck.
-    [int]$BuildTimeoutSeconds = 420
+    [int]$BuildTimeoutSeconds = 900
 )
 
 $ErrorActionPreference = 'Continue'
 if ($BuildType -eq 'release' -and -not $InstallOnly) {
     throw 'Build a signed release with scripts/build-release.ps1, then use -InstallOnly -BuildType release.'
 }
-$repo = "C:\Users\dr-ed\ChildWatch"
+$repo = Split-Path -Parent $PSScriptRoot
 $sdkLine = Get-Content (Join-Path $repo "local.properties") | Where-Object { $_ -like 'sdk.dir=*' }
 $adb = Join-Path (($sdkLine -replace '^sdk.dir=', '').Replace('\\', '\')) 'platform-tools\adb.exe'
 

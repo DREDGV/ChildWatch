@@ -11,41 +11,31 @@ plugins {
 def versionBase = (findProperty("cwVersionBase") ?: "7.4").toString()
 def buildMoment = new Date()
 
-// ---------------------------------------------------------------------------
-// Version identity
-//
-// The NAME is what a person reads: 7.4.312 - short, and it only grows, because
-// the third number is how many commits the project has. The moment of the build
-// is still shown next to it on the main screens, so precision is not lost by
-// shortening the name.
-//
-// The CODE is what Android compares, and it must only ever grow. It used to be
-// the build moment in seconds, which broke as soon as one build was given a
-// hand-raised code: the phones then carried a larger number than this scheme
-// could produce for days, refused every later build as a downgrade, and no
-// update could be offered. A fixed high base plus the same growing number can
-// never collide with those codes again.
-// ---------------------------------------------------------------------------
+// A tracked issued floor plus staged/built/local reservations supersedes git
+// count. Configuration reads only; the safe runner reserves each APK build.
 def gitBuildNumber = {
     try {
         def text = providers.exec {
             commandLine 'git', 'rev-list', '--count', 'HEAD'
             ignoreExitValue = true
         }.standardOutput.asText.get().trim()
-        return text.isInteger() ? text.toInteger() : 0
+        return text.isLong() ? text.toLong() : 0L
     } catch (Exception ignored) {
-        return 0
+        return 0L
     }
 }()
-// Without git (a copy of the tree, a CI checkout without history) fall back to
-// the day and hour, which is still monotonic within any realistic release.
-def fallbackBuildNumber =
-    buildMoment.format("yyDDD").toInteger() * 100 + buildMoment.format("HH").toInteger()
-def buildNumber = gitBuildNumber > 0 ? gitBuildNumber : fallbackBuildNumber
-
-ext.cwVersionCode = (findProperty("cwVersionCode") ?: (2_000_000_000L + buildNumber)).toString().toInteger()
-def releaseNumber = findProperty("cwVersionCode") ? (ext.cwVersionCode - 2_000_000_000L) : buildNumber
-ext.cwVersionName = (findProperty("cwVersionName") ?: "${versionBase}.${releaseNumber}").toString()
+def versionPolicy = evaluate(file('scripts/version-policy.groovy'))
+def versionState = versionPolicy.readState(rootDir)
+def requestedCode = findProperty('cwVersionCode')
+def packagingRequested = gradle.startParameter.taskNames.any {
+    it.tokenize(':').last().toLowerCase() ==~ /.*(assemble|bundle|package|install|build).*/
+}
+// Inspection may select an old code; packaging never reuses a staged release.
+ext.cwVersionCode = (requestedCode != null && !packagingRequested
+    ? versionPolicy.validate(requestedCode, 'cwVersionCode')
+    : versionPolicy.resolve(versionState, gitBuildNumber, requestedCode)).toInteger()
+def releaseNumber = ext.cwVersionCode - 2_000_000_000L
+ext.cwVersionName = (findProperty('cwVersionName') ?: "${versionBase}.${releaseNumber}").toString()
 // The moment of the build, published into the application so a phone can say which
 // build it is running. The version name alone carries it in a compact form that
 // nobody can read at a glance.

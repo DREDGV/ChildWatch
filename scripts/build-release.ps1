@@ -20,6 +20,7 @@ param(
     # Build only one application. Both by default.
     [ValidateSet("both", "parent", "child")]
     [string]$Target = "both",
+    [ValidateRange(0, 2100000000)]
     [int]$VersionCode = 0
 )
 

@@ -72,6 +72,32 @@ try {
     }
 
     $effectiveArguments = @($GradleArguments)
+    # Reserve exactly once per packaging invocation, while this mutex also
+    # excludes the other app/build runner. Sync/compile/test remain read-only.
+    $packagingRequested = @($effectiveArguments | Where-Object {
+        -not $_.StartsWith('-') -and ($_ -split ':')[-1] -match '(?i)(assemble|bundle|package|install|build)'
+    }).Count -gt 0
+    if ($packagingRequested) {
+        . (Join-Path $PSScriptRoot 'version-policy.ps1')
+        $versionState = Get-CwVersionState $repoRoot
+        $requestedCode = $null
+        $remainingArguments = @()
+        for ($index = 0; $index -lt $effectiveArguments.Count; $index++) {
+            $argument = $effectiveArguments[$index]
+            if ($argument -eq '-P' -and $index + 1 -lt $effectiveArguments.Count -and $effectiveArguments[$index+1] -like 'cwVersionCode=*') {
+                $index++
+                $argument = '-P' + $effectiveArguments[$index]
+            }
+            if ($argument -like '-PcwVersionCode=*') {
+                if ($null -ne $requestedCode) { throw 'Pass cwVersionCode only once.' }
+                $requestedCode = $argument.Substring('-PcwVersionCode='.Length)
+            } else { $remainingArguments += $argument }
+        }
+        $resolvedCode = Resolve-CwVersionCode $versionState $requestedCode
+        Save-CwVersionReservation $repoRoot $resolvedCode
+        Write-Host "ChildWatch reserved versionCode=$resolvedCode for this packaging invocation"
+        $effectiveArguments = @($remainingArguments) + "-PcwVersionCode=$resolvedCode"
+    }
     if ($effectiveArguments -notcontains "--console=plain") {
         $effectiveArguments += "--console=plain"
     }
