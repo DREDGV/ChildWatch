@@ -48,3 +48,9 @@ into versioning, map telemetry/motion, home presentation and connection recovery
 parent SHA256: 45c171dfc842b2af7a6edc16d38d521a87e178853ff36177d66b8fb6e771bb48
 
 child SHA256: a86be324c5eb1c357f0c2bb6b2172e639e3176f6bbdb8dbc0da56007eb9009f0
+
+Git: source commits4f9102a, ba15a27,6dddb4b,12ae21e plus release
+docs38e0f12 pushed to origin/feat/family-profiles. Remote and local HEAD
+matched38e0f1217850df63127b9c5ca5073759ac3618bc; log:
+.runtime/release291-push-2026-10-07.log. Final status note is a subsequent
+documentation commit. This Git push does not publish APKs to the update server.
