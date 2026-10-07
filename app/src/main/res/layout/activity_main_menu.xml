@@ -18,22 +18,33 @@
                 <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/homeAttentionButton" android:text="@string/cw_home_attention_short" android:textAllCaps="false" android:minHeight="48dp" android:visibility="gone" android:textSize="12sp" style="@style/Widget.ChildWatch.Button.Secondary" android:layout_weight="1" />
             </LinearLayout>
             <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/childSelectionCard" android:layout_marginTop="6dp" style="@style/Widget.ChildWatch.Home.Card" app:cardCornerRadius="22dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical">
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/childSelectionContainer" android:orientation="horizontal" android:gravity="center_vertical" android:padding="12dp" android:minHeight="96dp" android:tag="homePerson">
-                    <com.google.android.material.imageview.ShapeableImageView android:layout_width="48dp" android:layout_height="48dp" android:id="@+id/selectedChildAvatar" android:scaleType="centerCrop" android:contentDescription="@string/cw_home_own_profile" app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.ChildWatch.Avatar" />
+                    <com.google.android.material.imageview.ShapeableImageView android:layout_width="56dp" android:layout_height="56dp" android:id="@+id/selectedChildAvatar" android:scaleType="centerCrop" android:contentDescription="@string/cw_home_own_profile" app:shapeAppearanceOverlay="@style/ShapeAppearanceOverlay.ChildWatch.Avatar" />
                     <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:layout_marginStart="12dp" android:orientation="vertical">
-                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/selectedChildName" android:textSize="22sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:maxLines="1" android:ellipsize="end" android:text="@string/main_select_contact_placeholder_title" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/selectedChildName" android:textSize="22sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:text="@string/main_select_contact_placeholder_title" />
                         <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/selectedChildDeviceId" android:textSize="12sp" android:layout_marginTop="3dp" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/home_selected_child_hint" />
-                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/selectedChildLocation" android:textSize="12sp" android:layout_marginTop="7dp" android:minLines="2" android:maxLines="2" android:ellipsize="end" android:visibility="invisible" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/family_location_unavailable" />
+                        <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/selectedChildLocation" android:textSize="12sp" android:layout_marginTop="7dp" android:minLines="2" android:visibility="invisible" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/family_location_unavailable" />
                     </LinearLayout>
                     <com.google.android.material.button.MaterialButton android:layout_width="48dp" android:layout_height="48dp" android:id="@+id/childSelectionEditIcon" android:text="" android:textAllCaps="false" android:minHeight="48dp" android:contentDescription="@string/main_child_card_button_hint" android:minWidth="0dp" android:padding="0dp" style="@style/Widget.ChildWatch.Button.Secondary" app:icon="@drawable/cw_home_edit" app:iconPadding="0dp" />
+                </LinearLayout>
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:paddingHorizontal="12dp" android:paddingBottom="12dp">
+                    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                        <ru.example.childwatch.designsystem.BatteryGaugeView android:id="@+id/selectedPhoneBatteryGauge" android:layout_width="84dp" android:layout_height="28dp" android:layout_marginEnd="10dp" android:importantForAccessibility="no" />
+                        <TextView android:id="@+id/selectedPhoneBatteryText" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:text="@string/home_phone_battery_unknown" android:textSize="14sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" />
+                        <com.google.android.material.button.MaterialButton android:id="@+id/diagnosticsToggleButton" android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginStart="8dp" android:text="@string/home_phone_details" android:textAllCaps="false" android:minHeight="48dp" android:maxLines="2" android:textSize="12sp" android:paddingHorizontal="8dp" android:minWidth="0dp" style="@style/Widget.MaterialComponents.Button.TextButton" />
+                    </LinearLayout>
+                    <TextView android:id="@+id/selectedPhoneUpdatedText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="3dp" android:text="@string/home_phone_data_loading" android:textSize="12sp" android:textColor="@color/cw_color_on_surface_variant" />
+                </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
             <ViewStub android:id="@+id/pickupHomeStub" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout="@layout/cw_pickup_home" />
             <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="14sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:layout_marginTop="10dp" android:text="@string/cw_home_actions" />
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
-                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/audioStreamingCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1" app:cardBackgroundColor="@color/cw_color_primary_container">
-                    <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
-                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+            <LinearLayout android:id="@+id/homeActions" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="vertical">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="horizontal" android:layout_marginTop="8dp">
+                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="match_parent" android:id="@+id/audioStreamingCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1" app:cardBackgroundColor="@color/cw_color_primary_container">
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_gravity="center_vertical">
                             <ImageView android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="9dp" android:importantForAccessibility="no" android:src="@drawable/cw_home_sound" app:tint="@color/cw_color_primary" />
                             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
                                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="15sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:maxLines="2" android:text="@string/cw_home_sound" />
@@ -42,9 +53,9 @@
                         </LinearLayout>
                     </FrameLayout>
                 </com.google.android.material.card.MaterialCardView>
-                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/remoteCameraCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1" android:layout_marginStart="8dp">
-                    <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
-                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="match_parent" android:id="@+id/remoteCameraCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1" android:layout_marginStart="8dp">
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_gravity="center_vertical">
                             <ImageView android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="9dp" android:importantForAccessibility="no" android:src="@drawable/cw_home_camera" app:tint="@color/cw_color_primary" />
                             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
                                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="15sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:maxLines="2" android:text="@string/home_action_photo" />
@@ -54,10 +65,10 @@
                     </FrameLayout>
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
-                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/chatCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1">
-                    <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
-                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="horizontal" android:layout_marginTop="8dp">
+                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="match_parent" android:id="@+id/chatCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1">
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_gravity="center_vertical">
                             <ImageView android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="9dp" android:importantForAccessibility="no" android:src="@drawable/cw_home_chat" app:tint="@color/cw_color_primary" />
                             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
                                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="15sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:maxLines="2" android:text="@string/home_action_chat" />
@@ -67,9 +78,9 @@
                         <TextView android:layout_width="20dp" android:layout_height="20dp" android:id="@+id/chatBadge" android:textSize="10sp" android:layout_gravity="end|top" android:gravity="center" android:background="@drawable/badge_background" android:textColor="@android:color/white" android:visibility="gone" />
                     </FrameLayout>
                 </com.google.android.material.card.MaterialCardView>
-                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/deviceUsageCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1" android:layout_marginStart="8dp">
-                    <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
-                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="match_parent" android:id="@+id/deviceUsageCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1" android:layout_marginStart="8dp">
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_gravity="center_vertical">
                             <ImageView android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="9dp" android:importantForAccessibility="no" android:src="@drawable/cw_home_usage" app:tint="@color/cw_color_primary" />
                             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
                                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="15sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:maxLines="2" android:text="@string/cw_home_usage" />
@@ -79,10 +90,10 @@
                     </FrameLayout>
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:layout_marginTop="6dp">
-                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/attentionSignalCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1">
-                    <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
-                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+            <LinearLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:orientation="horizontal" android:layout_marginTop="8dp">
+                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="match_parent" android:id="@+id/attentionSignalCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1">
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_gravity="center_vertical">
                             <ImageView android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="9dp" android:importantForAccessibility="no" android:src="@drawable/cw_home_bell" app:tint="@color/cw_color_primary" />
                             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
                                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="15sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:maxLines="2" android:text="@string/cw_home_signal" />
@@ -91,9 +102,9 @@
                         </LinearLayout>
                     </FrameLayout>
                 </com.google.android.material.card.MaterialCardView>
-                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/parentLocationCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1" android:layout_marginStart="8dp">
-                    <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
-                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                <com.google.android.material.card.MaterialCardView android:layout_width="0dp" android:layout_height="match_parent" android:id="@+id/parentLocationCard" style="@style/Widget.ChildWatch.Home.Card" android:layout_weight="1" android:layout_marginStart="8dp">
+                    <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent" android:padding="10dp" android:minHeight="64dp" android:tag="homeAction">
+                        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:layout_gravity="center_vertical">
                             <ImageView android:layout_width="28dp" android:layout_height="28dp" android:layout_marginEnd="9dp" android:importantForAccessibility="no" android:src="@drawable/cw_home_map" app:tint="@color/cw_color_primary" />
                             <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:orientation="vertical">
                                 <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="15sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:maxLines="2" android:text="@string/cw_home_map" />
@@ -102,6 +113,7 @@
                         </LinearLayout>
                     </FrameLayout>
                 </com.google.android.material.card.MaterialCardView>
+            </LinearLayout>
             </LinearLayout>
             <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/statusCard" android:layout_marginTop="10dp" style="@style/Widget.ChildWatch.Home.Card">
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="12dp" android:paddingVertical="6dp" android:tag="homeService">
@@ -113,8 +125,6 @@
                     <com.google.android.material.button.MaterialButton android:layout_width="48dp" android:layout_height="wrap_content" android:id="@+id/monitoringToggleBtn" android:text="" android:textAllCaps="false" android:minHeight="48dp" android:textSize="12sp" android:paddingHorizontal="10dp" android:minWidth="0dp" style="@style/Widget.ChildWatch.Button.Secondary" android:padding="0dp" android:contentDescription="@string/parent_service_start" app:icon="@drawable/cw_home_toggle_off" app:iconSize="40dp" app:iconPadding="0dp" app:iconTint="@null" app:strokeWidth="0dp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
-            <com.google.android.material.button.MaterialButton android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/diagnosticsToggleButton" android:text="@string/cw_home_details" android:textAllCaps="false" android:minHeight="48dp" android:textSize="13sp" android:gravity="center" android:layout_marginTop="6dp" style="@style/Widget.ChildWatch.Button.Secondary" app:icon="@drawable/cw_home_phone" app:iconGravity="textStart" android:maxLines="3" />
-            <Space android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
                 <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/appVersionText" android:textSize="10sp" android:layout_weight="1" android:maxLines="2" android:textColor="@color/cw_color_on_surface_variant" />
                 <com.google.android.material.button.MaterialButton android:layout_width="wrap_content" android:layout_height="wrap_content" android:id="@+id/checkUpdatesButton" android:text="@string/update_check_button" android:textAllCaps="false" android:minHeight="48dp" android:textSize="11sp" android:paddingHorizontal="4dp" android:minWidth="0dp" style="@style/Widget.MaterialComponents.Button.TextButton" />

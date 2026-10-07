@@ -9,6 +9,15 @@
     <string name="home_child_action_only">Фото, активность и звук вокруг доступны для ребёнка. Выберите ребёнка в семье.</string>
     <string name="home_selected_device_title">Телефон · %1$s</string>
     <string name="home_phone_state_summary">%1$s · %2$s\n%3$s</string>
+    <string name="home_phone_battery">Заряд · %1$s</string>
+    <string name="home_phone_charging">Заряжается · %1$s</string>
+    <string name="home_phone_battery_unknown">Заряд пока неизвестен</string>
+    <string name="home_phone_data_loading">Получаем данные телефона…</string>
+    <string name="home_phone_data_unavailable">Данные телефона недоступны</string>
+    <string name="home_phone_data_denied">Нет доступа к данным телефона</string>
+    <string name="home_phone_choose_person">Выберите человека в семье</string>
+    <string name="home_phone_details">Подробнее</string>
+    <string name="home_phone_details_accessibility">%1$s. %2$s. %3$s. Открыть состояние телефона</string>
     <string name="home_selected_last_app">Последнее приложение: %1$s</string>
     <string name="home_selected_time_unknown">Время сбора данных неизвестно</string>
     <string name="home_selected_access_denied">Семья не разрешила просмотр состояния этого телефона. Проверьте права участника.</string>

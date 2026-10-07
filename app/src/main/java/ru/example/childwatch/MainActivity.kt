@@ -329,12 +329,6 @@ class MainActivity : AppCompatActivity() {
                 binding.updateNoticeContainer, getString(R.string.cw_home_update_available)
             )
         }
-        binding.deviceInfoTitle.doAfterTextChanged {
-            binding.diagnosticsToggleButton.text = it?.toString().orEmpty()
-        }
-        binding.deviceInfoUpdatedValue.doAfterTextChanged {
-            binding.diagnosticsToggleButton.contentDescription = "${binding.deviceInfoTitle.text}. $it"
-        }
         binding.selectedChildLocation.doAfterTextChanged {
             binding.deviceInfoDistance.text = it?.toString().orEmpty()
             binding.deviceInfoDistance.isVisible = binding.selectedChildLocation.isVisible
@@ -1402,6 +1396,7 @@ class MainActivity : AppCompatActivity() {
             statusRequestGeneration++
             deviceStatusJob?.cancel()
             latestDeviceStatus = null
+            resetSelectedPhoneSummary()
             lastStatusFetchTime = 0L
             statusDeviceId = childDeviceId
         }
@@ -1409,6 +1404,7 @@ class MainActivity : AppCompatActivity() {
         if (cachedStatus != null) {
             applyDeviceStatus(cachedStatus)
         } else {
+            resetSelectedPhoneSummary()
             binding.deviceInfoStatusMessage.text = getString(R.string.device_info_loading)
             binding.deviceInfoStatusMessage.isVisible = true
             binding.deviceInfoContent.isVisible = false
@@ -1547,16 +1543,34 @@ class MainActivity : AppCompatActivity() {
         } else {
             getString(R.string.home_selected_time_unknown)
         }
-        binding.diagnosticsToggleButton.text = getString(
-            R.string.home_phone_state_summary, binding.deviceInfoTitle.text,
-            batterySummary, binding.deviceInfoUpdatedValue.text
-        )
-        binding.diagnosticsToggleButton.contentDescription = binding.diagnosticsToggleButton.text
+        binding.selectedPhoneBatteryText.text = if (status.batteryLevel?.let { it in 0..100 } == true) {
+            getString(if (status.isCharging == true) R.string.home_phone_charging else R.string.home_phone_battery,
+                batterySummary)
+        } else getString(R.string.home_phone_battery_unknown)
+        binding.selectedPhoneBatteryGauge.setState(status.batteryLevel, status.isCharging == true,
+            statusTimestamp != null && !isStale && statusTimestamp <= System.currentTimeMillis())
+        binding.selectedPhoneUpdatedText.text = binding.deviceInfoUpdatedValue.text
+        updateSelectedPhoneDescription()
 
         latestDeviceStatus = status
     }
 
+    private fun resetSelectedPhoneSummary(messageRes: Int = R.string.home_phone_data_loading) {
+        binding.selectedPhoneBatteryText.setText(R.string.home_phone_battery_unknown)
+        binding.selectedPhoneBatteryGauge.setState(null, false, false)
+        binding.selectedPhoneUpdatedText.setText(messageRes)
+        updateSelectedPhoneDescription()
+    }
+
+    private fun updateSelectedPhoneDescription() {
+        binding.diagnosticsToggleButton.contentDescription = getString(
+            R.string.home_phone_details_accessibility, binding.selectedChildName.text,
+            binding.selectedPhoneBatteryText.text, binding.selectedPhoneUpdatedText.text)
+    }
+
     private fun showDeviceInfoMessage(message: String) {
+        resetSelectedPhoneSummary(if (message == getString(R.string.home_selected_access_denied))
+            R.string.home_phone_data_denied else R.string.home_phone_data_unavailable)
         binding.deviceInfoContent.isVisible = false
         binding.deviceInfoProgress.isVisible = false
         binding.deviceInfoStatusMessage.isVisible = true
@@ -1594,6 +1608,7 @@ class MainActivity : AppCompatActivity() {
             statusRequestGeneration++
             deviceStatusJob?.cancel()
             latestDeviceStatus = null
+            resetSelectedPhoneSummary()
             statusDeviceId = childDeviceId
             lastStatusFetchTime = 0L
             binding.deviceInfoContent.isVisible = false
@@ -2281,6 +2296,7 @@ class MainActivity : AppCompatActivity() {
             binding.deviceInfoDistance.isVisible = false
             binding.selectedChildName.text = getString(R.string.main_select_contact_placeholder_title)
             binding.selectedChildDeviceId.text = getString(R.string.main_select_contact_placeholder_subtitle)
+            resetSelectedPhoneSummary(R.string.home_phone_choose_person)
             binding.selectedChildAvatar.setImageResource(ContactIcons.resolve(0, "child"))
             selectedHomeAvatarIdentity = null
             selectedPersonAvatarValue = null
