@@ -1,9 +1,15 @@
 package ru.example.parentwatch.network
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.util.Log
 import org.json.JSONObject
 import ru.childwatch.shared.attention.AttentionSignalContract
+import ru.childwatch.shared.audio.TransportRecoveryPolicy
 import ru.example.parentwatch.chat.ChatMessage
 
 /**
@@ -17,6 +23,48 @@ object WebSocketManager {
     private var isInitialized = false
     private var currentServerUrl: String? = null
     private var currentDeviceId: String? = null
+    private var applicationContext: Context? = null
+    private var networkRecovery: DefaultNetworkRecoveryObserver? = null
+    private var connectionRequested = false
+    private val recoveryHandler = Handler(Looper.getMainLooper())
+    private var healthCheck: Runnable? = null
+
+    // A transport rebuild preserves command listeners and recording intent.
+    // It never restarts LocationService, changes permissions, or starts capture.
+    private fun startHealthCheck() {
+        if (healthCheck != null) return
+        val expectedClient = webSocketClient ?: return
+        val policy = TransportRecoveryPolicy(SystemClock.elapsedRealtime())
+        var lastProbeAt = 0L
+        healthCheck = object : Runnable {
+            override fun run() {
+                synchronized(WebSocketManager) {
+                    if (!connectionRequested || webSocketClient !== expectedClient || healthCheck !== this) return
+                    val now = SystemClock.elapsedRealtime()
+                    val cm = applicationContext?.getSystemService(ConnectivityManager::class.java)
+                    val caps = cm?.activeNetwork?.let(cm::getNetworkCapabilities)
+                    val usable = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) == true &&
+                        caps.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                    if (usable && expectedClient.isConnected() && now - lastProbeAt >= 25_000L) {
+                        expectedClient.sendPing()
+                        lastProbeAt = now
+                    }
+                    if (policy.shouldRecover(now, connectionRequested, usable,
+                            expectedClient.isReady(), expectedClient.serverPongElapsedRealtime())) {
+                        Log.w(TAG, "Server liveness/registration deadline missed; rebuilding shared transport")
+                        expectedClient.disconnect()
+                        connect(onError = { Log.w(TAG, "Automatic transport recovery failed: $it") })
+                    }
+                    recoveryHandler.postDelayed(this, 5_000L)
+                }
+            }
+        }.also { recoveryHandler.postDelayed(it, 5_000L) }
+    }
+
+    private fun stopHealthCheck() {
+        healthCheck?.let(recoveryHandler::removeCallbacks)
+        healthCheck = null
+    }
     // Legacy single callback for backward compatibility
     private var chatMessageCallback: ((String, String, String, Long) -> Unit)? = null
     // Multiple listeners support (service + activities) - синхронизация с app/
@@ -73,6 +121,7 @@ object WebSocketManager {
      */
     private var missedMessagesCallback: ((List<ChatMessage>) -> Unit)? = null
 
+    @Synchronized
     fun initialize(context: Context, serverUrl: String, childDeviceId: String, onMissedMessages: ((List<ChatMessage>) -> Unit)? = null) {
         if (isInitialized && webSocketClient != null) {
             if (currentServerUrl == serverUrl && currentDeviceId == childDeviceId) {
@@ -118,11 +167,13 @@ object WebSocketManager {
         isInitialized = true
         currentServerUrl = serverUrl
         currentDeviceId = childDeviceId
+        applicationContext = context.applicationContext
     }
 
     /**
      * Connect to WebSocket server
      */
+    @Synchronized
     fun connect(onConnected: () -> Unit = {}, onError: (String) -> Unit = {}) {
         if (!isInitialized) {
             Log.e(TAG, "WebSocket not initialized. Call initialize() first")
@@ -130,6 +181,21 @@ object WebSocketManager {
             return
         }
 
+        connectionRequested = true
+        startHealthCheck()
+        if (networkRecovery == null) {
+            val expectedClient = webSocketClient
+            applicationContext?.let { context ->
+                networkRecovery = DefaultNetworkRecoveryObserver(context) {
+                    synchronized(WebSocketManager) {
+                        if (connectionRequested && isInitialized && webSocketClient === expectedClient) {
+                            expectedClient?.disconnect()
+                            connect(onError = { Log.w(TAG, "Default route recovery failed: $it") })
+                        }
+                    }
+                }.also { it.start() }
+            }
+        }
         webSocketClient?.apply {
             // Ensure dispatching callback is set on each connect
             setChatMessageCallback { id, text, sender, ts ->
@@ -185,6 +251,7 @@ object WebSocketManager {
      * Rebuild the socket after HTTP registration or token rotation so the next
      * Socket.IO handshake always uses the latest persisted credential.
      */
+    @Synchronized
     fun reconnectWithCurrentAuth(
         onReady: () -> Unit = {},
         onError: (String) -> Unit = {}
@@ -207,7 +274,12 @@ object WebSocketManager {
     /**
      * Disconnect from WebSocket server
      */
+    @Synchronized
     fun disconnect() {
+        connectionRequested = false
+        stopHealthCheck()
+        networkRecovery?.close()
+        networkRecovery = null
         webSocketClient?.disconnect()
     }
 
@@ -492,7 +564,13 @@ object WebSocketManager {
     /**
      * Cleanup resources
      */
+    @Synchronized
     fun cleanup(preserveChatV2: Boolean = false) {
+        connectionRequested = false
+        stopHealthCheck()
+        networkRecovery?.close()
+        networkRecovery = null
+        applicationContext = null
         webSocketClient?.cleanup()
         webSocketClient = null
         isInitialized = false

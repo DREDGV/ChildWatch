@@ -65,6 +65,18 @@
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:padding="12dp" android:orientation="vertical">
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="13sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" android:text="@string/cw_home_phone_link" />
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/childConnectionText" android:textSize="12sp" android:layout_marginTop="4dp" android:maxLines="2" android:textColor="@color/cw_color_on_surface_variant" android:text="@string/cw_home_child_stopped" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/restartConnectionButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:minHeight="48dp"
+                        android:text="@string/home_restart_connection"
+                        android:textAllCaps="false"
+                        style="@style/Widget.ChildWatch.Button.Secondary" />
+                    <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="@string/home_restart_parent_pin_hint" android:textSize="12sp"
+                        android:textColor="@color/cw_color_on_surface_variant" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
             <Space android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />

@@ -462,6 +462,9 @@ class MainActivity : AppCompatActivity() {
             promptSettingsAccess()
         }
         findViewById<View>(R.id.childConnectionCard).setOnClickListener { promptSettingsAccess() }
+        findViewById<MaterialButton>(R.id.restartConnectionButton).setOnClickListener {
+            promptConnectionRestart()
+        }
         findViewById<View>(R.id.childHomePersonCard).setOnClickListener {
             findViewById<View>(R.id.parentLocationCard).performClick()
         }
@@ -499,6 +502,60 @@ class MainActivity : AppCompatActivity() {
     private fun openSettings() {
         val intent = Intent(this, SettingsActivity::class.java)
         startActivity(intent)
+    }
+
+    /** Reuse the parent's existing settings PIN; this action cannot create its own PIN. */
+    private fun promptConnectionRestart() {
+        val savedPin = prefs.getString("settings_pin_hash", null)
+        if (savedPin.isNullOrBlank()) {
+            Toast.makeText(this, R.string.home_restart_pin_missing, Toast.LENGTH_LONG).show()
+            return
+        }
+        promptEnterPin(title = getString(R.string.home_restart_pin_title)) { verified ->
+            if (!verified || prefs.getString("settings_pin_hash", null) != savedPin) {
+                Toast.makeText(this, R.string.home_restart_wrong_pin, Toast.LENGTH_SHORT).show()
+                return@promptEnterPin
+            }
+            restartConnectionAfterParentAccess()
+        }
+    }
+
+    private fun restartConnectionAfterParentAccess() {
+        if (!ru.example.parentwatch.service.MonitoringRecovery.isDesired(this)) {
+            Toast.makeText(this, R.string.home_restart_monitoring_off, Toast.LENGTH_LONG).show()
+            return
+        }
+        val session = sessionStore.resolveEffectiveContext()
+        if (session?.serverUrl.isNullOrBlank() || session?.ownChildDeviceId.isNullOrBlank()) {
+            Toast.makeText(this, R.string.home_restart_not_configured, Toast.LENGTH_LONG).show()
+            return
+        }
+        val button = findViewById<MaterialButton>(R.id.restartConnectionButton)
+        if (!button.isEnabled) return
+        button.isEnabled = false
+        button.setText(R.string.home_restart_in_progress)
+        lifecycleScope.launch {
+            try {
+                profileRuntimeCoordinator.refreshRuntime(monitoringEnabled = true)
+                // Foreground-service promotion is asynchronous, as in ordinary MainActivity start.
+                delay(600L)
+                if (!isFinishing && screenVisible) {
+                    LocationService.retryAudioAfterForeground(this@MainActivity)
+                    ensurePhotoCaptureService()
+                    isServiceRunning = LocationService.isServiceAlive
+                    updateUI()
+                    Toast.makeText(this@MainActivity, R.string.home_restart_requested, Toast.LENGTH_LONG).show()
+                }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Log.w("MainActivity", "Protected connection restart failed", error)
+                Toast.makeText(this@MainActivity, R.string.home_restart_failed, Toast.LENGTH_LONG).show()
+            } finally {
+                button.isEnabled = true
+                button.setText(R.string.home_restart_connection)
+            }
+        }
     }
 
     // openRemoteCamera() removed: remote camera is a ParentMonitor feature
@@ -555,13 +612,16 @@ class MainActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun promptEnterPin(onResult: (Boolean) -> Unit) {
+    private fun promptEnterPin(
+        title: String = "Введите PIN для доступа к настройкам",
+        onResult: (Boolean) -> Unit
+    ) {
         val input = EditText(this).apply {
             inputType = android.text.InputType.TYPE_CLASS_NUMBER or android.text.InputType.TYPE_NUMBER_VARIATION_PASSWORD
             hint = "Введите PIN"
         }
         AlertDialog.Builder(this)
-            .setTitle("Введите PIN для доступа к настройкам")
+            .setTitle(title)
             .setView(input)
             .setPositiveButton("ОК") { _, _ ->
                 val pin = input.text?.toString()?.trim().orEmpty()

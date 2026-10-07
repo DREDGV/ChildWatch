@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="home_restart_connection">Перезапустить связь</string>
+    <string name="home_restart_parent_pin_hint">Только с PIN родителя</string>
+    <string name="home_restart_pin_title">PIN родителя для перезапуска</string>
+    <string name="home_restart_pin_missing">Перезапуск защищён PIN. Родителю нужно сначала настроить PIN доступа к настройкам.</string>
+    <string name="home_restart_monitoring_off">Мониторинг выключен. Родитель может включить его в настройках.</string>
+    <string name="home_restart_not_configured">Подключение ещё не настроено. Родителю нужно проверить профиль и адрес сервера в настройках.</string>
+    <string name="home_restart_in_progress">Перезапуск…</string>
+    <string name="home_restart_requested">Перезапуск мониторинга запрошен. Подключение может занять некоторое время.</string>
+    <string name="home_restart_failed">Не удалось перезапустить мониторинг. Проверьте настройки и разрешения.</string>
+    <string name="home_restart_wrong_pin">Неверный PIN. Связь не перезапущена.</string>
+</resources>

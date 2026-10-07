@@ -1,6 +1,7 @@
 package ru.example.parentwatch.network
 
 import android.content.Context
+import android.os.SystemClock
 import android.util.Log
 import android.util.Base64
 import io.socket.client.IO
@@ -29,9 +30,12 @@ class WebSocketClient(
     context: Context? = null
 ) {
     private var socket: Socket? = null
-    private var isConnected = false
+    @Volatile private var isConnected = false
     private var isConnecting = false
-    private var isRegistered = false
+    @Volatile private var isRegistered = false
+    @Volatile private var lastServerPongAt = 0L
+
+    fun serverPongElapsedRealtime(): Long = lastServerPongAt
     private var registeredDeviceId: String = childDeviceId
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private val appContext = context?.applicationContext
@@ -397,6 +401,7 @@ class WebSocketClient(
     }
 
     private val onPong = Emitter.Listener {
+        lastServerPongAt = SystemClock.elapsedRealtime()
         Log.d(TAG, "Pong received")
     }
 
@@ -728,6 +733,7 @@ class WebSocketClient(
      * Disconnect from WebSocket server
      */
     fun disconnect() {
+        lastServerPongAt = 0L
         try {
             Log.d(TAG, "Disconnecting from WebSocket")
             stopHeartbeat()
