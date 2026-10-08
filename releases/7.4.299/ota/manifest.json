@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "generatedAt": 1791484788623,
+  "generatedBy": "scripts\\stage-release.ps1",
+  "apps": {
+    "child": {
+      "packageName": "ru.example.parentwatch.debug",
+      "versionCode": 2000000299,
+      "versionName": "7.4.299-debug",
+      "buildType": "debug",
+      "sizeBytes": 38372306,
+      "sha256": "ede899d8025a4955ee2fadcef01efc3381f88464e00b5e6626a184044ba7613d",
+      "file": "ChildDevice-7.4.299-debug.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": "Исправлено падение при открытии «Есть обновление» на главном экране. Обновление сохраняет данные и настройки."
+    },
+    "parent": {
+      "packageName": "ru.example.childwatch",
+      "versionCode": 2000000299,
+      "versionName": "7.4.299",
+      "buildType": "debug",
+      "sizeBytes": 45562934,
+      "sha256": "a10a1f583aba85a3dc545c7cd080cb31237b7bcdc04733241ff375b040bccb70",
+      "file": "ParentMonitor-7.4.299.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": "Согласованный комплект 7.4.299. Родительские функции соответствуют 7.4.296; исправление окна обновления относится к детскому приложению."
+    }
+  }
+}

@@ -376,17 +376,19 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun setupUI() {
-        findViewById<View>(R.id.homeUpdateButton).setOnClickListener {
+        // The sheet temporarily reparents notices out of the activity's view tree.
+        // Keep the original views instead of looking them up during that transition.
+        val notices = findViewById<android.widget.LinearLayout>(R.id.updateNoticeContainer)
+        val updateButton = findViewById<View>(R.id.homeUpdateButton)
+        updateButton.setOnClickListener {
             if (homeSheet?.isShowing != true) homeSheet = ru.example.childwatch.designsystem.HomeDetailSheet.show(
-                findViewById(R.id.updateNoticeContainer), getString(R.string.cw_home_update_available)
+                notices, getString(R.string.cw_home_update_available)
             )
         }
         findViewById<View>(R.id.homeContent).viewTreeObserver.addOnGlobalLayoutListener {
-            val notices = findViewById<android.widget.LinearLayout>(R.id.updateNoticeContainer)
             val hasUpdate = (0 until notices.childCount).any { notices.getChildAt(it).visibility == View.VISIBLE }
-            val button = findViewById<View>(R.id.homeUpdateButton)
             val visibility = if (hasUpdate) View.VISIBLE else View.GONE
-            if (button.visibility != visibility) button.visibility = visibility
+            if (updateButton.visibility != visibility) updateButton.visibility = visibility
         }
         // Find UI elements
     titleText = findViewById(R.id.titleText)
