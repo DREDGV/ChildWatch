@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "generatedAt": 1791482106757,
+  "generatedBy": "scripts\\stage-release.ps1",
+  "apps": {
+    "child": {
+      "packageName": "ru.example.parentwatch.debug",
+      "versionCode": 2000000296,
+      "versionName": "7.4.296-debug",
+      "buildType": "debug",
+      "sizeBytes": 38372306,
+      "sha256": "d2bd291e621665a2950fe50bdeaca89ef8bed5e473293524df48ebc82a072c33",
+      "file": "ChildDevice-7.4.296-debug.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": "Дневной архив активности и диагностика сети/микрофона; совместимость с новым родительским приложением. Обновите оба приложения и сервер."
+    },
+    "parent": {
+      "packageName": "ru.example.childwatch",
+      "versionCode": 2000000296,
+      "versionName": "7.4.296",
+      "buildType": "debug",
+      "sizeBytes": 45562934,
+      "sha256": "ca70ad2a918792aa453e4c2dec7e87afdd933afd1a69d01b24789062d18d32ff",
+      "file": "ParentMonitor-7.4.296.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": "Журнал мест, отчёт активности по дням, диагностика связи, улучшения карты и ожидания Сигнала. Для всех возможностей требуется обновление сервера и детского приложения."
+    }
+  }
+}
