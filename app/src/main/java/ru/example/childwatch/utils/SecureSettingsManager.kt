@@ -262,6 +262,14 @@ class SecureSettingsManager(private val context: Context) {
 
     fun getLastDeviceStatus(): String? = securePrefs.getString(KEY_LAST_DEVICE_STATUS)
 
+    /** Exact family/server/actor/recipient cache. No fallback to a different phone's snapshot. */
+    fun getScopedDeviceStatus(scopeKey: String): String? =
+        scopeKey.takeIf { it.isNotBlank() }?.let { securePrefs.getScopedDeviceSnapshot("scoped_device_status_$it") }
+
+    fun setScopedDeviceStatus(scopeKey: String, statusJson: String?) {
+        if (scopeKey.isNotBlank()) securePrefs.putScopedDeviceSnapshot("scoped_device_status_$scopeKey", statusJson)
+    }
+
     fun setLastDeviceStatusForDevice(deviceId: String, statusJson: String?) {
         val normalizedId = deviceId.trim()
         if (normalizedId.isBlank()) return
@@ -273,7 +281,6 @@ class SecureSettingsManager(private val context: Context) {
         val normalizedId = deviceId.trim()
         if (normalizedId.isBlank()) return null
         return securePrefs.getString("${KEY_LAST_DEVICE_STATUS}_$normalizedId")
-            ?: getLastDeviceStatus()
     }
 
     fun setLastDeviceStatusTimestamp(timestamp: Long) {
@@ -294,8 +301,7 @@ class SecureSettingsManager(private val context: Context) {
         val normalizedId = deviceId.trim()
         if (normalizedId.isBlank()) return 0L
         return securePrefs.getLong("${KEY_LAST_DEVICE_STATUS_TIMESTAMP}_$normalizedId", 0L)
-            .takeIf { it > 0L }
-            ?: getLastDeviceStatusTimestamp()
+            .takeIf { it > 0L } ?: 0L
     }
     
     // Privacy settings

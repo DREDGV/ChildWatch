@@ -187,6 +187,11 @@ class MainActivity : AppCompatActivity() {
     private var selectedPersonCanBeListenedTo = false
     private var statusDeviceId: String? = null
     private var statusRequestGeneration = 0L
+    private var deviceStatusScope = ""
+    private var statusRefreshFailed = false
+    private var statusFromCache = false
+    private var statusAccessDenied = false
+    private var selectedCoordinateAt: Long? = null
 
     /**
      * True while the update feature has claimed this screen as the place an installer
@@ -335,9 +340,16 @@ class MainActivity : AppCompatActivity() {
         }
         binding.diagnosticsToggleButton.setOnClickListener {
             latestDeviceStatus?.let { updateFeatureDiagnostics(it) }
+            updateConnectionDiagnostics()
             if (homeSheet?.isShowing != true) homeSheet = HomeDetailSheet.show(
                 binding.diagnosticsPanel, binding.deviceInfoTitle.text.toString()
             )
+        }
+        binding.connectionTechnicalToggle.setOnClickListener {
+            val expanded = !binding.connectionTechnicalContent.isVisible
+            binding.connectionTechnicalContent.isVisible = expanded
+            binding.connectionTechnicalToggle.setText(if (expanded) R.string.connection_technical_hide
+                else R.string.connection_technical_show)
         }
         binding.homeAttentionButton.setOnClickListener {
             if (homeSheet?.isShowing != true) homeSheet = HomeDetailSheet.show(
@@ -1392,14 +1404,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         binding.deviceInfoDeviceId.text = getString(R.string.device_info_device_id, childDeviceId)
-        if (statusDeviceId != childDeviceId) {
-            statusRequestGeneration++
-            deviceStatusJob?.cancel()
-            latestDeviceStatus = null
-            resetSelectedPhoneSummary()
-            lastStatusFetchTime = 0L
-            statusDeviceId = childDeviceId
-        }
+        ensureDeviceStatusScope(childDeviceId)
         val cachedStatus = latestDeviceStatus ?: loadCachedDeviceStatus()
         if (cachedStatus != null) {
             applyDeviceStatus(cachedStatus)
@@ -1411,6 +1416,7 @@ class MainActivity : AppCompatActivity() {
         }
 
         refreshChildDeviceStatus(force = false)
+        updateConnectionDiagnostics()
     }
 
     /**
@@ -1422,6 +1428,7 @@ class MainActivity : AppCompatActivity() {
      * and the person is asked only when it genuinely is not.
      */
     private fun discoverChildFromFamily() {
+        val requestedScope = homePickupScope()
         binding.deviceInfoStatusMessage.text = getString(R.string.device_info_loading)
         binding.deviceInfoStatusMessage.isVisible = true
         binding.deviceInfoContent.isVisible = false
@@ -1432,6 +1439,7 @@ class MainActivity : AppCompatActivity() {
             val directory = runCatching { familyDirectoryRepository.load().directory }
                 .onFailure { Log.w(TAG, "Unable to look up the child in the family", it) }
                 .getOrNull()
+            if (requestedScope != homePickupScope()) return@launch
             if (directory == null) {
                 showDeviceInfoMessage(getString(R.string.device_info_needs_pairing))
                 return@launch
@@ -1474,9 +1482,58 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun loadCachedDeviceStatus(): DeviceStatus? {
-        val childDeviceId = resolveDeviceIdForStatus() ?: return null
-        val cachedJson = secureSettings.getLastDeviceStatusForDevice(childDeviceId) ?: return null
+        if (resolveDeviceIdForStatus().isNullOrBlank() || homePickupScope().isBlank() || statusAccessDenied) return null
+        val cachedJson = secureSettings.getScopedDeviceStatus(deviceStatusCacheKey()) ?: return null
+        statusFromCache = true
         return runCatching { gson.fromJson(cachedJson, DeviceStatus::class.java) }.getOrNull()
+    }
+
+    private fun deviceStatusContextKey(): String = org.json.JSONArray()
+        .put(homePickupScope()).put(resolveDeviceIdForStatus())
+        .put(contextProvider.current()?.focusedMemberId).toString()
+
+    private fun deviceStatusCacheKey(): String = "home_status_" + java.security.MessageDigest.getInstance("SHA-256")
+        .digest(deviceStatusContextKey().toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
+
+    private fun ensureDeviceStatusScope(childDeviceId: String) {
+        val scope = deviceStatusContextKey()
+        if (statusDeviceId == childDeviceId && deviceStatusScope == scope) return
+        if (deviceStatusScope.isNotEmpty()) homeSheet?.dismiss()
+        statusRequestGeneration++
+        deviceStatusJob?.cancel()
+        latestDeviceStatus = null
+        statusRefreshFailed = false
+        statusAccessDenied = false
+        statusFromCache = false
+        selectedCoordinateAt = null
+        resetSelectedPhoneSummary()
+        lastStatusFetchTime = 0L
+        statusDeviceId = childDeviceId
+        deviceStatusScope = scope
+        binding.deviceInfoContent.isVisible = false
+        binding.deviceInfoRefreshButton.isEnabled = true
+        binding.connectionTechnicalContent.isVisible = false
+        binding.connectionTechnicalToggle.setText(R.string.connection_technical_show)
+    }
+
+    private fun updateConnectionDiagnostics() {
+        val current = deviceStatusScope == deviceStatusContextKey()
+        val status = latestDeviceStatus.takeIf { current && !statusAccessDenied }
+        val target = resolveDeviceIdForStatus()
+        val directory = homeDirectory?.takeIf { homeDirectoryScope == homePickupScope() }
+        val device = directory?.personByDeviceId(target)?.activeDevices?.firstOrNull { it.deviceId == target }
+        val diagnostics = ru.example.childwatch.remote.DeviceConnectionDiagnostics
+        binding.deviceInfoConnection.text = if (current && statusAccessDenied) getString(R.string.home_selected_access_denied)
+            else diagnostics.connection(this, status,
+                WebSocketManager.isReadyForServer(effectiveContextResolver.resolveServerUrl()),
+                normalizeEpochMillis(device?.lastSeenAt), homeDirectoryIsCanonical && directory != null,
+                statusRefreshFailed && current, statusFromCache && current)
+        binding.deviceInfoTelemetry.text = diagnostics.telemetry(this, status)
+        binding.deviceInfoCoordinates.text = diagnostics.coordinates(this, selectedCoordinateAt.takeIf {
+            selectedLocationScope == selectedLocationScopeKey() && !statusAccessDenied })
+        binding.deviceInfoMicrophone.isVisible = selectedPersonCanBeListenedTo
+        binding.deviceInfoMicrophone.text = diagnostics.microphone(this, status)
+        binding.deviceInfoNetwork.text = diagnostics.network(this, status)
     }
 
     private fun applyDeviceStatus(status: DeviceStatus) {
@@ -1485,7 +1542,8 @@ class MainActivity : AppCompatActivity() {
         binding.deviceInfoContent.isVisible = true
         val childDeviceId = resolveDeviceIdForStatus()
         val statusTimestamp = normalizeEpochMillis(status.timestamp)
-        val isStale = statusTimestamp?.let { System.currentTimeMillis() - it > DEVICE_STATUS_STALE_MS } == true
+        val isStale = ru.childwatch.shared.diagnostics.DeviceConnectionPolicy.freshness(statusTimestamp,
+            System.currentTimeMillis()) != ru.childwatch.shared.diagnostics.DeviceConnectionPolicy.Freshness.FRESH
         if (statusTimestamp == null) {
             Log.w(TAG, "Device status timestamp missing")
         } else if (isStale) {
@@ -1553,6 +1611,7 @@ class MainActivity : AppCompatActivity() {
         updateSelectedPhoneDescription()
 
         latestDeviceStatus = status
+        updateConnectionDiagnostics()
     }
 
     private fun resetSelectedPhoneSummary(messageRes: Int = R.string.home_phone_data_loading) {
@@ -1575,6 +1634,7 @@ class MainActivity : AppCompatActivity() {
         binding.deviceInfoProgress.isVisible = false
         binding.deviceInfoStatusMessage.isVisible = true
         binding.deviceInfoStatusMessage.text = message
+        updateConnectionDiagnostics()
     }
 
     private fun updateFeatureDiagnostics(status: DeviceStatus) {
@@ -1582,6 +1642,8 @@ class MainActivity : AppCompatActivity() {
         binding.deviceInfoUsageReadiness.isVisible = selectedPersonCanBeListenedTo
         binding.deviceInfoUsageReadiness.text = ru.example.childwatch.remote.DeviceFeatureDiagnostics.usage(this, status, person)
         binding.deviceInfoLocationReadiness.text = ru.example.childwatch.remote.DeviceFeatureDiagnostics.location(this, status, person)
+        binding.deviceInfoCameraValue.text = getString(R.string.photo_camera_diagnostics_line,
+            ru.example.childwatch.remote.PhotoReadinessSummary.fromStatus(this, status).summary)
     }
 
     private fun refreshChildDeviceStatus(force: Boolean = false) {
@@ -1604,14 +1666,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         Log.d(TAG, "Fetching device status: deviceId=$childDeviceId serverUrl=$serverUrl")
-        if (statusDeviceId != childDeviceId) {
-            statusRequestGeneration++
-            deviceStatusJob?.cancel()
-            latestDeviceStatus = null
-            resetSelectedPhoneSummary()
-            statusDeviceId = childDeviceId
-            lastStatusFetchTime = 0L
-            binding.deviceInfoContent.isVisible = false
+        ensureDeviceStatusScope(childDeviceId)
+        val requestScope = deviceStatusContextKey()
+        val actorScope = homePickupScope().takeIf { it.isNotBlank() }?.let { encoded ->
+            val values = org.json.JSONArray(encoded)
+            (0 until values.length()).map { values.getString(it).trim() }
+        }
+        if (actorScope == null) {
+            showDeviceInfoMessage(getString(R.string.device_info_needs_pairing))
+            return
         }
 
         val now = System.currentTimeMillis()
@@ -1633,39 +1696,46 @@ class MainActivity : AppCompatActivity() {
         val generation = ++statusRequestGeneration
 
         binding.deviceInfoProgress.isVisible = true
+        binding.deviceInfoRefreshButton.isEnabled = false
         binding.deviceInfoStatusMessage.isVisible = false
 
         deviceStatusJob = lifecycleScope.launch {
             try {
-                var attempt = 0
-                while (attempt < 3) {
-                    attempt++
-                    val response = withContext(Dispatchers.IO) {
-                        networkClient.getChildDeviceStatus(childDeviceId)
-                    }
-                    if (generation != statusRequestGeneration || childDeviceId != resolveDeviceIdForStatus()) return@launch
-                    if (response.code() == 403) {
-                        latestDeviceStatus = null
-                        showDeviceInfoMessage(getString(R.string.home_selected_access_denied))
+                val response = withTimeoutOrNull(12_000L) {
+                    networkClient.getChildDeviceStatus(childDeviceId, actorScope)
+                }
+                if (generation != statusRequestGeneration || requestScope != deviceStatusContextKey()) return@launch
+                if (response == null) { showStatusRefreshFailure(); return@launch }
+                if (response.code() == 403 || response.code() == 401) {
+                    statusAccessDenied = true
+                    secureSettings.setScopedDeviceStatus(deviceStatusCacheKey(), null)
+                    latestDeviceStatus = null
+                    showDeviceInfoMessage(getString(R.string.home_selected_access_denied))
+                    return@launch
+                }
+                if (response.isSuccessful && response.body()?.success == true && response.body()?.deviceId == childDeviceId) {
+                    val status = response.body()?.status
+                    if (status != null) {
+                        val normalizedTimestamp = normalizeEpochMillis(status.timestamp)
+                        val normalizedStatus = status.copy(timestamp = normalizedTimestamp)
+                        statusRefreshFailed = false
+                        statusAccessDenied = false
+                        statusFromCache = false
+                        secureSettings.setScopedDeviceStatus(deviceStatusCacheKey(), gson.toJson(normalizedStatus))
+                        secureSettings.setLastDeviceStatus(gson.toJson(normalizedStatus))
+                        if (normalizedTimestamp != null) secureSettings.setLastDeviceStatusTimestamp(normalizedTimestamp)
+                        secureSettings.setLastDeviceStatusForDevice(childDeviceId, gson.toJson(normalizedStatus))
+                        if (normalizedTimestamp != null) secureSettings.setLastDeviceStatusTimestampForDevice(childDeviceId, normalizedTimestamp)
+                        applyDeviceStatus(normalizedStatus)
                         return@launch
                     }
-                    if (response.isSuccessful) {
-                        val status = response.body()?.status
-                        if (status != null) {
-                            val normalizedTimestamp = normalizeEpochMillis(status.timestamp)
-                            val normalizedStatus = status.copy(timestamp = normalizedTimestamp)
-                            secureSettings.setLastDeviceStatus(gson.toJson(normalizedStatus))
-                            if (normalizedTimestamp != null) secureSettings.setLastDeviceStatusTimestamp(normalizedTimestamp)
-                            secureSettings.setLastDeviceStatusForDevice(childDeviceId, gson.toJson(normalizedStatus))
-                            if (normalizedTimestamp != null) secureSettings.setLastDeviceStatusTimestampForDevice(childDeviceId, normalizedTimestamp)
-                            applyDeviceStatus(normalizedStatus)
-                            return@launch
-                        }
-                    }
-
-                    if (attempt < 3) {
-                        delay(500L * attempt)
-                    }
+                    statusRefreshFailed = false
+                    statusAccessDenied = false
+                    statusFromCache = false
+                    latestDeviceStatus = null
+                    secureSettings.setScopedDeviceStatus(deviceStatusCacheKey(), null)
+                    showDeviceInfoMessage(getString(R.string.connection_read_empty))
+                    return@launch
                 }
 
                 showStatusRefreshFailure()
@@ -1673,11 +1743,14 @@ class MainActivity : AppCompatActivity() {
                 // Cancellation is expected here, so do not treat it as an error.
                 Log.d(TAG, "Device status fetch cancelled")
             } catch (error: Exception) {
-                if (generation != statusRequestGeneration || childDeviceId != resolveDeviceIdForStatus()) return@launch
+                if (generation != statusRequestGeneration || requestScope != deviceStatusContextKey()) return@launch
                 Log.e(TAG, "Failed to load device status", error)
                 showStatusRefreshFailure()
             } finally {
-                if (generation == statusRequestGeneration) binding.deviceInfoProgress.isVisible = false
+                if (generation == statusRequestGeneration) {
+                    binding.deviceInfoProgress.isVisible = false
+                    binding.deviceInfoRefreshButton.isEnabled = true
+                }
             }
         }
     }
@@ -1704,12 +1777,14 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun showStatusRefreshFailure() {
+        statusRefreshFailed = true
         if (latestDeviceStatus == null) {
             showDeviceInfoMessage(getString(R.string.home_selected_no_data))
         } else {
             binding.deviceInfoStatusMessage.isVisible = true
             binding.deviceInfoStatusMessage.setText(R.string.home_selected_refresh_failed)
         }
+        updateConnectionDiagnostics()
     }
     
     private fun showConsentScreen() {
@@ -2037,6 +2112,9 @@ class MainActivity : AppCompatActivity() {
             while (isActive) {
                 if (screenVisible) {
                     refreshSelectedHomePresence()
+                    updateConnectionDiagnostics()
+                    latestDeviceStatus?.takeIf { deviceStatusScope == deviceStatusContextKey() && !statusAccessDenied }
+                        ?.let(::applyDeviceStatus)
                     updateQuickProfileSummary()
                 }
                 refreshChildDeviceStatus(force = true)
@@ -2496,9 +2574,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun selectedLocationScopeKey(): String = org.json.JSONArray()
-        .put(effectiveContextResolver.resolveServerUrl())
-        .put(effectiveContextResolver.resolveFamilyId())
-        .put(effectiveContextResolver.resolveOwnParentId())
+        .put(homePickupScope())
+        .put(contextProvider.current()?.focusedMemberId)
         .put(resolveSelectedChildIdForUi()).toString()
 
     private fun startSelectedLocationUpdates() {
@@ -2512,10 +2589,13 @@ class MainActivity : AppCompatActivity() {
                 val requestedId = resolveSelectedChildIdForUi()
                 if (!requestedId.isNullOrBlank()) {
                     val ownId = effectiveContextResolver.resolveOwnParentId()
-                    val summary = familyLocationSummary.forPerson(requestedId, ownId)
+                    val observation = familyLocationSummary.observationForPerson(requestedId, ownId)
+                    val summary = observation.text
                     if (selectedLocationScopeKey() == scope) {
+                        selectedCoordinateAt = observation.capturedAt
                         if (binding.selectedChildLocation.text.toString() != summary) binding.selectedChildLocation.text = summary
                         binding.selectedChildLocation.isVisible = true
+                        updateConnectionDiagnostics()
                     }
                 }
                 delay(30_000L)
@@ -2748,7 +2828,6 @@ class MainActivity : AppCompatActivity() {
     companion object {
         private const val TAG = "MainActivity"
         private const val KEY_BATTERY_PROMPT_SUPPRESSED = "battery_prompt_suppressed"
-        private const val DEVICE_STATUS_STALE_MS = 10 * 60 * 1000L
         private const val KEY_LINKED_PARENT_COUNT = "linked_parent_context_count"
         private const val KEY_LINKED_PARENT_LABELS = "linked_parent_context_labels"
         private const val KEY_LINKED_PARENT_SELF_LABEL = "linked_parent_context_self_label"

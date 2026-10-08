@@ -187,7 +187,7 @@ class AppUsageTracker(private val context: Context) {
     data class DailyUsage(val start: Long, val end: Long, val apps: List<AppUsageInfo>, val available: Boolean = true)
 
     /** Count foreground intervals, clipped to the child's local calendar day. */
-    fun getDailyUsage(): DailyUsage {
+    fun getDailyUsage(notBefore: Long = 0L): DailyUsage {
         val end = System.currentTimeMillis()
         val start = Calendar.getInstance().apply {
             timeInMillis = end
@@ -196,6 +196,20 @@ class AppUsageTracker(private val context: Context) {
             set(Calendar.SECOND, 0)
             set(Calendar.MILLISECOND, 0)
         }.timeInMillis
+        if (end <= maxOf(start, notBefore)) return DailyUsage(maxOf(start, notBefore), end, emptyList(), available = false)
+        return collectDailyUsage(maxOf(start, notBefore), end)
+    }
+
+    /** Queries one closed calendar window, without claiming that Android retained every event. */
+    fun getDailyUsage(window: ru.childwatch.shared.usage.UsageArchiveWindow): DailyUsage {
+        val now = System.currentTimeMillis()
+        if (window.start <= 0 || window.end <= window.start || window.end > now ||
+            window.end - window.start > 26 * 60 * 60_000L)
+            return DailyUsage(window.start, window.end, emptyList(), available = false)
+        return collectDailyUsage(window.start, window.end)
+    }
+
+    private fun collectDailyUsage(start: Long, end: Long): DailyUsage {
         if (!hasUsageStatsPermission()) return DailyUsage(start, end, emptyList(), available = false)
         val totals = mutableMapOf<String, Long>()
         val firstUsed = mutableMapOf<String, Long>()
@@ -220,9 +234,13 @@ class AppUsageTracker(private val context: Context) {
         val events = usageStatsManager?.queryEvents(start - RECENT_WINDOW_MS, end)
             ?: return DailyUsage(start, end, emptyList(), available = false)
         var sawEvent = false
+        var lastEventAt = Long.MIN_VALUE
         val event = UsageEvents.Event()
         while (events.hasNextEvent()) {
             events.getNextEvent(event)
+            // A malformed/out-of-order transition must not count overlapping intervals.
+            if (event.timeStamp < lastEventAt || event.timeStamp > end) continue
+            lastEventAt = event.timeStamp
             sawEvent = true
             when (event.eventType) {
                 UsageEvents.Event.MOVE_TO_FOREGROUND -> {
@@ -247,7 +265,7 @@ class AppUsageTracker(private val context: Context) {
                     if (active == null) {
                         active = beforeLock
                         openedAt = event.timeStamp
-                        active?.let { lastUsed[it] = event.timeStamp }
+                        if (event.timeStamp >= start) active?.let { lastUsed[it] = event.timeStamp }
                     }
                     beforeLock = null
                 }

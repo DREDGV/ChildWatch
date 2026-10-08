@@ -51,7 +51,8 @@ data class CriticalAlert(
     val createdAt: Long
 )
 
-class NetworkClient(private val context: Context, private val expectedPhotoScope: List<String>? = null) {
+class NetworkClient(private val context: Context, private val expectedPhotoScope: List<String>? = null,
+                    private val expectedAttentionScope: List<String>? = null) {
 
     companion object {
         private const val TAG = "NetworkClient"
@@ -201,6 +202,9 @@ class NetworkClient(private val context: Context, private val expectedPhotoScope
         override fun intercept(chain: Interceptor.Chain): Response {
             val originalRequest = chain.request()
             fun checkPhotoScope() {
+                expectedAttentionScope?.let { expected ->
+                    if (attentionIdentity() != expected) throw IOException("ATTENTION_CONTEXT_CHANGED")
+                }
                 originalRequest.tag(PickupRequestScope::class.java)?.let { pickup ->
                     val actual = listOf(effectiveContextResolver.resolveServerUrl(), effectiveContextResolver.resolveFamilyId().orEmpty(),
                         effectiveContextResolver.resolveSelfMemberId().orEmpty(), effectiveContextResolver.resolveChildDeviceId())
@@ -232,6 +236,7 @@ class NetworkClient(private val context: Context, private val expectedPhotoScope
                 // Try to refresh token
                 val serverUrl = extractServerUrl(originalRequest.url.toString())
                 if (serverUrl != null) {
+                    checkPhotoScope()
                     try {
                         // Use runBlocking to call suspend function
                         val refreshedToken = kotlinx.coroutines.runBlocking {
@@ -1092,6 +1097,27 @@ class NetworkClient(private val context: Context, private val expectedPhotoScope
      * setting are two chances to disagree about which server the family is on.
      */
     fun resolveConfiguredServerUrl(): String? = getConfiguredServerUrl()
+
+    private fun attentionIdentity() = listOf(effectiveContextResolver.resolveServerUrl().trim(),
+        effectiveContextResolver.resolveFamilyId().orEmpty().trim(),
+        effectiveContextResolver.resolveSelfMemberId().orEmpty().trim(), effectiveContextResolver.resolveChildDeviceId().trim())
+
+    suspend fun getAttentionSignalStatus(requestId: String, targetDeviceId: String): JSONObject? = withContext(Dispatchers.IO) {
+        val scope = expectedAttentionScope ?: return@withContext null
+        if (scope.size != 4 || scope.any(String::isBlank)) return@withContext null
+        if (attentionIdentity() != scope) throw ru.childwatch.shared.attention.android.AttentionSignalStatusAccessDenied()
+        val response = kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+            getChatV2Api(scope[0]).getAttentionSignalStatus(requestId, targetDeviceId, scope[1], scope[2])
+        } ?: return@withContext null
+        if (attentionIdentity() != scope || response.code() in setOf(401, 403))
+            throw ru.childwatch.shared.attention.android.AttentionSignalStatusAccessDenied()
+        if (!response.isSuccessful) return@withContext null
+        response.body()?.let { JSONObject(it) }?.takeIf {
+            it.optBoolean("success") && it.optString("requestId") == requestId &&
+                it.optString("targetDeviceId") == targetDeviceId && it.optString("familyId") == scope[1] &&
+                it.optString("actorMemberId") == scope[2]
+        }
+    }
 
     /** Pickup writes are never added to the generic offline upload queue. */
     private data class PickupRequestScope(val identity: List<String>)

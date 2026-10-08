@@ -554,6 +554,9 @@ object WebSocketManager {
         return webSocketClient?.isReady() ?: false
     }
 
+    fun isReadyForServer(serverUrl: String): Boolean =
+        currentServerUrl?.trim()?.trimEnd('/') == serverUrl.trim().trimEnd('/') && isReady()
+
     /**
      * Get WebSocket client instance
      */

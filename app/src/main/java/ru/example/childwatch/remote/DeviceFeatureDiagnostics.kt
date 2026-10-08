@@ -79,7 +79,7 @@ object DeviceFeatureDiagnostics {
     }
 
     /** One reading order for TalkBack and sighted readers: task, state, action, measured time. */
-    private fun section(context: Context, title: Int, state: Int, detail: String,
+    internal fun section(context: Context, title: Int, state: Int, detail: String,
                         timestamp: String?, ready: Boolean): CharSequence {
         val text = SpannableStringBuilder(context.getString(title))
         text.setSpan(StyleSpan(Typeface.BOLD), 0, text.length, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)

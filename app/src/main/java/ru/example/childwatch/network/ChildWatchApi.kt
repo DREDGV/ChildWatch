@@ -39,6 +39,14 @@ import ru.childwatch.shared.onboarding.FamilyProfileConfirmationRequest
  */
 interface ChildWatchApi {
 
+    @GET("api/attention-signal/{requestId}/status")
+    suspend fun getAttentionSignalStatus(
+        @Path("requestId") requestId: String,
+        @Query("targetDeviceId") targetDeviceId: String,
+        @Query("familyId") familyId: String,
+        @Query("actorMemberId") actorMemberId: String
+    ): Response<Map<String, Any?>>
+
     @GET("api/me")
     suspend fun getAuthenticatedIdentity(): Response<AuthenticatedIdentityResponse>
 
@@ -166,7 +174,11 @@ interface ChildWatchApi {
      * Get latest device status snapshot
      */
     @GET("api/device/status/{deviceId}")
-    suspend fun getDeviceStatus(@Path("deviceId") deviceId: String): Response<DeviceStatusResponse>
+    suspend fun getDeviceStatus(@Path("deviceId") deviceId: String,
+        @Query("purpose") purpose: String? = null,
+        @Query("familyId") familyId: String? = null,
+        @Query("actorMemberId") actorMemberId: String? = null,
+        @Tag expectedScope: DeviceStatusRequestScope? = null): Response<DeviceStatusResponse>
 
     /**
      * Get device status history snapshots for app/activity timeline.
@@ -174,8 +186,19 @@ interface ChildWatchApi {
     @GET("api/device/status/history/{deviceId}")
     suspend fun getDeviceStatusHistory(
         @Path("deviceId") deviceId: String,
-        @Query("limit") limit: Int = 60
+        @Query("limit") limit: Int = 60,
+        @Query("purpose") purpose: String? = null,
+        @Query("familyId") familyId: String? = null,
+        @Query("actorMemberId") actorMemberId: String? = null
     ): Response<DeviceStatusHistoryResponse>
+
+    @GET("api/device/usage/{deviceId}/days")
+    suspend fun getDeviceUsageDays(
+        @Path("deviceId") deviceId: String,
+        @Query("limit") limit: Int = 90,
+        @Query("familyId") familyId: String,
+        @Query("actorMemberId") actorMemberId: String
+    ): Response<Map<String, Any?>>
 
     @GET("api/relationships/children/{parentDeviceId}")
     suspend fun getLinkedChildren(

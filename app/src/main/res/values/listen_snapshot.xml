@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="listen_snapshot_cached">Сохранённые данные · %1$s</string>
+    <string name="listen_snapshot_failed">Не удалось обновить · %1$s</string>
+    <string name="listen_snapshot_failed_empty">Сведения о заряде не получены. Обновление не удалось.</string>
+    <string name="listen_snapshot_empty">Сервер ответил, но сведений о телефоне пока нет.</string>
+    <string name="listen_snapshot_denied">Нет доступа к сведениям этого телефона.</string>
+    <string name="listen_snapshot_context_changed">Семья или профиль изменились. Откройте прослушку заново.</string>
+    <string name="listen_snapshot_clock">Время данных опережает часы этого телефона. Свежесть неизвестна.</string>
+    <string name="listen_snapshot_time_unknown">Время данных неизвестно.</string>
+</resources>

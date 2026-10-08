@@ -45,12 +45,17 @@ object DeviceInfoCollector {
 
     private var usageScope: String? = null
     private var lastAttemptJson: String? = null
+    private var usageScopeStartedAt = 0L
+    private var usageArchiveJson: String? = null
+    private var usageArchiveAttemptAt = 0L
+    private var usageArchiveDayKey: String? = null
+    private var usageArchiveAttachedAt = 0L
 
     @Synchronized
     private fun ensureUsageScope(context: Context) {
         val resolver = ru.example.parentwatch.session.ChildEffectiveContextResolver(context)
         val identity = JSONArray().put(resolver.resolveServerUrl().trimEnd('/'))
-            .put(resolver.resolveFamilyId()).put(resolver.resolveChildDeviceId()).toString()
+            .put(resolver.resolveFamilyId()).put(resolver.resolveSelfMemberId()).put(resolver.resolveChildDeviceId()).toString()
         val scope = java.security.MessageDigest.getInstance("SHA-256")
             .digest(identity.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it) }
         if (scope == usageScope) return
@@ -58,9 +63,28 @@ object DeviceInfoCollector {
         cachedAppUsageJson = null; cachedAppUsageAt = 0L
         lastGoodDailyUsageJson = null; lastGoodDailyUsageAt = 0L
         lastAppUsageAttemptAt = 0L; lastUsageSnapshotUploadAt = 0L; lastAttemptJson = null
+        usageArchiveJson = null; usageArchiveAttemptAt = 0L; usageArchiveDayKey = null
+        usageArchiveAttachedAt = 0L
+        val archiveState = context.getSharedPreferences("usage_archive_state", Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val activeScope = archiveState.getString("activeScope", null)
+        val previousStart = archiveState.getLong("activeSince", 0L)
+        val activation = ru.childwatch.shared.usage.UsageArchiveRecoveryPolicy.activation(scope, activeScope, previousStart, now)
+        usageScopeStartedAt = activation.startedAt
+        if (!activation.continuing) {
+            // A new activation, including returning to a former owner, must not query
+            // this phone's other owner's event history. No trusted binding time exists locally.
+            archiveState.edit().clear().putString("activeScope", scope).putLong("activeSince", now).apply()
+        } else {
+            usageArchiveAttemptAt = archiveState.getLong("attemptedAt", 0L)
+            usageArchiveDayKey = archiveState.getString("attemptedDayKey", null)
+            usageArchiveJson = archiveState.getString("snapshots", null)
+            usageArchiveAttachedAt = archiveState.getLong("attachedAt", 0L)
+        }
         val stored = context.getSharedPreferences("last_good_usage", Context.MODE_PRIVATE).getString(scope, null)
             ?.let { runCatching { JSONObject(it) }.getOrNull() } ?: return
         val daily = stored.optJSONObject("dailyUsage")?.takeIf(::isDailyUsageUsable) ?: return
+        if (daily.optLong("start", 0L) < usageScopeStartedAt) return
         val at = stored.optLong("collectedAt", 0L)
         if (at <= 0L || at > System.currentTimeMillis() + 60_000L) return
         lastGoodDailyUsageJson = daily.toString(); lastGoodDailyUsageAt = at
@@ -98,12 +122,29 @@ object DeviceInfoCollector {
     fun getDeviceInfo(context: Context, includeCurrentApp: Boolean = true): JSONObject {
         ensureUsageScope(context)
         val usageGranted = AppUsageTracker(context).hasUsageStatsPermission()
+        if (!usageGranted) clearUsageArchive(context)
+        val archive = if (usageGranted && includeCurrentApp) getUsageArchive(context, true) else JSONArray()
+        val archiveNow = System.currentTimeMillis()
+        val latestArchiveCollection = (0 until archive.length()).maxOfOrNull {
+            archive.optJSONObject(it)?.optLong("appUsageCollectedAt", 0L) ?: 0L
+        } ?: 0L
+        val attachArchive = usageGranted && ru.childwatch.shared.usage.UsageArchiveRecoveryPolicy.shouldTransmit(
+            archive.length() > 0, includeCurrentApp, archiveNow, usageArchiveAttachedAt, latestArchiveCollection)
+        if (attachArchive) {
+            // This is an attempt, not an acknowledgement; unchanged history retries in 30 minutes.
+            usageArchiveAttachedAt = archiveNow
+            context.getSharedPreferences("usage_archive_state", Context.MODE_PRIVATE).edit()
+                .putLong("attachedAt", archiveNow).apply()
+        }
         return JSONObject().apply {
             put("battery", getBatteryInfo(context))
             put("device", getDeviceDetails())
             put("camera", CameraDiagnostics.snapshot(context))
+            put("connectionReadiness", ConnectionDiagnostics.network(context))
+            put("microphoneReadiness", ConnectionDiagnostics.microphone(context))
             put("locationReadiness", getLocationReadiness(context))
             put("usagePermissionGranted", usageGranted)
+            if (attachArchive) put("dailyUsageHistory", archive)
             // Every status must carry the last collected usage snapshot: the server
             // returns the newest status, so omitting it makes the activity list vanish.
             // Reuse the cached JSON between scheduled collections, without querying Android.
@@ -222,14 +263,15 @@ object DeviceInfoCollector {
         }
 
         val result = if (hasPermission) {
-            val currentApp = appUsageTracker.getCurrentApp()
-            val recentApps = appUsageTracker.getRecentApps(limit = 30)
+            val currentApp = appUsageTracker.getCurrentApp()?.takeIf { it.lastTimeUsed >= usageScopeStartedAt }
+            val recentApps = appUsageTracker.getRecentApps(limit = 30).filter { it.lastTimeUsed >= usageScopeStartedAt }
             // A locked device or unavailable Android event store must not stop
             // battery/status uploads, or masquerade as zero minutes of activity.
-            val daily = runCatching { appUsageTracker.getDailyUsage() }.getOrNull()
+            val daily = runCatching { appUsageTracker.getDailyUsage(usageScopeStartedAt) }.getOrNull()
             JSONObject().apply {
                 put("dailyUsage", JSONObject().apply {
                     put("available", daily?.available == true)
+                    put("windowState", "PARTIAL")
                     if (daily != null) {
                         put("start", daily.start)
                         put("end", daily.end)
@@ -311,6 +353,66 @@ object DeviceInfoCollector {
     fun getRecentAppsInfo(context: Context): JSONArray {
         val appUsage = getAppUsageInfo(context)
         return appUsage.optJSONArray("recentApps") ?: JSONArray()
+    }
+
+    private fun clearUsageArchive(context: Context) {
+        usageArchiveJson = null; usageArchiveAttemptAt = 0L; usageArchiveDayKey = null
+        usageArchiveAttachedAt = 0L
+        context.getSharedPreferences("usage_archive_state", Context.MODE_PRIVATE).edit()
+            .remove("snapshots").remove("attemptedAt").remove("attemptedDayKey").remove("attachedAt").apply()
+    }
+
+    /** Bounded recovery is attempted only on an ordinary usage collection, never every GPS upload. */
+    private fun getUsageArchive(context: Context, allowCollection: Boolean): JSONArray {
+        val resolver = ru.example.parentwatch.session.ChildEffectiveContextResolver(context)
+        if (resolver.resolveSelfMemberId().isNullOrBlank() || resolver.resolveFamilyId().isNullOrBlank() ||
+            resolver.resolveChildDeviceId().isBlank()) return JSONArray()
+        val now = System.currentTimeMillis()
+        val zone = java.util.TimeZone.getDefault().id
+        val policy = ru.childwatch.shared.usage.UsageArchiveRecoveryPolicy
+        val windows = policy.previousDays(now, zone, usageScopeStartedAt)
+        val allowedWindows = windows.mapTo(mutableSetOf()) { "${it.start}|${it.end}|${it.timeZoneId}" }
+        val retained = mutableMapOf<Long, JSONObject>()
+        runCatching { JSONArray(usageArchiveJson ?: "[]") }.getOrNull()?.let { cached ->
+            for (index in 0 until minOf(cached.length(), policy.DAYS)) {
+                val snapshot = cached.optJSONObject(index) ?: continue
+                val daily = snapshot.optJSONObject("dailyUsage") ?: continue
+                val key = "${daily.optLong("start")}|${daily.optLong("end")}|${daily.optString("timeZone")}"
+                val collected = snapshot.optLong("appUsageCollectedAt", 0L)
+                if (key in allowedWindows && collected > 0 && collected <= now + 60_000L && isDailyUsageUsable(daily))
+                    retained[daily.optLong("start")] = snapshot
+            }
+        }
+        if (allowCollection && policy.shouldRecover(now, zone, usageArchiveAttemptAt, usageArchiveDayKey)) {
+            val tracker = AppUsageTracker(context)
+            windows.forEach { window ->
+                val daily = runCatching { tracker.getDailyUsage(window) }.getOrNull() ?: return@forEach
+                if (!daily.available || daily.apps.isEmpty()) return@forEach
+                val apps = daily.apps.take(500)
+                val json = JSONObject().put("available", true).put("start", daily.start).put("end", daily.end)
+                    .put("timeZone", window.timeZoneId).put("windowState", "CLOSED")
+                    .put("appsTruncated", daily.apps.size > apps.size)
+                    .put("totalTime", apps.sumOf { it.totalTimeInForeground })
+                    .put("apps", JSONArray().apply {
+                        apps.forEach { app -> put(JSONObject().apply {
+                            put("packageName", app.packageName); put("appName", app.appName)
+                            put("lastUsed", app.lastTimeUsed); put("totalTimeInForeground", app.totalTimeInForeground)
+                            app.firstTimeUsed?.let { put("firstUsed", it) }
+                            app.lastForegroundAt?.let { put("lastForegroundAt", it) }
+                        }) }
+                    })
+                if (isDailyUsageUsable(json)) retained[window.start] = JSONObject().put("dailyUsage", json)
+                    .put("appUsageCollectedAt", System.currentTimeMillis()).put("appUsageStale", true)
+                    .put("appUsageSource", "android_usage_events_recovery")
+            }
+            usageArchiveAttemptAt = now
+            usageArchiveDayKey = policy.dayKey(now, zone)
+            usageArchiveJson = JSONArray().apply { retained.toSortedMap(reverseOrder()).values.take(policy.DAYS).forEach { put(it) } }.toString()
+            context.getSharedPreferences("usage_archive_state", Context.MODE_PRIVATE).edit()
+                .putLong("attemptedAt", usageArchiveAttemptAt).putString("attemptedDayKey", usageArchiveDayKey)
+                .putString("snapshots", usageArchiveJson).apply()
+        }
+        return JSONArray().apply { retained.toSortedMap(reverseOrder()).values.take(policy.DAYS).forEach { put(it) } }
     }
 
     private fun getBatteryInfo(context: Context): JSONObject {

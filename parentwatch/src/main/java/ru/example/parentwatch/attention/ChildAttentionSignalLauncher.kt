@@ -137,29 +137,34 @@ object ChildAttentionSignalLauncher {
 
         ChatBackgroundService.start(activity, serverUrl, requesterDeviceId)
         val names = ChildParticipantNameResolver(activity)
+        fun currentScope() = listOf(resolver.resolveServerUrl().trim(), resolver.resolveFamilyId().orEmpty().trim(),
+            resolver.resolveSelfMemberId().orEmpty().trim(), resolver.resolveChildDeviceId().trim())
+        val scope = currentScope()
+        fun isCurrent() = !activity.isFinishing && !activity.isDestroyed && currentScope() == scope
+        val network = ru.example.parentwatch.network.NetworkClient(activity, expectedAttentionScope = scope)
         AttentionSignalSheet(
             context = activity,
             target = AttentionSignalTarget(
-                // Local profile identifiers predate the server family model and are
-                // not guaranteed to match its canonical IDs. The authenticated
-                // device pair is authoritative; the server resolves and verifies
-                // the family/member context before routing the signal.
-                familyId = null,
+                // Canonical actor context is frozen for both sending and status recovery.
+                familyId = scope[1].takeIf(String::isNotBlank),
                 targetMemberId = null,
                 targetDeviceId = canonicalTarget,
                 targetDisplayName = targetName.trim().ifBlank {
                     names.resolveParentDisplayName(canonicalTarget)
                         ?: names.resolveActiveParentDisplayName()
                 },
-                requesterMemberId = null,
+                requesterMemberId = scope[2].takeIf(String::isNotBlank),
                 requesterDeviceId = requesterDeviceId,
                 requesterDisplayName = names.resolveChildDisplayName()
             ),
-            isTransportReady = WebSocketManager::isReady,
-            sendRequest = WebSocketManager::sendAttentionRequest,
-            sendStopRequest = WebSocketManager::sendAttentionStopRequest,
+            isTransportReady = { isCurrent() && WebSocketManager.isReadyForServer(scope[0]) },
+            sendRequest = { isCurrent() && WebSocketManager.isReadyForServer(scope[0]) && WebSocketManager.sendAttentionRequest(it) },
+            sendStopRequest = { isCurrent() && WebSocketManager.isReadyForServer(scope[0]) && WebSocketManager.sendAttentionStopRequest(it) },
             addStatusListener = WebSocketManager::addAttentionStatusListener,
-            removeStatusListener = WebSocketManager::removeAttentionStatusListener
+            removeStatusListener = WebSocketManager::removeAttentionStatusListener,
+            isContextCurrent = ::isCurrent,
+            recoverStatus = network::getAttentionSignalStatus,
+            requestScopeKey = org.json.JSONArray(scope).toString()
         ).show()
     }
 }

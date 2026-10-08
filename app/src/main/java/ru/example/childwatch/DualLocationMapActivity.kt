@@ -832,9 +832,15 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     private fun updateFollowUi() {
-        val text = if (mapFollow.active()) R.string.map_follow_active else R.string.map_follow_start
+        val waiting = mapFollow.active() && !ru.example.childwatch.designsystem.MapFollowSelection.hasFreshLocation(
+            selectedFollowPoint()?.time ?: 0L, System.currentTimeMillis())
+        val text = when {
+            waiting -> R.string.map_follow_waiting
+            mapFollow.active() -> R.string.map_follow_active
+            else -> R.string.map_follow_start
+        }
         binding.centerOtherButton.setText(text)
-        binding.centerOtherButton.contentDescription = getString(if (mapFollow.active()) R.string.map_follow_stop_description else R.string.map_follow_start_description)
+        binding.centerOtherButton.contentDescription = getString(if (waiting) R.string.map_follow_waiting_description else if (mapFollow.active()) R.string.map_follow_stop_description else R.string.map_follow_start_description)
         binding.mapPersonFollowButton.setText(text)
         binding.mapPersonFollowButton.contentDescription = binding.centerOtherButton.contentDescription
         binding.mapPersonFollowButton.isChecked = mapFollow.active()
@@ -850,7 +856,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         val point = selectedFollowPoint()
         if (point == null || !point.latitude.isFinite() || !point.longitude.isFinite() ||
             !mapFollow.start(followScope(), point.member, point.device, point.time, System.currentTimeMillis())) {
-            Toast.makeText(this, R.string.map_follow_no_fresh_point, Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, R.string.map_follow_no_point, Toast.LENGTH_SHORT).show()
             updateFollowUi()
             return
         }
@@ -859,7 +865,10 @@ class DualLocationMapActivity : AppCompatActivity() {
         autoFitEnabled = false
         updateAutoFitUi()
         updateFollowUi()
-        followMarkerPosition(point.member, point.device, point.latitude, point.longitude)
+        // Center once on the explicitly selected last known point; its age stays visible.
+        mapView.controller.setCenter(GeoPoint(point.latitude, point.longitude))
+        if (!ru.example.childwatch.designsystem.MapFollowSelection.hasFreshLocation(point.time, System.currentTimeMillis()))
+            Toast.makeText(this, R.string.map_follow_waiting_explanation, Toast.LENGTH_LONG).show()
     }
 
     private fun refreshMapFollow() {
@@ -869,12 +878,16 @@ class DualLocationMapActivity : AppCompatActivity() {
             stopMapFollow()
             return
         }
-        val position = contactMarkers[point.member]?.position ?: GeoPoint(point.latitude, point.longitude)
+        updateFollowUi()
+        // While rebuilding overlays the animator will supply the displayed position.
+        // Jumping straight to the new fix here would briefly snap the follow camera.
+        val position = contactMarkers[point.member]?.position ?: return
         followMarkerPosition(point.member, point.device, position.latitude, position.longitude)
     }
 
     private fun followMarkerPosition(member: String, device: String, latitude: Double, longitude: Double) {
         if (!mapFollow.matches(followScope(), member, device) || isViewingHistory ||
+            !ru.example.childwatch.designsystem.MapFollowSelection.hasFreshLocation(selectedFollowPoint()?.time ?: 0L, System.currentTimeMillis()) ||
             !lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return
         val center = mapView.mapCenter
         if (kotlin.math.abs(center.latitude - latitude) > 0.00000001 || kotlin.math.abs(center.longitude - longitude) > 0.00000001)

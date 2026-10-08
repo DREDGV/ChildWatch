@@ -222,6 +222,15 @@ object ParentAttentionSignalLauncher {
         }
 
         val names = ParentParticipantNameResolver(activity)
+        val resolver = ru.example.childwatch.profile.ParentEffectiveContextResolver(activity)
+        fun currentScope() = listOf(resolver.resolveServerUrl().trim(), resolver.resolveFamilyId().orEmpty().trim(),
+            resolver.resolveSelfMemberId().orEmpty().trim(), resolver.resolveOwnParentId().trim())
+        val scope = currentScope()
+        fun isCurrent() = !activity.isFinishing && !activity.isDestroyed && currentScope() == scope
+        if (scope[0] != context.serverUrl.trim() || scope[3] != requesterDeviceId ||
+            scope[1] != context.familyId.orEmpty().trim() || scope[2] != context.selfMemberId.orEmpty().trim() ||
+            (!explicitFamilyId.isNullOrBlank() && explicitFamilyId != scope[1])) return
+        val network = ru.example.childwatch.network.NetworkClient(activity, expectedFamilyReadScope = scope)
         AttentionSignalSheet(
             context = activity,
             target = AttentionSignalTarget(
@@ -234,14 +243,17 @@ object ParentAttentionSignalLauncher {
                 requesterDeviceId = requesterDeviceId,
                 requesterDisplayName = names.resolveOwnParentDisplayName()
             ),
-            isTransportReady = WebSocketManager::isReady,
-            sendRequest = WebSocketManager::sendAttentionRequest,
-            sendStopRequest = WebSocketManager::sendAttentionStopRequest,
+            isTransportReady = { isCurrent() && WebSocketManager.isReadyForServer(scope[0]) },
+            sendRequest = { isCurrent() && WebSocketManager.isReadyForServer(scope[0]) && WebSocketManager.sendAttentionRequest(it) },
+            sendStopRequest = { isCurrent() && WebSocketManager.isReadyForServer(scope[0]) && WebSocketManager.sendAttentionStopRequest(it) },
             addStatusListener = WebSocketManager::addAttentionStatusListener,
             removeStatusListener = WebSocketManager::removeAttentionStatusListener,
             bindTargetAvatar = { view ->
                 FamilyAvatarRenderer.bind(view, explicitTargetAvatarValue)
-            }
+            },
+            isContextCurrent = ::isCurrent,
+            recoverStatus = network::getAttentionSignalStatus,
+            requestScopeKey = org.json.JSONArray(scope).toString()
         ).show()
     }
 }

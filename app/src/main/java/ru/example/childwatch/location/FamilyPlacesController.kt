@@ -49,6 +49,7 @@ class FamilyPlacesController(
     }
     private var fetchJob: Job? = null
     private var lastTarget: Target? = null
+    private var lastActorScope: String? = null
     private var lastFetch = 0L
     private var places: List<JSONObject> = emptyList()
     private val resolver = ParentEffectiveContextResolver(activity)
@@ -60,26 +61,64 @@ class FamilyPlacesController(
         this.text = text; textSize = 14f; setPadding(0, dp(8), 0, dp(8))
     }
     private fun scroll(content: LinearLayout) = ScrollView(activity).apply { addView(content) }
-    private fun current(t: Target, server: String, own: String): Boolean =
+    private fun actorScope(): String? {
+        val fields = listOf(resolver.resolveServerUrl(), resolver.resolveFamilyId().orEmpty(),
+            resolver.resolveSelfMemberId().orEmpty(), resolver.resolveOwnParentId())
+        if (fields.any { it.isBlank() }) return null
+        return org.json.JSONArray(fields).toString()
+    }
+    private fun current(t: Target, scope: String): Boolean =
         target()?.let { it.familyId == t.familyId && it.memberId == t.memberId } == true &&
-        resolver.resolveServerUrl() == server && resolver.resolveOwnParentId() == own && !activity.isDestroyed && !activity.isFinishing
+        resolver.resolveFamilyId() == t.familyId && actorScope() == scope &&
+        !activity.isDestroyed && !activity.isFinishing
+
+    private fun presenceText(place: JSONObject): String {
+        val presence = place.optJSONObject("presence")
+        val status = presence?.optString("status").orEmpty()
+        val textId = when (status) {
+            "PAUSED" -> R.string.family_places_presence_paused
+            "STALE" -> R.string.family_places_presence_stale
+            "UNCERTAIN" -> R.string.family_places_presence_uncertain
+            "CONFIRMING" -> R.string.family_places_presence_confirming
+            "INSIDE" -> R.string.family_places_presence_inside
+            "OUTSIDE" -> R.string.family_places_presence_outside
+            "WAITING" -> R.string.family_places_presence_waiting
+            else -> R.string.family_places_presence_unknown
+        }
+        val text = if (status == "INSIDE" || status == "OUTSIDE")
+            activity.getString(textId, place.optString("name")) else activity.getString(textId)
+        // A previous server's enabled flag is a setting, never evidence of presence.
+        if (presence == null) return text
+        val measuredAt = presence.optLong("measuredAt", 0L)
+        val confirmedAt = presence.optLong("confirmedAt", 0L)
+        val time = if (status == "INSIDE" || status == "OUTSIDE") confirmedAt else measuredAt
+        if (time <= 0L) return text
+        val formatted = java.text.DateFormat.getDateTimeInstance(
+            java.text.DateFormat.SHORT, java.text.DateFormat.SHORT
+        ).format(java.util.Date(time))
+        return text + "\n" + activity.getString(R.string.family_places_presence_measured, formatted)
+    }
     private fun error(error: Exception): String = activity.getString(
         if (error.message == "PLACE_PERMISSION_DENIED") R.string.family_places_permission else R.string.family_places_error)
 
     fun refresh(force: Boolean = false, failed: ((String) -> Unit)? = null, ready: (() -> Unit)? = null) {
         val t = target()
         if (t == null) { places = emptyList(); rendered(places); failed?.invoke(activity.getString(R.string.family_places_choose)); return }
-        if (t != lastTarget) {
-            fetchJob?.cancel(); places = emptyList(); rendered(places); lastFetch = 0; lastTarget = t
+        val scope = actorScope()
+        if (t != lastTarget || scope != lastActorScope) {
+            fetchJob?.cancel(); places = emptyList(); rendered(places); lastFetch = 0; lastTarget = t; lastActorScope = scope
+        }
+        if (scope == null || !current(t, scope)) {
+            places = emptyList(); rendered(places)
+            failed?.invoke(activity.getString(R.string.family_places_context_changed)); return
         }
         val now = android.os.SystemClock.elapsedRealtime()
         if (!force && now - lastFetch < 30_000L) return
         fetchJob?.cancel(); lastFetch = now
-        val server = resolver.resolveServerUrl(); val own = resolver.resolveOwnParentId()
         fetchJob = activity.lifecycleScope.launch {
             try {
-                val result = network.familyPlacesRequest(t.familyId, targetMemberId = t.memberId).getJSONArray("places")
-                if (!current(t, server, own)) { failed?.invoke(activity.getString(R.string.family_places_choose)); return@launch }
+                val result = network.familyPlacesRequest(t.familyId, targetMemberId = t.memberId, expectedScope = scope).getJSONArray("places")
+                if (!current(t, scope)) { failed?.invoke(activity.getString(R.string.family_places_choose)); return@launch }
                 places = (0 until result.length()).map { result.getJSONObject(it) }
                 rendered(places); ready?.invoke()
             } catch (cancelled: CancellationException) {
@@ -87,15 +126,17 @@ class FamilyPlacesController(
                 throw cancelled
             }
             catch (failure: Exception) {
-                if (current(t, server, own)) {
+                if (current(t, scope)) {
                     places = emptyList(); rendered(places)
                     failed?.invoke(error(failure))
-                }
+                } else failed?.invoke(activity.getString(R.string.family_places_context_changed))
             }
         }
     }
     fun show() {
         val t = target() ?: run { Toast.makeText(activity, R.string.family_places_choose, Toast.LENGTH_SHORT).show(); return }
+        val scope = actorScope() ?: return
+        if (!current(t, scope)) return
         val loading = tracked(MaterialAlertDialogBuilder(activity).setTitle(R.string.family_places_title)
             .setMessage(R.string.family_places_loading).setPositiveButton(R.string.family_places_retry, null).setNegativeButton(R.string.family_places_cancel, null).show())
         loading.getButton(AlertDialog.BUTTON_POSITIVE).visibility = android.view.View.GONE
@@ -108,10 +149,11 @@ class FamilyPlacesController(
                 }
             }
         }) {
-            if (loading.isShowing) { loading.dismiss(); showList(t) }
+            if (loading.isShowing) { loading.dismiss(); if (current(t, scope)) showList(t, scope) }
         }
     }
-    private fun showList(t: Target) {
+    private fun showList(t: Target, scope: String) {
+        if (!current(t, scope)) return
         val content = body()
         content.addView(label(activity.getString(R.string.family_places_member, t.name)))
         content.addView(label(activity.getString(R.string.family_places_notification_hint)))
@@ -125,45 +167,57 @@ class FamilyPlacesController(
         val scrolling = scroll(content)
         val dialog = tracked(MaterialAlertDialogBuilder(activity).setTitle(R.string.family_places_title).setView(scrolling)
             .setPositiveButton(R.string.family_places_add, null).setNegativeButton(R.string.family_places_cancel, null).create())
+        content.addView(MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            setText(R.string.family_places_journal_open)
+            isAllCaps = false
+            setSingleLine(false)
+            minHeight = dp(48)
+            setOnClickListener {
+                if (!current(t, scope)) { dialog.dismiss(); return@setOnClickListener }
+                dialog.dismiss()
+                FamilyPlaceJournalDialog(activity, network, t, scope) { current(t, scope) }.show()
+            }
+        }, 1)
         places.forEach { place ->
             content.addView(MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
                 isAllCaps = false; setSingleLine(false)
                 text = "${place.getString("name")} · ${place.getInt("radius")} м\n" +
-                    activity.getString(if (place.getInt("enabled") == 1) R.string.family_places_active else R.string.family_places_paused)
-                setOnClickListener { dialog.dismiss(); actions(t, place) }
+                    presenceText(place)
+                setOnClickListener { dialog.dismiss(); actions(t, place, scope) }
             })
         }
-        dialog.setOnShowListener { fit(scrolling); dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { dialog.dismiss(); edit(t, null) } }
+        dialog.setOnShowListener { fit(scrolling); dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { dialog.dismiss(); edit(t, null, scope) } }
         dialog.show()
     }
-    private fun actions(t: Target, place: JSONObject) {
+    private fun actions(t: Target, place: JSONObject, scope: String) {
+        if (!current(t, scope)) return
         val active = place.getInt("enabled") == 1
         MaterialAlertDialogBuilder(activity).setTitle(place.getString("name"))
             .setItems(arrayOf(activity.getString(R.string.family_places_edit),
                 activity.getString(if (active) R.string.family_places_pause else R.string.family_places_resume),
                 activity.getString(R.string.family_places_delete))) { _, which ->
                 when (which) {
-                    0 -> edit(t, place)
-                    1 -> mutate(t, "PATCH", place.getString("id"), JSONObject().put("enabled", !active))
+                    0 -> edit(t, place, scope)
+                    1 -> mutate(t, "PATCH", place.getString("id"), JSONObject().put("enabled", !active), scope)
                     2 -> MaterialAlertDialogBuilder(activity).setTitle(R.string.family_places_delete)
                         .setMessage(activity.getString(R.string.family_places_delete_confirm, place.getString("name")))
                         .setNegativeButton(R.string.family_places_cancel, null)
-                        .setPositiveButton(R.string.family_places_delete) { _, _ -> mutate(t, "DELETE", place.getString("id"), null) }.show()
+                        .setPositiveButton(R.string.family_places_delete) { _, _ -> mutate(t, "DELETE", place.getString("id"), null, scope) }.show()
                 }
             }.show()
     }
-    private fun mutate(t: Target, method: String, id: String, data: JSONObject?) {
-        val server = resolver.resolveServerUrl(); val own = resolver.resolveOwnParentId()
-        if (!current(t, server, own)) return
+    private fun mutate(t: Target, method: String, id: String, data: JSONObject?, scope: String) {
+        if (!current(t, scope)) return
         activity.lifecycleScope.launch {
             try {
-                network.familyPlacesRequest(t.familyId, method, "/$id", data)
-                if (current(t, server, own)) show()
+                network.familyPlacesRequest(t.familyId, method, "/$id", data, expectedScope = scope)
+                if (current(t, scope)) show()
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { Toast.makeText(activity, error(failure), Toast.LENGTH_LONG).show() }
+            catch (failure: Exception) { if (current(t, scope)) Toast.makeText(activity, error(failure), Toast.LENGTH_LONG).show() }
         }
     }
-    private fun edit(t: Target, existing: JSONObject?) {
+    private fun edit(t: Target, existing: JSONObject?, scope: String) {
+        if (!current(t, scope)) return
         val content = body()
         val requestId = java.util.UUID.randomUUID().toString()
         content.addView(label(activity.getString(R.string.family_places_member, t.name)))
@@ -201,19 +255,20 @@ class FamilyPlacesController(
                 val value = name.text.toString().trim()
                 if (value.length !in 2..80 || (!enter.isChecked && !exit.isChecked)) { field.error = activity.getString(R.string.family_places_validation); return@setOnClickListener }
                 field.error = null; errorLabel.text = ""
-                val server = resolver.resolveServerUrl(); val own = resolver.resolveOwnParentId()
-                if (!current(t, server, own)) { dialog.dismiss(); return@setOnClickListener }
+                if (!current(t, scope)) { dialog.dismiss(); return@setOnClickListener }
                 val data = JSONObject().put("targetMemberId", t.memberId).put("name", value).put("requestId", requestId)
                     .put("latitude", point.first).put("longitude", point.second).put("radius", radii[radius.progress])
                     .put("onEnter", enter.isChecked).put("onExit", exit.isChecked)
                 button.setText(R.string.family_places_saving); button.isEnabled = false; dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = false; dialog.setCancelable(false)
                 activity.lifecycleScope.launch {
                     try {
-                        network.familyPlacesRequest(t.familyId, if (existing == null) "POST" else "PATCH", existing?.let { "/" + it.getString("id") } ?: "", data)
-                        if (current(t, server, own)) { dialog.dismiss(); show(); FamilyPlaceSync.sync(activity, force = true) }
+                        network.familyPlacesRequest(t.familyId, if (existing == null) "POST" else "PATCH", existing?.let { "/" + it.getString("id") } ?: "", data, expectedScope = scope)
+                        if (current(t, scope)) { dialog.dismiss(); show(); FamilyPlaceSync.sync(activity, force = true) }
                         else dialog.dismiss()
                     } catch (cancelled: CancellationException) { throw cancelled }
-                    catch (failure: Exception) { errorLabel.text = error(failure) }
+                    catch (failure: Exception) {
+                        if (current(t, scope)) errorLabel.text = error(failure) else dialog.dismiss()
+                    }
                     finally { if (dialog.isShowing) { button.setText(R.string.family_places_save); button.isEnabled = true; dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = true; dialog.setCancelable(true) } }
                 }
             }

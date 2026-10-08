@@ -1,4 +1,4 @@
-﻿package ru.example.childwatch
+package ru.example.childwatch
 
 import android.content.ComponentName
 import android.content.Context
@@ -25,6 +25,10 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.withTimeoutOrNull
+import ru.childwatch.shared.diagnostics.DeviceConnectionPolicy
+import ru.childwatch.shared.diagnostics.DeviceStatusSnapshotScope
 import ru.example.childwatch.audio.AudioEnhancer
 import ru.example.childwatch.audio.FilterMode
 import ru.example.childwatch.databinding.ActivityAudioStreamingBinding
@@ -76,7 +80,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         const val EXTRA_SERVER_URL = "server_url"
         private const val DEFAULT_SAMPLE_RATE = 24_000
         private const val STREAM_TIMEOUT_MINUTES = 30
-        private const val CHILD_STATUS_FRESH_MS = 60_000L
+        private const val CHILD_STATUS_FRESH_MS = DeviceConnectionPolicy.TELEMETRY_FRESH_MS
         private const val STATUS_POLL_ACTIVE_MS = 10_000L
         private const val STATUS_POLL_IDLE_MS = 25_000L
     }
@@ -109,6 +113,26 @@ class AudioStreamingActivity : AppCompatActivity() {
     private var childCharging: Boolean? = null
     private var childStatusTimestamp: Long? = null
     private var statusPollingJob: Job? = null
+    private var screenActorScope: List<String> = emptyList()
+    private var statusReadGeneration = 0L
+    private enum class SnapshotRead { WAITING, CACHED, CONFIRMED, FAILED, EMPTY, DENIED, CONTEXT_CHANGED }
+    private var snapshotRead = SnapshotRead.WAITING
+
+    private fun actorScope(): List<String> = listOf(effectiveContextResolver.resolveServerUrl().trim(),
+        effectiveContextResolver.resolveFamilyId().orEmpty().trim(),
+        effectiveContextResolver.resolveSelfMemberId().orEmpty().trim(),
+        effectiveContextResolver.resolveOwnParentId().trim())
+
+    private fun snapshotScope(): DeviceStatusSnapshotScope? =
+        if (actorScope() == screenActorScope && screenActorScope.firstOrNull()?.trimEnd('/') == serverUrl.trim().trimEnd('/'))
+            DeviceStatusSnapshotScope.from(screenActorScope, deviceId) else null
+
+    private fun clearChildSnapshot(state: SnapshotRead = SnapshotRead.WAITING) {
+        childBatteryLevel = null
+        childCharging = null
+        childStatusTimestamp = null
+        snapshotRead = state
+    }
 
     // Visualization
     private val currentVisualizationMode = AdvancedAudioVisualizer.VisualizationMode.WAVEFORM
@@ -222,6 +246,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
         serverUrl = resolvedServerUrl
         secureSettings.setServerUrl(serverUrl)
+        screenActorScope = actorScope()
 
         lifecycleScope.launch {
             val allowed = runCatching {
@@ -229,6 +254,11 @@ class AudioStreamingActivity : AppCompatActivity() {
                     .isChildDevice(deviceId)
             }.getOrDefault(false)
             if (!isActive || isFinishing) return@launch
+            if (snapshotScope() == null) {
+                Toast.makeText(this@AudioStreamingActivity, R.string.listen_snapshot_context_changed, Toast.LENGTH_LONG).show()
+                finish()
+                return@launch
+            }
             if (!allowed) {
                 Toast.makeText(this@AudioStreamingActivity, R.string.listen_child_only, Toast.LENGTH_LONG).show()
                 finish()
@@ -292,21 +322,21 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun loadCachedStatus() {
+        clearChildSnapshot()
+        val scope = snapshotScope() ?: run {
+            clearChildSnapshot(SnapshotRead.CONTEXT_CHANGED)
+            return
+        }
         try {
-            val cachedStatus = secureSettings.getLastDeviceStatusForDevice(deviceId)
-            if (!cachedStatus.isNullOrEmpty()) {
-                val status = gson.fromJson(cachedStatus, DeviceStatus::class.java)
-                childBatteryLevel = status?.batteryLevel
-                childCharging = status?.isCharging
-                childStatusTimestamp = normalizeStatusTimestamp(
-                    status?.timestamp ?: secureSettings.getLastDeviceStatusTimestampForDevice(deviceId)
-                )
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Failed to load cached device status", e)
+            val json = secureSettings.getScopedDeviceStatus(scope.cacheKey) ?: return
+            val status = gson.fromJson(json, DeviceStatus::class.java) ?: return
+            if (scope != snapshotScope()) return
+            applyChildStatus(status, scope, persist = false, updateUi = false)
+            snapshotRead = SnapshotRead.CACHED
+        } catch (error: Exception) {
+            Log.w(TAG, "Failed to load scoped device status", error)
         }
     }
-
     private fun saveAudioSettings() {
         audioPrefs.edit()
             .putString("filter_mode", currentFilterMode.name)
@@ -372,12 +402,14 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun loadPersonPresentation() {
+        val requestedScope = snapshotScope() ?: return
         lifecycleScope.launch {
             val option = runCatching {
                 ParentLinkedChildOptionsProvider(this@AudioStreamingActivity)
                     .getOptions()
-                    .firstOrNull { it.deviceId == deviceId }
+                    .firstOrNull { it.deviceId == requestedScope.targetDeviceId }
             }.getOrNull() ?: return@launch
+            if (requestedScope != snapshotScope()) return@launch
 
             binding.deviceIdText.text = option.displayName.trim()
                 .ifBlank { getString(R.string.chat_partner_child) }
@@ -386,6 +418,7 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun showPersonSelector() {
+        val requestedScope = snapshotScope() ?: return
         lifecycleScope.launch {
             val selector = ParentTargetSelector(this@AudioStreamingActivity)
             val options = runCatching { selector.load() }.getOrElse {
@@ -396,6 +429,7 @@ class AudioStreamingActivity : AppCompatActivity() {
                 ).show()
                 return@launch
             }
+            if (requestedScope != snapshotScope()) return@launch
             if (options.size <= 1) {
                 Toast.makeText(
                     this@AudioStreamingActivity,
@@ -447,6 +481,8 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun applySelectedPerson(option: ParentLinkedChildOption) {
+        if (snapshotScope() == null) return
+        stopChildStatusPolling()
         deviceId = option.deviceId
         binding.audioPersonLocation.text = getString(R.string.family_location_unavailable)
         startPersonLocationUpdates()
@@ -458,6 +494,7 @@ class AudioStreamingActivity : AppCompatActivity() {
         binding.deviceIdText.text = option.displayName
         FamilyAvatarRenderer.bind(binding.audioPersonAvatar, option.avatarKey)
         loadCachedStatus()
+        startChildStatusPolling()
         WebSocketManager.initialize(this, serverUrl, deviceId)
         registerTakeoverRequestListener()
         WebSocketManager.ensureConnected(
@@ -768,6 +805,8 @@ class AudioStreamingActivity : AppCompatActivity() {
             AudioPlaybackService.lastChunkTimestamp > 0L &&
                 (System.currentTimeMillis() - AudioPlaybackService.lastChunkTimestamp) > 1500L ->
                 getString(R.string.listen_hint_delayed, ageText)
+            DeviceConnectionPolicy.freshness(childStatusTimestamp, System.currentTimeMillis()) ==
+                DeviceConnectionPolicy.Freshness.CLOCK_MISMATCH -> getString(R.string.listen_snapshot_clock)
             !isChildStatusFresh() && childStatusTimestamp != null ->
                 getString(R.string.listen_hint_active_stale_status, formatStatusAgeLong(statusAgeMs()))
             else -> getString(R.string.listen_hint_active, ageText)
@@ -786,34 +825,47 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun stopChildStatusPolling() {
+        statusReadGeneration++
         statusPollingJob?.cancel()
         statusPollingJob = null
     }
 
     private suspend fun fetchChildStatus() {
-        try {
-            if (serverUrl.isBlank()) {
-                Log.w(TAG, "Skipping child status fetch: server URL not configured")
-                return
-            }
-            val response = networkClient.getChildDeviceStatus(deviceId)
-            if (response.isSuccessful) {
-                val status = response.body()?.status
-                if (status != null) {
-                    applyChildStatus(status)
-                } else {
-                    syncChildStatusFromPlaybackService()
-                }
-            } else {
-                Log.w(TAG, "Device status request failed: ${'$'}{response.code()}")
-                syncChildStatusFromPlaybackService()
-            }
-        } catch (e: Exception) {
-            Log.w(TAG, "Error fetching device status", e)
-            syncChildStatusFromPlaybackService()
+        val scope = snapshotScope() ?: run {
+            clearChildSnapshot(SnapshotRead.CONTEXT_CHANGED)
+            updateBatteryHud()
+            return
         }
+        val generation = statusReadGeneration
+        try {
+            val response = withTimeoutOrNull(12_000L) {
+                networkClient.getChildDeviceStatus(scope.targetDeviceId, scope.actor)
+            }
+            if (generation != statusReadGeneration || scope != snapshotScope() || isFinishing || isDestroyed) return
+            if (response == null) {
+                snapshotRead = SnapshotRead.FAILED
+            } else if (response.code() == 401 || response.code() == 403) {
+                secureSettings.setScopedDeviceStatus(scope.cacheKey, null)
+                clearChildSnapshot(SnapshotRead.DENIED)
+            } else if (scope.accepts(snapshotScope(), response.body()?.deviceId,
+                    response.isSuccessful && response.body()?.success == true)) {
+                val status = response.body()?.status
+                if (status != null) applyChildStatus(status, scope)
+                else {
+                    secureSettings.setScopedDeviceStatus(scope.cacheKey, null)
+                    clearChildSnapshot(SnapshotRead.EMPTY)
+                }
+            } else snapshotRead = SnapshotRead.FAILED
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            if (generation != statusReadGeneration || scope != snapshotScope()) return
+            Log.w(TAG, "Error fetching scoped device status", error)
+            snapshotRead = SnapshotRead.FAILED
+        }
+        updateBatteryHud()
+        updateDiagnosticsSummary(audioService?.metricsManager?.metrics?.value ?: AudioStreamMetrics())
     }
-
     private fun setVolumeMode(mode: VolumeMode) {
         if (currentVolumeMode == mode) return
         currentVolumeMode = mode
@@ -970,63 +1022,25 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
     }
 
-    private fun applyChildStatus(status: DeviceStatus, updateUi: Boolean = true) {
+    private fun applyChildStatus(status: DeviceStatus, scope: DeviceStatusSnapshotScope,
+                                 persist: Boolean = true, updateUi: Boolean = true) {
+        if (scope != snapshotScope()) return
         childBatteryLevel = status.batteryLevel?.takeIf { it in 0..100 }
         childCharging = status.isCharging
-
-        val normalizedStatusTimestamp =
-            normalizeStatusTimestamp(status.timestamp) ?: System.currentTimeMillis()
-        val normalizedStatus = status.copy(
-            batteryLevel = childBatteryLevel,
-            timestamp = normalizedStatusTimestamp
-        )
-        val statusJson = gson.toJson(normalizedStatus)
-
-        childStatusTimestamp = normalizedStatusTimestamp
-        secureSettings.setLastDeviceStatus(statusJson)
-        secureSettings.setLastDeviceStatusTimestamp(normalizedStatusTimestamp)
-        secureSettings.setLastDeviceStatusForDevice(deviceId, statusJson)
-        secureSettings.setLastDeviceStatusTimestampForDevice(deviceId, normalizedStatusTimestamp)
-
+        childStatusTimestamp = normalizeStatusTimestamp(status.timestamp)
+        snapshotRead = SnapshotRead.CONFIRMED
+        if (persist) secureSettings.setScopedDeviceStatus(scope.cacheKey, gson.toJson(status.copy(
+            batteryLevel = childBatteryLevel, timestamp = childStatusTimestamp)))
         if (updateUi) {
-            runOnUiThread {
-                updateBatteryHud()
-                updateDiagnosticsSummary(audioService?.metricsManager?.metrics?.value ?: AudioStreamMetrics())
-            }
+            updateBatteryHud()
+            updateDiagnosticsSummary(audioService?.metricsManager?.metrics?.value ?: AudioStreamMetrics())
         }
     }
-
-    private fun syncChildStatusFromPlaybackService(updateUi: Boolean = true) {
-        val remoteDeviceId = AudioPlaybackService.remoteChildBatteryDeviceId?.trim().orEmpty()
-        if (remoteDeviceId.isBlank() || remoteDeviceId != deviceId.trim()) return
-
-        val liveBattery = AudioPlaybackService.remoteChildBatteryLevel?.takeIf { it in 0..100 } ?: return
-        val liveTimestamp = normalizeStatusTimestamp(AudioPlaybackService.remoteChildBatteryTimestamp) ?: return
-        val currentTimestamp = childStatusTimestamp ?: 0L
-        if (currentTimestamp > 0L && liveTimestamp <= currentTimestamp) return
-
-        applyChildStatus(
-            DeviceStatus(
-                batteryLevel = liveBattery,
-                isCharging = AudioPlaybackService.remoteChildCharging,
-                chargingType = null,
-                temperature = null,
-                voltage = null,
-                health = null,
-                manufacturer = null,
-                model = null,
-                androidVersion = null,
-                sdkVersion = null,
-                currentAppName = null,
-                currentAppPackage = null,
-                timestamp = liveTimestamp,
-                raw = null
-            ),
-            updateUi = updateUi
-        )
-    }
-
     private fun startStreaming() {
+        if (snapshotScope() == null) {
+            Toast.makeText(this, R.string.listen_snapshot_context_changed, Toast.LENGTH_LONG).show()
+            return
+        }
         Log.d(TAG, "Starting audio streaming...")
         lifecycleScope.launch {
             val ownParentId = effectiveContextResolver.resolveOwnParentId().trim()
@@ -1377,7 +1391,7 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun updateUI() {
-        syncChildStatusFromPlaybackService(updateUi = false)
+        if (snapshotScope() == null) clearChildSnapshot(SnapshotRead.CONTEXT_CHANGED)
 
         val isPlaying = AudioPlaybackService.isPlaying
         val chunksReceived = AudioPlaybackService.chunksReceived
@@ -1392,7 +1406,8 @@ class AudioStreamingActivity : AppCompatActivity() {
         binding.toggleStreamingBtn.text = getString(
             if (isPlaying) R.string.listen_toggle_stop else R.string.listen_toggle_start
         )
-        binding.toggleStreamingBtn.isEnabled = !streamingActionInProgress
+        binding.toggleStreamingBtn.isEnabled = !streamingActionInProgress && (snapshotScope() != null || isPlaying)
+        binding.audioChangePersonButton.isEnabled = snapshotScope() != null
         binding.toggleStreamingBtn.backgroundTintList = ColorStateList.valueOf(
             if (isPlaying) Color.parseColor("#FFE7D9D6") else Color.WHITE
         )
@@ -1511,6 +1526,11 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun resumeListeningScreen() {
+        if (snapshotScope() == null) {
+            clearChildSnapshot(SnapshotRead.CONTEXT_CHANGED)
+            updateUI()
+            return
+        }
         startPersonLocationUpdates()
         if (AudioPlaybackService.isSessionDesired(this) && !AudioPlaybackService.isPlaying) {
             AudioPlaybackService.restoreIfNeeded(this)
@@ -1551,9 +1571,10 @@ class AudioStreamingActivity : AppCompatActivity() {
         personLocationJob = lifecycleScope.launch {
             while (isActive) {
                 val requestedId = deviceId
+                val requestedScope = snapshotScope() ?: break
                 val ownId = effectiveContextResolver.resolveOwnParentId()
                 val summary = familyLocationSummary.forPerson(requestedId, ownId)
-                if (requestedId == deviceId) binding.audioPersonLocation.text = summary
+                if (requestedScope == snapshotScope()) binding.audioPersonLocation.text = summary
                 delay(30_000L)
             }
         }
@@ -1701,31 +1722,40 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun buildBatteryMetaText(): String {
-        val age = statusAgeMs() ?: return getString(R.string.listen_battery_meta_waiting)
-        val ageText = formatStatusAgeLong(age)
-        return if (age > CHILD_STATUS_FRESH_MS) {
-            getString(R.string.listen_battery_meta_stale, ageText)
-        } else {
-            getString(R.string.listen_battery_meta_updated, ageText)
+        when (snapshotRead) {
+            SnapshotRead.DENIED -> return getString(R.string.listen_snapshot_denied)
+            SnapshotRead.CONTEXT_CHANGED -> return getString(R.string.listen_snapshot_context_changed)
+            SnapshotRead.EMPTY -> return getString(R.string.listen_snapshot_empty)
+            else -> Unit
+        }
+        val freshness = DeviceConnectionPolicy.freshness(childStatusTimestamp, System.currentTimeMillis())
+        if (freshness == DeviceConnectionPolicy.Freshness.CLOCK_MISMATCH) return getString(R.string.listen_snapshot_clock)
+        val age = statusAgeMs() ?: return getString(when {
+            snapshotRead == SnapshotRead.FAILED -> R.string.listen_snapshot_failed_empty
+            childBatteryLevel != null -> R.string.listen_snapshot_time_unknown
+            else -> R.string.listen_battery_meta_waiting
+        })
+        val base = getString(if (age > CHILD_STATUS_FRESH_MS) R.string.listen_battery_meta_stale
+            else R.string.listen_battery_meta_updated, formatStatusAgeLong(age))
+        return when (snapshotRead) {
+            SnapshotRead.FAILED -> getString(R.string.listen_snapshot_failed, base)
+            SnapshotRead.CACHED -> getString(R.string.listen_snapshot_cached, base)
+            else -> base
         }
     }
 
-    private fun normalizeStatusTimestamp(rawTimestamp: Long?): Long? {
-        val value = rawTimestamp ?: return null
-        if (value <= 0L) return null
-        return if (value < 1_000_000_000_000L) value * 1000L else value
-    }
+    private fun normalizeStatusTimestamp(rawTimestamp: Long?): Long? = DeviceConnectionPolicy.epoch(rawTimestamp)
 
     private fun statusAgeMs(now: Long = System.currentTimeMillis()): Long? {
-        val timestamp = childStatusTimestamp
-            ?: secureSettings.getLastDeviceStatusTimestampForDevice(deviceId).takeIf { it > 0L }
-        return timestamp?.let { (now - it).coerceAtLeast(0L) }
+        if (snapshotScope() == null) return null
+        return childStatusTimestamp?.takeIf {
+            DeviceConnectionPolicy.freshness(it, now) != DeviceConnectionPolicy.Freshness.CLOCK_MISMATCH
+        }?.let { (now - it).coerceAtLeast(0L) }
     }
 
-    private fun isChildStatusFresh(now: Long = System.currentTimeMillis()): Boolean {
-        val age = statusAgeMs(now) ?: return false
-        return age <= CHILD_STATUS_FRESH_MS
-    }
+    private fun isChildStatusFresh(now: Long = System.currentTimeMillis()): Boolean =
+        snapshotScope() != null &&
+            DeviceConnectionPolicy.freshness(childStatusTimestamp, now) == DeviceConnectionPolicy.Freshness.FRESH
 
     private fun formatStatusAgeCompact(ageMs: Long): String {
         val seconds = (ageMs / 1000).coerceAtLeast(0L)

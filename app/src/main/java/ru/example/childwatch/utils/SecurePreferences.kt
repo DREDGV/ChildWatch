@@ -79,6 +79,21 @@ class SecurePreferences(
     private fun isSensitiveKey(key: String): Boolean {
         return SENSITIVE_KEYS.contains(key) || key.contains("token") || key.contains("password")
     }
+
+    /** Scoped diagnostic snapshots are optional; unavailable encryption means no cache. */
+    fun getScopedDeviceSnapshot(key: String): String? {
+        require(key.startsWith("scoped_device_status_"))
+        if (!isEncryptionEnabled()) return null
+        return prefs.getString("enc_$key", null)?.let(encryptionHelper::decrypt)
+    }
+
+    fun putScopedDeviceSnapshot(key: String, value: String?) {
+        require(key.startsWith("scoped_device_status_"))
+        val editor = prefs.edit().remove(key).remove("enc_$key")
+        val encrypted = value?.takeIf { isEncryptionEnabled() }?.let(encryptionHelper::encrypt)
+        if (encrypted != null) editor.putString("enc_$key", encrypted)
+        editor.apply()
+    }
     
     /**
      * Put string value

@@ -7,7 +7,7 @@ public final class MapFollowSelection {
     public boolean start(String scope, String member, String device, long time, long now) {
         stop();
         if (scope == null || scope.isEmpty() || member == null || member.isEmpty()
-                || device == null || device.isEmpty() || time <= 0 || time > now || now - time > 45_000) return false;
+                || device == null || device.isEmpty() || time <= 0 || time > now) return false;
         this.scope = scope;
         this.member = member;
         this.device = device;
@@ -17,12 +17,16 @@ public final class MapFollowSelection {
         return active() && this.scope.equals(scope) && this.member.equals(member) && this.device.equals(device);
     }
     public boolean refresh(String scope, String member, String device, long time, long now) {
-        if (!matches(scope, member, device) || time <= 0 || time > now || now - time > 45_000) {
+        if (!matches(scope, member, device) || time <= 0 || time > now) {
             stop();
             return false;
         }
         return true;
     }
     public boolean active() { return scope != null; }
+    /** Freshness controls camera updates, not the user's retained follow intent. */
+    public static boolean hasFreshLocation(long time, long now) {
+        return time > 0 && time <= now && now - time <= 45_000;
+    }
     public void stop() { scope = member = device = null; }
 }

@@ -4,5 +4,8 @@
     <string name="map_follow_active">Следим</string>
     <string name="map_follow_start_description">Следить за выбранным человеком на карте</string>
     <string name="map_follow_stop_description">Отключить слежение за выбранным человеком</string>
-    <string name="map_follow_no_fresh_point">Выберите человека со свежим местоположением</string>
+    <string name="map_follow_no_point">Выберите человека с известным местоположением</string>
+    <string name="map_follow_waiting">Ждём точку</string>
+    <string name="map_follow_waiting_description">Слежение включено, ждём новое местоположение. Нажмите, чтобы отключить</string>
+    <string name="map_follow_waiting_explanation">Слежение включено. Показано последнее местоположение; ждём новую точку</string>
 </resources>

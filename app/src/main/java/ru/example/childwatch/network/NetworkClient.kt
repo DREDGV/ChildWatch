@@ -54,7 +54,8 @@ data class CriticalAlert(
     val createdAt: Long
 )
 
-class NetworkClient(private val context: Context, private val expectedOwnScope: List<String?>? = null) {
+class NetworkClient(private val context: Context, private val expectedOwnScope: List<String?>? = null,
+    private val expectedFamilyReadScope: List<String>? = null) {
 
     private data class OwnDeviceStatusScope(val identity: List<String?>)
 
@@ -245,6 +246,17 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
         override fun intercept(chain: Interceptor.Chain): Response {
             val originalRequest = chain.request()
             fun checkOwnStatusScope() {
+                originalRequest.tag(DeviceStatusRequestScope::class.java)?.let { expected ->
+                    if (expected.identity.size != 4 || expected.identity.any { it.isBlank() } ||
+                        placeIdentity() != expected.identity) throw IOException("DEVICE_STATUS_CONTEXT_CHANGED")
+                }
+                expectedFamilyReadScope?.let { expected ->
+                    if (expected.size != 4 || expected.any { it.isBlank() } || placeIdentity() != expected)
+                        throw IOException("USAGE_CONTEXT_CHANGED")
+                }
+                originalRequest.tag(PlaceRequestScope::class.java)?.let { place ->
+                    if (placeIdentity() != place.identity) throw IOException("PLACE_CONTEXT_CHANGED")
+                }
                 originalRequest.tag(PickupRequestScope::class.java)?.let { pickup ->
                     val actual = listOf(effectiveContextResolver.resolveServerUrl(), effectiveContextResolver.resolveFamilyId().orEmpty(),
                         effectiveContextResolver.resolveSelfMemberId().orEmpty(), effectiveContextResolver.resolveOwnParentId())
@@ -278,6 +290,7 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
                     try {
                         // Use runBlocking to call suspend function
                         val refreshedToken = kotlinx.coroutines.runBlocking {
+                            checkOwnStatusScope()
                             tokenManager.refreshToken(serverUrl)
                         }
                         if (refreshedToken != null) {
@@ -1482,10 +1495,13 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
     /**
      * Get child device status from server using Retrofit
      */
-    suspend fun getChildDeviceStatus(childDeviceId: String): retrofit2.Response<DeviceStatusResponse> {
+    suspend fun getChildDeviceStatus(childDeviceId: String,
+        expectedScope: List<String>? = null): retrofit2.Response<DeviceStatusResponse> {
         return withContext(Dispatchers.IO) {
             try {
-                val serverUrl = getConfiguredServerUrl()
+                if (expectedScope != null && (expectedScope.size != 4 || expectedScope.any { it.isBlank() } ||
+                        placeIdentity() != expectedScope)) throw IOException("DEVICE_STATUS_CONTEXT_CHANGED")
+                val serverUrl = expectedScope?.getOrNull(0) ?: getConfiguredServerUrl()
                 if (serverUrl.isNullOrBlank()) {
                     Log.w(TAG, "Server URL not configured, cannot get device status")
                     return@withContext retrofit2.Response.error(
@@ -1500,8 +1516,17 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
                 Log.d(TAG, "Getting child device status from server: $serverUrl")
                 Log.d(TAG, "Child device ID: $childDeviceId")
 
-                withCredentialRecovery { api.getDeviceStatus(childDeviceId) }
-            } catch (e: Exception) {
+                suspend fun read() = api.getDeviceStatus(childDeviceId,
+                    purpose = if (expectedFamilyReadScope != null) "app_usage" else null,
+                    familyId = (expectedScope ?: expectedFamilyReadScope)?.getOrNull(1),
+                    actorMemberId = (expectedScope ?: expectedFamilyReadScope)?.getOrNull(2),
+                    expectedScope = expectedScope?.let(::DeviceStatusRequestScope))
+                // Scoped read uses existing credentials only; never registers a changed identity.
+                val response = if (expectedScope != null) read() else withCredentialRecovery { read() }
+                if (expectedScope != null && placeIdentity() != expectedScope) throw IOException("DEVICE_STATUS_CONTEXT_CHANGED")
+                response
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (e: Exception) {
                 Log.e(TAG, "Error getting child device status", e)
                 retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
             }
@@ -1532,13 +1557,50 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
                 Log.d(TAG, "Getting child device status history from server: $serverUrl")
                 Log.d(TAG, "Child device ID: $childDeviceId, limit=$limit")
 
-                withCredentialRecovery { api.getDeviceStatusHistory(childDeviceId, limit) }
-            } catch (e: Exception) {
+                withCredentialRecovery { api.getDeviceStatusHistory(childDeviceId, limit,
+                    purpose = if (expectedFamilyReadScope != null) "app_usage" else null,
+                    familyId = expectedFamilyReadScope?.getOrNull(1), actorMemberId = expectedFamilyReadScope?.getOrNull(2)) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (e: Exception) {
                 Log.e(TAG, "Error getting child device status history", e)
                 retrofit2.Response.error(404, okhttp3.ResponseBody.create(null, "Error: ${e.message}"))
             }
         }
     }
+
+    /** A missing HTTP route is legacy support; transport failures must never become 404. */
+    suspend fun getAttentionSignalStatus(requestId: String, targetDeviceId: String): JSONObject? = withContext(Dispatchers.IO) {
+        val scope = expectedFamilyReadScope ?: return@withContext null
+        if (scope.size != 4 || scope.any(String::isBlank)) return@withContext null
+        if (placeIdentity() != scope) throw ru.childwatch.shared.attention.android.AttentionSignalStatusAccessDenied()
+        val api = createRetrofitClient(scope[0]).create(ChildWatchApi::class.java)
+        val response = kotlinx.coroutines.withTimeoutOrNull(8_000L) {
+            api.getAttentionSignalStatus(requestId, targetDeviceId, scope[1], scope[2])
+        } ?: return@withContext null
+        if (placeIdentity() != scope || response.code() in setOf(401, 403))
+            throw ru.childwatch.shared.attention.android.AttentionSignalStatusAccessDenied()
+        if (!response.isSuccessful) return@withContext null
+        response.body()?.let { JSONObject(it) }?.takeIf {
+            it.optBoolean("success") && it.optString("requestId") == requestId &&
+                it.optString("targetDeviceId") == targetDeviceId && it.optString("familyId") == scope[1] &&
+                it.optString("actorMemberId") == scope[2]
+        }
+    }
+
+    suspend fun getChildUsageDays(childDeviceId: String, limit: Int = 90): retrofit2.Response<Map<String, Any?>> =
+        withContext(Dispatchers.IO) {
+            try {
+                val scope = expectedFamilyReadScope?.map(String::trim)
+                if (scope == null || scope.size != 4 || scope.any(String::isBlank) || placeIdentity() != scope)
+                    return@withContext retrofit2.Response.error(403, okhttp3.ResponseBody.create(null, "USAGE_CONTEXT_CHANGED"))
+                val api = createRetrofitClient(scope[0]).create(ChildWatchApi::class.java)
+                withCredentialRecovery { api.getDeviceUsageDays(childDeviceId, limit.coerceIn(1, 90), scope[1], scope[2]) }
+            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                Log.w(TAG, "Daily usage archive unavailable", error)
+                retrofit2.Response.error(503, okhttp3.ResponseBody.create(null, "USAGE_ARCHIVE_UNAVAILABLE"))
+            }
+        }
 
     suspend fun getLinkedChildren(
         parentDeviceId: String
@@ -1853,25 +1915,44 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
      * setting are two chances to disagree about which server the family is on.
      */
     /** Authenticated family places; non-success is preserved for recovery UI. */
+    private data class PlaceRequestScope(val identity: List<String>)
+    private fun placeIdentity() = listOf(effectiveContextResolver.resolveServerUrl().trim(),
+        effectiveContextResolver.resolveFamilyId().orEmpty().trim(),
+        effectiveContextResolver.resolveSelfMemberId().orEmpty().trim(), effectiveContextResolver.resolveOwnParentId().trim())
+
     suspend fun familyPlacesRequest(familyId: String, method: String = "GET", suffix: String = "",
-        body: JSONObject? = null, after: Long? = null, targetMemberId: String? = null): JSONObject = withContext(Dispatchers.IO) {
+        body: JSONObject? = null, after: Long? = null, targetMemberId: String? = null,
+        expectedScope: String? = null, before: Long? = null, snapshot: Long? = null): JSONObject = withContext(Dispatchers.IO) {
+        val expected = expectedScope?.let { encoded -> org.json.JSONArray(encoded).let { array ->
+            require(array.length() == 4) { "PLACE_CONTEXT_MISSING" }
+            (0 until 4).map { array.getString(it) }
+        } } ?: placeIdentity()
+        if (expected.any { it.isBlank() } || expected[1] != familyId || placeIdentity() != expected)
+            throw IllegalStateException("PLACE_CONTEXT_CHANGED")
         val configured = getConfiguredServerUrl()?.takeIf { it.isNotBlank() }
             ?: throw IllegalStateException("Server is not configured")
         val url = (ensureHttpsUrl(configured).trimEnd('/') + "/api/family-places" + suffix).toHttpUrl().newBuilder()
             .addQueryParameter("familyId", familyId)
+            .addQueryParameter("actorMemberId", expected[2])
         after?.let { url.addQueryParameter("after", it.toString()) }
+        before?.let { url.addQueryParameter("before", it.toString()) }
+        snapshot?.let { url.addQueryParameter("snapshot", it.toString()) }
         targetMemberId?.let { url.addQueryParameter("targetMemberId", it) }
-        val request = Request.Builder().url(url.build())
+        val request = Request.Builder().url(url.build()).tag(PlaceRequestScope::class.java, PlaceRequestScope(expected))
         when (method) {
             "POST" -> request.post((body ?: JSONObject()).toString().toRequestBody("application/json".toMediaType()))
             "PATCH" -> request.patch((body ?: JSONObject()).toString().toRequestBody("application/json".toMediaType()))
             "DELETE" -> request.delete()
             else -> request.get()
         }
-        client.newCall(request.build()).execute().use { response ->
+        client.newBuilder().callTimeout(25, TimeUnit.SECONDS).build().newCall(request.build()).execute().use { response ->
+            if (placeIdentity() != expected) throw IllegalStateException("PLACE_CONTEXT_CHANGED")
             val json = response.body?.string()?.let(::JSONObject) ?: JSONObject()
             if (!response.isSuccessful || !json.optBoolean("success"))
                 throw IllegalStateException(if (response.code == 403) "PLACE_PERMISSION_DENIED" else "PLACE_REQUEST_FAILED")
+            if ((json.has("familyId") && json.getString("familyId") != familyId) ||
+                (json.has("ownerMemberId") && json.getString("ownerMemberId") != expected[2]))
+                throw IllegalStateException("PLACE_CONTEXT_CHANGED")
             json
         }
     }
@@ -2862,3 +2943,4 @@ private fun JSONObject.toParentLocationData(fallbackId: String, idKey: String): 
 
 data class FamilyHistoryPage(val points: List<ParentLocationData>, val nextCursor: String?, val hasMore: Boolean, val revision: String)
 class HistoryReadException(val status: Int) : java.io.IOException("History response $status")
+data class DeviceStatusRequestScope(val identity: List<String>)

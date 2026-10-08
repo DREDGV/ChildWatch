@@ -33,6 +33,14 @@ import ru.childwatch.shared.chat.ChatV2UpdateGroupTitleRequest
  */
 interface ChildWatchApi {
 
+    @GET("api/attention-signal/{requestId}/status")
+    suspend fun getAttentionSignalStatus(
+        @Path("requestId") requestId: String,
+        @Query("targetDeviceId") targetDeviceId: String,
+        @Query("familyId") familyId: String,
+        @Query("actorMemberId") actorMemberId: String
+    ): Response<Map<String, Any?>>
+
     /** Canonical authenticated family identity for this physical device. */
     @GET("api/me")
     suspend fun getAuthenticatedIdentity(): Response<AuthenticatedIdentityResponse>

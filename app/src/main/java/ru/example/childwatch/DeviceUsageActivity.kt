@@ -14,6 +14,8 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import ru.example.childwatch.databinding.ActivityDeviceUsageBinding
 import ru.example.childwatch.network.DeviceRecentApp
 import ru.example.childwatch.network.DeviceStatus
@@ -23,6 +25,11 @@ import ru.example.childwatch.profile.ParentEffectiveContextResolver
 import ru.example.childwatch.profile.ParentLinkedChildOptionsProvider
 import ru.example.childwatch.profile.FamilyAvatarRenderer
 import java.util.Locale
+import ru.childwatch.shared.usage.UsageDailyCandidate
+import ru.childwatch.shared.usage.UsageDailySnapshot
+import ru.childwatch.shared.usage.UsageDailyReportPolicy
+import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import androidx.appcompat.app.AlertDialog
 
 class DeviceUsageActivity : AppCompatActivity() {
 
@@ -38,7 +45,15 @@ class DeviceUsageActivity : AppCompatActivity() {
     private var usageJob: Job? = null
     private var refreshJob: Job? = null
     private var usageScope: String? = null
-    private var lastGoodDailySnapshot: DailySnapshot? = null
+    private val lastGoodByDay = linkedMapOf<String, UsageDailySnapshot>()
+    private var availableDays: List<UsageDailySnapshot> = emptyList()
+    private var selectedDayKey: String? = null
+    private var reportStatus: DeviceStatus? = null
+    private var reportHistory: List<DeviceStatusHistoryItem> = emptyList()
+    private var reportRecent: List<DeviceRecentApp> = emptyList()
+    private var dayPicker: AlertDialog? = null
+    private var archiveMode = "pending"
+    private var archiveHasMore = false
     private var detailsExpanded = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -50,6 +65,8 @@ class DeviceUsageActivity : AppCompatActivity() {
         effectiveContextResolver = ParentEffectiveContextResolver(this)
         linkedChildOptionsProvider = ParentLinkedChildOptionsProvider(this)
         detailsExpanded = savedInstanceState?.getBoolean("usage_details_expanded") ?: false
+        selectedDayKey = savedInstanceState?.getString("usage_selected_day")
+        usageScope = savedInstanceState?.getString("usage_day_scope")
 
         binding.toolbar.navigationIcon = AppCompatResources.getDrawable(
             this,
@@ -58,6 +75,7 @@ class DeviceUsageActivity : AppCompatActivity() {
         binding.toolbar.setNavigationOnClickListener { onBackPressedDispatcher.onBackPressed() }
 
         binding.refreshButton.setOnClickListener { loadUsage(force = true) }
+        binding.usageDayButton.setOnClickListener { chooseDay() }
         binding.usageDetailsButton.setOnClickListener {
             detailsExpanded = !detailsExpanded
             updateDetailsUi()
@@ -68,7 +86,7 @@ class DeviceUsageActivity : AppCompatActivity() {
 
     private fun updateDetailsUi() {
         binding.usageDetailsContainer.isVisible = detailsExpanded
-        binding.historyCard.isVisible = detailsExpanded && binding.recentAppsCard.isVisible
+        binding.historyCard.isVisible = detailsExpanded && binding.currentAppCard.isVisible && binding.recentAppsCard.isVisible
         binding.usageDetailsButton.setText(if (detailsExpanded) R.string.usage_details_hide else R.string.usage_details_show)
         androidx.core.view.ViewCompat.setStateDescription(binding.usageDetailsButton,
             getString(if (detailsExpanded) R.string.usage_details_expanded else R.string.usage_details_collapsed))
@@ -83,20 +101,33 @@ class DeviceUsageActivity : AppCompatActivity() {
 
     override fun onSaveInstanceState(outState: Bundle) {
         outState.putBoolean("usage_details_expanded", detailsExpanded)
+        outState.putString("usage_selected_day", selectedDayKey)
+        outState.putString("usage_day_scope", usageScope)
         super.onSaveInstanceState(outState)
     }
 
     private fun loadUsage(force: Boolean) {
         val childDeviceId = resolveChildDeviceId()
         if (childDeviceId.isNullOrBlank()) {
+            usageJob?.cancel()
+            usageScope = null
+            clearReportCache()
             showOnlyMessage(getString(R.string.device_usage_pairing_required))
             return
         }
 
         val scope = usageScopeKey(childDeviceId)
+        val actor = org.json.JSONArray(scope)
+        if ((0 until 4).any { actor.getString(it).isBlank() }) {
+            usageJob?.cancel()
+            usageScope = null
+            clearReportCache()
+            showOnlyMessage(getString(R.string.daily_usage_access_denied))
+            return
+        }
         if (usageScope != scope) {
             usageScope = scope
-            lastGoodDailySnapshot = null
+            clearReportCache()
             binding.recentAppsContainer.removeAllViews()
             showOnlyMessage(getString(R.string.daily_usage_waiting))
         }
@@ -110,53 +141,87 @@ class DeviceUsageActivity : AppCompatActivity() {
             try {
                 if (!ru.example.childwatch.profile.ParentListeningTargetPolicy(this@DeviceUsageActivity)
                         .isChildDevice(childDeviceId)) {
+                    if (!isCurrentRequest(childDeviceId, scope)) return@launch
+                    clearReportCache()
                     showOnlyMessage(getString(R.string.daily_usage_child_only))
                     return@launch
                 }
-                val latestDeferred = async { networkClient.getChildDeviceStatus(childDeviceId) }
-                val historyDeferred = async { networkClient.getChildDeviceStatusHistory(childDeviceId, limit = 80) }
+                if (!isCurrentRequest(childDeviceId, scope)) return@launch
+                val fields = org.json.JSONArray(scope)
+                val scopedNetwork = NetworkClient(this@DeviceUsageActivity,
+                    expectedFamilyReadScope = (0 until 4).map { fields.getString(it) })
+                val latestDeferred = async { scopedNetwork.getChildDeviceStatus(childDeviceId) }
+                val historyDeferred = async { scopedNetwork.getChildDeviceStatusHistory(childDeviceId, limit = 80) }
+                val archiveDeferred = async { scopedNetwork.getChildUsageDays(childDeviceId, limit = 90) }
 
                 val latestResponse = latestDeferred.await()
                 val historyResponse = historyDeferred.await()
-                if (usageScopeKey(childDeviceId) != scope || usageScope != scope) return@launch
+                val archiveResponse = archiveDeferred.await()
+                currentCoroutineContext().ensureActive()
+                if (!isCurrentRequest(childDeviceId, scope)) return@launch
 
-                if (latestResponse.code() == 403 || historyResponse.code() == 403) {
-                    lastGoodDailySnapshot = null
+                if (listOf(latestResponse.code(), historyResponse.code(), archiveResponse.code()).any { it == 403 || it == 401 }) {
+                    clearReportCache()
                     showOnlyMessage(getString(R.string.daily_usage_access_denied))
                     return@launch
                 }
 
                 val status = latestResponse.body()?.status.takeIf { latestResponse.isSuccessful }
                 val history = historyResponse.body()?.statuses.orEmpty().takeIf { historyResponse.isSuccessful }.orEmpty()
+                val archive = if (archiveResponse.isSuccessful)
+                    runCatching { parseArchive(archiveResponse.body(), childDeviceId, fields.getString(1), fields.getString(2)) }.getOrNull()
+                    else null
+                archiveMode = when {
+                    archive != null -> "available"
+                    archiveResponse.code() == 404 -> "legacy"
+                    else -> "failed"
+                }
+                archiveHasMore = archive?.hasMore ?: false
+                updateArchiveNote()
 
-                if (status == null && history.isEmpty()) {
-                    showLoadFailure()
+                if (status == null && history.isEmpty() && archive?.candidates.isNullOrEmpty()) {
+                    if (latestResponse.isSuccessful && historyResponse.isSuccessful) {
+                        if (availableDays.isEmpty() && selectedDayKey == null) showOnlyMessage(getString(R.string.daily_usage_waiting))
+                        else {
+                            renderSelectedDay()
+                            showLoading(false)
+                            binding.statusMessageText.isVisible = true
+                            binding.statusMessageText.setText(R.string.daily_usage_no_new_snapshot)
+                        }
+                    } else showLoadFailure()
                     return@launch
                 }
 
-                binding.currentAppCard.isVisible = true
-                binding.recentAppsCard.isVisible = true
-                binding.historyCard.isVisible = detailsExpanded
+                val latestPermissionRaw = status?.raw ?: history.maxByOrNull { it.timestamp ?: 0L }?.raw
+                if (usagePermissionMissing(latestPermissionRaw)) {
+                    clearReportCache()
+                    showOnlyMessage(getString(R.string.device_usage_permission_missing))
+                    return@launch
+                }
+
                 binding.statusMessageText.isVisible = false
-                renderStatus(status)
                 val usageSnapshot = history.sortedByDescending { it.timestamp ?: 0L }
                     .firstOrNull { !readRecentApps(it.recentApps, it.raw).isNullOrEmpty() }
                 val recentApps = if (extractUsagePermissionMissing(status)) emptyList() else
                     readRecentApps(status?.recentApps, status?.raw)
                         .ifEmpty { readRecentApps(usageSnapshot?.recentApps, usageSnapshot?.raw) }
-                renderRecentApps(status, recentApps)
-                val selectedSnapshot = selectDailySnapshot(status, history)
-                if (selectedSnapshot != null && (selectedSnapshot.collectedAt ?: 0L) >= (lastGoodDailySnapshot?.collectedAt ?: 0L)) lastGoodDailySnapshot = selectedSnapshot
-                val displayedSnapshot = selectedSnapshot?.takeIf { (it.collectedAt ?: 0L) >= (lastGoodDailySnapshot?.collectedAt ?: 0L) }
-                    ?: lastGoodDailySnapshot?.copy(isFromHistory = true)
-                renderDailyUsage(status, displayedSnapshot, history)
-                renderHistory(history.sortedByDescending { it.timestamp ?: 0L })
-                updateDetailsUi()
+                val candidates = listOfNotNull(status?.raw?.let { UsageDailyCandidate(it, false) }) +
+                    history.mapNotNull { it.raw?.let { raw -> UsageDailyCandidate(raw, true) } }
+                val savedCandidates = lastGoodByDay.values.map { UsageDailyCandidate(it.raw, true) }
+                availableDays = UsageDailyReportPolicy.snapshots(archive?.candidates.orEmpty() + savedCandidates + candidates,
+                    System.currentTimeMillis()).take(90)
+                lastGoodByDay.clear()
+                availableDays.forEach { lastGoodByDay[it.dayKey] = it }
+                reportStatus = status
+                reportHistory = history
+                reportRecent = recentApps
+                renderSelectedDay()
                 showLoading(false)
             } catch (error: CancellationException) {
                 throw error
             } catch (error: Exception) {
-                showLoadFailure()
+                currentCoroutineContext().ensureActive()
+                if (isCurrentRequest(childDeviceId, scope)) showLoadFailure()
             }
         }
     }
@@ -175,7 +240,7 @@ class DeviceUsageActivity : AppCompatActivity() {
                 System.currentTimeMillis(),
                 DateUtils.MINUTE_IN_MILLIS
             ).toString()
-            getString(R.string.device_usage_last_seen, "$relative · ${formatClock(it)}")
+            getString(R.string.device_usage_last_seen, "$relative · ${formatObservationTime(it)}")
         } ?: getString(R.string.device_usage_last_seen, getString(R.string.device_info_unknown))
 
         val batteryText = status?.batteryLevel?.takeIf { it in 0..100 }?.let {
@@ -204,36 +269,122 @@ class DeviceUsageActivity : AppCompatActivity() {
     )
 
     private fun usageScopeKey(childDeviceId: String): String = org.json.JSONArray()
-        .put(effectiveContextResolver.resolveServerUrl()).put(effectiveContextResolver.resolveFamilyId())
-        .put(effectiveContextResolver.resolveOwnParentId()).put(childDeviceId).toString()
+        .put(effectiveContextResolver.resolveServerUrl().trim()).put(effectiveContextResolver.resolveFamilyId().orEmpty().trim())
+        .put(effectiveContextResolver.resolveSelfMemberId().orEmpty().trim()).put(effectiveContextResolver.resolveOwnParentId().trim()).put(childDeviceId).toString()
 
-    private fun selectDailySnapshot(status: DeviceStatus?, history: List<DeviceStatusHistoryItem>): DailySnapshot? {
-        val candidates = mutableListOf<DailySnapshot>()
-        status?.raw?.takeIf { isDailyUsageUsable(it["dailyUsage"]) }?.let { raw ->
-            candidates += DailySnapshot(raw, (raw["appUsageCollectedAt"] as? Number)?.toLong()?.takeIf { it > 0 }
-                ?: (raw["dailyUsage"] as? Map<*, *>)?.get("end")?.let { (it as? Number)?.toLong() }, false)
+    private data class ArchiveDays(val candidates: List<UsageDailyCandidate>, val hasMore: Boolean)
+
+    /** Fail the entire envelope on a different actor/target, never merge its rows into this report. */
+    private fun parseArchive(body: Map<String, Any?>?, device: String, family: String, actor: String): ArchiveDays {
+        require(body != null && body["success"] == true && body["deviceId"] == device &&
+            body["familyId"] == family && body["actorMemberId"] == actor)
+        val metadata = body["archive"] as? Map<*, *> ?: error("Missing archive metadata")
+        require(metadata["hasMore"] is Boolean && metadata["completeCoverage"] == false &&
+            metadata.containsKey("retentionDays") && metadata["retentionDays"] == null)
+        val rows = body["statuses"] as? List<*> ?: error("Missing archive days")
+        require(rows.size <= 90)
+        val candidates = rows.map { entry ->
+            val row = entry as? Map<*, *> ?: error("Invalid archive row")
+            val raw = row["raw"] as? Map<*, *> ?: error("Invalid archive snapshot")
+            require(raw.keys.all { it is String })
+            val normalized = raw.entries.associate { it.key as String to it.value }
+            val daily = normalized["dailyUsage"] as? Map<*, *> ?: error("Missing daily window")
+            require(daily["windowState"] in setOf("CLOSED", "PARTIAL", "UNKNOWN"))
+            UsageDailyCandidate(normalized + ("usageArchiveSource" to true), true)
         }
-        history.forEach { item ->
-            item.raw?.takeIf { isDailyUsageUsable(it["dailyUsage"]) }?.let { raw ->
-                candidates += DailySnapshot(raw, (raw["appUsageCollectedAt"] as? Number)?.toLong()?.takeIf { it > 0 }
-                    ?: (raw["dailyUsage"] as? Map<*, *>)?.get("end")?.let { (it as? Number)?.toLong() }, true)
-            }
-        }
-        return candidates.maxByOrNull { it.collectedAt ?: 0L }
+        return ArchiveDays(candidates, metadata["hasMore"] as Boolean)
     }
 
-    /**
-     * A snapshot is usable only when it names its day and holds at least one app with
-     * real foreground time. `{}`, a missing key and `available == false` are not data:
-     * treating them as data is what made the screen claim there was nothing to show.
-     */
-    private fun isDailyUsageUsable(dailyUsage: Any?): Boolean {
-        val daily = dailyUsage as? Map<*, *> ?: return false
-        if (daily["available"] == false) return false
-        val start = (daily["start"] as? Number)?.toLong() ?: return false
-        val end = (daily["end"] as? Number)?.toLong() ?: return false
-        if (start <= 0L || end <= start) return false
-        return dailyUsageRows(daily).isNotEmpty()
+    private fun updateArchiveNote() {
+        binding.usageArchiveNote.setText(when (archiveMode) {
+            "available" -> if (archiveHasMore) R.string.daily_usage_archive_more else R.string.daily_usage_archive_limits
+            "legacy" -> R.string.daily_usage_archive_legacy
+            "failed" -> R.string.daily_usage_archive_failed
+            else -> R.string.daily_usage_report_limits
+        })
+    }
+
+    private fun clearReportCache() {
+        dayPicker?.dismiss()
+        lastGoodByDay.clear()
+        availableDays = emptyList()
+        selectedDayKey = null
+        reportStatus = null
+        reportHistory = emptyList()
+        reportRecent = emptyList()
+        archiveMode = "pending"
+        archiveHasMore = false
+        updateArchiveNote()
+        binding.usageDayButton.setText(R.string.daily_usage_latest_available)
+    }
+
+    private fun isCurrentRequest(child: String, scope: String): Boolean {
+        if (resolveChildDeviceId() == child && usageScopeKey(child) == scope && usageScope == scope) return true
+        if (usageScope == scope) {
+            usageScope = null
+            clearReportCache()
+            showOnlyMessage(getString(R.string.daily_usage_context_changed))
+        }
+        return false
+    }
+
+    private fun dayLabel(snapshot: UsageDailySnapshot): String = java.text.SimpleDateFormat("d MMMM yyyy", Locale.getDefault()).apply {
+        timeZone = java.util.TimeZone.getTimeZone(snapshot.timeZoneId)
+    }.format(java.util.Date(snapshot.dayLabelDate))
+
+    private fun chooseDay() {
+        val scope = usageScope ?: return
+        val device = resolveChildDeviceId() ?: return
+        if (!isCurrentRequest(device, scope)) return
+        val choices = availableDays.toList()
+        val labels = listOf(getString(R.string.daily_usage_latest_available)) + choices.map {
+            getString(R.string.daily_usage_day_choice, dayLabel(it), it.timeZoneId)
+        }
+        dayPicker?.dismiss()
+        dayPicker = MaterialAlertDialogBuilder(this).setTitle(R.string.daily_usage_choose_day)
+            .setItems(labels.toTypedArray()) { _, index ->
+                if (isCurrentRequest(device, scope)) {
+                    selectedDayKey = choices.getOrNull(index - 1)?.dayKey
+                    renderSelectedDay()
+                }
+            }.setNegativeButton(android.R.string.cancel, null).create().also { picker ->
+                picker.setOnDismissListener { if (dayPicker === picker) dayPicker = null }
+                picker.show()
+            }
+    }
+
+    private fun renderSelectedDay() {
+        updateArchiveNote()
+        binding.usageArchiveNote.isVisible = true
+        val snapshot = UsageDailyReportPolicy.selectDay(availableDays, selectedDayKey)
+        binding.usageDayButton.isVisible = true
+        binding.usageDayButton.text = if (selectedDayKey == null) getString(R.string.daily_usage_latest_available)
+            else snapshot?.let { getString(R.string.daily_usage_day_choice, dayLabel(it), it.timeZoneId) }
+                ?: getString(R.string.daily_usage_selected_missing_title)
+        val historical = snapshot?.let {
+            val zone = java.time.ZoneId.of(it.timeZoneId)
+            java.time.Instant.ofEpochMilli(it.dayLabelDate).atZone(zone).toLocalDate() != java.time.LocalDate.now(zone)
+        } ?: (selectedDayKey != null)
+        binding.currentAppCard.isVisible = !historical
+        binding.recentAppsCard.isVisible = true
+        binding.currentMetaText.isVisible = !historical
+        if (!historical) renderStatus(reportStatus)
+        if (snapshot == null && selectedDayKey != null) {
+            binding.recentAppsContainer.removeAllViews()
+            binding.dailySummaryText.isVisible = true
+            binding.dailySummaryText.setText(R.string.daily_usage_selected_missing)
+            binding.appsSectionTitle.setText(R.string.daily_usage_selected_missing_title)
+            binding.dailyFreshnessText.text = ""
+            binding.dailyDetailsText.text = ""
+            binding.recentAppsEmptyText.isVisible = false
+        } else {
+            renderRecentApps(reportStatus, if (snapshot == null) reportRecent else emptyList())
+            renderDailyUsage(reportStatus, snapshot?.let { DailySnapshot(it.raw, it.collectedAt, it.fromHistory) }, reportHistory)
+            if (snapshot == null) binding.dailyFreshnessText.setText(R.string.daily_usage_recent_unbounded)
+        }
+        if (!historical) renderHistory(reportHistory.sortedByDescending { it.timestamp ?: 0L })
+        else binding.historyContainer.removeAllViews()
+        updateDetailsUi()
     }
 
     private fun dailyUsageRows(daily: Map<*, *>): List<Map<*, *>> =
@@ -245,6 +396,10 @@ class DeviceUsageActivity : AppCompatActivity() {
         java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).apply {
             if (zone != null) timeZone = zone
         }.format(java.util.Date(millis))
+
+    /** Collection/observation time uses the parent's zone, explicitly named in the UI. */
+    private fun formatObservationTime(millis: Long): String =
+        java.text.SimpleDateFormat("d MMM · HH:mm", Locale.getDefault()).format(java.util.Date(millis))
 
     /**
      * Why there is nothing to show, stated honestly instead of staying silent: no
@@ -282,7 +437,7 @@ class DeviceUsageActivity : AppCompatActivity() {
         if (snapshot == null || daily == null || start == null || end == null || end < start) {
             binding.dailyDetailsText.text = ""
             binding.dailyFreshnessText.text = ""
-            val anyUsableInHistory = history.any { isDailyUsageUsable(it.raw?.get("dailyUsage")) }
+            val anyUsableInHistory = availableDays.isNotEmpty()
             binding.dailySummaryText.text = dailyUnavailableMessage(status, history, anyUsableInHistory)
             binding.recentAppsEmptyText.isVisible = binding.recentAppsContainer.childCount == 0
             binding.recentAppsEmptyText.setText(R.string.device_usage_recent_empty)
@@ -292,7 +447,7 @@ class DeviceUsageActivity : AppCompatActivity() {
         // mixing both lists duplicates apps and puts recent-launch data under a daily heading.
         binding.recentAppsContainer.removeAllViews()
         val zone = java.util.TimeZone.getTimeZone(daily["timeZone"] as? String ?: "UTC")
-        val dateFormat = java.text.SimpleDateFormat("d MMMM", Locale.getDefault()).apply { timeZone = zone }
+        val dateFormat = java.text.SimpleDateFormat("d MMMM yyyy", Locale.getDefault()).apply { timeZone = zone }
         val rows = dailyUsageRows(daily)
             .sortedByDescending { (it["totalTimeInForeground"] as? Number)?.toLong() ?: 0L }
         val total = rows.sumOf { (it["totalTimeInForeground"] as? Number)?.toLong() ?: 0L }
@@ -311,9 +466,11 @@ class DeviceUsageActivity : AppCompatActivity() {
         rows.forEach { app ->
             val duration = (app["totalTimeInForeground"] as? Number)?.toLong() ?: 0L
             val share = if (total > 0) (duration * 100 / total).toInt().coerceAtLeast(0) else 0
-            val lastUsed = (app["lastUsed"] as? Number)?.toLong()?.takeIf { it > 0 }
+            val lastUsed = (app["lastUsed"] as? Number)?.toLong()?.takeIf { it in start..end }
             val row = createUsageRow(
-                title = app["appName"] as? String ?: app["packageName"] as? String ?: "",
+                title = (app["appName"] as? String)?.takeIf { it.isNotBlank() }
+                    ?: (app["packageName"] as? String)?.takeIf { it.isNotBlank() }
+                    ?: getString(R.string.device_info_unknown),
                 subtitle = lastUsed?.let { getString(R.string.daily_usage_app_last_used, formatClock(it, zone)) } ?: "",
                 meta = getString(R.string.daily_usage_app_time, formatDuration(duration), share)
             )
@@ -331,12 +488,13 @@ class DeviceUsageActivity : AppCompatActivity() {
      * simply older than a few minutes.
      */
     private fun dailyDataAgeNote(snapshot: DailySnapshot, end: Long, zone: java.util.TimeZone): String {
-        val collectedAt = snapshot.collectedAt?.takeIf { it > 0 }
+        // appUsageCollectedAt is the scan clock, not server receive time. Legacy end is only a period bound.
+        val collectedAt = (snapshot.raw["appUsageCollectedAt"] as? Number)?.toLong()?.takeIf { it > 0 }
         val staleFlag = snapshot.raw["appUsageStale"] == true
-        val collectedFormat = java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).apply {
+        val collectedFormat = java.text.SimpleDateFormat("d MMM yyyy · HH:mm", Locale.getDefault()).apply {
             timeZone = java.util.TimeZone.getDefault()
         }
-        val endFormat = java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).apply { timeZone = zone }
+        val endFormat = java.text.SimpleDateFormat("d MMM yyyy · HH:mm", Locale.getDefault()).apply { timeZone = zone }
         val collectedNote = collectedAt?.let { getString(
                 R.string.daily_usage_collected_at,
                 endFormat.format(java.util.Date(end)),
@@ -345,7 +503,19 @@ class DeviceUsageActivity : AppCompatActivity() {
         val staleNote = if (staleFlag || snapshot.isFromHistory ||
             System.currentTimeMillis() - end > 5 * DateUtils.MINUTE_IN_MILLIS)
             getString(R.string.daily_usage_stale, endFormat.format(java.util.Date(end))) else ""
-        return listOf(collectedNote, staleNote).filter { it.isNotBlank() }.joinToString("\n")
+        val source = getString(when {
+            snapshot.raw["usageArchiveSource"] == true -> R.string.daily_usage_source_archive
+            snapshot.isFromHistory -> R.string.daily_usage_source_saved
+            else -> R.string.daily_usage_source_latest
+        }, zone.id)
+        val daily = snapshot.raw["dailyUsage"] as? Map<*, *>
+        val windowNote = getString(when (daily?.get("windowState")) {
+            "CLOSED" -> R.string.daily_usage_window_closed
+            "PARTIAL" -> R.string.daily_usage_window_partial
+            else -> R.string.daily_usage_window_unknown
+        })
+        val unknownClock = if (collectedAt == null) getString(R.string.daily_usage_collection_unknown, endFormat.format(java.util.Date(end))) else ""
+        return listOf(source, collectedNote, unknownClock, windowNote, staleNote).filter { it.isNotBlank() }.joinToString("\n")
     }
 
     private fun readRecentApps(apps: List<DeviceRecentApp>?, raw: Map<String, Any?>?): List<DeviceRecentApp> {
@@ -391,7 +561,7 @@ class DeviceUsageActivity : AppCompatActivity() {
                                 System.currentTimeMillis(),
                                 DateUtils.MINUTE_IN_MILLIS
                             ).toString()
-                            getString(R.string.device_usage_last_used, "$relative · ${formatClock(it)}")
+                            getString(R.string.device_usage_last_used, "$relative · ${formatObservationTime(it)}")
                         },
                         app.totalTimeInForeground?.takeIf { it > 0 }?.let {
                             getString(R.string.device_usage_foreground_time, formatDuration(it))
@@ -426,13 +596,8 @@ class DeviceUsageActivity : AppCompatActivity() {
 
         binding.historyEmptyText.isVisible = compactHistory.isEmpty()
         compactHistory.forEach { item ->
-            val relativeTime = item.timestamp?.takeIf { it > 0 }?.let {
-                DateUtils.getRelativeTimeSpanString(
-                    it,
-                    System.currentTimeMillis(),
-                    DateUtils.MINUTE_IN_MILLIS
-                ).toString()
-            } ?: getString(R.string.device_info_unknown)
+            val observedTime = item.timestamp?.takeIf { it > 0 }?.let(::formatObservationTime)
+                ?: getString(R.string.device_info_unknown)
 
             val batteryLine = item.batteryLevel?.takeIf { it in 0..100 }?.let {
                 getString(R.string.device_usage_battery, "$it%")
@@ -444,7 +609,7 @@ class DeviceUsageActivity : AppCompatActivity() {
                         ?: item.currentAppPackage.orEmpty(),
                     subtitle = item.currentAppPackage ?: "",
                     technicalSubtitle = true,
-                    meta = getString(R.string.device_usage_history_line, relativeTime, batteryLine)
+                    meta = getString(R.string.device_usage_history_line, observedTime, batteryLine)
                 )
             )
         }
@@ -472,6 +637,7 @@ class DeviceUsageActivity : AppCompatActivity() {
     }
 
     private fun updatePersonLabel(childDeviceId: String) {
+        val scope = usageScopeKey(childDeviceId)
         binding.deviceIdText.setText(R.string.device_usage_person_loading)
         FamilyAvatarRenderer.bind(binding.personAvatar, null)
         personLabelJob?.cancel()
@@ -484,6 +650,8 @@ class DeviceUsageActivity : AppCompatActivity() {
                     ?.trim()
                     ?.takeIf { it.isNotBlank() }
             }.getOrNull()
+            currentCoroutineContext().ensureActive()
+            if (!isCurrentRequest(childDeviceId, scope)) return@launch
             if (localName != null) {
                 binding.deviceIdText.text = getString(R.string.device_usage_person, localName)
             }
@@ -492,7 +660,9 @@ class DeviceUsageActivity : AppCompatActivity() {
                 linkedChildOptionsProvider.getOptions()
                     .firstOrNull { it.deviceId == childDeviceId }
             }.getOrNull()
-            if (canonicalOption != null && resolveChildDeviceId() == childDeviceId) {
+            currentCoroutineContext().ensureActive()
+            if (canonicalOption != null && resolveChildDeviceId() == childDeviceId &&
+                usageScopeKey(childDeviceId) == scope && usageScope == scope) {
                 val canonicalName = canonicalOption.displayName.trim()
                     .ifBlank { localName ?: getString(R.string.chat_partner_child) }
                 binding.deviceIdText.text = getString(R.string.device_usage_person, canonicalName)
@@ -511,16 +681,21 @@ class DeviceUsageActivity : AppCompatActivity() {
     }
 
     private fun showLoadFailure() {
+        if (reportStatus == null && availableDays.isEmpty() && reportRecent.isEmpty() && selectedDayKey == null) {
+            showOnlyMessage(getString(R.string.daily_usage_load_failed))
+            return
+        }
         showLoading(false)
         // Keep the last displayed snapshot readable during a temporary outage.
         binding.statusMessageText.isVisible = true
         binding.statusMessageText.setText(R.string.daily_usage_refresh_failed)
-        binding.currentAppCard.isVisible = true
     }
 
     private fun showOnlyMessage(message: String) {
         showLoading(false)
+        binding.usageArchiveNote.isVisible = false
         binding.currentAppCard.isVisible = false
+        binding.usageDayButton.isVisible = false
         binding.recentAppsCard.isVisible = false
         binding.historyCard.isVisible = false
         binding.statusMessageText.isVisible = true
@@ -532,8 +707,12 @@ class DeviceUsageActivity : AppCompatActivity() {
     }
 
     private fun extractUsagePermissionMissing(status: DeviceStatus?): Boolean {
-        if (status?.raw?.get("usagePermissionGranted") == false) return true
-        val rawCurrentApp = status?.raw?.get("currentApp") as? Map<*, *> ?: return false
+        return usagePermissionMissing(status?.raw)
+    }
+
+    private fun usagePermissionMissing(raw: Map<String, Any?>?): Boolean {
+        if (raw?.get("usagePermissionGranted") == false) return true
+        val rawCurrentApp = raw?.get("currentApp") as? Map<*, *> ?: return false
         val error = rawCurrentApp["error"] as? String ?: return false
         return error.contains("Permission", ignoreCase = true)
     }
@@ -551,6 +730,7 @@ class DeviceUsageActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        dayPicker?.dismiss()
         usageJob?.cancel()
         personLabelJob?.cancel()
         super.onDestroy()
@@ -558,6 +738,9 @@ class DeviceUsageActivity : AppCompatActivity() {
 
     override fun onStart() {
         super.onStart()
+        resolveChildDeviceId()?.let { child ->
+            if (usageScope != usageScopeKey(child)) loadUsage(force = true)
+        }
         refreshJob?.cancel()
         refreshJob = lifecycleScope.launch {
             while (isActive) {

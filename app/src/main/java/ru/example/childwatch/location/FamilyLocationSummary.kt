@@ -10,9 +10,14 @@ import kotlin.math.max
 
 /** A compact location status shared by the main and listening screens. */
 class FamilyLocationSummary(private val context: Context, private val network: NetworkClient) {
-    suspend fun forPerson(personDeviceId: String, ownDeviceId: String): String = coroutineScope {
+    data class Observation(val text: String, val capturedAt: Long?)
+
+    suspend fun forPerson(personDeviceId: String, ownDeviceId: String): String =
+        observationForPerson(personDeviceId, ownDeviceId).text
+
+    suspend fun observationForPerson(personDeviceId: String, ownDeviceId: String): Observation = coroutineScope {
         if (personDeviceId == ownDeviceId && ownDeviceId.isNotBlank())
-            return@coroutineScope context.getString(ru.example.childwatch.designsystem.R.string.cw_distance_self)
+            return@coroutineScope Observation(context.getString(ru.example.childwatch.designsystem.R.string.cw_distance_self), null)
         val resolver = ru.example.childwatch.profile.ParentEffectiveContextResolver(context)
         val server = resolver.resolveServerUrl()
         val family = resolver.resolveFamilyId()
@@ -25,8 +30,9 @@ class FamilyLocationSummary(private val context: Context, private val network: N
         val own = ownRequest.await()
         if (server != resolver.resolveServerUrl() || family != resolver.resolveFamilyId() ||
             ownDeviceId != resolver.resolveOwnParentId())
-            context.getString(ru.example.childwatch.designsystem.R.string.cw_distance_loading)
-        else format(person, own, System.currentTimeMillis())
+            Observation(context.getString(ru.example.childwatch.designsystem.R.string.cw_distance_loading), null)
+        else Observation(format(person, own, System.currentTimeMillis()),
+            person?.takeIf(::valid)?.timestamp?.let(ru.childwatch.shared.diagnostics.DeviceConnectionPolicy::epoch))
     }
 
     private fun format(person: ParentLocationData?, own: ParentLocationData?, now: Long): String {
