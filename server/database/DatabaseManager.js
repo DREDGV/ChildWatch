@@ -5051,9 +5051,18 @@ class DatabaseManager {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
 
-    const statusJson = raw ? JSON.stringify(raw) : null;
-
-    return this.run(sql, [
+    return this.withTransaction(async () => {
+    const telemetryRaw = raw ? { ...raw } : null;
+    if (telemetryRaw) {
+      delete telemetryRaw.dailyUsageHistory;
+      const access = new (require('../services/DeviceAccessService'))(this);
+      const members = (await Promise.all(access.idForms(deviceId).map(id =>
+        this.getFamilyIdentityMembershipsForDevice(id)))).flat();
+      telemetryRaw.__usageOwnerScopes = members.map(m => ({ familyId: m.familyId, memberId: m.memberId,
+        bindingId: m.bindingId, bindingCreatedAt: m.bindingCreatedAt }));
+    }
+    const statusJson = telemetryRaw ? JSON.stringify(telemetryRaw) : null;
+    const result = await this.run(sql, [
       deviceId,
       batteryLevel,
       isCharging === null ? null : isCharging ? 1 : 0,
@@ -5070,6 +5079,9 @@ class DatabaseManager {
       statusJson,
       timestamp,
     ]);
+    await new (require('../services/AppUsageDailyArchiveService'))(this).ingest(deviceId, raw);
+    return result;
+    });
   }
 
   /**

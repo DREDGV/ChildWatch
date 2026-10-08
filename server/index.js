@@ -1294,6 +1294,40 @@ app.post(
   }
 );
 
+// Read-only signal recovery: this endpoint never resends the sound command.
+app.get('/api/attention-signal/:requestId/status', authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000,60),async(req,res)=>{
+    try {
+      const result=await attentionSignalManager.readRequestStatus({callerDeviceId:req.deviceId,
+        requestId:req.params.requestId,targetDeviceId:req.query.targetDeviceId,
+        familyId:req.query.familyId,actorMemberId:req.query.actorMemberId});
+      if(!result.allowed) return res.status(result.httpStatus).json({success:false,code:result.code});
+      const {allowed,...body}=result;res.json(body);
+    } catch(error) {
+      console.error('Read attention request status failed:',error.message);
+      res.status(500).json({success:false,code:'ATTENTION_STATUS_UNAVAILABLE'});
+    }
+  });
+
+// Durable cumulative daily usage; distinct from bounded telemetry samples.
+app.get('/api/device/usage/:deviceId/days', authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 60), async (req, res) => {
+    try {
+      if (!validator.validateDeviceIdFormat(req.params.deviceId))
+        return res.status(400).json({ error: 'Invalid device ID format', code: 'INVALID_DEVICE_ID' });
+      const read = await new (require('./services/AppUsageDailyArchiveService'))(dbManager).read({
+        callerDeviceId: req.deviceId, targetDeviceId: req.params.deviceId, limit: req.query.limit,
+        familyId: req.query.familyId, actorMemberId: req.query.actorMemberId });
+      if (!read.allowed) return res.status(403).json({ error: 'App usage access denied', code: read.code });
+      res.json({ success: true, deviceId: req.params.deviceId, familyId: req.query.familyId ?? null,
+        actorMemberId: req.query.actorMemberId ?? null, statuses: read.statuses,
+        limit: read.limit, archive: read.archive });
+    } catch (error) {
+      console.error('Read daily usage archive failed:', error.message);
+      res.status(500).json({ error: 'Archive unavailable', code: 'APP_USAGE_ARCHIVE_ERROR' });
+    }
+  });
+
 app.get(
   "/api/device/status/history/:deviceId",
   authMiddleware.authenticate(),
@@ -1313,13 +1347,18 @@ app.get(
         });
       }
 
-      const statuses = await dbManager.getDeviceStatusHistory(targetDeviceId, limit);
+      const StatusReader = require('./services/DeviceStatusReadService');
+      const read = await new StatusReader(dbManager).read({ callerDeviceId: req.deviceId,
+        targetDeviceId, limit, history: true, purpose: req.query.purpose,
+        familyId: req.query.familyId, actorMemberId: req.query.actorMemberId });
+      if (!read.allowed) return res.status(403).json({ error: 'Device status access denied', code: read.code });
+      const statuses = read.statuses;
 
       res.json({
         success: true,
         deviceId: targetDeviceId,
         count: statuses.length,
-        statuses: statuses.map((status) => enrichDeviceStatus(status)),
+        statuses: statuses.map(status => StatusReader.redact(enrichDeviceStatus(status), read.usageAllowed)),
       });
     } catch (error) {
       console.error("Get device status history error:", error);
@@ -1365,20 +1404,17 @@ app.get(
         });
       }
 
-      let status = await dbManager.getLatestDeviceStatus(targetDeviceId);
-      if (!status) {
-        status = authManager.getDeviceStatus(targetDeviceId);
-      }
-
-      if (status && status.raw === undefined) {
-        // Ensure raw property is always present (even if null)
-        status.raw = null;
-      }
+      const StatusReader = require('./services/DeviceStatusReadService');
+      const read = await new StatusReader(dbManager).read({ callerDeviceId: req.deviceId,
+        targetDeviceId, purpose: req.query.purpose, familyId: req.query.familyId,
+        actorMemberId: req.query.actorMemberId }, id => authManager.getDeviceStatus(id));
+      if (!read.allowed) return res.status(403).json({ error: 'Device status access denied', code: read.code });
+      const status = read.status ? { ...read.status, raw: read.status.raw ?? null } : null;
 
       res.json({
         success: true,
         deviceId: targetDeviceId,
-        status: enrichDeviceStatus(status),
+        status: StatusReader.redact(enrichDeviceStatus(status), read.usageAllowed),
       });
     } catch (error) {
       console.error("Get device status error:", error);

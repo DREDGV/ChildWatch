@@ -11,6 +11,7 @@ const ATTENTION = Object.freeze({
   RATE_WINDOW_MS: 60_000,
   RATE_MAX: 10,
   TARGET_COOLDOWN_MS: 5_000,
+  PLAYBACK_ACK_GRACE_MS: 5_000,
 });
 
 const TONES = new Set(["ATTENTION", "RINGTONE", "ALARM", "SIREN"]);
@@ -246,7 +247,7 @@ class AttentionSignalManager {
   }
 
   scheduleExpiry(entry) {
-    const delay = Math.max(0, entry.request.expiresAt - this.now());
+    const delay = Math.max(0, this.safeHorizon(entry) - this.now());
     entry.timer = setTimeout(() => {
       this.expirePending(entry.request.requestId).catch((error) => {
         console.error("Failed to persist attention expiry:", error);
@@ -257,17 +258,15 @@ class AttentionSignalManager {
 
   async expirePending(requestId) {
     const entry = this.pendingSignals.get(requestId);
-    if (!entry || entry.request.expiresAt > this.now()) return false;
+    if (!entry || this.safeHorizon(entry) > this.now()) return false;
+    // Delivery TTL is not playback duration. Silence cannot establish whether
+    // the phone played/stopped: retain its last durable observation unchanged.
     this.clearPending(requestId);
-    const payload = this.makeStatus(
-      entry.request,
-      "EXPIRED",
-      "TTL_EXPIRED",
-      null
-    );
-    this.emitStatusToRequester(entry, payload);
-    await this.dbManager.updateAttentionSignalStatus(payload);
     return true;
+  }
+
+  safeHorizon(entry) {
+    return entry.request.expiresAt + entry.request.durationMs + ATTENTION.PLAYBACK_ACK_GRACE_MS;
   }
 
   clearPending(requestId) {
@@ -466,6 +465,10 @@ class AttentionSignalManager {
     }
     const entry = this.pendingSignals.get(requestId);
     if (!entry) return false;
+    if (this.safeHorizon(entry) <= this.now()) {
+      this.clearPending(requestId);
+      return false;
+    }
     const senderDeviceId = this.getAuthenticatedDeviceId(socket);
     if (senderDeviceId !== entry.request.targetDeviceId) return false;
     if (targetDeviceId !== entry.request.targetDeviceId) {
@@ -495,8 +498,17 @@ class AttentionSignalManager {
     const targetDeviceId = this.normalizeId(raw?.targetDeviceId);
     const claimedRequesterId = this.normalizeId(raw?.requesterDeviceId);
     const requesterDeviceId = this.getAuthenticatedDeviceId(socket);
-    const entry = this.pendingSignals.get(requestId);
-    const request = entry?.request || { requestId, targetDeviceId };
+    let entry = this.pendingSignals.get(requestId);
+    if (entry && this.safeHorizon(entry) <= this.now()) {
+      this.clearPending(requestId);
+      entry = null;
+    }
+    const request = { requestId, targetDeviceId };
+    const rejectStop = (socket, request, status, reason, errorCode) => {
+      const payload = { ...this.makeStatus(request, status, reason, errorCode), operation: 'STOP' };
+      this.emitStatusToSocket(socket, payload);
+      return payload;
+    };
 
     if (
       !raw ||
@@ -511,7 +523,7 @@ class AttentionSignalManager {
       raw.createdAt < 1 ||
       raw.createdAt > this.now() + 5_000
     ) {
-      return this.reject(
+      return rejectStop(
         socket,
         request,
         "REJECTED",
@@ -521,7 +533,7 @@ class AttentionSignalManager {
     }
 
     if (!requesterDeviceId || claimedRequesterId !== requesterDeviceId) {
-      return this.reject(
+      return rejectStop(
         socket,
         request,
         "REJECTED",
@@ -530,7 +542,7 @@ class AttentionSignalManager {
       );
     }
     if (!entry) {
-      return this.reject(
+      return rejectStop(
         socket,
         request,
         "REJECTED",
@@ -539,7 +551,7 @@ class AttentionSignalManager {
       );
     }
     if (entry.request.requesterDeviceId !== requesterDeviceId) {
-      return this.reject(
+      return rejectStop(
         socket,
         request,
         "REJECTED",
@@ -548,7 +560,7 @@ class AttentionSignalManager {
       );
     }
     if (targetDeviceId !== entry.request.targetDeviceId) {
-      return this.reject(
+      return rejectStop(
         socket,
         request,
         "REJECTED",
@@ -568,13 +580,10 @@ class AttentionSignalManager {
       }
     );
     if (delivered === 0) {
-      return this.reject(
-        socket,
-        request,
-        "REJECTED",
-        "TARGET_OFFLINE",
-        "TARGET_NOT_CONNECTED"
-      );
+      const payload = { ...this.makeStatus(entry.request, entry.lastStatus,
+        'STOP_FAILED', 'TARGET_NOT_CONNECTED'), operation: 'STOP' };
+      this.emitStatusToSocket(socket, payload);
+      return payload;
     }
     return true;
   }
@@ -584,6 +593,53 @@ class AttentionSignalManager {
       if (entry.timer) clearTimeout(entry.timer);
     }
     this.pendingSignals.clear();
+  }
+
+  // Recovery reads never emit START/STOP or infer playback completion from time.
+  async readRequestStatus({ callerDeviceId, requestId, targetDeviceId, familyId, actorMemberId }) {
+    const scalar = value => typeof value === 'string' && value.trim() === value && value.length > 0;
+    if (!scalar(requestId) || !/^[A-Za-z0-9_-]{8,100}$/.test(requestId) ||
+        ![callerDeviceId,targetDeviceId,familyId,actorMemberId].every(scalar) ||
+        [callerDeviceId,targetDeviceId,familyId,actorMemberId].some(value=>value.length>200))
+      return { allowed:false,httpStatus:400,code:'INVALID_STATUS_SCOPE' };
+    return this.dbManager.withTransaction(async()=>{
+      const access=new (require('../services/DeviceAccessService'))(this.dbManager);
+      const denied=()=>({allowed:false,httpStatus:403,code:'ATTENTION_STATUS_ACCESS_DENIED'});
+      if(await access.isDeviceRevoked(callerDeviceId) || await access.isDeviceRevoked(targetDeviceId)) return denied();
+      const actors=(await Promise.all(access.idForms(callerDeviceId).map(id=>
+        this.dbManager.getFamilyIdentityMembershipsForDevice(id)))).flat();
+      const targets=(await Promise.all(access.idForms(targetDeviceId).map(id=>
+        this.dbManager.getFamilyIdentityMembershipsForDevice(id)))).flat();
+      const actor=actors.find(member=>member.familyId===familyId && member.memberId===actorMemberId);
+      if(!actor) return denied();
+      const permittedTargets=[];
+      for(const target of targets.filter(member=>member.familyId===familyId)) {
+        const permission=await this.dbManager.getFamilyPermission({familyId,actorMemberId,
+          targetMemberId:target.memberId,feature:'SEND_ATTENTION_SIGNAL'});
+        if(permission?.allowed===1) permittedTargets.push(target.memberId);
+      }
+      if(!permittedTargets.length) return denied();
+      const row=await this.dbManager.get(`SELECT request_id AS requestId,family_id AS familyId,
+        requester_member_id AS requesterMemberId,requester_device_id AS requesterDeviceId,
+        target_member_id AS targetMemberId,target_device_id AS targetDeviceId,
+        status,reason,error_code AS errorCode,expires_at AS expiresAt,updated_at AS updatedAt
+        FROM attention_signals WHERE request_id=? LIMIT 1`,[requestId]);
+      if(!row) return {allowed:false,httpStatus:404,code:'ATTENTION_REQUEST_NOT_FOUND'};
+      // Owning another request in the family grants no authority over this one.
+      if(row.requesterDeviceId!==callerDeviceId || row.targetDeviceId!==targetDeviceId ||
+          row.familyId!==familyId || row.requesterMemberId!==actorMemberId ||
+          !permittedTargets.includes(row.targetMemberId)) return denied();
+      const terminal=TERMINAL_STATUSES.has(row.status);
+      const pending=this.pendingSignals.get(requestId);
+      const live=Boolean(pending && this.safeHorizon(pending)>this.now() &&
+        (row.status==='STARTED' || row.expiresAt>this.now()));
+      const known=terminal || live;
+      return {allowed:true,success:true,requestId,targetDeviceId,familyId,actorMemberId,
+        outcome:known?'KNOWN':'UNKNOWN',status:known?{requestId,targetDeviceId,status:row.status,
+          reason:row.reason,errorCode:row.errorCode,message:null,timestamp:row.updatedAt}:null,
+        reason:known?null:row.expiresAt<=this.now()?'DEADLINE_PASSED_UNCONFIRMED':'SERVER_STATE_UNAVAILABLE',
+        lastObservedStatus:row.status,lastObservedAt:row.updatedAt,expiresAt:row.expiresAt,checkedAt:this.now()};
+    });
   }
 }
 

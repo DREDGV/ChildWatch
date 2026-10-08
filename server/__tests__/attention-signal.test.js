@@ -154,19 +154,23 @@ describe("attention signal protocol", () => {
     ).toMatchObject({ status: "FAILED" });
   });
 
-  test("expires an accepted request and removes it from pending state", async () => {
+  test("unconfirmed dispatch retains STOP authority to safe horizon then cleans up without fake expiry", async () => {
     const requestId = "request-expiry-0001";
     await attentionManager.handleRequest(
       requester,
       request({ requestId, expiresAt: now + 1_000 })
     );
     now += 1_001;
-
+    await expect(attentionManager.expirePending(requestId)).resolves.toBe(false);
+    expect(attentionManager.pendingSignals.has(requestId)).toBe(true);
+    target.emit.mockClear();requester.emit.mockClear();
+    now += 20_000;
     await expect(attentionManager.expirePending(requestId)).resolves.toBe(true);
     expect(attentionManager.pendingSignals.has(requestId)).toBe(false);
     expect(await db.getAttentionSignalByRequestId(requestId)).toMatchObject({
-      status: "EXPIRED",
+      status: "QUEUED",
     });
+    expect(target.emit).not.toHaveBeenCalled();expect(requester.emit).not.toHaveBeenCalled();
   });
 
   test("routes owner stop request and cleans up after target STOPPED", async () => {
@@ -356,5 +360,128 @@ describe("attention signal protocol", () => {
       expect.anything()
     );
     expect(attentionManager.pendingSignals.has(requestId)).toBe(true);
+  });
+
+  async function recoveryInput(requestId) {
+    const row=await db.get('SELECT family_id,requester_member_id FROM attention_signals WHERE request_id=?',[requestId]);
+    return {callerDeviceId:requesterId,requestId,targetDeviceId:targetId,
+      familyId:row.family_id,actorMemberId:row.requester_member_id};
+  }
+
+  test('read recovery replays persisted terminal status without emitting or altering its timestamp',async()=>{
+    const requestId='recovery-terminal-0001';await attentionManager.handleRequest(requester,request({requestId}));
+    await attentionManager.handleStatus(target,{requestId,targetDeviceId:targetId,status:'COMPLETED',timestamp:now});
+    const input=await recoveryInput(requestId), before=await db.getAttentionSignalByRequestId(requestId);
+    target.emit.mockClear();requester.emit.mockClear();now+=10000;
+    const result=await attentionManager.readRequestStatus(input);
+    expect(result).toMatchObject({allowed:true,outcome:'KNOWN',requestId,targetDeviceId:targetId,
+      status:{status:'COMPLETED',timestamp:before.updatedAt}});
+    expect(await db.getAttentionSignalByRequestId(requestId)).toEqual(before);
+    expect(target.emit).not.toHaveBeenCalled();expect(requester.emit).not.toHaveBeenCalled();
+  });
+
+  test('live pending is observable; restart and elapsed deadlines remain unknown without fake completion',async()=>{
+    const requestId='recovery-restart-0001';await attentionManager.handleRequest(requester,request({requestId}));
+    const input=await recoveryInput(requestId);
+    expect(await attentionManager.readRequestStatus(input)).toMatchObject({outcome:'KNOWN',status:{status:'QUEUED'}});
+    attentionManager.shutdown();
+    expect(await attentionManager.readRequestStatus(input)).toMatchObject({outcome:'UNKNOWN',status:null,
+      reason:'SERVER_STATE_UNAVAILABLE',lastObservedStatus:'QUEUED'});
+    now+=120001;
+    expect(await attentionManager.readRequestStatus(input)).toMatchObject({outcome:'UNKNOWN',status:null,
+      reason:'DEADLINE_PASSED_UNCONFIRMED',lastObservedStatus:'QUEUED'});
+    expect((await db.getAttentionSignalByRequestId(requestId)).status).toBe('QUEUED');
+  });
+
+  test('recovery requires original device and current exact family actor target scope',async()=>{
+    const requestId='recovery-scope-0001';await attentionManager.handleRequest(requester,request({requestId}));
+    const input=await recoveryInput(requestId);
+    for(const change of [{callerDeviceId:otherParentId},{familyId:'foreign'},
+      {actorMemberId:'foreign'},{targetDeviceId:otherTargetId}])
+      expect(await attentionManager.readRequestStatus({...input,...change})).toMatchObject({allowed:false,httpStatus:403});
+    const sameMemberDevice='second-phone-same-parent';
+    await db.registerDevice(sameMemberDevice,{device_name:'Other phone',device_type:'android',app_version:'test'});
+    await db.run(`INSERT INTO family_devices(id,family_id,member_id,device_id,display_name,member_binding_source)
+      VALUES('second-parent-binding',?,?,?,'Other phone','EXPLICIT')`,[input.familyId,input.actorMemberId,sameMemberDevice]);
+    expect(await attentionManager.readRequestStatus({...input,callerDeviceId:sameMemberDevice}))
+      .toMatchObject({allowed:false,httpStatus:403});
+    expect(await attentionManager.readRequestStatus({...input,requestId:'unknown-request-0001'}))
+      .toMatchObject({allowed:false,httpStatus:404});
+    expect(await attentionManager.readRequestStatus({...input,requestId:'bad'}))
+      .toMatchObject({allowed:false,httpStatus:400});
+  });
+
+  test('recovery rechecks permission, canonical target membership and revoked device',async()=>{
+    const requestId='recovery-revoke-0001';await attentionManager.handleRequest(requester,request({requestId}));
+    const input=await recoveryInput(requestId);
+    await db.run("UPDATE family_permissions SET allowed=0 WHERE family_id=? AND actor_member_id=? AND feature='SEND_ATTENTION_SIGNAL'",
+      [input.familyId,input.actorMemberId]);
+    expect(await attentionManager.readRequestStatus(input)).toMatchObject({allowed:false,httpStatus:403});
+    await db.run("UPDATE family_permissions SET allowed=1 WHERE family_id=? AND actor_member_id=? AND feature='SEND_ATTENTION_SIGNAL'",
+      [input.familyId,input.actorMemberId]);
+    await db.run('UPDATE family_devices SET is_active=0 WHERE device_id=?',[targetId]);
+    expect(await attentionManager.readRequestStatus(input)).toMatchObject({allowed:false,httpStatus:403});
+    await db.run('UPDATE family_devices SET is_active=1 WHERE device_id=?',[targetId]);
+    await db.run('UPDATE devices SET is_active=0 WHERE device_id=?',[requesterId]);
+    expect(await attentionManager.readRequestStatus(input)).toMatchObject({allowed:false,httpStatus:403});
+  });
+
+  test('HTTP recovery route delegates only a protected read operation',()=>{
+    const source=require('fs').readFileSync(require.resolve('../index.js'),'utf8');
+    const start=source.indexOf("app.get('/api/attention-signal/:requestId/status'");
+    const route=source.slice(start,source.indexOf('// Durable cumulative',start));
+    expect(start).toBeGreaterThan(0);
+    expect(route).toContain('authMiddleware.authenticate()');
+    expect(route).toContain('attentionSignalManager.readRequestStatus(');
+    expect(route).not.toMatch(/handleRequest|handleStopRequest|emitToExactDevice/);
+  });
+
+  test('60 second playback stays stoppable and accepts completion after 30 second start deadline',async()=>{
+    const requestId='long-playback-0001';const startedAt=now;
+    await attentionManager.handleRequest(requester,request({requestId,durationMs:60000}));
+    await attentionManager.handleStatus(target,{requestId,targetDeviceId:targetId,status:'STARTED',timestamp:now});
+    const input=await recoveryInput(requestId);
+    now=startedAt+31000;
+    expect(await attentionManager.expirePending(requestId)).toBe(false);
+    expect(await attentionManager.readRequestStatus(input)).toMatchObject({outcome:'KNOWN',status:{status:'STARTED'}});
+    target.emit.mockClear();
+    expect(await attentionManager.handleStopRequest(requester,{requestId,targetDeviceId:targetId,
+      requesterDeviceId:requesterId,createdAt:now})).toBe(true);
+    expect(target.emit).toHaveBeenCalledWith('attention_signal_stop',expect.objectContaining({requestId}));
+    now=startedAt+61000;
+    expect(await attentionManager.handleStatus(target,{requestId,targetDeviceId:targetId,status:'COMPLETED',timestamp:now})).toBe(true);
+    expect((await attentionManager.readRequestStatus(input)).status.status).toBe('COMPLETED');
+    expect(attentionManager.pendingSignals.has(requestId)).toBe(false);
+  });
+
+  test('dispatched queued request becomes unknown at TTL and bounded cleanup does not persist EXPIRED',async()=>{
+    const requestId='unknown-dispatch-0001';const startedAt=now;
+    await attentionManager.handleRequest(requester,request({requestId,durationMs:60000}));
+    const input=await recoveryInput(requestId);target.emit.mockClear();requester.emit.mockClear();
+    now=startedAt+30001;
+    expect(await attentionManager.readRequestStatus(input)).toMatchObject({outcome:'UNKNOWN',status:null,lastObservedStatus:'QUEUED'});
+    expect(await attentionManager.expirePending(requestId)).toBe(false);
+    now=startedAt+95001;
+    expect(await attentionManager.expirePending(requestId)).toBe(true);
+    expect(await attentionManager.readRequestStatus(input)).toMatchObject({outcome:'UNKNOWN',status:null,lastObservedStatus:'QUEUED'});
+    expect((await db.getAttentionSignalByRequestId(requestId)).status).toBe('QUEUED');
+    expect(target.emit).not.toHaveBeenCalled();expect(requester.emit).not.toHaveBeenCalled();
+  });
+
+  test('offline STOP is an operation failure, not original signal rejection or completion',async()=>{
+    const requestId='offline-stop-0001';await attentionManager.handleRequest(requester,request({requestId,durationMs:60000}));
+    await attentionManager.handleStatus(target,{requestId,targetDeviceId:targetId,status:'STARTED',timestamp:now});
+    const before=await db.getAttentionSignalByRequestId(requestId);
+    wsManager.unregisterDeviceSocket(target);
+    const result=await attentionManager.handleStopRequest(requester,{requestId,targetDeviceId:targetId,
+      requesterDeviceId:requesterId,createdAt:now});
+    expect(result).toMatchObject({operation:'STOP',status:'STARTED',reason:'STOP_FAILED',errorCode:'TARGET_NOT_CONNECTED'});
+    expect(attentionManager.pendingSignals.has(requestId)).toBe(true);
+    expect(await db.getAttentionSignalByRequestId(requestId)).toEqual(before);
+    attentionManager.shutdown();
+    const afterRestart=await attentionManager.handleStopRequest(requester,{requestId,targetDeviceId:targetId,
+      requesterDeviceId:requesterId,createdAt:now});
+    expect(afterRestart).toMatchObject({operation:'STOP',status:'REJECTED',reason:'NOT_ACTIVE'});
+    expect(await db.getAttentionSignalByRequestId(requestId)).toEqual(before);
   });
 });
