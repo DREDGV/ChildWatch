@@ -8,12 +8,20 @@ public final class MapMarkerMotionPolicy {
         public final String deviceId;
         public final double latitude, longitude, accuracy;
         public final long timeMs;
+        public final Long elapsedRealtimeNanos;
+        public final String bootId;
         public Fix(String deviceId, double latitude, double longitude, long timeMs, double accuracy) {
+            this(deviceId, latitude, longitude, timeMs, accuracy, null, null);
+        }
+        public Fix(String deviceId, double latitude, double longitude, long timeMs, double accuracy,
+                   Long elapsedRealtimeNanos, String bootId) {
             this.deviceId = deviceId;
             this.latitude = latitude;
             this.longitude = longitude;
             this.timeMs = timeMs;
             this.accuracy = accuracy;
+            this.elapsedRealtimeNanos = elapsedRealtimeNanos;
+            this.bootId = bootId;
         }
     }
 
@@ -30,14 +38,34 @@ public final class MapMarkerMotionPolicy {
             && first.deviceId.equals(second.deviceId) && first.timeMs == second.timeMs
             && Double.compare(first.latitude, second.latitude) == 0
             && Double.compare(first.longitude, second.longitude) == 0
-            && Double.compare(first.accuracy, second.accuracy) == 0;
+            && Double.compare(first.accuracy, second.accuracy) == 0
+            && java.util.Objects.equals(first.bootId, second.bootId)
+            && java.util.Objects.equals(first.elapsedRealtimeNanos, second.elapsedRealtimeNanos);
+    }
+
+    private static long intervalMs(Fix previous, Fix next) {
+        if (!java.util.Objects.equals(previous.bootId, next.bootId)) return -1;
+        if ((previous.elapsedRealtimeNanos == null) != (next.elapsedRealtimeNanos == null)) return -1;
+        if (previous.elapsedRealtimeNanos != null && next.elapsedRealtimeNanos != null) {
+            if (previous.bootId == null || previous.bootId.isEmpty()) return -1;
+            long first = previous.elapsedRealtimeNanos, second = next.elapsedRealtimeNanos;
+            if (first < 0 || second <= first) return -1;
+            return (second - first) / 1_000_000;
+        }
+        return next.timeMs - previous.timeMs;
+    }
+
+    /** Duration describes display only, never a measurement interval for speed. */
+    public static long durationMs(Fix previous, Fix next) {
+        if (previous == null || next == null) return 600;
+        return Math.max(600, Math.min(2_000, intervalMs(previous, next) / 2));
     }
 
     public static boolean shouldAnimate(Fix previous, Fix next, long now) {
         if (!usable(previous, now) || !usable(next, now)
                 || !previous.deviceId.equals(next.deviceId)) return false;
-        long elapsed = next.timeMs - previous.timeMs;
-        if (elapsed <= 0 || elapsed > 45_000) return false;
+        long elapsed = intervalMs(previous, next);
+        if (elapsed <= 0 || elapsed > 30_000) return false;
         double lat = Math.toRadians(next.latitude - previous.latitude);
         double lon = Math.toRadians(longitudeDelta(previous.longitude, next.longitude));
         double a = Math.sin(lat / 2) * Math.sin(lat / 2)

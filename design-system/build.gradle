@@ -8,10 +8,13 @@ android {
 
     defaultConfig {
         minSdk 26
+        testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
 }
 
 dependencies {
     api 'com.google.android.material:material:1.11.0'
     testImplementation 'junit:junit:4.13.2'
+    androidTestImplementation 'androidx.test.ext:junit:1.1.5'
+    androidTestImplementation 'androidx.test:runner:1.5.2'
 }

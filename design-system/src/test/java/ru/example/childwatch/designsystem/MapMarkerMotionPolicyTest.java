@@ -26,7 +26,8 @@ public class MapMarkerMotionPolicyTest {
     @Test public void staleFutureAndGapDoNotAnimate() {
         assertFalse(MapMarkerMotionPolicy.shouldAnimate(fix("a", 0, 45_001, 3), fix("a", .0001, 0, 3), NOW));
         assertFalse(MapMarkerMotionPolicy.shouldAnimate(fix("a", 0, 10_000, 3), fix("a", .0001, -1, 3), NOW));
-        assertTrue(MapMarkerMotionPolicy.shouldAnimate(fix("a", 0, 45_000, 3), fix("a", .0001, 0, 3), NOW));
+        assertFalse(MapMarkerMotionPolicy.shouldAnimate(fix("a", 0, 30_001, 3), fix("a", .0001, 0, 3), NOW));
+        assertTrue(MapMarkerMotionPolicy.shouldAnimate(fix("a", 0, 30_000, 3), fix("a", .0001, 0, 3), NOW));
     }
     @Test public void gpsJumpsAndInvalidCoordinatesDoNotAnimate() {
         assertFalse(MapMarkerMotionPolicy.shouldAnimate(fix("a", 0, 30_000, 3), fix("a", 1, 0, 3), NOW));
@@ -46,5 +47,44 @@ public class MapMarkerMotionPolicyTest {
         assertFalse(MapMarkerMotionPolicy.sameMeasurement(fix("a", .001, 0, 3), fix("a", .002, 0, 3)));
         assertFalse(MapMarkerMotionPolicy.sameMeasurement(fix("a", .001, 0, 3), fix("a", .001, 0, 4)));
         assertFalse(MapMarkerMotionPolicy.sameMeasurement(null, fix("a", .001, 0, 3)));
+    }
+
+    @Test public void transitionDurationFollowsMeasurementIntervalWithBounds() {
+        assertEquals(600, MapMarkerMotionPolicy.durationMs(fix("a", 0, 1_000, 3), fix("a", .0001, 0, 3)));
+        assertEquals(1_500, MapMarkerMotionPolicy.durationMs(fix("a", 0, 3_000, 3), fix("a", .0001, 0, 3)));
+        assertEquals(2_000, MapMarkerMotionPolicy.durationMs(fix("a", 0, 30_000, 3), fix("a", .0001, 0, 3)));
+    }
+
+    @Test public void monotonicTimeControlsIntervalAndBootChangeSnaps() {
+        MapMarkerMotionPolicy.Fix before = new MapMarkerMotionPolicy.Fix("a", 0, 0, NOW - 15_000, 3,
+            10_000_000_000L, "boot-1");
+        MapMarkerMotionPolicy.Fix afterClockChange = new MapMarkerMotionPolicy.Fix("a", 0, .0001, NOW, 3,
+            13_000_000_000L, "boot-1");
+        assertTrue(MapMarkerMotionPolicy.shouldAnimate(before, afterClockChange, NOW));
+        assertEquals(1_500, MapMarkerMotionPolicy.durationMs(before, afterClockChange));
+        MapMarkerMotionPolicy.Fix reboot = new MapMarkerMotionPolicy.Fix("a", 0, .0001, NOW, 3,
+            13_000_000_000L, "boot-2");
+        assertFalse(MapMarkerMotionPolicy.shouldAnimate(before, reboot, NOW));
+        assertFalse(MapMarkerMotionPolicy.sameMeasurement(afterClockChange, reboot));
+    }
+
+    @Test public void reorderedMonotonicFixDoesNotAnimateDespiteNewerWallTime() {
+        MapMarkerMotionPolicy.Fix before = new MapMarkerMotionPolicy.Fix("a", 0, 0, NOW - 10_000, 3,
+            20_000_000_000L, "boot-1");
+        MapMarkerMotionPolicy.Fix reordered = new MapMarkerMotionPolicy.Fix("a", 0, .0001, NOW, 3,
+            19_000_000_000L, "boot-1");
+        assertFalse(MapMarkerMotionPolicy.shouldAnimate(before, reordered, NOW));
+    }
+
+    @Test public void incompleteBootTimingMetadataDoesNotJoinMeasurementSeries() {
+        MapMarkerMotionPolicy.Fix legacy = fix("a", 0, 10_000, 3);
+        MapMarkerMotionPolicy.Fix timed = new MapMarkerMotionPolicy.Fix("a", 0, .0001, NOW, 3,
+            19_000_000_000L, "boot-1");
+        assertFalse(MapMarkerMotionPolicy.shouldAnimate(legacy, timed, NOW));
+        MapMarkerMotionPolicy.Fix noBootBefore = new MapMarkerMotionPolicy.Fix("a", 0, 0, NOW - 10_000, 3,
+            10_000_000_000L, null);
+        MapMarkerMotionPolicy.Fix noBootAfter = new MapMarkerMotionPolicy.Fix("a", 0, .0001, NOW, 3,
+            19_000_000_000L, null);
+        assertFalse(MapMarkerMotionPolicy.shouldAnimate(noBootBefore, noBootAfter, NOW));
     }
 }

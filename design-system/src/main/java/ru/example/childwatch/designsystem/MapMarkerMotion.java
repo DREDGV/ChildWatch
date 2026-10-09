@@ -10,6 +10,14 @@ import java.util.Set;
 /** One finite transition per fresh measurement. Call on the UI thread only. */
 public final class MapMarkerMotion {
     public interface Position { void set(double latitude, double longitude); }
+    public interface FrameListener { void onFrame(String key, double latitude, double longitude); }
+    public static final class DisplayedPosition {
+        public final double latitude, longitude;
+        private DisplayedPosition(double latitude, double longitude) {
+            this.latitude = latitude;
+            this.longitude = longitude;
+        }
+    }
     private static final class Entry {
         MapMarkerMotionPolicy.Fix fix;
         ValueAnimator animator;
@@ -19,28 +27,38 @@ public final class MapMarkerMotion {
     }
     private final Map<String, Entry> entries = new HashMap<>();
     private String scope;
+    private FrameListener frameListener;
 
-    private void finish(Entry entry) {
+    public void setFrameListener(FrameListener listener) { frameListener = listener; }
+
+    public DisplayedPosition displayedPosition(String key) {
+        Entry entry = entries.get(key);
+        return entry == null ? null : new DisplayedPosition(entry.latitude, entry.longitude);
+    }
+
+    private void cancel(Entry entry) {
         if (entry.animator != null) {
-            entry.animator.cancel();
             entry.animator.removeAllUpdateListeners();
+            entry.animator.cancel();
             entry.animator = null;
-        }
-        if (entry.position != null) {
-            entry.position.set(entry.fix.latitude, entry.fix.longitude);
-            entry.invalidate.run();
         }
     }
 
+    private void render(String key, Entry entry) {
+        entry.position.set(entry.latitude, entry.longitude);
+        entry.invalidate.run();
+        if (frameListener != null) frameListener.onFrame(key, entry.latitude, entry.longitude);
+    }
+
     public void clear() {
-        for (Entry entry : entries.values()) finish(entry);
+        for (Entry entry : entries.values()) cancel(entry);
         entries.clear();
         scope = null;
     }
 
     public void retain(Set<String> keys) {
         for (String key : new HashSet<>(entries.keySet())) {
-            if (!keys.contains(key)) finish(entries.remove(key));
+            if (!keys.contains(key)) cancel(entries.remove(key));
         }
     }
 
@@ -49,6 +67,8 @@ public final class MapMarkerMotion {
         if (!enabled || !ValueAnimator.areAnimatorsEnabled()) {
             clear();
             position.set(next.latitude, next.longitude);
+            invalidate.run();
+            if (frameListener != null) frameListener.onFrame(key, next.latitude, next.longitude);
             return;
         }
         if (!nextScope.equals(scope)) { clear(); scope = nextScope; }
@@ -58,10 +78,11 @@ public final class MapMarkerMotion {
             existing.position = position;
             existing.invalidate = invalidate;
             position.set(existing.latitude, existing.longitude);
+            invalidate.run();
             return;
         }
         Entry previous = entries.remove(key);
-        if (previous != null) finish(previous);
+        if (previous != null) cancel(previous);
         Entry entry = new Entry();
         entry.fix = next;
         entry.position = position;
@@ -70,22 +91,24 @@ public final class MapMarkerMotion {
         entry.longitude = next.longitude;
         entries.put(key, entry);
         if (previous == null || !MapMarkerMotionPolicy.shouldAnimate(previous.fix, next, System.currentTimeMillis())) {
-            position.set(next.latitude, next.longitude);
+            render(key, entry);
             return;
         }
-        MapMarkerMotionPolicy.Fix from = previous.fix;
-        entry.latitude = from.latitude;
-        entry.longitude = from.longitude;
+        // Interrupt from the actually displayed position, not the previous target.
+        final double fromLatitude = previous.latitude;
+        final double fromLongitude = previous.longitude;
+        entry.latitude = fromLatitude;
+        entry.longitude = fromLongitude;
         entry.animator = ValueAnimator.ofFloat(0f, 1f);
-        entry.animator.setDuration(550);
+        entry.animator.setDuration(MapMarkerMotionPolicy.durationMs(previous.fix, next));
         entry.animator.setInterpolator(new LinearInterpolator());
         entry.animator.addUpdateListener(animation -> {
             float fraction = (Float) animation.getAnimatedValue();
-            entry.latitude = from.latitude + (next.latitude - from.latitude) * fraction;
-            entry.longitude = MapMarkerMotionPolicy.longitudeAt(from.longitude, next.longitude, fraction);
-            entry.position.set(entry.latitude, entry.longitude);
-            entry.invalidate.run();
+            entry.latitude = fromLatitude + (next.latitude - fromLatitude) * fraction;
+            entry.longitude = MapMarkerMotionPolicy.longitudeAt(fromLongitude, next.longitude, fraction);
+            render(key, entry);
         });
+        render(key, entry);
         entry.animator.start();
     }
 }

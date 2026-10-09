@@ -27,6 +27,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.core.graphics.drawable.DrawableCompat
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import kotlinx.coroutines.async
 import kotlinx.coroutines.Dispatchers
@@ -138,6 +139,36 @@ class DualLocationMapActivity : AppCompatActivity() {
     private val familyAccuracyOverlays = mutableMapOf<String, Polygon>()
     private var currentFamilyCandidates: List<FamilyMarkerCandidate> = emptyList()
     private var selectedFamilyCandidateId: String? = null
+    // Freshness advances even when HTTP fails; this ticker never requests coordinates.
+    private var speedFreshnessJob: Job? = null
+    private var speedPresentationKey = ""
+    private fun startSpeedFreshness() {
+        speedFreshnessJob?.cancel()
+        speedFreshnessJob = lifecycleScope.launch {
+            while (isActive) {
+                delay(1_000L)
+                if (isMapReady && !isViewingHistory && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                    val nextKey = currentFamilyCandidates.joinToString("|") {
+                        it.memberId.ifBlank { it.deviceId } + ":" + familyMarkerSpeedText(it.memberId.ifBlank { it.deviceId }, it.timestamp).orEmpty()
+                    }
+                    if (nextKey != speedPresentationKey) {
+                        speedPresentationKey = nextKey
+                        placeFamilyMarkers(currentFamilyCandidates)
+                    }
+                    selectedFamilyCandidateId?.let { id ->
+                        currentFamilyCandidates.firstOrNull { it.memberId.ifBlank { it.deviceId } == id }?.let { point ->
+                            binding.movementStatusText.text = familySpeedText(id, point.timestamp).orEmpty()
+                            val base = binding.pointMetaText.text.toString().substringBefore("\n")
+                            binding.pointMetaText.text = base + if (mapOptions.speeds()) "\n" +
+                                ru.example.childwatch.designsystem.MapSpeedPresentation.details(this@DualLocationMapActivity,
+                                    familySpeedResult(id, point.timestamp), System.currentTimeMillis()) else ""
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private val repositionFamilyMarkers = Runnable {
         if (isMapReady && currentFamilyCandidates.isNotEmpty()) {
             placeFamilyMarkers(currentFamilyCandidates)
@@ -295,6 +326,8 @@ class DualLocationMapActivity : AppCompatActivity() {
         val accuracy: Float? = null,
         val speedMps: Float? = null,
         val speedAccuracyMps: Float? = null,
+        val measurementElapsedRealtimeNanos: Long? = null,
+        val bootSessionId: String? = null,
         val batterySnapshot: ru.example.childwatch.designsystem.BatterySnapshot? = null
     )
 
@@ -1007,7 +1040,7 @@ class DualLocationMapActivity : AppCompatActivity() {
                 point.copy(timestamp = time)
             }.distinctBy { Triple(it.timestamp, it.latitude, it.longitude) }.sortedBy { it.timestamp }
             displayLocationHistory(points)
-            historyPanel?.update(points.map { MapRouteSegments.Fix(it.latitude, it.longitude, it.timestamp, it.accuracy, it.speedMps, it.speedAccuracyMps) }, finished)
+            historyPanel?.update(points.map { MapRouteSegments.Fix(it.latitude, it.longitude, it.timestamp, it.accuracy, it.speedMps, it.speedAccuracyMps, it.parentId, it.measurementElapsedRealtimeNanos, it.bootSessionId) }, finished)
         }
         historyPanel = ru.example.childwatch.designsystem.MapHistoryPanel(this, binding.root,
             historyPersonName(), fromTimestamp, toTimestamp,
@@ -1105,7 +1138,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             .filter { isValidCoordinate(it.latitude, it.longitude) }
             .mapNotNull { point ->
                 normalizeTimestampMillis(point.timestamp)?.let { timestamp ->
-                    MapRouteSegments.Fix(point.latitude, point.longitude, timestamp, point.accuracy, point.speedMps, point.speedAccuracyMps)
+                    MapRouteSegments.Fix(point.latitude, point.longitude, timestamp, point.accuracy, point.speedMps, point.speedAccuracyMps, point.parentId, point.measurementElapsedRealtimeNanos, point.bootSessionId)
                 }
             }
         val segments = MapRouteSegments.split(fixes.sortedBy { it.timestampMs })
@@ -1612,6 +1645,7 @@ class DualLocationMapActivity : AppCompatActivity() {
                             avatarValue = location.avatarKey,
                             accuracy = location.accuracy,
                             speedMps = location.speedMps, speedAccuracyMps = location.speedAccuracyMps,
+                            measurementElapsedRealtimeNanos = location.measurementElapsedRealtimeNanos, bootSessionId = location.bootSessionId,
                             batterySnapshot = location.batterySnapshot
                         )
                     }
@@ -1644,7 +1678,10 @@ class DualLocationMapActivity : AppCompatActivity() {
                     memberId = person.member.id,
                     role = person.member.role.name,
                     avatarValue = person.member.avatarKey,
-                    accuracy = location.accuracy
+                    accuracy = location.accuracy,
+                    speedMps = location.speedMps, speedAccuracyMps = location.speedAccuracyMps,
+                    measurementElapsedRealtimeNanos = location.measurementElapsedRealtimeNanos,
+                    bootSessionId = location.bootSessionId
                 )
             }
         if (canonicalMarkers.isNotEmpty()) return@withContext canonicalMarkers
@@ -1671,7 +1708,10 @@ class DualLocationMapActivity : AppCompatActivity() {
                     longitude = location.longitude,
                     timestamp = location.timestamp,
                     iconId = link.parentMarkerIconId?.takeIf(ContactIcons::isKnown) ?: ContactIcons.PARENT,
-                    accuracy = location.accuracy
+                    accuracy = location.accuracy,
+                    speedMps = location.speedMps, speedAccuracyMps = location.speedAccuracyMps,
+                    measurementElapsedRealtimeNanos = location.measurementElapsedRealtimeNanos,
+                    bootSessionId = location.bootSessionId
                 )
             }
         markers
@@ -1679,7 +1719,6 @@ class DualLocationMapActivity : AppCompatActivity() {
 
     private fun renderFamilyMarkers(markers: List<FamilyMarkerCandidate>) {
         if (!isMapReady || !::mapView.isInitialized || isFinishing || isDestroyed) return
-        clearFamilyMarkers()
         val selfCandidate = lastMyPoint?.takeIf {
             myRole == ROLE_CHILD && myId.isNotBlank() &&
                 isValidCoordinate(it.latitude, it.longitude)
@@ -1696,7 +1735,9 @@ class DualLocationMapActivity : AppCompatActivity() {
                 avatarValue = ownAvatarValue(),
                 accuracy = lastOwnMotionLocation?.takeIf { it.time == lastMyTimestamp }?.accuracy ?: ownDistancePoint?.accuracy,
                 speedMps = lastOwnMotionLocation?.takeIf { it.time == lastMyTimestamp }?.let { ru.example.childwatch.designsystem.LocationMotion.speed(it) },
-                speedAccuracyMps = lastOwnMotionLocation?.takeIf { it.time == lastMyTimestamp }?.let { ru.example.childwatch.designsystem.LocationMotion.accuracy(it) }
+                speedAccuracyMps = lastOwnMotionLocation?.takeIf { it.time == lastMyTimestamp }?.let { ru.example.childwatch.designsystem.LocationMotion.accuracy(it) },
+                measurementElapsedRealtimeNanos = lastOwnMotionLocation?.takeIf { it.time == lastMyTimestamp }?.elapsedRealtimeNanos,
+                bootSessionId = ru.example.childwatch.designsystem.LocationMotion.bootSessionId(this)
             )
         }
         currentFamilyCandidates = listOfNotNull(selfCandidate) +
@@ -1717,13 +1758,16 @@ class DualLocationMapActivity : AppCompatActivity() {
             val fixes = familyTrailFixes.getOrPut(key) { mutableListOf() }
             if (fixes.none { it.timestampMs == timestamp }) {
                 fixes += MapRouteSegments.Fix(candidate.latitude, candidate.longitude,
-                    timestamp, candidate.accuracy ?: 0f, candidate.speedMps, candidate.speedAccuracyMps)
+                    timestamp, candidate.accuracy ?: 0f, candidate.speedMps, candidate.speedAccuracyMps,
+                    candidate.deviceId, candidate.measurementElapsedRealtimeNanos, candidate.bootSessionId)
             }
             fixes.removeAll { now - it.timestampMs > 30 * 60_000L }
         }
         if (mapOptions.speeds() || (mapOptions.trails() && mapOptions.allTrails())) currentFamilyCandidates.forEach { loadSelectedFamilyTrail(it) }
         renderFamilyMotion()
         if (currentFamilyCandidates.isEmpty()) {
+            clearFamilyMarkers()
+            markerMotion.clear()
             mapView.invalidate()
             return
         }
@@ -1786,8 +1830,10 @@ class DualLocationMapActivity : AppCompatActivity() {
         val motionEnabled = mapOptions.motion() && !isViewingHistory &&
             lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
         markerMotion.retain(candidates.mapTo(mutableSetOf()) { it.memberId.ifBlank { it.deviceId } })
-        familyMarkers.values.forEach(mapView.overlays::remove)
-        familyMarkers.clear()
+        val activeMarkerIds = candidates.mapTo(mutableSetOf()) { it.memberId.ifBlank { it.deviceId } }
+        familyMarkers.keys.filter { it !in activeMarkerIds }.forEach { id ->
+            familyMarkers.remove(id)?.let(mapView.overlays::remove)
+        }
         val icons = candidates.map { candidate ->
             val accent = participantAccentColor(candidate.deviceId, candidate.role,
                 emphasizeSelf = candidate.deviceId == myId)
@@ -1800,7 +1846,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         val truePoints = candidates.map { GeoPoint(it.latitude, it.longitude) }
         candidates.forEachIndexed { index, candidate ->
             val key = candidate.memberId.ifBlank { candidate.deviceId }
-            val marker = Marker(mapView).apply {
+            val marker = (familyMarkers[key] ?: Marker(mapView)).apply {
                 setInfoWindow(null) // Participant details use the closeable app card.
                 position = truePoints[index]
                 title = candidate.title
@@ -1813,11 +1859,12 @@ class DualLocationMapActivity : AppCompatActivity() {
                 }
             }
             familyMarkers[key] = marker
-            mapView.overlays.add(marker)
+            if (!mapView.overlays.contains(marker)) mapView.overlays.add(marker)
             markerMotion.update(motionScope, key,
                 ru.example.childwatch.designsystem.MapMarkerMotionPolicy.Fix(
                     candidate.deviceId, candidate.latitude, candidate.longitude,
-                    candidate.timestamp?.let(::normalizeTimestampMillis) ?: 0L, (candidate.accuracy ?: 0f).toDouble()),
+                    candidate.timestamp?.let(::normalizeTimestampMillis) ?: 0L, (candidate.accuracy ?: 0f).toDouble(),
+                    candidate.measurementElapsedRealtimeNanos, candidate.bootSessionId),
                 motionEnabled,
                 { latitude, longitude ->
                     marker.position = GeoPoint(latitude, longitude)
@@ -1827,7 +1874,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
         selectedFamilyCandidateId?.let { familyMarkers[it] }?.let { marker ->
             mapView.overlays.remove(marker)
-            mapView.overlays.add(marker)
+            if (!mapView.overlays.contains(marker)) mapView.overlays.add(marker)
         }
     }
 
@@ -1876,46 +1923,43 @@ class DualLocationMapActivity : AppCompatActivity() {
         binding.distanceText.text = mapDistance(location, candidate.deviceId == myId)
         binding.etaText.text = "—"
         binding.movementStatusText.text = familySpeedText(candidate.memberId.ifBlank { candidate.deviceId }, candidate.timestamp).orEmpty()
-        binding.pointMetaText.text = buildPointMetaText(location)
+        binding.pointMetaText.text = buildPointMetaText(location) + if (mapOptions.speeds()) "\n" +
+            ru.example.childwatch.designsystem.MapSpeedPresentation.details(this,
+                familySpeedResult(candidate.memberId.ifBlank { candidate.deviceId }, candidate.timestamp), System.currentTimeMillis()) else ""
         loadPersonAddress(location)
         binding.statsCard.visibility = if (isStatsCardCollapsed) View.GONE else View.VISIBLE
         renderFamilyMotion()
     }
 
-    private fun familySpeedValue(id: String, time: Long?): Pair<Double?, Boolean> {
-        val timestamp = time?.let(::normalizeTimestampMillis) ?: 0L
-        val now = System.currentTimeMillis()
-        if (timestamp <= 0L || timestamp > now || now - timestamp > 45_000L) return null to false
+    private fun familySpeedResult(id: String, time: Long?): ru.example.childwatch.designsystem.MapSpeedEstimator.Result? {
+        val timestamp = time?.let(::normalizeTimestampMillis) ?: return null
         val point = currentFamilyCandidates.firstOrNull { it.memberId.ifBlank { it.deviceId } == id &&
-            it.timestamp?.let(::normalizeTimestampMillis) == timestamp }
-        val direct = point?.let {
-            ru.example.childwatch.designsystem.MapSpeed.measured(
-                ru.example.childwatch.designsystem.MapRouteSegments.Fix(it.latitude, it.longitude, timestamp,
-                    it.accuracy ?: 0f, it.speedMps, it.speedAccuracyMps))
-        }
-        if (direct != null) return direct to true
-        val fixes = familyTrailFixes[id].orEmpty().sortedBy { it.timestampMs }
-        val speed = ru.example.childwatch.designsystem.MapSpeed.latest(fixes, timestamp, now)
-        val measured = fixes.lastOrNull()?.takeIf { it.timestampMs == timestamp }?.let { ru.example.childwatch.designsystem.MapSpeed.measured(it) }
-        // An overlapping GPS uncertainty area is not a measured stationary speed.
-        return (if (speed == 0.0 && measured == null) null else speed) to (measured != null)
+            it.timestamp?.let(::normalizeTimestampMillis) == timestamp } ?: return null
+        val current = MapRouteSegments.Fix(point.latitude, point.longitude, timestamp,
+            point.accuracy ?: 0f, point.speedMps, point.speedAccuracyMps, point.deviceId,
+            point.measurementElapsedRealtimeNanos, point.bootSessionId)
+        // Only this exact phone and boot can contribute intervals. Wall-clock changes
+        // must not reorder samples within a boot; old clients still supply sensor speed.
+        val fixes = if (point.bootSessionId != null && point.measurementElapsedRealtimeNanos != null) {
+            (familyTrailFixes[id].orEmpty().filter { it.deviceId == point.deviceId &&
+                it.bootSessionId == point.bootSessionId && it.measurementElapsedRealtimeNanos != null &&
+                it.measurementElapsedRealtimeNanos <= point.measurementElapsedRealtimeNanos } + current)
+                .asReversed().distinctBy { it.measurementElapsedRealtimeNanos }
+                .sortedBy { it.measurementElapsedRealtimeNanos }
+        } else listOf(current)
+        return ru.example.childwatch.designsystem.MapSpeed.result(fixes, fixes.lastIndex, System.currentTimeMillis())
     }
 
     private fun familyMarkerSpeedText(id: String, time: Long?): String? {
         if (!mapOptions.speeds()) return null
-        val (speed, measured) = familySpeedValue(id, time)
-        return speed?.let {
-            if (measured) getString(ru.example.childwatch.designsystem.R.string.cw_map_speed_measured, Math.round(it))
-            else ru.example.childwatch.designsystem.MapSpeed.text(this, it)
-        }
+        return ru.example.childwatch.designsystem.MapSpeedPresentation.label(this, familySpeedResult(id, time))
     }
 
     private fun familySpeedText(id: String, time: Long?): String? {
         if (!mapOptions.speeds()) return null
-        val timestamp = time?.let(::normalizeTimestampMillis) ?: 0L
-        if (timestamp > 0L && System.currentTimeMillis() - timestamp > 45_000L)
-            return getString(ru.example.childwatch.designsystem.R.string.cw_map_speed_stale)
-        return familyMarkerSpeedText(id, time) ?: getString(ru.example.childwatch.designsystem.R.string.cw_map_speed_unknown)
+        val result = familySpeedResult(id, time)
+        return ru.example.childwatch.designsystem.MapSpeedPresentation.label(this, result)
+            ?: ru.example.childwatch.designsystem.MapSpeedPresentation.details(this, result, System.currentTimeMillis())
     }
 
     private fun renderFamilyMotion() {
@@ -1975,7 +2019,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             val live = familyTrailFixes[memberId].orEmpty()
             val fixes = (history.mapNotNull { point ->
                 normalizeTimestampMillis(point.timestamp)?.let { timestamp ->
-                    MapRouteSegments.Fix(point.latitude, point.longitude, timestamp, point.accuracy, point.speedMps, point.speedAccuracyMps)
+                    MapRouteSegments.Fix(point.latitude, point.longitude, timestamp, point.accuracy, point.speedMps, point.speedAccuracyMps, point.parentId, point.measurementElapsedRealtimeNanos, point.bootSessionId)
                 }
             } + live).filter { now - it.timestampMs in 0..30 * 60_000L }
                 .distinctBy { Triple(it.timestampMs, it.latitude, it.longitude) }
@@ -2186,10 +2230,17 @@ class DualLocationMapActivity : AppCompatActivity() {
             it.value == linkedLocation.parentId
         }?.key
         val fixes = motionId?.let { familyTrailFixes[it] }.orEmpty()
-            .filter { it.timestampMs <= timestamp }.toMutableList()
+            .filter { fix ->
+                if (linkedLocation.bootSessionId != null && linkedLocation.measurementElapsedRealtimeNanos != null)
+                    fix.deviceId == linkedLocation.parentId && fix.bootSessionId == linkedLocation.bootSessionId &&
+                        fix.measurementElapsedRealtimeNanos != null &&
+                        fix.measurementElapsedRealtimeNanos <= linkedLocation.measurementElapsedRealtimeNanos
+                else fix.timestampMs <= timestamp
+            }.toMutableList()
         val currentFix = MapRouteSegments.Fix(
             linkedLocation.latitude, linkedLocation.longitude, timestamp,
-            linkedLocation.accuracy, linkedLocation.speedMps, linkedLocation.speedAccuracyMps
+            linkedLocation.accuracy, linkedLocation.speedMps, linkedLocation.speedAccuracyMps,
+            linkedLocation.parentId, linkedLocation.measurementElapsedRealtimeNanos, linkedLocation.bootSessionId
         )
         // Family cards omit sensor fields; retain the same fix's original quality.
         val matchingFix = fixes.any {
@@ -2201,7 +2252,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             fixes += currentFix
         }
         val speedKmh = ru.example.childwatch.designsystem.MapSpeed.latest(
-            fixes.sortedBy { it.timestampMs }, timestamp, now
+            ru.example.childwatch.designsystem.MapSpeed.ordered(fixes), timestamp, now
         ) ?: return R.string.map_stats_status_unknown
         return when {
             speedKmh >= 6f * 3.6 -> R.string.map_stats_status_transit
@@ -3154,6 +3205,7 @@ class DualLocationMapActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        startSpeedFreshness()
         setupPickupEntry()
         binding.root.post {
             runCatching {
@@ -3167,6 +3219,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        speedFreshnessJob?.cancel()
         stopMapFollow()
         markerMotion.clear()
         pickupController.pause()
@@ -3182,6 +3235,7 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        speedFreshnessJob?.cancel()
         markerMotion.clear()
         pickupController.dispose()
         leaveHistory()
