@@ -111,6 +111,14 @@ object ChatV2Migration {
         }
     }
 
+    /** Private recognition jobs and user corrections are separate from voice drafts. */
+    val MIGRATION_13_14 = object : Migration(13, 14) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("CREATE TABLE IF NOT EXISTS chat_transcriptions_v2 (scope_key TEXT NOT NULL, draft_id TEXT NOT NULL, conversation_id TEXT NOT NULL, server_url TEXT NOT NULL, family_id TEXT NOT NULL, actor_member_id TEXT NOT NULL, device_id TEXT NOT NULL, source_sha256 TEXT NOT NULL, job_id TEXT, state TEXT NOT NULL, text TEXT, edited_text TEXT, is_edited INTEGER NOT NULL, error_code TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, completed_at INTEGER, text_message_id TEXT, PRIMARY KEY(scope_key, draft_id), FOREIGN KEY(conversation_id) REFERENCES chat_conversations_v2(conversation_id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_transcriptions_v2_conversation_id ON chat_transcriptions_v2(conversation_id)")
+        }
+    }
+
     private fun createTables(database: SupportSQLiteDatabase) {
         database.execSQL(
             """

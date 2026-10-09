@@ -32,6 +32,7 @@ class ChatConversationService {
     }
     this.dbManager = dbManager;
     this.attachments = new (require("./ChatAttachmentStore"))(dbManager, options.attachments || {});
+    this.transcriptions = new (require("./ChatTranscriptionService"))(this, options.transcriptions || {});
   }
 
   requireDeviceId(deviceId) {

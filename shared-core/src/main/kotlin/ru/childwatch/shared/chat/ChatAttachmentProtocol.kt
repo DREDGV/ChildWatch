@@ -15,7 +15,10 @@ data class ChatV2CapabilitiesResponse(
     val attachments: Boolean = false,
     val maxFileBytes: Long = 25L * 1024 * 1024,
     val maxImageBytes: Long = 10L * 1024 * 1024,
-    val attachmentTypes: List<String> = emptyList()
+    val attachmentTypes: List<String> = emptyList(),
+    val transcription: Boolean = false,
+    val transcriptionReason: String? = null,
+    val transcriptionMaxDurationMs: Long = 180_000
 )
 data class ChatV2AttachmentResponse(val success: Boolean = false, val attachment: ChatV2AttachmentDto? = null)
 data class ChatV2AttachmentCancelResponse(val success: Boolean = false)

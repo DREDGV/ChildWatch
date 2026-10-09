@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+<string name="chat_transcription_title">Запись в текст</string>
+<string name="chat_transcription_request">Распознать запись</string>
+<string name="chat_transcription_retry">Проверить и повторить</string>
+<string name="chat_transcription_cancel">Отменить распознавание</string>
+<string name="chat_transcription_send">Отправить текст</string>
+<string name="chat_transcription_close">Закрыть</string>
+<string name="chat_transcription_editor_hint">Проверьте и исправьте текст</string>
+<string name="chat_transcription_hint">Текст отправится только после вашего нажатия. Голосовую запись можно отправить отдельно.</string>
+<string name="chat_transcription_start_hint">Наш сервер преобразует эту запись в редактируемый текст.</string>
+<string name="chat_transcription_pending">Запрос ещё не подтверждён. Проверьте соединение и повторите: второй задачи не появится.</string>
+<string name="chat_transcription_queued">Запись в очереди на распознавание.</string>
+<string name="chat_transcription_running">Распознаём запись… Можно закрыть окно и вернуться позже.</string>
+<string name="chat_transcription_cancelling">Проверяем отмену на сервере…</string>
+<string name="chat_transcription_ready">Проверьте текст перед отправкой.</string>
+<string name="chat_transcription_failed">Распознавание не удалось. Голосовая запись сохранена.</string>
+<string name="chat_transcription_cancelled">Распознавание отменено. Голосовая запись сохранена.</string>
+<string name="chat_transcription_timeout">Сервер не успел обработать запись. Её можно отправить голосом.</string>
+<string name="chat_transcription_not_ready">Распознавание пока недоступно на сервере. Отправка голосом доступна.</string>
+<string name="chat_transcription_denied">Нет доступа к распознаванию в этой беседе.</string>
+<string name="chat_transcription_too_long">Запись длиннее трёх минут. Отправьте более короткую запись.</string>
+<string name="chat_transcription_no_speech">Речь не обнаружена. Можно отправить исходную запись голосом.</string>
+<string name="chat_transcription_invalid_audio">Сервер не смог прочитать запись. Можно попробовать отправить её голосом.</string>
+<string name="chat_transcription_network">Не удалось получить результат. Проверьте соединение; голосовая запись сохранена.</string>
+<string name="chat_transcription_text_limit">Текст должен быть непустым и не длиннее 16 КиБ. Сократите сообщение.</string>
+<string name="chat_transcription_send_failed">Не удалось подготовить отправку текста. Проверьте соединение и повторите.</string>
+<string name="chat_transcription_enqueued">Текст добавлен в очередь отправки.</string>
+</resources>

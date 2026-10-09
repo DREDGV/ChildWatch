@@ -76,6 +76,12 @@ class ChatConversationV2Activity : AppCompatActivity() {
     private lateinit var repository: ChatV2Repository
 
     private val media by lazy { repository.attachments(this) }
+    private val transcriptions by lazy { repository.transcriptions(this) }
+    private var transcriptionEnabled = false
+    private var transcriptionDialog: ru.example.childwatch.designsystem.ChatTranscriptionDialog? = null
+    private var transcriptionObserverJob: Job? = null
+    private var transcriptionActionJob: Job? = null
+
     private var voiceEnabled = false
     private var voiceDialog: ru.example.childwatch.designsystem.ChatVoiceRecordingDialog? = null
     private var voicePlayback: ru.example.childwatch.designsystem.ChatVoicePlaybackDialog? = null
@@ -127,6 +133,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
             val capability = runCatching { media.capabilities() }.getOrNull()
             mediaEnabled = capability?.attachments == true
             voiceEnabled = mediaEnabled && "VOICE" in capability!!.attachmentTypes
+            transcriptionEnabled = voiceEnabled && capability?.transcription == true
             binding.attachmentButton.visibility = if (mediaEnabled) View.VISIBLE else View.GONE
             updateComposerState()
         }
@@ -188,12 +195,134 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        transcriptionDialog?.close(); transcriptionDialog = null
         mediaDownloadJob?.cancel()
         voiceDialog?.interrupt()
         voiceDialog = null
         voicePlayback?.close()
         voicePlayback = null
         super.onPause()
+    }
+
+    private fun showVoiceDraftActions(id: String) {
+        val guard = media.currentScopeKey() ?: return
+        lifecycleScope.launch {
+            val draft = media.getDraft(id) ?: return@launch
+            val stored = transcriptions.get(id)
+            if (guard != media.currentScopeKey() || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@launch
+            val choices = mutableListOf(getString(R.string.chat_voice_listen))
+            if (transcriptionEnabled || stored != null) choices.add(getString(R.string.chat_transcription_title))
+            AlertDialog.Builder(this@ChatConversationV2Activity).setTitle(R.string.chat_voice_title)
+                .setItems(choices.toTypedArray()) { _, index ->
+                    if (guard != media.currentScopeKey()) return@setItems
+                    if (index == 0) {
+                        voicePlayback?.close()
+                        voicePlayback = ru.example.childwatch.designsystem.ChatVoicePlaybackDialog(this@ChatConversationV2Activity, java.io.File(draft.localPath)) { }
+                        voicePlayback?.show()
+                    } else showTranscription(id)
+                }.setNegativeButton(android.R.string.cancel, null).show()
+        }
+    }
+
+    private fun showTranscription(id: String) {
+        val guard = transcriptions.currentScopeKey() ?: return
+        transcriptionDialog?.close()
+        val panel = ru.example.childwatch.designsystem.ChatTranscriptionDialog(this, { guard == transcriptions.currentScopeKey() },
+            object : ru.example.childwatch.designsystem.ChatTranscriptionDialog.Actions {
+                override fun request() = runTranscriptionAction(id, guard, false)
+                override fun cancel() = runTranscriptionAction(id, guard, true)
+                override fun edited(value: String) {
+                    // Enter NonCancellable before yielding so a rotation cannot drop the last local edit.
+                    lifecycleScope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                        kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                            if (guard == transcriptions.currentScopeKey()) runCatching { transcriptions.saveEditedText(id, value) }
+                        }
+                    }
+                }
+                override fun send(value: String) = sendTranscriptionText(id, guard, value)
+                override fun closed() {
+                    transcriptionObserverJob?.cancel(); transcriptionObserverJob = null
+                    transcriptionActionJob?.cancel(); transcriptionActionJob = null
+                }
+            })
+        transcriptionDialog = panel
+        panel.show()
+        transcriptionObserverJob = lifecycleScope.launch {
+            launch {
+                transcriptions.observe(id).collectLatest { row ->
+                    if (guard != transcriptions.currentScopeKey()) { panel.close(); return@collectLatest }
+                    panel.render(row?.state ?: "EMPTY", row?.text, row?.editedText, row?.isEdited ?: false,
+                        row?.errorCode, row?.textMessageId != null)
+                }
+            }
+            var first = true
+            while (isActive && guard == transcriptions.currentScopeKey()) {
+                val row = transcriptions.get(id)
+                if (row != null && (first || row.state in setOf("QUEUED", "RUNNING", "CANCEL_REQUESTED"))) {
+                    try {
+                        if (row.state == "CANCEL_REQUESTED") transcriptions.cancel(id) else transcriptions.refresh(id)
+                    } catch (cancelled: CancellationException) { throw cancelled } catch (_: Exception) { }
+                }
+                first = false
+                delay(3_000)
+            }
+            panel.close()
+        }
+    }
+
+    private fun runTranscriptionAction(id: String, guard: String, cancel: Boolean) {
+        if (guard != transcriptions.currentScopeKey()) return
+        if (transcriptionActionJob?.isActive == true) {
+            if (!cancel) return
+            transcriptionActionJob?.cancel()
+        }
+        transcriptionActionJob = lifecycleScope.launch {
+            try { if (cancel) transcriptions.cancel(id) else transcriptions.request(id) }
+            catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { Toast.makeText(this@ChatConversationV2Activity, R.string.chat_transcription_network, Toast.LENGTH_LONG).show() }
+            finally {
+                if (transcriptionActionJob == kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job])
+                    transcriptionActionJob = null
+            }
+        }
+    }
+
+    private fun sendTranscriptionText(id: String, guard: String, text: String) {
+        if (guard != transcriptions.currentScopeKey() || textSendInProgress) return
+        val member = conversation?.members?.firstOrNull { it.isLocalUser } ?: return
+        if (ru.childwatch.shared.chat.ChatTextPolicy.validate(text) !is ru.childwatch.shared.chat.ChatTextValidation.Valid) {
+            transcriptionDialog?.failedSending()
+            Toast.makeText(this, R.string.chat_transcription_text_limit, Toast.LENGTH_LONG).show()
+            return
+        }
+        textSendInProgress = true
+        updateComposerState()
+        transcriptionActionJob = lifecycleScope.launch {
+            try {
+                val row = transcriptions.get(id) ?: error("TRANSCRIPTION_UNAVAILABLE")
+                check(row.state == "SUCCEEDED" && row.textMessageId == null && guard == transcriptions.currentScopeKey())
+                val draft = media.getDraft(id) ?: error("TRANSCRIPTION_SOURCE_UNAVAILABLE")
+                check(draft.actorMemberId == member.memberId && draft.state == "DRAFT")
+                val messageId = id + ":text"
+                kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) {
+                    check(guard == transcriptions.currentScopeKey())
+                    val existing = repository.getCachedMessageByClientId(messageId)
+                    if (existing == null) repository.enqueueMessage(conversationId, text, member.displayName, member.role,
+                        member.memberId, draft.deviceId, messageId)
+                    transcriptions.markTextEnqueued(id, messageId)
+                    // Text is already durable; this explicit choice consumes only the local voice draft.
+                    media.cancel(id)
+                }
+                transcriptionActionJob = null
+                transcriptionDialog?.close(); transcriptionDialog = null
+                mediaDraft = null; renderMediaDraft(); scrollToBottom()
+                repository.flushOutbox()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                transcriptionDialog?.failedSending()
+                Toast.makeText(this@ChatConversationV2Activity, R.string.chat_transcription_send_failed, Toast.LENGTH_LONG).show()
+            } finally { textSendInProgress = false; transcriptionActionJob = null; updateComposerState() }
+        }
     }
 
     private fun prepareAttachment(uri: android.net.Uri) {
@@ -246,11 +375,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
         binding.attachmentDraftPanel.visibility = if (draft == null) View.GONE else View.VISIBLE
         val draftGuard = media.currentScopeKey()
         binding.attachmentDraftText.setOnClickListener(if (draft?.attachmentType == "VOICE") View.OnClickListener {
-            if (mediaDraft?.clientMessageId == draft.clientMessageId && draftGuard != null && draftGuard == media.currentScopeKey()) {
-                voicePlayback?.close()
-                voicePlayback = ru.example.childwatch.designsystem.ChatVoicePlaybackDialog(this, java.io.File(draft.localPath)) { }
-                voicePlayback?.show()
-            }
+            if (mediaDraft?.clientMessageId == draft.clientMessageId && draftGuard != null && draftGuard == media.currentScopeKey()) showVoiceDraftActions(draft.clientMessageId)
         } else null)
         val previewChanged = binding.attachmentDraftImage.tag != draft?.clientMessageId
         if (previewChanged) {

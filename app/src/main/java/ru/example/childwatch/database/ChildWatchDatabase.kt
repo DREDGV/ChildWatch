@@ -52,12 +52,13 @@ import ru.example.childwatch.database.migration.ChatV2Migration
         ChatOutboxV2Entity::class,
         ChatAttachmentDraftV2Entity::class,
         ChatMediaCapabilitiesEntity::class,
+        ChatTranscriptionV2Entity::class,
         AudioRecording::class,
         LocationPoint::class,
         ParentLocation::class,
         Geofence::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = true
 )
 abstract class ChildWatchDatabase : RoomDatabase() {
@@ -87,6 +88,7 @@ abstract class ChildWatchDatabase : RoomDatabase() {
     abstract fun chatOutboxV2Dao(): ChatOutboxV2Dao
     abstract fun chatAttachmentDraftV2Dao(): ChatAttachmentDraftV2Dao
     abstract fun chatMediaCapabilitiesDao(): ChatMediaCapabilitiesDao
+    abstract fun chatTranscriptionV2Dao(): ChatTranscriptionV2Dao
 
     /**
      * Get AudioRecordingDao instance
@@ -388,6 +390,7 @@ abstract class ChildWatchDatabase : RoomDatabase() {
         /** Adds the shared picture of the conversation itself. */
         val MIGRATION_11_12: Migration = ChatV2Migration.MIGRATION_11_12
         val MIGRATION_12_13: Migration = ChatV2Migration.MIGRATION_12_13
+        val MIGRATION_13_14: Migration = ChatV2Migration.MIGRATION_13_14
 
         /**
          * Get database instance (Singleton pattern)
@@ -414,7 +417,8 @@ abstract class ChildWatchDatabase : RoomDatabase() {
                         MIGRATION_9_10,
                         MIGRATION_10_11,
                         MIGRATION_11_12,
-                        MIGRATION_12_13
+                        MIGRATION_12_13,
+                        MIGRATION_13_14
                     )
                     // Only allow destructive migration on DOWNGRADE (not upgrade)
                     // This preserves data on upgrades while allowing clean reinstalls

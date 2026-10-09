@@ -64,6 +64,14 @@ class ChatV2Repository(
     private val receiptScopeProvider: () -> ChatV2ReceiptScope? = { receiptScope }
 ) {
     private val gson = Gson()
+    fun transcriptions(context: Context) = ChatTranscriptionService(context.applicationContext,
+        attachments(context), api, database.chatTranscriptionV2Dao(), clock)
+    suspend fun getCachedMessageByClientId(clientMessageId: String): ConversationMessage? {
+        val scope = mediaScope() ?: return null
+        val message = messages.getByClientMessageId(clientMessageId)?.toModel() ?: return null
+        val familyId = conversations.getById(message.conversationId)?.familyId
+        return message.takeIf { scope == mediaScope() && familyId == scope.family }
+    }
     fun attachments(context: Context) = ChatAttachmentService(context.applicationContext, this,
         api, database.chatAttachmentDraftV2Dao(), database.chatMediaCapabilitiesDao(), { mediaScope() }, clock)
     internal fun mediaScope(): ChatV2ReceiptScope? = receiptScope?.takeIf {
