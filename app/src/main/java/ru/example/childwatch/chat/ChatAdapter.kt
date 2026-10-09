@@ -74,9 +74,15 @@ class ChatAdapter(
                 if (visibility == View.VISIBLE) onAttachmentPreview?.invoke(message, this)
             }
             attachmentName?.text = attachment?.filename.orEmpty()
-            attachmentMeta?.text = attachment?.let { android.text.format.Formatter.formatShortFileSize(itemView.context, it.sizeBytes) }.orEmpty()
+            attachmentMeta?.text = attachment?.let {
+                val size = android.text.format.Formatter.formatShortFileSize(itemView.context, it.sizeBytes)
+                if (it.type == "VOICE") {
+                    val seconds = (it.durationMs ?: 0L) / 1000
+                    java.lang.String.format(java.util.Locale.getDefault(), "%d:%02d · %s", seconds / 60, seconds % 60, size)
+                } else size
+            }.orEmpty()
             attachmentOpen?.apply {
-                setText(if (attachment?.type in listOf("IMAGE", "GIF")) R.string.chat_media_open else R.string.chat_media_download)
+                setText(if (attachment?.type == "VOICE") R.string.chat_voice_listen else if (attachment?.type in listOf("IMAGE", "GIF")) R.string.chat_media_open else R.string.chat_media_download)
                 setOnClickListener(if (attachment == null) null else View.OnClickListener { onAttachmentOpen?.invoke(message) })
             }
             messageText.visibility = if (!withdrawn && message.text.isBlank() && attachment != null) View.GONE else View.VISIBLE

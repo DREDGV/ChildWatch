@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_voice_title">Голосовое сообщение</string>
+    <string name="chat_voice_record">Начать запись</string>
+    <string name="chat_voice_stop">Завершить запись</string>
+    <string name="chat_voice_listen">Прослушать</string>
+    <string name="chat_voice_delete">Удалить запись</string>
+    <string name="chat_voice_use">Прикрепить к сообщению</string>
+    <string name="chat_voice_keep">Закрыть, сохранив черновик</string>
+    <string name="chat_voice_duration">Длительность: %1$s</string>
+    <string name="chat_voice_hint">До 3 минут. Запись начнётся только после нажатия.</string>
+    <string name="chat_voice_recording">Идёт запись…</string>
+    <string name="chat_voice_draft">Прослушайте запись, затем прикрепите или удалите её.</string>
+    <string name="chat_voice_permission">Для записи нужен доступ к микрофону.</string>
+    <string name="chat_voice_busy">Микрофон занят. Завершите звонок или другую запись.</string>
+    <string name="chat_voice_no_space">Недостаточно места. Освободите память и повторите.</string>
+    <string name="chat_voice_too_short">Запись слишком короткая. Попробуйте ещё раз.</string>
+    <string name="chat_voice_failed">Не удалось записать звук. Попробуйте ещё раз.</string>
+    <string name="chat_voice_interrupted">Запись прервана. Если звук сохранён, его можно прослушать и отправить.</string>
+    <string name="chat_voice_limit">Достигнут предел записи. Проверьте сохранённый звук.</string>
+    <string name="chat_voice_play">Воспроизвести</string>
+    <string name="chat_voice_pause">Пауза</string>
+    <string name="chat_voice_unavailable">Не удалось воспроизвести запись.</string>
+    <string name="chat_voice_filename">Голосовое сообщение.m4a</string>
+</resources>

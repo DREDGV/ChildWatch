@@ -76,6 +76,14 @@ class ChatConversationV2Activity : AppCompatActivity() {
     private lateinit var repository: ChatV2Repository
 
     private val media by lazy { repository.attachments(this) }
+    private var voiceEnabled = false
+    private var voiceDialog: ru.example.childwatch.designsystem.ChatVoiceRecordingDialog? = null
+    private var voicePlayback: ru.example.childwatch.designsystem.ChatVoicePlaybackDialog? = null
+    private var voicePermissionScope: String? = null
+    private val voicePermission = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {
+        if (::repository.isInitialized && voicePermissionScope == media.currentScopeKey()) showVoiceRecorder()
+        voicePermissionScope = null
+    }
     private var mediaEnabled = false
     private var mediaDraft: ru.example.childwatch.database.entity.ChatAttachmentDraftV2Entity? = null
     private var mediaPreparing = false
@@ -116,7 +124,9 @@ class ChatConversationV2Activity : AppCompatActivity() {
 
     private fun startMedia() {
         lifecycleScope.launch {
-            mediaEnabled = runCatching { media.capabilities().attachments }.getOrDefault(false)
+            val capability = runCatching { media.capabilities() }.getOrNull()
+            mediaEnabled = capability?.attachments == true
+            voiceEnabled = mediaEnabled && "VOICE" in capability!!.attachmentTypes
             binding.attachmentButton.visibility = if (mediaEnabled) View.VISIBLE else View.GONE
             updateComposerState()
         }
@@ -134,12 +144,56 @@ class ChatConversationV2Activity : AppCompatActivity() {
 
     private fun showAttachmentPicker() {
         if (!mediaEnabled || mediaDraft != null || mediaPreparing) return
+        val choices = mutableListOf(getString(R.string.chat_media_photo), getString(R.string.chat_media_file))
+        if (voiceEnabled) choices.add(getString(R.string.chat_voice_title))
         AlertDialog.Builder(this).setTitle(R.string.chat_media_attach)
-            .setItems(arrayOf(getString(R.string.chat_media_photo), getString(R.string.chat_media_file))) { _, index ->
-                pickerType = if (index == 0) "IMAGE" else "FILE"
-                pickerScope = media.currentScopeKey()
-                documentPicker.launch(if (index == 0) arrayOf("image/jpeg", "image/png", "image/webp", "image/gif") else arrayOf("*/*"))
+            .setItems(choices.toTypedArray()) { _, index ->
+                if (index == 2) {
+                    voicePermissionScope = media.currentScopeKey()
+                    if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) showVoiceRecorder()
+                    else voicePermission.launch(android.Manifest.permission.RECORD_AUDIO)
+                } else {
+                    pickerType = if (index == 0) "IMAGE" else "FILE"
+                    pickerScope = media.currentScopeKey()
+                    documentPicker.launch(if (index == 0) arrayOf("image/jpeg", "image/png", "image/webp", "image/gif") else arrayOf("*/*"))
+                }
             }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun showVoiceRecorder() {
+        if (!voiceEnabled || mediaDraft != null || mediaPreparing) return
+        val guard = media.currentScopeKey() ?: return
+        voiceDialog?.close()
+        val recorder = ru.example.childwatch.designsystem.ChatVoiceRecordingDialog(this,
+            com.google.gson.Gson().toJson(listOf(guard, conversationId)), { guard == media.currentScopeKey() }) { file, duration, onCopied ->
+            if (guard != media.currentScopeKey()) return@ChatVoiceRecordingDialog
+            mediaPreparing = true
+            updateComposerState()
+            lifecycleScope.launch {
+                try {
+                    check(ru.childwatch.shared.chat.VoiceRecordingPolicy.usable(duration, file.length()))
+                    val uri = androidx.core.content.FileProvider.getUriForFile(this@ChatConversationV2Activity, "$packageName.fileprovider", file, getString(R.string.chat_voice_filename))
+                    mediaDraft = media.createDraft(conversationId, uri, getString(R.string.chat_voice_filename), "audio/mp4", "VOICE", duration)
+                    onCopied.run()
+                    renderMediaDraft()
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) {
+                    voiceDialog?.failedCopy()
+                    Toast.makeText(this@ChatConversationV2Activity, R.string.chat_media_failed, Toast.LENGTH_LONG).show()
+                } finally { mediaPreparing = false; updateComposerState() }
+            }
+        }
+        voiceDialog = recorder
+        recorder.show()
+    }
+
+    override fun onPause() {
+        mediaDownloadJob?.cancel()
+        voiceDialog?.interrupt()
+        voiceDialog = null
+        voicePlayback?.close()
+        voicePlayback = null
+        super.onPause()
     }
 
     private fun prepareAttachment(uri: android.net.Uri) {
@@ -190,6 +244,14 @@ class ChatConversationV2Activity : AppCompatActivity() {
         val draft = mediaDraft
         if (mediaPreparing) return
         binding.attachmentDraftPanel.visibility = if (draft == null) View.GONE else View.VISIBLE
+        val draftGuard = media.currentScopeKey()
+        binding.attachmentDraftText.setOnClickListener(if (draft?.attachmentType == "VOICE") View.OnClickListener {
+            if (mediaDraft?.clientMessageId == draft.clientMessageId && draftGuard != null && draftGuard == media.currentScopeKey()) {
+                voicePlayback?.close()
+                voicePlayback = ru.example.childwatch.designsystem.ChatVoicePlaybackDialog(this, java.io.File(draft.localPath)) { }
+                voicePlayback?.show()
+            }
+        } else null)
         val previewChanged = binding.attachmentDraftImage.tag != draft?.clientMessageId
         if (previewChanged) {
             binding.attachmentDraftImage.setImageDrawable(null)
@@ -274,8 +336,14 @@ class ChatConversationV2Activity : AppCompatActivity() {
                         }
                     }
                 }
-                if (guard != media.currentScopeKey()) { file.delete(); return@launch }
+                if (guard != media.currentScopeKey() || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) { file.delete(); return@launch }
                 downloading.dismiss()
+                if (attachment.type == "VOICE") {
+                    voicePlayback?.close()
+                    voicePlayback = ru.example.childwatch.designsystem.ChatVoicePlaybackDialog(this@ChatConversationV2Activity, file) { file.delete() }
+                    voicePlayback?.show()
+                    return@launch
+                }
                 val choices = arrayOf(getString(R.string.chat_media_open), getString(R.string.chat_media_save))
                 AlertDialog.Builder(this@ChatConversationV2Activity).setTitle(attachment.filename)
                     .setItems(choices) { _, index ->
