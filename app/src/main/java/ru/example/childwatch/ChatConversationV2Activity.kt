@@ -74,6 +74,247 @@ class ChatConversationV2Activity : AppCompatActivity() {
 
     private lateinit var binding: ActivityChatBinding
     private lateinit var repository: ChatV2Repository
+
+    private val media by lazy { repository.attachments(this) }
+    private var mediaEnabled = false
+    private var mediaDraft: ru.example.childwatch.database.entity.ChatAttachmentDraftV2Entity? = null
+    private var mediaPreparing = false
+    private var textSendInProgress = false
+    private var mediaSendJob: Job? = null
+    private var mediaDownloadJob: Job? = null
+    private var pickerType = "FILE"
+    private var pickerScope: String? = null
+    private val documentPicker = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null && ::repository.isInitialized && pickerScope != null && pickerScope == media.currentScopeKey()) prepareAttachment(uri)
+    }
+    private var pendingSave: Pair<java.io.File, ru.childwatch.shared.chat.ChatV2AttachmentDto>? = null
+    private var pendingSaveScope: String? = null
+    private val saveAttachmentPicker = registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
+        val selected = pendingSave
+        pendingSave = null
+        if (uri != null && selected != null && pendingSaveScope == media.currentScopeKey()) lifecycleScope.launch {
+            try {
+                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    contentResolver.openOutputStream(uri)?.use { output -> selected.first.inputStream().use { it.copyTo(output) } }
+                        ?: throw java.io.IOException("Cannot open destination")
+                }
+                Toast.makeText(this@ChatConversationV2Activity, R.string.chat_media_saved, Toast.LENGTH_SHORT).show()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { Toast.makeText(this@ChatConversationV2Activity, R.string.chat_media_unavailable, Toast.LENGTH_LONG).show() }
+            finally { selected.first.delete() }
+        } else selected?.first?.delete()
+        pendingSaveScope = null
+    }
+
+    private fun updateComposerState() {
+        val draft = mediaDraft
+        val busy = textSendInProgress || mediaPreparing || mediaSendJob?.isActive == true || draft?.state in setOf("QUEUED", "UPLOADING", "UPLOADED")
+        binding.sendButton.isEnabled = !busy && (!binding.messageInput.text.isNullOrBlank() || draft != null)
+        binding.attachmentButton.isEnabled = mediaEnabled && !busy && draft == null
+        binding.attachmentDraftCancel.isEnabled = !mediaPreparing
+    }
+
+    private fun startMedia() {
+        lifecycleScope.launch {
+            mediaEnabled = runCatching { media.capabilities().attachments }.getOrDefault(false)
+            binding.attachmentButton.visibility = if (mediaEnabled) View.VISIBLE else View.GONE
+            updateComposerState()
+        }
+        lifecycleScope.launch {
+            media.observe(conversationId).collectLatest { drafts ->
+                val previous = mediaDraft
+                val pending = drafts.lastOrNull { it.state !in setOf("ENQUEUED", "SENT", "CANCELLED") }
+                if (previous != null && drafts.any { it.clientMessageId == previous.clientMessageId && it.state in setOf("ENQUEUED", "SENT") } &&
+                    binding.messageInput.text?.toString() == previous.caption) binding.messageInput.text?.clear()
+                mediaDraft = pending
+                renderMediaDraft()
+            }
+        }
+    }
+
+    private fun showAttachmentPicker() {
+        if (!mediaEnabled || mediaDraft != null || mediaPreparing) return
+        AlertDialog.Builder(this).setTitle(R.string.chat_media_attach)
+            .setItems(arrayOf(getString(R.string.chat_media_photo), getString(R.string.chat_media_file))) { _, index ->
+                pickerType = if (index == 0) "IMAGE" else "FILE"
+                pickerScope = media.currentScopeKey()
+                documentPicker.launch(if (index == 0) arrayOf("image/jpeg", "image/png", "image/webp", "image/gif") else arrayOf("*/*"))
+            }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun prepareAttachment(uri: android.net.Uri) {
+        if (mediaDraft != null || mediaPreparing) return
+        val type = pickerType
+        val guard = media.currentScopeKey()
+        mediaPreparing = true
+        binding.attachmentDraftPanel.visibility = View.VISIBLE
+        binding.attachmentDraftText.setText(R.string.chat_media_preparing)
+        binding.attachmentDraftProgress.visibility = View.VISIBLE
+        binding.attachmentDraftProgress.isIndeterminate = true
+        updateComposerState()
+        lifecycleScope.launch {
+            try {
+                val metadata = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                    var name = "attachment"
+                    var size = -1L
+                    contentResolver.query(uri, arrayOf(android.provider.OpenableColumns.DISPLAY_NAME, android.provider.OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+                        if (cursor.moveToFirst()) {
+                            val n = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                            val b = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                            if (n >= 0 && !cursor.isNull(n)) name = cursor.getString(n)
+                            if (b >= 0 && !cursor.isNull(b)) size = cursor.getLong(b)
+                        }
+                    }
+                    val mime = ru.example.childwatch.designsystem.ChatAttachmentInputPolicy.mimeType(contentResolver.getType(uri))
+                    ru.example.childwatch.designsystem.ChatAttachmentInputPolicy.validate(
+                        if (type == "IMAGE") ru.example.childwatch.designsystem.ChatAttachmentInputPolicy.Mode.IMAGE else ru.example.childwatch.designsystem.ChatAttachmentInputPolicy.Mode.FILE, mime, size)
+                    Pair(ru.example.childwatch.designsystem.ChatAttachmentInputPolicy.displayName(name), mime)
+                }
+                check(guard != null && guard == media.currentScopeKey()) { "CONTEXT_CHANGED" }
+                mediaDraft = media.createDraft(conversationId, uri, metadata.first, metadata.second, type)
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (error: Exception) {
+                val resource = when (error.message) {
+                    "TOO_LARGE", "ATTACHMENT_SIZE_LIMIT" -> R.string.chat_media_too_large
+                    "EMPTY", "ATTACHMENT_EMPTY" -> R.string.chat_media_empty
+                    "UNSUPPORTED_IMAGE" -> R.string.chat_media_invalid_image
+                    "ATTACHMENTS_SERVER_UNAVAILABLE" -> R.string.chat_media_unsupported
+                    else -> R.string.chat_media_unavailable
+                }
+                Toast.makeText(this@ChatConversationV2Activity, resource, Toast.LENGTH_LONG).show()
+            } finally { mediaPreparing = false; renderMediaDraft() }
+        }
+    }
+
+    private fun renderMediaDraft() {
+        val draft = mediaDraft
+        if (mediaPreparing) return
+        binding.attachmentDraftPanel.visibility = if (draft == null) View.GONE else View.VISIBLE
+        val previewChanged = binding.attachmentDraftImage.tag != draft?.clientMessageId
+        if (previewChanged) {
+            binding.attachmentDraftImage.setImageDrawable(null)
+            binding.attachmentDraftImage.visibility = View.GONE
+            binding.attachmentDraftImage.tag = draft?.clientMessageId
+        }
+        if (draft != null) {
+            if (previewChanged && draft.caption.isNotBlank() && binding.messageInput.text.isNullOrBlank()) binding.messageInput.setText(draft.caption)
+            val size = android.text.format.Formatter.formatShortFileSize(this, draft.sizeBytes)
+            val progress = ((draft.progressBytes.toDouble() / draft.sizeBytes.coerceAtLeast(1)) * 100).toInt().coerceIn(0, 100)
+            val state = when (draft.state) {
+                "QUEUED", "UPLOADING", "UPLOADED" -> getString(R.string.chat_media_uploading, progress)
+                "FAILED", "RETRY" -> getString(R.string.chat_media_failed)
+                else -> size
+            }
+            binding.attachmentDraftText.text = getString(R.string.chat_media_size, draft.filename, state)
+            binding.attachmentDraftCancel.setText(if (draft.state == "DRAFT") R.string.chat_media_remove else R.string.chat_media_cancel)
+            binding.attachmentDraftProgress.isIndeterminate = false
+            binding.attachmentDraftProgress.progress = progress
+            binding.attachmentDraftProgress.visibility = if (draft.state in setOf("QUEUED", "UPLOADING", "UPLOADED")) View.VISIBLE else View.GONE
+            if (previewChanged && draft.attachmentType in setOf("IMAGE", "GIF")) {
+                val guard = media.currentScopeKey()
+                lifecycleScope.launch {
+                    val bitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { decodeMediaImage(java.io.File(draft.localPath)) }
+                    if (guard == media.currentScopeKey() && binding.attachmentDraftImage.tag == draft.clientMessageId) {
+                        binding.attachmentDraftImage.setImageBitmap(bitmap)
+                        binding.attachmentDraftImage.visibility = if (bitmap == null) View.GONE else View.VISIBLE
+                    }
+                }
+            }
+        }
+        updateComposerState()
+    }
+
+    private fun decodeMediaImage(file: java.io.File): android.graphics.Bitmap? {
+        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        android.graphics.BitmapFactory.decodeFile(file.absolutePath, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+        var sample = 1
+        while (bounds.outWidth / sample > 1024 || bounds.outHeight / sample > 1024) sample *= 2
+        return android.graphics.BitmapFactory.decodeFile(file.absolutePath, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+    }
+
+    private fun previewAttachment(message: ChatMessage, image: android.widget.ImageView) {
+        val attachment = message.attachments.firstOrNull() ?: return
+        val guard = media.currentScopeKey()
+        lifecycleScope.launch {
+            try {
+                val file = media.download(conversationId, attachment)
+                try {
+                    val bitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { decodeMediaImage(file) }
+                    if (guard == media.currentScopeKey() && image.tag == attachment.attachmentId) image.setImageBitmap(bitmap)
+                } finally { file.delete() }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { if (image.tag == attachment.attachmentId) image.contentDescription = getString(R.string.chat_media_unavailable) }
+        }
+    }
+
+    private fun openAttachment(message: ChatMessage) {
+        val attachment = message.attachments.firstOrNull() ?: return
+        val guard = media.currentScopeKey()
+        mediaDownloadJob?.cancel()
+        val progress = android.widget.ProgressBar(this).apply { isIndeterminate = true }
+        val progressContainer = android.widget.FrameLayout(this).apply {
+            val pad = (24 * resources.displayMetrics.density).toInt()
+            setPadding(pad, pad, pad, pad)
+            addView(progress, android.widget.FrameLayout.LayoutParams(-1, (8 * resources.displayMetrics.density).toInt()))
+        }
+        val downloading = AlertDialog.Builder(this).setTitle(attachment.filename).setMessage(R.string.chat_media_preparing)
+            .setView(progressContainer).setNegativeButton(android.R.string.cancel) { _, _ -> mediaDownloadJob?.cancel() }
+            .setOnCancelListener { mediaDownloadJob?.cancel() }.create()
+        downloading.show()
+        mediaDownloadJob = lifecycleScope.launch {
+            try {
+                val file = media.download(conversationId, attachment) { received, total ->
+                    runOnUiThread {
+                        if (guard == media.currentScopeKey() && downloading.isShowing) {
+                            progress.isIndeterminate = false
+                            progress.max = 100
+                            progress.progress = ((received.toDouble() / total.coerceAtLeast(1)) * 100).toInt().coerceIn(0, 100)
+                            downloading.setMessage(getString(R.string.chat_media_downloading, progress.progress))
+                        }
+                    }
+                }
+                if (guard != media.currentScopeKey()) { file.delete(); return@launch }
+                downloading.dismiss()
+                val choices = arrayOf(getString(R.string.chat_media_open), getString(R.string.chat_media_save))
+                AlertDialog.Builder(this@ChatConversationV2Activity).setTitle(attachment.filename)
+                    .setItems(choices) { _, index ->
+                        if (guard != media.currentScopeKey()) { file.delete(); return@setItems }
+                        if (index == 1) { pendingSave = file to attachment; pendingSaveScope = guard; saveAttachmentPicker.launch(attachment.filename) }
+                        else {
+                            try {
+                                val uri = androidx.core.content.FileProvider.getUriForFile(this@ChatConversationV2Activity, "$packageName.fileprovider", file)
+                                val extension = attachment.filename.substringAfterLast('.', "").lowercase(java.util.Locale.ROOT)
+                                val viewMime = if (attachment.mimeType == "application/octet-stream") android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(extension) ?: attachment.mimeType else attachment.mimeType
+                                startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW).setDataAndType(uri, viewMime)
+                                    .addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION))
+                            } catch (_: android.content.ActivityNotFoundException) { Toast.makeText(this@ChatConversationV2Activity, R.string.chat_media_no_viewer, Toast.LENGTH_LONG).show() }
+                        }
+                    }.setNegativeButton(android.R.string.cancel) { _, _ -> file.delete() }.show()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { Toast.makeText(this@ChatConversationV2Activity, R.string.chat_media_unavailable, Toast.LENGTH_LONG).show() }
+            finally { downloading.dismiss(); mediaDownloadJob = null }
+        }
+    }
+
+    private fun sendMediaDraft() {
+        val draft = mediaDraft ?: return
+        if (mediaSendJob?.isActive == true) return
+        val member = conversation?.members?.firstOrNull { it.isLocalUser } ?: return
+        val caption = binding.messageInput.text?.toString().orEmpty()
+        mediaSendJob = lifecycleScope.launch {
+            try {
+                media.send(draft.clientMessageId, caption, member.displayName, member.role)
+                if (binding.messageInput.text?.toString() == caption) binding.messageInput.text?.clear()
+                repository.flushOutbox()
+                scrollToBottom()
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { Toast.makeText(this@ChatConversationV2Activity, R.string.chat_media_failed, Toast.LENGTH_LONG).show() }
+            finally { mediaSendJob = null; updateComposerState() }
+        }
+        updateComposerState()
+    }
+
     private lateinit var conversationId: String
     private var conversation: Conversation? = null
     private var adapter: ChatAdapter? = null
@@ -117,6 +358,18 @@ class ChatConversationV2Activity : AppCompatActivity() {
         binding = ActivityChatBinding.inflate(layoutInflater)
         setContentView(binding.root)
 
+        pickerType = savedInstanceState?.getString("media_picker_type") ?: "FILE"
+        pickerScope = savedInstanceState?.getString("media_picker_scope")
+        savedInstanceState?.getString("media_save_file")?.let { path ->
+            val file = java.io.File(path)
+            val expectedRoot = java.io.File(cacheDir, "chat-attachments").canonicalFile
+            if (file.exists() && file.canonicalFile.parentFile == expectedRoot) {
+                savedInstanceState.getString("media_save_metadata")?.let { json ->
+                    runCatching { gson.fromJson(json, ru.childwatch.shared.chat.ChatV2AttachmentDto::class.java) }.getOrNull()?.let { pendingSave = file to it }
+                }
+            }
+        }
+        pendingSaveScope = savedInstanceState?.getString("media_save_scope")
         conversationId = intent.getStringExtra(EXTRA_CONVERSATION_ID).orEmpty().trim()
         if (conversationId.isBlank()) {
             finish()
@@ -131,6 +384,14 @@ class ChatConversationV2Activity : AppCompatActivity() {
         repository = ChatV2Repository.create(this, serverUrl)
         configureStaticUi()
         lifecycleScope.launch { loadConversation() }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("media_picker_type", pickerType)
+        outState.putString("media_picker_scope", pickerScope)
+        pendingSave?.let { outState.putString("media_save_file", it.first.absolutePath); outState.putString("media_save_metadata", gson.toJson(it.second)) }
+        outState.putString("media_save_scope", pendingSaveScope)
+        super.onSaveInstanceState(outState)
     }
 
     override fun onStart() {
@@ -183,10 +444,19 @@ class ChatConversationV2Activity : AppCompatActivity() {
         emojiPopup = EmojiPopup(root, messageInput)
         emojiButton.setOnClickListener { emojiPopup?.toggle() }
         sendButton.setOnClickListener { sendMessage() }
+        attachmentButton.setOnClickListener { showAttachmentPicker() }
+        attachmentDraftCancel.setOnClickListener {
+            val draft = mediaDraft ?: return@setOnClickListener
+            lifecycleScope.launch {
+                try { media.cancel(draft.clientMessageId); mediaDraft = null; renderMediaDraft() }
+                catch (cancelled: CancellationException) { throw cancelled }
+                catch (_: Exception) { Toast.makeText(this@ChatConversationV2Activity, R.string.chat_media_unavailable, Toast.LENGTH_LONG).show() }
+            }
+        }
         // The send button now shows its own empty state, so it must follow the
         // input instead of looking ready when there is nothing to send.
         messageInput.doAfterTextChanged { editable ->
-            sendButton.isEnabled = !editable.isNullOrBlank()
+            updateComposerState()
             reportTyping(!editable.isNullOrBlank())
         }
         newMessagesButton.setOnClickListener { scrollToBottom() }
@@ -303,7 +573,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
         val age = System.currentTimeMillis() - message.timestamp
         val isMine = message.isMine
         val labels = mutableListOf<String>()
-        if (isMine && age <= MESSAGE_EDIT_WINDOW_MS) {
+        if (isMine && message.attachments.isEmpty() && age <= MESSAGE_EDIT_WINDOW_MS) {
             labels += getString(R.string.chat_action_edit_message)
         }
         if (isMine) {
@@ -420,7 +690,9 @@ class ChatConversationV2Activity : AppCompatActivity() {
                     syncOnce()
                 }
             },
-            onMessageLongPress = { message -> showMessageActions(message) }
+            onMessageLongPress = { message -> showMessageActions(message) },
+            onAttachmentOpen = { message -> openAttachment(message) },
+            onAttachmentPreview = { message, image -> previewAttachment(message, image) }
         ).also { chatAdapter ->
             binding.messagesRecyclerView.layoutManager = LinearLayoutManager(this)
             binding.messagesRecyclerView.adapter = chatAdapter
@@ -428,6 +700,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
         binding.loadingIndicator.visibility = View.GONE
 
         observeMessages(localMember?.memberId)
+        startMedia()
         lifecycleScope.launch {
             // The list is read again so a group that was renamed, or that somebody else
             // has just been added to, reaches this header without waiting for the screen
@@ -636,11 +909,14 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
 
     private fun sendMessage() {
+        if (textSendInProgress || mediaPreparing) return
+        if (mediaDraft != null) { sendMediaDraft(); return }
         val text = binding.messageInput.text?.toString().orEmpty()
         if (text.isBlank()) return
         val current = conversation ?: return
         val localMember = current.members.firstOrNull { it.isLocalUser }
-        binding.messageInput.text?.clear()
+        textSendInProgress = true
+        updateComposerState()
         lifecycleScope.launch {
             try {
                 val queued = repository.enqueueMessage(
@@ -651,6 +927,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
                     senderRole = localMember?.role ?: ConversationMemberRole.GUARDIAN,
                     senderMemberId = localMember?.memberId
                 )
+                if (binding.messageInput.text?.toString() == text) binding.messageInput.text?.clear()
                 scrollToBottom()
                 val sentRealtime = WebSocketManager.sendChatV2Message(
                     conversationId = conversationId,
@@ -689,7 +966,10 @@ class ChatConversationV2Activity : AppCompatActivity() {
                     R.string.chat_v2_message_rejected,
                     Toast.LENGTH_LONG
                 ).show()
-            }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                Toast.makeText(this@ChatConversationV2Activity, R.string.chat_v2_offline, Toast.LENGTH_LONG).show()
+            } finally { textSendInProgress = false; updateComposerState() }
         }
     }
 
@@ -822,6 +1102,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
             isMine = senderMemberId != null && senderMemberId == localMemberId,
             editedAt = editedAt,
             deletedAt = deletedAt,
+            attachments = attachments,
             status = when (deliveryState) {
                 ChatDeliveryState.QUEUED, ChatDeliveryState.SENDING -> ChatMessage.MessageStatus.SENDING
                 ChatDeliveryState.ACCEPTED -> ChatMessage.MessageStatus.SENT

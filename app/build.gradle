@@ -27,7 +27,7 @@ android {
     //
     // The debug build is signed with the same key on purpose. The phone in use
     // carries a build signed with the permanent key, and Android refuses any update
-    // whose signature differs — so a debug-signed build could not be installed over
+    // whose signature differs вЂ” so a debug-signed build could not be installed over
     // it at all. One key everywhere removes that class of failure completely.
     if (rootProject.ext.cwReleaseSigningReady) {
         signingConfigs {
@@ -181,3 +181,6 @@ dependencies {
     debugImplementation 'androidx.compose.ui:ui-tooling'
     debugImplementation 'androidx.compose.ui:ui-test-manifest'
 }
+
+// Installed-schema migration fixtures are packaged only in the instrumentation APK.
+android.sourceSets.androidTest.assets.srcDirs += file("schemas")

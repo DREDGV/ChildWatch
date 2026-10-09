@@ -18,7 +18,8 @@ data class ChatMessage(
     /** Set when the author rewrote the text. */
     val editedAt: Long? = null,
     /** Set when the message was withdrawn for everyone. */
-    val deletedAt: Long? = null
+    val deletedAt: Long? = null,
+    val attachments: List<ru.childwatch.shared.chat.ChatV2AttachmentDto> = emptyList()
 ) {
     enum class MessageStatus {
         SENDING,

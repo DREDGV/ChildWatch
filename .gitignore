@@ -205,3 +205,6 @@ releases/**/*.zip
 # Python helpers leave local bytecode beside their sources.
 __pycache__/
 *.py[cod]
+
+# Private authenticated chat blobs and multipart staging are user data.
+/server/private-data/

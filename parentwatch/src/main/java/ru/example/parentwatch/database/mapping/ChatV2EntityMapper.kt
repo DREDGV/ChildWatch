@@ -94,6 +94,8 @@ fun ConversationMessage.toEntity(legacySender: String? = null): ChatMessageV2Ent
         senderRole = senderRole?.name,
         legacySender = legacySender ?: senderRole?.name?.lowercase() ?: "member",
         text = text,
+        messageType = messageType,
+        attachmentsJson = com.google.gson.Gson().toJson(attachments),
         sentAt = clientSentAt,
         clientSentAt = clientSentAt,
         createdAt = serverCreatedAt ?: clientSentAt,
@@ -126,6 +128,10 @@ fun ChatMessageV2Entity.toModel(): ConversationMessage {
             enumValueOrDefault(it, ConversationMemberRole.GUARDIAN)
         },
         text = text,
+        messageType = messageType,
+        attachments = if (deletedAt != null) emptyList() else runCatching {
+            com.google.gson.Gson().fromJson(attachmentsJson, Array<ru.childwatch.shared.chat.ChatV2AttachmentDto>::class.java)?.toList().orEmpty()
+        }.getOrDefault(emptyList()),
         clientSentAt = clientSentAt,
         serverCreatedAt = serverCreatedAt,
         editedAt = editedAt,

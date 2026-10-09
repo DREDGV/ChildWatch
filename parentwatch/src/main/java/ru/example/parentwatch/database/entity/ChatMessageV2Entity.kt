@@ -43,6 +43,9 @@ data class ChatMessageV2Entity(
     @ColumnInfo(name = "legacy_sender") val legacySender: String,
     @ColumnInfo(name = "text") val text: String,
     @ColumnInfo(name = "message_type") val messageType: String = TYPE_TEXT,
+    @ColumnInfo(name = "attachments_json", defaultValue = "'[]'")
+    val attachmentsJson: String = "[]",
+
     @ColumnInfo(name = "sent_at") val sentAt: Long,
     @ColumnInfo(name = "client_sent_at") val clientSentAt: Long,
     @ColumnInfo(name = "created_at") val createdAt: Long,

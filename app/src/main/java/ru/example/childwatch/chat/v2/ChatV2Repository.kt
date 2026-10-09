@@ -64,6 +64,13 @@ class ChatV2Repository(
     private val receiptScopeProvider: () -> ChatV2ReceiptScope? = { receiptScope }
 ) {
     private val gson = Gson()
+    fun attachments(context: Context) = ChatAttachmentService(context.applicationContext, this,
+        api, database.chatAttachmentDraftV2Dao(), database.chatMediaCapabilitiesDao(), { mediaScope() }, clock)
+    internal fun mediaScope(): ChatV2ReceiptScope? = receiptScope?.takeIf {
+        it.isComplete() && it == receiptScopeProvider()
+    }
+    private var attachmentContext: Context? = null
+
     private val conversations = database.chatConversationV2Dao()
     private val members = database.chatConversationMemberV2Dao()
     private val messages = database.chatMessageV2Dao()
@@ -86,7 +93,7 @@ class ChatV2Repository(
                 api = networkClient.getChatV2Api(serverUrl),
                 receiptScope = scope,
                 receiptScopeProvider = { resolveReceiptScope(context, serverUrl) }
-            )
+            ).also { it.attachmentContext = context.applicationContext }
         }
 
         private fun resolveReceiptScope(context: Context, serverUrl: String): ChatV2ReceiptScope? {
@@ -308,10 +315,15 @@ class ChatV2Repository(
         senderRole: ConversationMemberRole,
         senderMemberId: String? = null,
         senderDeviceId: String? = null,
-        clientMessageId: String = idFactory()
+        clientMessageId: String = idFactory(),
+        attachments: List<ru.childwatch.shared.chat.ChatV2AttachmentDto> = emptyList(),
+        messageType: String = "TEXT"
     ): ConversationMessage {
+        require(attachments.size <= 1) { "ONE_ATTACHMENT_SUPPORTED" }
+        require((messageType == "TEXT") == attachments.isEmpty()) { "MESSAGE_ATTACHMENT_TYPE_MISMATCH" }
+        if (attachments.isNotEmpty()) require(attachments.single().type == messageType) { "MESSAGE_ATTACHMENT_TYPE_MISMATCH" }
         when (val validation = ChatTextPolicy.validate(text)) {
-            ChatTextValidation.Empty -> throw IllegalArgumentException("Message must not be blank")
+            ChatTextValidation.Empty -> if (attachments.isEmpty()) throw IllegalArgumentException("Message must not be blank")
             is ChatTextValidation.TooLarge -> throw IllegalArgumentException(
                 "Message is ${validation.utf8Bytes} bytes; maximum is ${validation.maxUtf8Bytes}"
             )
@@ -319,7 +331,7 @@ class ChatV2Repository(
         }
         require(clientMessageId.isNotBlank()) { "clientMessageId must not be blank" }
         val now = clock()
-        val request = ChatV2SendMessageRequest(clientMessageId, text, now)
+        val request = ChatV2SendMessageRequest(clientMessageId, text, now, messageType, attachments.map { it.attachmentId })
         val model = ConversationMessage(
             messageId = clientMessageId,
             clientMessageId = clientMessageId,
@@ -330,7 +342,9 @@ class ChatV2Repository(
             senderRole = senderRole,
             text = text,
             clientSentAt = now,
-            deliveryState = ChatDeliveryState.QUEUED
+            deliveryState = ChatDeliveryState.QUEUED,
+            messageType = messageType,
+            attachments = attachments
         )
 
         return database.withTransaction {
@@ -361,6 +375,7 @@ class ChatV2Repository(
      */
     suspend fun flushOutbox(limit: Int = OUTBOX_BATCH_SIZE): ChatV2FlushResult {
         flushReadReceipts()
+        attachmentContext?.let { attachments(it).flushPending() }
         val ready = outbox.getReady(clock(), limit.coerceIn(1, OUTBOX_BATCH_SIZE))
         var sent = 0
         var retryScheduled = 0
@@ -377,24 +392,41 @@ class ChatV2Repository(
             ) == 1
             if (!acquired) continue
 
+            val mediaDraft = database.chatAttachmentDraftV2Dao().get(item.clientMessageId)
+            if (mediaDraft != null && !ChatAttachmentService.matchesScope(mediaDraft, mediaScope())) {
+                outbox.scheduleNextAttempt(item.outboxId, ChatOutboxV2Entity.STATE_RETRY,
+                    item.attemptCount, clock() + 30_000, "CONTEXT_CHANGED", clock())
+                continue
+            }
             setLocalMessageState(item.clientMessageId, ChatDeliveryState.SENDING, null)
             try {
                 val response = api.sendChatV2Message(
                     item.conversationId,
-                    ChatV2SendMessageRequest(item.clientMessageId, item.text, item.clientSentAt)
+                    gson.fromJson(item.payloadJson, ChatV2SendMessageRequest::class.java)
                 )
+                if (mediaDraft != null && !ChatAttachmentService.matchesScope(mediaDraft, mediaScope())) {
+                    outbox.scheduleNextAttempt(item.outboxId, ChatOutboxV2Entity.STATE_RETRY,
+                        item.attemptCount, clock() + 30_000, "CONTEXT_CHANGED", clock())
+                    continue
+                }
                 val body = response.body()
                 val serverMessage = body?.message
-                if (response.isSuccessful && body?.success == true && serverMessage != null) {
+                if (response.isSuccessful && body?.success == true && serverMessage != null &&
+                    serverMessage.conversationId == item.conversationId && serverMessage.clientMessageId == item.clientMessageId) {
                     database.withTransaction {
                         importServerMessage(serverMessage)
                         outbox.markSent(item.clientMessageId, clock())
                     }
+                    attachmentContext?.let { attachments(it).accepted(item.clientMessageId) }
                     sent++
                 } else {
                     val result = scheduleFailure(item, "HTTP_${response.code()}", isPermanent(response.code()))
                     if (result) permanentlyFailed++ else retryScheduled++
                 }
+            } catch (error: CancellationException) {
+                outbox.scheduleNextAttempt(item.outboxId, ChatOutboxV2Entity.STATE_RETRY,
+                    item.attemptCount, clock() + 1_000, "SEND_INTERRUPTED", clock())
+                throw error
             } catch (error: Exception) {
                 val code = if (error is IOException) "NETWORK_IO" else "SEND_EXCEPTION"
                 val result = scheduleFailure(item, code, permanent = false)

@@ -37,7 +37,7 @@ import ru.childwatch.shared.onboarding.FamilyProfileConfirmationRequest
 /**
  * Retrofit API interface for ChildWatch server communication
  */
-interface ChildWatchApi {
+interface ChildWatchApi : ChatMediaApi {
 
     @GET("api/attention-signal/{requestId}/status")
     suspend fun getAttentionSignalStatus(

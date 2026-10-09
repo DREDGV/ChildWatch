@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_media_attach">Прикрепить</string>
+    <string name="chat_media_photo">Изображение</string>
+    <string name="chat_media_file">Файл · оригинал</string>
+    <string name="chat_media_preview">Предпросмотр изображения</string>
+    <string name="chat_media_remove">Убрать</string>
+    <string name="chat_media_cancel">Отменить отправку</string>
+    <string name="chat_media_open">Открыть</string>
+    <string name="chat_media_download">Скачать</string>
+    <string name="chat_media_retry">Повторить</string>
+    <string name="chat_media_preparing">Подготовка файла…</string>
+    <string name="chat_media_downloading">Скачивание · %1$d%%</string>
+    <string name="chat_media_uploading">Отправка · %1$d%%</string>
+    <string name="chat_media_failed">Не отправлено · нажмите отправку для повтора</string>
+    <string name="chat_media_unsupported">Вложения пока недоступны на сервере</string>
+    <string name="chat_media_unavailable">Вложение недоступно или доступ отозван</string>
+    <string name="chat_media_empty">Выбранный файл пуст</string>
+    <string name="chat_media_too_large">Изображение — до 10 МиБ, файл — до 25 МиБ</string>
+    <string name="chat_media_invalid_image">Выберите JPEG, PNG, WebP или GIF; другие форматы можно отправить как файл</string>
+    <string name="chat_media_no_viewer">На телефоне нет приложения для открытия этого файла</string>
+    <string name="chat_media_save">Сохранить копию</string>
+    <string name="chat_media_saved">Файл сохранён</string>
+    <string name="chat_media_size">%1$s · %2$s</string>
+</resources>

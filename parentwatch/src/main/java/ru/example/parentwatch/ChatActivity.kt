@@ -298,9 +298,9 @@ class ChatActivity : AppCompatActivity() {
     }
 
     private fun setupRecyclerView() {
-        chatAdapter = ChatAdapter(currentUser, ownChildDeviceId) { message ->
+        chatAdapter = ChatAdapter(currentUser, ownChildDeviceId, onRetryMessage = { message ->
             retryFailedMessage(message)
-        }
+        })
         binding.messagesRecyclerView.apply {
             layoutManager = LinearLayoutManager(this@ChatActivity).apply {
                 stackFromEnd = true // Show new messages at bottom

@@ -12,7 +12,7 @@ function createChatV2Routes(
   const router = express.Router();
 
   const handleError = (res, error) => {
-    if (error instanceof ChatConversationService.Error) {
+    if (error instanceof ChatConversationService.Error || error instanceof require("../services/ChatAttachmentStore").Error) {
       return res.status(error.status).json({
         error: error.message,
         code: error.code,
@@ -24,6 +24,8 @@ function createChatV2Routes(
       code: "CHAT_INTERNAL_ERROR",
     });
   };
+
+  router.use(require("./chat-attachments")(chatService, handleError));
 
   router.get("/conversations", async (req, res) => {
     try {

@@ -26,11 +26,12 @@ class ChatConversationError extends Error {
 }
 
 class ChatConversationService {
-  constructor(dbManager) {
+  constructor(dbManager, options = {}) {
     if (!dbManager) {
       throw new Error("ChatConversationService requires a database manager");
     }
     this.dbManager = dbManager;
+    this.attachments = new (require("./ChatAttachmentStore"))(dbManager, options.attachments || {});
   }
 
   requireDeviceId(deviceId) {
@@ -931,8 +932,14 @@ class ChatConversationService {
       );
     }
 
-    const text = payload?.text;
-    if (typeof text !== "string" || !text.trim()) {
+    const messageType = payload?.messageType || "TEXT";
+    const attachmentIds = payload?.attachmentIds || [];
+    if (!["TEXT", "IMAGE", "FILE", "GIF", "VOICE"].includes(messageType) || !Array.isArray(attachmentIds) ||
+        (messageType === "TEXT" ? attachmentIds.length !== 0 : attachmentIds.length !== 1) ||
+        attachmentIds.some(id => typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id)))
+      throw new ChatConversationError(400,"INVALID_MESSAGE_ATTACHMENT","Choose one attachment of the message type");
+    const text = payload?.text ?? (messageType === "TEXT" ? undefined : "");
+    if (typeof text !== "string" || (messageType === "TEXT" && !text.trim())) {
       throw new ChatConversationError(
         400,
         "INVALID_MESSAGE_TEXT",
@@ -962,12 +969,14 @@ class ChatConversationService {
       clientSentAt = payload.clientSentAt;
     }
 
-    return { clientMessageId, text, clientSentAt };
+    return { clientMessageId, text, clientSentAt, messageType, attachmentIds };
   }
 
   async withReceipts(message) {
     if (!message) return null;
     const receipts = await this.dbManager.getChatMessageReceipts(message.id);
+    const media = await this.attachments.media(message);
+    const mediaFallback = !message.deletedAt && media.attachments.length > 0 && !message.text.trim();
     const isRead =
       message.legacyRead === true ||
       receipts.some((receipt) => receipt.readAt);
@@ -981,6 +990,9 @@ class ChatConversationService {
         : "ACCEPTED";
     return {
       ...this.formatMessage(message),
+      ...media,
+      text: mediaFallback ? `[Вложение: ${media.attachments[0].filename}]` : this.formatMessage(message).text,
+      mediaFallback,
       deliveryState,
       receipts: receipts.map((receipt) => ({
         recipientMemberId: receipt.recipientMemberId,
@@ -993,6 +1005,7 @@ class ChatConversationService {
   async sendMessage(deviceId, conversationId, payload) {
     const actor = await this.resolveConversationActor(deviceId, conversationId);
     const input = this.validateMessageInput(payload);
+    await this.attachments.ensure();
     let result;
     try {
       result = await this.dbManager.insertChatMessageV2({
@@ -1002,6 +1015,8 @@ class ChatConversationService {
         senderRoleSnapshot: actor.memberRole,
         clientMessageId: input.clientMessageId,
         text: input.text,
+        messageType: input.messageType,
+        bindAttachments: input.messageType === "TEXT" ? null : (id) => this.attachments.bind(actor, id, input.messageType, input.attachmentIds),
         clientSentAt: input.clientSentAt,
       });
     } catch (error) {
@@ -1143,11 +1158,13 @@ class ChatConversationService {
     }
     await this.dbManager.markChatMessageV2Deleted(message.id);
     const updated = await this.dbManager.getChatMessageV2ById(message.id);
-    return {
+    const result = {
       messageId: message.id,
       forEveryone: true,
       message: await this.withReceipts(updated),
     };
+    await this.attachments.gc();
+    return result;
   }
 
   /** Loads a message and asserts that the caller wrote it. */

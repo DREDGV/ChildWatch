@@ -95,7 +95,9 @@ data class ConversationMessage(
     val deletedAt: Long? = null,
     val deliveryState: ChatDeliveryState = ChatDeliveryState.QUEUED,
     val failureCode: String? = null,
-    val legacyMessageId: String? = null
+    val legacyMessageId: String? = null,
+    val messageType: String = "TEXT",
+    val attachments: List<ChatV2AttachmentDto> = emptyList()
 )
 
 data class ConversationPage(

@@ -14,7 +14,9 @@ class ChatAdapter(
     private val currentUserDeviceId: String? = null,
     private val onRetryMessage: ((ChatMessage) -> Unit)? = null,
     /** Long press opens the edit and delete actions for that message. */
-    private val onMessageLongPress: ((ChatMessage) -> Unit)? = null
+    private val onMessageLongPress: ((ChatMessage) -> Unit)? = null,
+    private val onAttachmentOpen: ((ChatMessage) -> Unit)? = null,
+    private val onAttachmentPreview: ((ChatMessage, android.widget.ImageView) -> Unit)? = null
 ) : ListAdapter<ChatMessage, ChatAdapter.MessageViewHolder>(MessageDiffCallback()) {
 
     private fun isOutgoing(message: ChatMessage) =
@@ -55,8 +57,29 @@ class ChatAdapter(
         private val statusText: TextView? = itemView.findViewById(R.id.statusText)
         private val retryButton: TextView? = itemView.findViewById(R.id.retryButton)
 
+        private val attachmentCard: View? = itemView.findViewById(R.id.attachmentCard)
+        private val attachmentImage: android.widget.ImageView? = itemView.findViewById(R.id.attachmentImage)
+        private val attachmentName: TextView? = itemView.findViewById(R.id.attachmentName)
+        private val attachmentMeta: TextView? = itemView.findViewById(R.id.attachmentMeta)
+        private val attachmentOpen: TextView? = itemView.findViewById(R.id.attachmentOpen)
+
         fun bind(message: ChatMessage) {
             val withdrawn = message.deletedAt != null
+            val attachment = message.attachments.firstOrNull().takeUnless { withdrawn }
+            attachmentCard?.visibility = if (attachment == null) View.GONE else View.VISIBLE
+            attachmentImage?.apply {
+                tag = attachment?.attachmentId
+                setImageDrawable(null)
+                visibility = if (attachment?.type in listOf("IMAGE", "GIF")) View.VISIBLE else View.GONE
+                if (visibility == View.VISIBLE) onAttachmentPreview?.invoke(message, this)
+            }
+            attachmentName?.text = attachment?.filename.orEmpty()
+            attachmentMeta?.text = attachment?.let { android.text.format.Formatter.formatShortFileSize(itemView.context, it.sizeBytes) }.orEmpty()
+            attachmentOpen?.apply {
+                setText(if (attachment?.type in listOf("IMAGE", "GIF")) R.string.chat_media_open else R.string.chat_media_download)
+                setOnClickListener(if (attachment == null) null else View.OnClickListener { onAttachmentOpen?.invoke(message) })
+            }
+            messageText.visibility = if (!withdrawn && message.text.isBlank() && attachment != null) View.GONE else View.VISIBLE
             // A withdrawn message keeps its place but shows no text, matching
             // what the other participants see.
             messageText.text = if (withdrawn) {

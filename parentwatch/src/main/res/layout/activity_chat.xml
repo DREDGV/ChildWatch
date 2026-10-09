@@ -250,6 +250,24 @@
         android:text="@string/chat_v2_new_messages"
         android:visibility="gone" />
 
+            <LinearLayout android:id="@+id/attachmentDraftPanel"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" android:visibility="gone" android:paddingBottom="8dp">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
+                    <ImageView android:id="@+id/attachmentDraftImage" android:layout_width="56dp" android:layout_height="56dp"
+                        android:scaleType="centerCrop" android:visibility="gone" android:contentDescription="@string/chat_media_preview" />
+                    <TextView android:id="@+id/attachmentDraftText" android:layout_width="0dp" android:layout_height="wrap_content"
+                        android:layout_weight="1" android:layout_marginStart="8dp" android:maxLines="3"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Chat.ComposerHint" />
+                    <com.google.android.material.button.MaterialButton android:id="@+id/attachmentDraftCancel"
+                        style="@style/Widget.Material3.Button.TextButton" android:layout_width="wrap_content"
+                        android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/chat_media_remove" />
+                </LinearLayout>
+                <ProgressBar android:id="@+id/attachmentDraftProgress" style="?android:attr/progressBarStyleHorizontal"
+                    android:layout_width="match_parent" android:layout_height="4dp" android:visibility="gone" android:max="100" />
+            </LinearLayout>
+
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -274,6 +292,13 @@
             app:iconGravity="textStart"
             app:iconPadding="0dp"
             app:iconTint="@color/emerald_primary" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/attachmentButton" style="@style/Widget.ChildWatch.Chat.Action"
+                    android:layout_width="48dp" android:layout_height="48dp"
+                    android:contentDescription="@string/chat_media_attach" android:tooltipText="@string/chat_media_attach"
+                    android:visibility="gone" app:icon="@drawable/ic_chat_attach" app:iconPadding="0dp" />
+
 
         <!-- Composer styling comes from the shared design-system styles, so this
              screen and ParentMonitor cannot drift apart again. -->

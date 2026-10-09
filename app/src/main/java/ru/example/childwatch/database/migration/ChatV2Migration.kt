@@ -101,6 +101,16 @@ object ChatV2Migration {
         }
     }
 
+    /** Additive media upgrade; never change migrations already installed on phones. */
+    val MIGRATION_12_13 = object : Migration(12, 13) {
+        override fun migrate(database: SupportSQLiteDatabase) {
+            database.execSQL("CREATE TABLE IF NOT EXISTS chat_media_capabilities_v2 (scope_key TEXT NOT NULL PRIMARY KEY, capabilities_json TEXT NOT NULL, captured_at INTEGER NOT NULL)")
+            database.execSQL("ALTER TABLE chat_messages_v2 ADD COLUMN attachments_json TEXT NOT NULL DEFAULT '[]'")
+            database.execSQL("CREATE TABLE IF NOT EXISTS chat_attachment_drafts_v2 (client_message_id TEXT NOT NULL PRIMARY KEY, conversation_id TEXT NOT NULL, server_url TEXT NOT NULL, family_id TEXT NOT NULL, actor_member_id TEXT NOT NULL, device_id TEXT NOT NULL, local_path TEXT NOT NULL, source_uri TEXT NOT NULL, filename TEXT NOT NULL, mime_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, attachment_type TEXT NOT NULL, duration_ms INTEGER, attachment_json TEXT, state TEXT NOT NULL, progress_bytes INTEGER NOT NULL, error_code TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, caption TEXT NOT NULL, sender_name TEXT NOT NULL, sender_role TEXT NOT NULL, attempt_count INTEGER NOT NULL, next_attempt_at INTEGER NOT NULL, FOREIGN KEY(conversation_id) REFERENCES chat_conversations_v2(conversation_id) ON UPDATE NO ACTION ON DELETE CASCADE)")
+            database.execSQL("CREATE INDEX IF NOT EXISTS index_chat_attachment_drafts_v2_conversation_id ON chat_attachment_drafts_v2(conversation_id)")
+        }
+    }
+
     private fun createTables(database: SupportSQLiteDatabase) {
         database.execSQL(
             """

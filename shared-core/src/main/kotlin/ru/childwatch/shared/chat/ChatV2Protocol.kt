@@ -105,7 +105,9 @@ data class ChatV2MessagesResponse(
 data class ChatV2SendMessageRequest(
     val clientMessageId: String,
     val text: String,
-    val clientSentAt: Long
+    val clientSentAt: Long,
+    val messageType: String = "TEXT",
+    val attachmentIds: List<String> = emptyList()
 )
 
 data class ChatV2SendMessageResponse(
@@ -175,7 +177,10 @@ data class ChatV2MessageDto(
     val deletedAt: Long? = null,
     val legacyMessageId: String? = null,
     val deliveryState: String? = null,
-    val receipts: List<ChatV2MessageReceiptDto> = emptyList()
+    val receipts: List<ChatV2MessageReceiptDto> = emptyList(),
+    val messageType: String? = "TEXT",
+    val attachments: List<ChatV2AttachmentDto>? = emptyList(),
+    val mediaFallback: Boolean = false
 )
 
 data class ChatV2MessageReceiptDto(
@@ -250,13 +255,15 @@ fun ChatV2MessageDto.toDomain(): ConversationMessage = ConversationMessage(
     senderDeviceId = senderDeviceId,
     senderDisplayName = senderDisplayName?.takeIf { it.isNotBlank() } ?: "Участник",
     senderRole = senderRole?.toConversationMemberRole(),
-    text = text,
+    text = if (mediaFallback && !attachments.isNullOrEmpty() && deletedAt == null) "" else text,
     clientSentAt = clientSentAt,
     serverCreatedAt = serverCreatedAt,
     editedAt = editedAt,
     deletedAt = deletedAt,
     deliveryState = deliveryState.toChatDeliveryState(),
-    legacyMessageId = legacyMessageId
+    legacyMessageId = legacyMessageId,
+    messageType = messageType?.takeIf { it in ChatAttachmentPolicy.TYPES || it == "TEXT" } ?: "TEXT",
+    attachments = if (deletedAt == null) attachments.orEmpty() else emptyList()
 )
 
 fun String?.toConversationMemberRole(): ConversationMemberRole = when {

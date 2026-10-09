@@ -3847,13 +3847,16 @@ class DatabaseManager {
     senderDisplayName = null,
     clientMessageId,
     text,
+    messageType = "TEXT",
+    bindAttachments = null,
     clientSentAt = null,
     serverCreatedAt = Date.now(),
   }) {
     const normalizedConversationId = String(conversationId || "").trim();
     const normalizedSenderMemberId = String(senderMemberId || "").trim();
     const normalizedClientMessageId = String(clientMessageId || "").trim();
-    const normalizedText = this.normalizeChatText(text);
+    if (messageType !== "TEXT" && typeof bindAttachments !== "function") throw new Error("Media requires atomic attachment binding");
+    const normalizedText = messageType === "TEXT" ? this.normalizeChatText(text) : typeof text === "string" && Buffer.byteLength(text,"utf8") <= 16*1024 ? text : this.normalizeChatText(text);
     if (!normalizedConversationId || !normalizedSenderMemberId) {
       throw new Error("Conversation and sender member are required");
     }
@@ -3950,6 +3953,8 @@ class DatabaseManager {
           now,
         ]
       );
+
+      if (bindAttachments) await bindAttachments(messageId);
 
       await this.run(
         `INSERT OR IGNORE INTO chat_message_receipts (
