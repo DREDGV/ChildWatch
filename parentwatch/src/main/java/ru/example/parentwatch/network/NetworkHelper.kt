@@ -138,7 +138,7 @@ class NetworkHelper(private val context: Context) {
                     put("longitude", longitude)
                     put("accuracy", accuracy)
                     put("timestamp", timestamp)
-                    measuredLocation?.let { ru.example.childwatch.designsystem.LocationMotion.put(this, it) }
+                    measuredLocation?.let { ru.example.childwatch.designsystem.LocationMotion.put(this, it, context) }
                     put("deviceInfo", deviceInfo) // Include device info
                 }
 

@@ -408,6 +408,18 @@ router.get(["/family/trail/:memberId", "/family/history/:memberId"], async (req,
   }
 });
 
+// Optional motion failures must not make a valid position unavailable.
+async function attachPositionMotion(deviceId, positions) {
+  const points = positions.filter(Boolean);
+  if (!points.length) return;
+  try { await withDatabase(db => require('../services/LocationMotionStore').attach(db, deviceAccess.idForms(deviceId), points)); }
+  catch (error) { console.error('Motion read failed', error.message); }
+}
+function positionMotionFields(point) {
+  return { speedMps: point.speedMps, speedAccuracyMps: point.speedAccuracyMps,
+    measurementElapsedRealtimeNanos: point.measurementElapsedRealtimeNanos, bootSessionId: point.bootSessionId };
+}
+
 // Get current parent+child snapshot in one response
 router.get("/pair", async (req, res) => {
   try {
@@ -440,6 +452,8 @@ router.get("/pair", async (req, res) => {
       ])
     );
 
+    await Promise.all([attachPositionMotion(authorizedParentId, [parentLocation]), attachPositionMotion(authorizedChildId, [childLocation])]);
+
     console.info("[location/pair] result", {
       parentId: authorizedParentId,
       childId: authorizedChildId,
@@ -454,6 +468,7 @@ router.get("/pair", async (req, res) => {
       pair: {
         parent: parentLocation
           ? {
+              ...positionMotionFields(parentLocation),
               id: parentLocation.id,
               parentId: parentLocation.parent_id,
               latitude: parentLocation.latitude,
@@ -468,6 +483,7 @@ router.get("/pair", async (req, res) => {
           : null,
         child: childLocation
           ? {
+              ...positionMotionFields(childLocation),
               deviceId: authorizedChildId,
               latitude: childLocation.latitude,
               longitude: childLocation.longitude,
@@ -519,6 +535,8 @@ router.get("/history/:deviceId", async (req, res) => {
       )
     );
 
+    await attachPositionMotion(authorizedDeviceId, locations);
+
     console.info("[location/history] result", {
       deviceId: authorizedDeviceId,
       count: locations.length,
@@ -532,6 +550,7 @@ router.get("/history/:deviceId", async (req, res) => {
       limit: parsedLimit,
       offset: parsedOffset,
       locations: locations.map((loc) => ({
+        ...positionMotionFields(loc),
         latitude: loc.latitude,
         longitude: loc.longitude,
         accuracy: loc.accuracy,
@@ -570,6 +589,8 @@ router.get("/latest/:deviceId", async (req, res) => {
       });
     }
 
+    await attachPositionMotion(authorizedDeviceId, [location]);
+
     console.info("[location/latest] result", {
       deviceId: authorizedDeviceId,
       found: true,
@@ -580,6 +601,7 @@ router.get("/latest/:deviceId", async (req, res) => {
       success: true,
       deviceId: authorizedDeviceId,
       location: {
+        ...positionMotionFields(location),
         latitude: location.latitude,
         longitude: location.longitude,
         accuracy: location.accuracy,
@@ -828,6 +850,8 @@ router.get("/parent/latest/:parentId", async (req, res) => {
       });
     }
 
+    await attachPositionMotion(authorizedParentId, [location]);
+
     console.info("[location/parent/latest] result", {
       parentId: authorizedParentId,
       found: true,
@@ -837,6 +861,7 @@ router.get("/parent/latest/:parentId", async (req, res) => {
     res.json({
       success: true,
       location: {
+        ...positionMotionFields(location),
         id: location.id,
         parentId: location.parent_id,
         latitude: location.latitude,
@@ -907,6 +932,8 @@ router.get("/parent/history/:parentId", async (req, res) => {
       )
     );
 
+    await attachPositionMotion(authorizedParentId, locations);
+
     console.info("[location/parent/history] result", {
       parentId: authorizedParentId,
       count: locations.length,
@@ -920,6 +947,7 @@ router.get("/parent/history/:parentId", async (req, res) => {
       limit: parsedLimit,
       offset: parsedOffset,
       locations: locations.map((loc) => ({
+        ...positionMotionFields(loc),
         id: loc.id,
         parentId: loc.parent_id,
         latitude: loc.latitude,

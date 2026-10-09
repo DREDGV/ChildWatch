@@ -356,4 +356,25 @@ describe("location access control", () => {
     expect(response.status).toBe(200);
     expect(response.body.locations).toEqual([]);
   });
+  test("exact speed and monotonic clock survive pair, latest and history responses", async () => {
+    await db.upsertDeviceLink({ parentDeviceId, childDeviceId });
+    const timestamp = Date.now() + 1;
+    const fields = {speedMps: 2.1, speedAccuracyMps: 0.1,
+      measurementElapsedRealtimeNanos: "9007199254740993", bootSessionId: "installation:42"};
+    await db.saveLocation(childDeviceId, {latitude:55.04,longitude:82.96,accuracy:12,timestamp,...fields});
+    const upload = await requestJson(server, `/api/location/parent/${parentDeviceId}`, parentDeviceId,
+      {method:"POST",body:{latitude:55.05,longitude:82.97,accuracy:12,timestamp,...fields}});
+    expect(upload.status).toBe(200);
+    const childLatest = await requestJson(server, `/api/location/latest/${childDeviceId}`, parentDeviceId);
+    expect(childLatest.body.location).toMatchObject(fields);
+    const parentLatest = await requestJson(server, `/api/location/parent/latest/${parentDeviceId}`, parentDeviceId);
+    expect(parentLatest.body.location).toMatchObject(fields);
+    const pair = await requestJson(server, `/api/location/pair?parentId=${parentDeviceId}&childId=${childDeviceId}`, parentDeviceId);
+    expect(pair.body.pair.child).toMatchObject(fields);expect(pair.body.pair.parent).toMatchObject(fields);
+    for(const [path,expected] of [[`history/${childDeviceId}`,fields],[`parent/history/${parentDeviceId}`,fields]]) {
+      const history=await requestJson(server, `/api/location/${path}`, parentDeviceId);
+      expect(history.status).toBe(200);expect(history.body.locations.find(p=>p.timestamp===timestamp)).toMatchObject(expected);
+    }
+  });
+
 });

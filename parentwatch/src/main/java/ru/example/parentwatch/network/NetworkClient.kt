@@ -512,7 +512,11 @@ class NetworkClient(private val context: Context, private val expectedPhotoScope
                                 timestamp = locationObj.getLong("timestamp"),
                                 battery = locationObj.optInt("battery", 0),
                                 speed = locationObj.optDouble("speed", 0.0).toFloat(),
-                                bearing = locationObj.optDouble("bearing", 0.0).toFloat()
+                                bearing = locationObj.optDouble("bearing", 0.0).toFloat(),
+                                speedMps = if (locationObj.isNull("speedMps")) null else locationObj.optDouble("speedMps").toFloat(),
+                                speedAccuracyMps = if (locationObj.isNull("speedAccuracyMps")) null else locationObj.optDouble("speedAccuracyMps").toFloat(),
+                                measurementElapsedRealtimeNanos = locationObj.optString("measurementElapsedRealtimeNanos").toLongOrNull()?.takeIf { it > 0 },
+                                bootSessionId = locationObj.optString("bootSessionId").takeIf { it.isNotBlank() && it != "null" }
                             )
                         } else {
                             Log.w(TAG, "Server returned success=false")
@@ -594,7 +598,9 @@ class NetworkClient(private val context: Context, private val expectedPhotoScope
                                 timestamp = item.getLong("timestamp"),
                                 batterySnapshot = ru.example.childwatch.designsystem.BatterySnapshot.fromFamilyPoint(item),
                                 speedMps = if (item.isNull("speedMps")) null else item.optDouble("speedMps").toFloat(),
-                                speedAccuracyMps = if (item.isNull("speedAccuracyMps")) null else item.optDouble("speedAccuracyMps").toFloat()
+                                speedAccuracyMps = if (item.isNull("speedAccuracyMps")) null else item.optDouble("speedAccuracyMps").toFloat(),
+                                measurementElapsedRealtimeNanos = item.optString("measurementElapsedRealtimeNanos").toLongOrNull()?.takeIf { it > 0 },
+                                bootSessionId = item.optString("bootSessionId").takeIf { it.isNotBlank() && it != "null" }
                             )
                         )
                     }
@@ -642,7 +648,9 @@ class NetworkClient(private val context: Context, private val expectedPhotoScope
                                 timestamp = point.getLong("timestamp"),
                                 battery = null, speed = null, bearing = null,
                                 speedMps = if (point.isNull("speedMps")) null else point.optDouble("speedMps").toFloat(),
-                                speedAccuracyMps = if (point.isNull("speedAccuracyMps")) null else point.optDouble("speedAccuracyMps").toFloat()
+                                speedAccuracyMps = if (point.isNull("speedAccuracyMps")) null else point.optDouble("speedAccuracyMps").toFloat(),
+                                measurementElapsedRealtimeNanos = point.optString("measurementElapsedRealtimeNanos").toLongOrNull()?.takeIf { it > 0 },
+                                bootSessionId = point.optString("bootSessionId").takeIf { it.isNotBlank() && it != "null" }
                             ))
                         }
                     }
@@ -691,7 +699,9 @@ class NetworkClient(private val context: Context, private val expectedPhotoScope
                                 timestamp = point.getLong("timestamp"),
                                 battery = null, speed = null, bearing = null,
                                 speedMps = if (point.isNull("speedMps")) null else point.optDouble("speedMps").toFloat(),
-                                speedAccuracyMps = if (point.isNull("speedAccuracyMps")) null else point.optDouble("speedAccuracyMps").toFloat()
+                                speedAccuracyMps = if (point.isNull("speedAccuracyMps")) null else point.optDouble("speedAccuracyMps").toFloat(),
+                                measurementElapsedRealtimeNanos = point.optString("measurementElapsedRealtimeNanos").toLongOrNull()?.takeIf { it > 0 },
+                                bootSessionId = point.optString("bootSessionId").takeIf { it.isNotBlank() && it != "null" }
                             ))
                         }
                     }
@@ -743,7 +753,11 @@ class NetworkClient(private val context: Context, private val expectedPhotoScope
                                 timestamp = locationObj.getLong("timestamp"),
                                 battery = null,
                                 speed = null,
-                                bearing = null
+                                bearing = null,
+                                speedMps = if (locationObj.isNull("speedMps")) null else locationObj.optDouble("speedMps").toFloat(),
+                                speedAccuracyMps = if (locationObj.isNull("speedAccuracyMps")) null else locationObj.optDouble("speedAccuracyMps").toFloat(),
+                                measurementElapsedRealtimeNanos = locationObj.optString("measurementElapsedRealtimeNanos").toLongOrNull()?.takeIf { it > 0 },
+                                bootSessionId = locationObj.optString("bootSessionId").takeIf { it.isNotBlank() && it != "null" }
                             )
                         } else {
                             Log.w(TAG, "Server returned success=false")
@@ -2457,7 +2471,9 @@ data class ParentLocationData(
     val speed: Float?,
     val bearing: Float?,
     val speedMps: Float? = null,
-    val speedAccuracyMps: Float? = null
+    val speedAccuracyMps: Float? = null,
+    val measurementElapsedRealtimeNanos: Long? = null,
+    val bootSessionId: String? = null
 )
 
 data class LocationPairData(
@@ -2484,6 +2500,8 @@ data class FamilyLiveLocation(
     val timestamp: Long,
     val speedMps: Float? = null,
     val speedAccuracyMps: Float? = null,
+    val measurementElapsedRealtimeNanos: Long? = null,
+    val bootSessionId: String? = null,
     val batterySnapshot: ru.example.childwatch.designsystem.BatterySnapshot? = null
 )
 
@@ -2496,7 +2514,11 @@ private fun JSONObject.toParentLocationData(fallbackId: String, idKey: String): 
         timestamp = getLong("timestamp"),
         battery = if (has("battery") && !isNull("battery")) optInt("battery") else null,
         speed = if (has("speed") && !isNull("speed")) optDouble("speed", 0.0).toFloat() else null,
-        bearing = if (has("bearing") && !isNull("bearing")) optDouble("bearing", 0.0).toFloat() else null
+        bearing = if (has("bearing") && !isNull("bearing")) optDouble("bearing", 0.0).toFloat() else null,
+        speedMps = if (isNull("speedMps")) null else optDouble("speedMps").toFloat(),
+        speedAccuracyMps = if (isNull("speedAccuracyMps")) null else optDouble("speedAccuracyMps").toFloat(),
+        measurementElapsedRealtimeNanos = optString("measurementElapsedRealtimeNanos").toLongOrNull()?.takeIf { it > 0 },
+        bootSessionId = optString("bootSessionId").takeIf { it.isNotBlank() && it != "null" }
     )
 }
 

@@ -179,7 +179,7 @@ class ParentLocationService : Service() {
                     put("longitude", location.longitude)
                     put("accuracy", location.accuracy)
                     put("timestamp", location.time)
-                    ru.example.childwatch.designsystem.LocationMotion.put(this, location)
+                    ru.example.childwatch.designsystem.LocationMotion.put(this, location, this@ParentLocationService)
                     put("bearing", location.bearing.takeIf { it > 0 } ?: 0f)
                     if (!targetDeviceId.isNullOrBlank()) {
                         put("targetDevice", targetDeviceId)
@@ -207,6 +207,8 @@ class ParentLocationService : Service() {
                                 timestamp = location.time,
                                 speed = ru.example.childwatch.designsystem.LocationMotion.speed(location),
                                 speedAccuracyMps = ru.example.childwatch.designsystem.LocationMotion.accuracy(location),
+                                measurementElapsedRealtimeNanos = ru.example.childwatch.designsystem.LocationMotion.measurementElapsedRealtimeNanos(location),
+                                bootSessionId = ru.example.childwatch.designsystem.LocationMotion.bootSessionId(this@ParentLocationService),
                                 bearing = location.bearing.takeIf { it > 0 } ?: 0f,
                                 batteryLevel = null
                             )

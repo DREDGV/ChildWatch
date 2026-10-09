@@ -128,6 +128,8 @@ app.post('/api/loc', authenticateToken, async (req, res) => {
                 accuracy,
                 speedMps: req.body.speedMps,
                 speedAccuracyMps: req.body.speedAccuracyMps,
+          measurementElapsedRealtimeNanos: req.body.measurementElapsedRealtimeNanos,
+          bootSessionId: req.body.bootSessionId,
                 timestamp
             });
         }

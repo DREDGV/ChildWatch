@@ -7,7 +7,7 @@
  <string name="cw_map_speed_unknown">Speed unknown</string>
  <string name="cw_map_speed_legend_title">Trail speed</string>
  <string name="cw_map_speed_legend">Teal 0–7 · blue 25 · purple 60 · orange 100+ km/h · grey: unknown</string>
- <string name="cw_map_speed_help">Uses GPS speed when measurement accuracy is known. ≈ marks fallback displacement over 15–45 seconds; turns can lower it. This is not transport recognition. Stale or inaccurate data is unknown; grey is not zero. Gaps are not joined.</string>
+ <string name="cw_map_speed_help">Phone speed uses its own measurement uncertainty. ≈ is a filtered position estimate, not transport recognition. Aging after 15 seconds, hidden after 45. Zero requires a confirmed stop; missing data is not zero.</string>
  <color name="cw_map_speed_slow">#126C67</color>
  <color name="cw_map_speed_walk">#189B90</color>
  <color name="cw_map_speed_medium">#1E74E8</color>
@@ -15,4 +15,10 @@
  <color name="cw_map_speed_high">#DC7621</color>
  <color name="cw_map_speed_unknown_color">#6D7976</color>
  <string name="cw_map_speed_measured">%1$d km/h</string>
+ <string name="cw_map_speed_aging_value">%1$s · aging</string>
+ <string name="cw_map_speed_source_measured">Phone measurement</string>
+ <string name="cw_map_speed_source_estimated">Position estimate</string>
+ <string name="cw_map_speed_details">%1$s · ±%2$.1f km/h · %3$d s ago</string>
+ <string name="cw_map_speed_below_one">&lt;1 km/h</string>
+ <string name="cw_map_speed_estimated_below_one">≈ &lt;1 km/h</string>
 </resources>

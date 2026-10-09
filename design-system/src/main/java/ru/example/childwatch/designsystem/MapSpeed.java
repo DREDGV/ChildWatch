@@ -7,45 +7,47 @@ import java.util.List;
 /** Position-derived speed is an estimate, never transport recognition or an instantaneous sensor value. */
 public final class MapSpeed {
     private MapSpeed() {}
-    public static Double estimate(List<MapRouteSegments.Fix> segment, int end) {
-        if (end < 0 || end >= segment.size()) return null;
-        Double measured = measured(segment.get(end));
-        if (measured != null) return measured;
-        if (end < 1) return null;
-        MapRouteSegments.Fix latest = segment.get(end);
-        if (!valid(latest)) return null;
-        MapRouteSegments.Fix first = null;
-        for (int i = end - 1; i >= 0; i--) {
-            MapRouteSegments.Fix candidate = segment.get(i);
-            long elapsed = latest.timestampMs - candidate.timestampMs;
-            if (!valid(candidate) || elapsed > 45_000L || elapsed <= 0) break;
-            // A speed window must not bridge an unreliable point or a route break.
-            if (segment.get(i + 1).timestampMs - candidate.timestampMs > 45_000L) break;
-            if (elapsed >= 15_000L) first = candidate;
+    public static MapSpeedEstimator.Sample sample(MapRouteSegments.Fix fix) {
+        return new MapSpeedEstimator.Sample(fix.deviceId, fix.latitude, fix.longitude, fix.timestampMs,
+                fix.accuracyMeters, fix.speedMps, fix.speedAccuracyMps,
+                fix.measurementElapsedRealtimeNanos, fix.bootSessionId);
+    }
+    public static MapSpeedEstimator.Result result(List<MapRouteSegments.Fix> fixes, int end, long now) {
+        MapSpeedEstimator estimator = new MapSpeedEstimator();
+        MapSpeedEstimator.Result result = MapSpeedEstimator.evaluate(null, now);
+        if (fixes == null || end < 0 || end >= fixes.size()) return result;
+        for (MapRouteSegments.Fix fix : ordered(fixes.subList(0, end + 1))) result = estimator.accept(sample(fix), now);
+        return result;
+    }
+    /** Sort within a boot only; group order remains the caller's observed boot order. */
+    public static List<MapRouteSegments.Fix> ordered(List<MapRouteSegments.Fix> fixes) {
+        java.util.LinkedHashMap<String, java.util.ArrayList<MapRouteSegments.Fix>> groups = new java.util.LinkedHashMap<>();
+        int legacy = 0;
+        for (MapRouteSegments.Fix fix : fixes) {
+            String key = fix.deviceId != null && fix.bootSessionId != null && fix.measurementElapsedRealtimeNanos != null
+                    ? fix.deviceId.length() + ":" + fix.deviceId + ":" + fix.bootSessionId : "legacy:" + legacy++;
+            groups.computeIfAbsent(key, ignored -> new java.util.ArrayList<>()).add(fix);
         }
-        if (first == null) return null;
-        double seconds = (latest.timestampMs - first.timestampMs) / 1000.0;
-        double distance = MapRouteSegments.distanceMeters(first, latest);
-        double speed = distance / seconds;
-        double uncertainty = (first.accuracyMeters + latest.accuracyMeters) / seconds;
-        if (speed > 60 || uncertainty > Math.max(.7, speed * .35)) return null;
-        return distance <= first.accuracyMeters + latest.accuracyMeters ? 0.0 : speed * 3.6;
+        java.util.ArrayList<MapRouteSegments.Fix> sorted = new java.util.ArrayList<>();
+        for (java.util.ArrayList<MapRouteSegments.Fix> group : groups.values()) {
+            if (group.size() > 1) group.sort(java.util.Comparator.comparingLong(fix -> fix.measurementElapsedRealtimeNanos));
+            sorted.addAll(group);
+        }
+        return sorted;
+    }
+    public static MapSpeedEstimator.Result measuredResult(MapRouteSegments.Fix fix, long now) {
+        return MapSpeedEstimator.measured(fix == null ? null : sample(fix), now);
+    }
+    public static Double estimate(List<MapRouteSegments.Fix> segment, int end) {
+        if (segment == null || end < 0 || end >= segment.size()) return null;
+        return result(segment, end, segment.get(end).timestampMs).kmh();
     }
     public static Double latest(List<MapRouteSegments.Fix> fixes, long positionTime, long now) {
-        if (fixes == null || fixes.isEmpty() || positionTime <= 0 || now - positionTime < -30_000L || now - positionTime > 45_000L) return null;
-        List<List<MapRouteSegments.Fix>> parts = MapRouteSegments.split(fixes);
-        if (parts.isEmpty()) return null;
-        List<MapRouteSegments.Fix> last = parts.get(parts.size() - 1);
-        if (last.isEmpty() || last.get(last.size() - 1).timestampMs != positionTime) return null;
-        return estimate(last, last.size() - 1);
-    }
-    private static boolean valid(MapRouteSegments.Fix fix) {
-        return fix.accuracyMeters > 0 && fix.accuracyMeters <= 50 && Float.isFinite(fix.accuracyMeters);
+        if (fixes == null || fixes.isEmpty() || fixes.get(fixes.size() - 1).timestampMs != positionTime) return null;
+        return result(fixes, fixes.size() - 1, now).kmh();
     }
     public static Double measured(MapRouteSegments.Fix fix) {
-        if (fix == null || !valid(fix) || fix.speedMps == null || fix.speedAccuracyMps == null) return null;
-        float speed = fix.speedMps, accuracy = fix.speedAccuracyMps;
-        return Float.isFinite(speed) && speed >= 0 && speed <= 60 && Float.isFinite(accuracy) && accuracy >= 0 && accuracy <= Math.max(.7, speed * .35) ? speed * 3.6 : null;
+        return measuredResult(fix, fix == null ? 0 : fix.timestampMs).kmh();
     }
     public static String text(Context context, Double kmh) {
         if (kmh == null) return context.getString(R.string.cw_map_speed_unknown);

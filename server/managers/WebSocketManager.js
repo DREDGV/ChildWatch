@@ -1078,6 +1078,10 @@ class WebSocketManager {
         accuracy,
         timestamp: timestamp || Date.now(),
         speed,
+        speedMps: data.speedMps,
+        speedAccuracyMps: data.speedAccuracyMps,
+        measurementElapsedRealtimeNanos: data.measurementElapsedRealtimeNanos,
+        bootSessionId: data.bootSessionId,
         bearing,
       });
     } catch (error) {

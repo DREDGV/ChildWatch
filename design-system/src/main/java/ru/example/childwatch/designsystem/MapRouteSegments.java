@@ -18,11 +18,17 @@ public final class MapRouteSegments {
         public final float accuracyMeters;
         public final Float speedMps;
         public final Float speedAccuracyMps;
+        public final String deviceId, bootSessionId;
+        public final Long measurementElapsedRealtimeNanos;
 
         public Fix(double latitude, double longitude, long timestampMs, float accuracyMeters) {
             this(latitude, longitude, timestampMs, accuracyMeters, null, null);
         }
         public Fix(double latitude, double longitude, long timestampMs, float accuracyMeters, Float speedMps, Float speedAccuracyMps) {
+            this(latitude, longitude, timestampMs, accuracyMeters, speedMps, speedAccuracyMps, null, null, null);
+        }
+        public Fix(double latitude, double longitude, long timestampMs, float accuracyMeters, Float speedMps, Float speedAccuracyMps, String deviceId, Long measurementElapsedRealtimeNanos, String bootSessionId) {
+            this.deviceId = deviceId; this.measurementElapsedRealtimeNanos = measurementElapsedRealtimeNanos; this.bootSessionId = bootSessionId;
             this.speedMps = speedMps;
             this.speedAccuracyMps = speedAccuracyMps;
             this.latitude = latitude;

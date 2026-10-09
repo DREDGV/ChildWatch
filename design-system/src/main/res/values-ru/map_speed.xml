@@ -7,6 +7,12 @@
  <string name="cw_map_speed_unknown">Скорость неизвестна</string>
  <string name="cw_map_speed_legend_title">Скорость на следе</string>
  <string name="cw_map_speed_legend">Бирюзовый 0–7 · синий 25 · фиолетовый 60 · оранжевый 100+ км/ч · серый: нет данных</string>
- <string name="cw_map_speed_help">Сначала используется скорость GPS с известной точностью измерения. ≈ — резервная оценка по смещению за 15–45 секунд; на поворотах она может быть ниже. Это не определение транспорта. При устаревших или неточных данных скорость неизвестна; серый не означает ноль. Разрывы не соединяются.</string>
+ <string name="cw_map_speed_help">Скорость телефона оценивается по собственной погрешности. ≈ — оценка фильтром координат, а не распознавание транспорта. Устаревает после 15 секунд, скрывается после 45. Ноль показывается только после подтверждённой остановки; нет данных не означает ноль.</string>
  <string name="cw_map_speed_measured">%1$d км/ч</string>
+ <string name="cw_map_speed_aging_value">%1$s · устаревает</string>
+ <string name="cw_map_speed_source_measured">Измерение телефона</string>
+ <string name="cw_map_speed_source_estimated">Оценка по координатам</string>
+ <string name="cw_map_speed_details">%1$s · ±%2$.1f км/ч · %3$d с назад</string>
+ <string name="cw_map_speed_below_one">&lt;1 км/ч</string>
+ <string name="cw_map_speed_estimated_below_one">≈ &lt;1 км/ч</string>
 </resources>

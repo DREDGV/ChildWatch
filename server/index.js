@@ -641,6 +641,8 @@ app.post(
           timestamp,
           speedMps: req.body.speedMps,
           speedAccuracyMps: req.body.speedAccuracyMps,
+          measurementElapsedRealtimeNanos: req.body.measurementElapsedRealtimeNanos,
+          bootSessionId: req.body.bootSessionId,
         });
       } else {
         console.warn(
