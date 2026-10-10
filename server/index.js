@@ -82,7 +82,10 @@ const familyOnboardingRoutes = createFamilyOnboardingRoutes(
   familyOnboardingService
 );
 const chatRoutes = createChatRoutes(dbManager, familyPermissionService);
-const chatV2Routes = createChatV2Routes(dbManager);
+const chatV2Routes = createChatV2Routes(dbManager, undefined, {
+  deviceConnected: deviceId => wsManager.isChildConnectedById(deviceId) ||
+    wsManager.getConnectedParentSocketIdsForParent(deviceId).length > 0,
+});
 wsManager.dbManager = dbManager;
 
 // Initialize database

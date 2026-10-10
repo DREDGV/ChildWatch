@@ -171,6 +171,55 @@ describe("chat v2 HTTP API", () => {
     });
   }
 
+  test("presence roster and lease are scoped to the authenticated conversation", async () => {
+    const conversation = await familyConversation(primary);
+    const path = `/api/chat/v2/conversations/${conversation.conversationId}/presence`;
+    const initial = await requestJson(server, { path, deviceId: primary.parentDeviceId });
+    expect(initial.status).toBe(200);
+    expect(initial.body.participants).toHaveLength(3);
+    expect(initial.body.participants.every(p => !p.chatOpen && p.deviceConnected === null)).toBe(true);
+    const entered = await requestJson(server, { method: "POST", path, deviceId: primary.childDeviceId, body: {} });
+    expect(entered.status).toBe(200);
+    const open = await requestJson(server, { path, deviceId: primary.parentDeviceId });
+    expect(open.body.participants.find(p => p.memberId === primary.childMembership.memberId))
+      .toMatchObject({ chatOpen: true, deviceConnected: true });
+    await requestJson(server, { method: "DELETE", path: `${path}/${entered.body.sessionId}`, deviceId: primary.childDeviceId });
+    expect((await requestJson(server, { path, deviceId: primary.parentDeviceId })).body.participants.every(p => !p.chatOpen)).toBe(true);
+    for (const method of ["GET", "POST", "DELETE"]) {
+      const denied = await requestJson(server, { method, path: method === "DELETE" ? `${path}/${entered.body.sessionId}` : path,
+        deviceId: secondary.parentDeviceId, ...(method === "POST" ? { body: {} } : {}) });
+      expect(denied.status).toBe(403);
+    }
+  });
+
+  test("presence does not expose private direct-chat members", async () => {
+    const created = await requestJson(server, { method: "POST", path: "/api/chat/v2/conversations/direct",
+      deviceId: primary.parentDeviceId, body: { targetMemberId: primary.childMembership.memberId } });
+    const path = `/api/chat/v2/conversations/${created.body.conversation.conversationId}/presence`;
+    expect((await requestJson(server, { path, deviceId: primary.parentDeviceId })).body.participants).toHaveLength(2);
+    expect((await requestJson(server, { path, deviceId: primary.thirdDeviceId })).status).toBe(403);
+  });
+
+  test("removing a group member revokes an existing foreground lease", async () => {
+    const created = await requestJson(server, { method: "POST", path: "/api/chat/v2/conversations/group",
+      deviceId: primary.parentDeviceId, body: { title: "Private group",
+        memberIds: [primary.childMembership.memberId, primary.thirdMembership.memberId] } });
+    expect(created.status).toBe(201);
+    const id = created.body.conversation.conversationId;
+    const path = `/api/chat/v2/conversations/${id}/presence`;
+    const entered = await requestJson(server, { method: "POST", path, deviceId: primary.childDeviceId, body: {} });
+    expect(entered.status).toBe(200);
+    const removed = await requestJson(server, { method: "DELETE",
+      path: `/api/chat/v2/conversations/${id}/group/members/${primary.childMembership.memberId}`,
+      deviceId: primary.parentDeviceId });
+    expect(removed.status).toBe(200);
+    expect((await requestJson(server, { method: "POST", path, deviceId: primary.childDeviceId,
+      body: { sessionId: entered.body.sessionId } })).status).toBe(403);
+    const remaining = await requestJson(server, { path, deviceId: primary.parentDeviceId });
+    expect(remaining.body.participants).toHaveLength(2);
+    expect(remaining.body.participants.some(p => p.memberId === primary.childMembership.memberId)).toBe(false);
+  });
+
   test("denies cross-family conversation access and direct-chat creation", async () => {
     const foreignConversation = await familyConversation(secondary);
     const read = await requestJson(server, {

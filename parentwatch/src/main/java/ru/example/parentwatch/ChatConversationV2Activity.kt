@@ -28,7 +28,6 @@ import ru.childwatch.shared.chat.ConversationMessage
 import ru.childwatch.shared.chat.ConversationType
 import ru.example.parentwatch.chat.ChatAdapter
 import ru.example.parentwatch.chat.ChatMessage
-import ru.example.parentwatch.chat.presence.PeerPresenceWatcher
 import androidx.core.widget.doAfterTextChanged
 import ru.example.parentwatch.chat.v2.ChatV2Repository
 import ru.example.parentwatch.chat.v2.GroupSettingsDialog
@@ -294,6 +293,8 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        presenceWatcher.stop()
+        participantsDialog?.close(); participantsDialog = null
         attachmentPicker?.dismiss(); attachmentPicker = null
         updateVisibleMedia(false)
         catalogDialog?.close(); catalogDialog = null
@@ -649,12 +650,10 @@ class ChatConversationV2Activity : AppCompatActivity() {
     private var olderMessagesPendingRender = false
     private val gson = Gson()
     private val sessionStore by lazy { ChildActiveSessionStore(this) }
-    private val peerNetworkClient by lazy { NetworkClient(this) }
+    private var presenceSnapshot: ru.childwatch.shared.chat.ChatPresenceSnapshot? = null
+    private var participantsDialog: ru.example.childwatch.designsystem.ChatParticipantsDialog? = null
     private val presenceWatcher by lazy {
-        PeerPresenceWatcher(
-            networkClient = peerNetworkClient,
-            scope = lifecycleScope
-        ) { snapshot -> runOnUiThread { renderPeerPresence(snapshot) } }
+        ru.childwatch.shared.chat.ChatConversationPresenceWatcher(lifecycleScope, changed = { renderConversationPresence(it) })
     }
     private val chatV2MessageListener: (JSONObject) -> Unit = { payload ->
         handleRealtimeMessage(payload)
@@ -722,7 +721,6 @@ class ChatConversationV2Activity : AppCompatActivity() {
         WebSocketManager.subscribeChatV2(conversationId)
         ChatV2UiRegistry.enter(conversationId)
         startSyncLoop()
-        startParentPresence()
     }
 
     override fun onStop() {
@@ -793,33 +791,61 @@ class ChatConversationV2Activity : AppCompatActivity() {
         }
     }
 
-    /**
-     * Shows whether the parent side is online.
-     *
-     * The server already reports it per device link; the chat simply never asked,
-     * so a child could not tell whether the parent would receive a message now.
-     */
-    private fun startParentPresence() {
-        // The child's own id is what the presence endpoint is keyed by.
-        val ownChildId = sessionStore.resolveCurrentChildId()
-        if (ownChildId.isBlank()) return
-        val localIds = conversation?.members
-            ?.filter { it.isLocalUser }
-            ?.map { it.memberId }
-            .orEmpty()
-        presenceWatcher.start(ownChildId, localIds + ownChildId)
+    /** One foreground lease for this conversation, independent of family monitoring. */
+    private fun startConversationPresence() {
+        if (!::repository.isInitialized || conversation == null ||
+            !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return
+        val transport = repository.presenceTransport(conversationId) ?: return
+        presenceWatcher.start(transport)
     }
 
-    private fun renderPeerPresence(snapshot: PeerPresenceWatcher.PresenceSnapshot) {
-        if (!snapshot.isKnown) return
+    private fun participantStatus(open: Boolean, connected: Boolean?): String = getString(when {
+        open -> ru.example.childwatch.designsystem.R.string.chat_participants_open
+        connected == true -> ru.example.childwatch.designsystem.R.string.chat_participants_connected
+        connected == false -> ru.example.childwatch.designsystem.R.string.chat_participants_not_connected
+        else -> ru.example.childwatch.designsystem.R.string.chat_participants_status_unknown
+    })
+
+    private fun participantEntries(): List<ru.example.childwatch.designsystem.ChatParticipantsDialog.Entry> {
+        val fresh = presenceSnapshot
+        return if (fresh != null) fresh.participants.distinctBy { it.memberId }.map { member ->
+            ru.example.childwatch.designsystem.ChatParticipantsDialog.Entry(
+                if (member.memberId == fresh.actorMemberId) getString(R.string.chat_sender_you)
+                else member.displayName?.takeIf { it.isNotBlank() } ?: getString(ru.example.childwatch.designsystem.R.string.chat_participants_title),
+                participantStatus(member.chatOpen, member.deviceConnected), member.chatOpen)
+        } else conversation?.members.orEmpty().distinctBy { it.memberId }.map { member ->
+            ru.example.childwatch.designsystem.ChatParticipantsDialog.Entry(
+                if (member.isLocalUser) getString(R.string.chat_sender_you) else member.displayName,
+                participantStatus(false, null), false)
+        }
+    }
+
+    private fun renderConversationPresence(snapshot: ru.childwatch.shared.chat.ChatPresenceSnapshot?) {
+        if (!::binding.isInitialized) return
+        presenceSnapshot = snapshot
         binding.peerPresenceRow.visibility = View.VISIBLE
-        binding.peerPresenceText.setText(
-            if (snapshot.isOnline) R.string.chat_peer_online else R.string.chat_peer_offline
-        )
-        val colorRes = if (snapshot.isOnline) R.color.presence_online else R.color.presence_offline
-        val color = androidx.core.content.ContextCompat.getColor(this, colorRes)
+        binding.peerPresenceRow.minimumHeight = (48 * resources.displayMetrics.density).toInt()
+        binding.peerPresenceRow.isClickable = true
+        binding.peerPresenceRow.isFocusable = true
+        binding.peerPresenceRow.setOnClickListener { showParticipants() }
+        binding.peerPresenceText.text = if (snapshot == null) {
+            getString(ru.example.childwatch.designsystem.R.string.chat_participants_unavailable)
+        } else getString(ru.example.childwatch.designsystem.R.string.chat_participants_summary,
+            snapshot.participants.count { it.chatOpen }, snapshot.participants.size)
+        val color = getColor(if (snapshot != null) ru.example.childwatch.designsystem.R.color.cw_color_primary
+            else ru.example.childwatch.designsystem.R.color.cw_color_on_surface_variant)
         binding.peerPresenceText.setTextColor(color)
         binding.peerPresenceDot.background?.mutate()?.setTint(color)
+        participantsDialog?.render(participantEntries(), snapshot != null)
+    }
+
+    private fun showParticipants() {
+        if (conversation == null) return
+        participantsDialog?.close()
+        participantsDialog = ru.example.childwatch.designsystem.ChatParticipantsDialog(this).also {
+            it.render(participantEntries(), presenceSnapshot != null)
+            it.show()
+        }
     }
 
     override fun onDestroy() {
@@ -906,6 +932,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
             return
         }
 
+        startConversationPresence()
         val localMember = current.members.firstOrNull { it.isLocalUser }
         val currentRole = if (localMember?.role == ConversationMemberRole.CHILD) "child" else "parent"
         adapter = ChatAdapter(
@@ -1096,6 +1123,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        binding.root.post { startConversationPresence() }
         binding.messagesRecyclerView.post { recordVisibleMessages(); updateVisibleMedia(true) }
     }
 

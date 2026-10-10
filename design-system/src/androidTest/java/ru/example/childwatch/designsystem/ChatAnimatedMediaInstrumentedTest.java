@@ -109,6 +109,49 @@ public class ChatAnimatedMediaInstrumentedTest {
             file.delete();
         }
     }
+    @Test public void participantsDistinguishOpenChatConnectionAndUnknown() throws Exception {
+        android.app.Instrumentation runner = InstrumentationRegistry.getInstrumentation();
+        Intent intent = new Intent(runner.getTargetContext(), ChatMediaFixtureActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        ChatMediaFixtureActivity activity = (ChatMediaFixtureActivity) runner.startActivitySync(intent);
+        ChatParticipantsDialog[] panel = {null};
+        try {
+            runner.runOnMainSync(() -> {
+                panel[0] = new ChatParticipantsDialog(activity);
+                panel[0].render(java.util.Arrays.asList(
+                    new ChatParticipantsDialog.Entry("Лёва", activity.getString(R.string.chat_participants_open), true),
+                    new ChatParticipantsDialog.Entry("Мама", activity.getString(R.string.chat_participants_connected), false),
+                    new ChatParticipantsDialog.Entry("Папа", activity.getString(R.string.chat_participants_not_connected), false),
+                    new ChatParticipantsDialog.Entry("Бабушка", activity.getString(R.string.chat_participants_status_unknown), false)
+                ), true);
+                panel[0].show();
+            });
+            java.lang.reflect.Field field = ChatParticipantsDialog.class.getDeclaredField("dialog");
+            field.setAccessible(true);
+            android.app.Dialog sheet = (android.app.Dialog) field.get(panel[0]);
+            runner.waitForIdleSync(); Thread.sleep(350);
+            runner.runOnMainSync(() -> {
+                View decor = sheet.getWindow().getDecorView();
+                for (int status : new int[]{R.string.chat_participants_open, R.string.chat_participants_connected,
+                        R.string.chat_participants_not_connected, R.string.chat_participants_status_unknown}) {
+                    assertNotNull(find(decor, activity.getString(status)));
+                }
+                assertNotNull(find(decor, activity.getString(R.string.chat_participants_close)));
+            });
+            screenshot(runner, activity, "participants-panel.png");
+            runner.runOnMainSync(() -> {
+                panel[0].render(java.util.Arrays.asList(new ChatParticipantsDialog.Entry("Лёва",
+                    activity.getString(R.string.chat_participants_status_unknown), false)), false);
+                View decor = sheet.getWindow().getDecorView();
+                assertNull(find(decor, activity.getString(R.string.chat_participants_open)));
+                assertNotNull(find(decor, activity.getString(R.string.chat_participants_unknown)));
+                find(decor, activity.getString(R.string.chat_participants_close)).performClick();
+                assertFalse(sheet.isShowing());
+            });
+        } finally {
+            runner.runOnMainSync(() -> { if (panel[0] != null) panel[0].close(); activity.finish(); });
+        }
+    }
+
     private static View find(View view,String label) {
         if(view instanceof TextView&&label.contentEquals(((TextView)view).getText()))return view;
         if(view instanceof ViewGroup)for(int index=0;index<((ViewGroup)view).getChildCount();index++) {

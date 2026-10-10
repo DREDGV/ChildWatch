@@ -64,6 +64,39 @@ class ChatV2Repository(
     private val receiptScope: ChatV2ReceiptScope? = null,
     private val receiptScopeProvider: () -> ChatV2ReceiptScope? = { receiptScope }
 ) {
+    fun presenceTransport(conversationId: String): ru.childwatch.shared.chat.ChatPresenceTransport? {
+        val captured = mediaScope() ?: return null
+        return object : ru.childwatch.shared.chat.ChatPresenceTransport {
+            private fun checkScope() {
+                if (mediaScope() != captured) throw ru.childwatch.shared.chat.ChatPresenceRequestError(403)
+            }
+            override suspend fun renew(sessionId: String?): ru.childwatch.shared.chat.ChatPresenceLease {
+                checkScope()
+                val response = api.renewChatPresence(conversationId, ru.childwatch.shared.chat.ChatPresenceRenewRequest(sessionId))
+                if (!response.isSuccessful) throw ru.childwatch.shared.chat.ChatPresenceRequestError(response.code())
+                val body = response.body() ?: error("Missing presence lease")
+                // Return a granted token even if scope changed while awaiting it: the watcher
+                // owns cleanup. snapshot() checks scope before publishing anything.
+                check(body.success && body.conversationId == conversationId && body.sessionId.isNotBlank())
+                return body
+            }
+            override suspend fun snapshot(): ru.childwatch.shared.chat.ChatPresenceSnapshot {
+                checkScope()
+                val response = api.getChatPresence(conversationId)
+                checkScope()
+                if (!response.isSuccessful) throw ru.childwatch.shared.chat.ChatPresenceRequestError(response.code())
+                val body = response.body() ?: error("Missing presence snapshot")
+                check(body.success && body.conversationId == conversationId && body.actorMemberId == captured.member)
+                return body
+            }
+            override suspend fun leave(sessionId: String) {
+                // Send only through this captured, authenticated API. Never resolve a different
+                // family/phone to clean up a previous screen's token.
+                if (mediaScope() != captured) return
+                api.leaveChatPresence(conversationId, sessionId).body()?.close()
+            }
+        }
+    }
     private val gson = Gson()
     fun mediaCatalog(context: Context) = ChatMediaCatalogService(context.applicationContext,
         this, attachments(context), api, clock)

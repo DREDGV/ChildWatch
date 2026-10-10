@@ -166,6 +166,17 @@ interface ChildWatchApi : ChatMediaApi {
         @Query("limit") limit: Int = 100
     ): Response<ChatHistoryResponse>
 
+    @GET("api/chat/v2/conversations/{conversationId}/presence")
+    suspend fun getChatPresence(@Path("conversationId") conversationId: String): Response<ru.childwatch.shared.chat.ChatPresenceSnapshot>
+
+    @POST("api/chat/v2/conversations/{conversationId}/presence")
+    suspend fun renewChatPresence(@Path("conversationId") conversationId: String,
+        @Body request: ru.childwatch.shared.chat.ChatPresenceRenewRequest): Response<ru.childwatch.shared.chat.ChatPresenceLease>
+
+    @DELETE("api/chat/v2/conversations/{conversationId}/presence/{sessionId}")
+    suspend fun leaveChatPresence(@Path("conversationId") conversationId: String,
+        @Path("sessionId") sessionId: String): Response<okhttp3.ResponseBody>
+
     @GET("api/chat/v2/conversations")
     suspend fun getChatV2Conversations(): Response<ChatV2ConversationsResponse>
 

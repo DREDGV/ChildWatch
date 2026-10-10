@@ -3,13 +3,15 @@ const ChatConversationService = require("../services/ChatConversationService");
 
 function createChatV2Routes(
   dbManager,
-  chatService = new ChatConversationService(dbManager)
+  chatService = new ChatConversationService(dbManager),
+  presenceOptions = {}
 ) {
   if (!dbManager || !chatService) {
     throw new Error("Chat v2 routes require database and chat services");
   }
 
   const router = express.Router();
+  const presence = new (require("../services/ChatPresenceService"))(chatService, presenceOptions);
 
   const handleError = (res, error) => {
     if (error instanceof ChatConversationService.Error || error instanceof require("../services/ChatAttachmentStore").Error || error instanceof require("../services/ChatTranscriptionService").Error || error instanceof require("../services/ChatMediaCatalog").Error) {
@@ -28,6 +30,22 @@ function createChatV2Routes(
   router.use(require("./chat-attachments")(chatService, handleError));
   router.use(require("./chat-transcriptions")(chatService, handleError));
   router.use(require("./chat-media-catalog")(chatService, handleError));
+
+  router.get("/conversations/:id/presence", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    try { res.json({ success: true, ...await presence.snapshot(req.deviceId, req.params.id) }); }
+    catch (error) { handleError(res, error); }
+  });
+  router.post("/conversations/:id/presence", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    try { res.json({ success: true, ...await presence.renew(req.deviceId, req.params.id, req.body?.sessionId) }); }
+    catch (error) { handleError(res, error); }
+  });
+  router.delete("/conversations/:id/presence/:sessionId", async (req, res) => {
+    res.set("Cache-Control", "no-store");
+    try { res.json({ success: true, ...await presence.leave(req.deviceId, req.params.id, req.params.sessionId) }); }
+    catch (error) { handleError(res, error); }
+  });
 
   router.get("/conversations", async (req, res) => {
     try {

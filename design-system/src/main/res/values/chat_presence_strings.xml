@@ -1,0 +1,12 @@
+<resources>
+    <string name="chat_participants_title">Участники</string>
+    <string name="chat_participants_explanation">«Открыл этот чат» означает, что переписка на экране. Это не подтверждение прочтения сообщения.</string>
+    <string name="chat_participants_unknown">Свежие статусы недоступны. Состав из сохранённой беседы.</string>
+    <string name="chat_participants_close">Закрыть</string>
+    <string name="chat_participants_open">Открыл этот чат</string>
+    <string name="chat_participants_connected">Устройство на связи</string>
+    <string name="chat_participants_not_connected">Нет свежей связи с устройством</string>
+    <string name="chat_participants_status_unknown">Статус неизвестен</string>
+    <string name="chat_participants_summary">В чате: %1$d из %2$d · Участники</string>
+    <string name="chat_participants_unavailable">Участники · статусы недоступны</string>
+</resources>
