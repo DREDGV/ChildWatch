@@ -31,7 +31,7 @@
   "literalDependencies": 46,
   "baselineUnchangedFilesChecked": 67,
   "transcriptionEnabled": false,
-  "installed": false,
+  "installed": true,
   "serverPublished": false,
   "otaPublished": false,
   "archives": {
@@ -43,5 +43,19 @@
       "sha256": "e55d96c6d30790f6bf6abfbefa4cdb9ed3e2aa4d0c59e24c947cd9527574f9b8",
       "sizeBytes": 33180
     }
-  }
+  },
+  "installedDevices": [
+    {
+      "role": "parent",
+      "serial": "R5CX71CKKJW",
+      "versionCode": 2000000319
+    },
+    {
+      "role": "child",
+      "serial": "ZY227XB2QD",
+      "versionCode": 2000000319
+    }
+  ],
+  "startupScreensViewed": true,
+  "endToEndAccepted": false
 }
