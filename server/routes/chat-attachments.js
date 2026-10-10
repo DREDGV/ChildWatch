@@ -30,7 +30,8 @@ module.exports = function createChatAttachmentRoutes(chatService, handleError) {
         maxFileBytes: Store.FILE_LIMIT,
         maxImageBytes: Store.IMAGE_LIMIT,
         attachmentTypes: Store.TYPES,
-        ...await chatService.transcriptions.capability()
+        ...await chatService.transcriptions.capability(),
+        ...await chatService.mediaCatalog.capability()
       });
     } catch (error) {
       handleError(res, error);

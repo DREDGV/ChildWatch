@@ -6,7 +6,7 @@ const ready = new WeakMap();
 const gcJobs = new WeakMap();
 const FILE_LIMIT = 25 * 1024 * 1024;
 const IMAGE_LIMIT = 10 * 1024 * 1024;
-const TYPES = ['IMAGE', 'FILE', 'GIF', 'VOICE'];
+const TYPES = ['IMAGE', 'FILE', 'GIF', 'VOICE', 'STICKER'];
 class AttachmentError extends Error {
   constructor(status, code, message) {
     super(message);
@@ -121,6 +121,7 @@ class ChatAttachmentStore {
       const durationMs = type === 'VOICE' && input.durationMs !== undefined ? Number(input.durationMs) : null;
       if (type === 'IMAGE' && !detected) throw new AttachmentError(415, 'INVALID_IMAGE', 'File is not a supported image');
       if (type === 'GIF' && detected !== 'image/gif') throw new AttachmentError(415, 'INVALID_GIF', 'File is not GIF');
+      if (type === 'STICKER' && detected !== 'image/png') throw new AttachmentError(415, 'INVALID_STICKER', 'Sticker requires PNG');
       if (type === 'VOICE' && (header.toString('ascii', 4, 8) !== 'ftyp' || !Number.isInteger(durationMs) || durationMs < 1 || durationMs > 180000)) throw new AttachmentError(415, 'INVALID_VOICE', 'Voice requires M4A and a duration up to three minutes');
       // Generic files always download; a client MIME label never makes executable content inline.
       const mime = type === 'FILE' ? 'application/octet-stream' : type === 'VOICE' ? 'audio/mp4' : detected;

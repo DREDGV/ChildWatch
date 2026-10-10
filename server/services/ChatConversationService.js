@@ -33,6 +33,7 @@ class ChatConversationService {
     this.dbManager = dbManager;
     this.attachments = new (require("./ChatAttachmentStore"))(dbManager, options.attachments || {});
     this.transcriptions = new (require("./ChatTranscriptionService"))(this, options.transcriptions || {});
+    this.mediaCatalog = new (require("./ChatMediaCatalog"))(this, options.mediaCatalog || {});
   }
 
   requireDeviceId(deviceId) {
@@ -935,7 +936,7 @@ class ChatConversationService {
 
     const messageType = payload?.messageType || "TEXT";
     const attachmentIds = payload?.attachmentIds || [];
-    if (!["TEXT", "IMAGE", "FILE", "GIF", "VOICE"].includes(messageType) || !Array.isArray(attachmentIds) ||
+    if (!["TEXT", "IMAGE", "FILE", "GIF", "VOICE", "STICKER"].includes(messageType) || !Array.isArray(attachmentIds) ||
         (messageType === "TEXT" ? attachmentIds.length !== 0 : attachmentIds.length !== 1) ||
         attachmentIds.some(id => typeof id !== "string" || !/^[0-9a-f-]{36}$/.test(id)))
       throw new ChatConversationError(400,"INVALID_MESSAGE_ATTACHMENT","Choose one attachment of the message type");

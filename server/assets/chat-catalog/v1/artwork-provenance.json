@@ -1,0 +1,38 @@
+{
+  "created": "2026-10-10",
+  "tool": "built-in imagegen",
+  "catalogUnpublishedAtReplacement": true,
+  "characterReference": "hello",
+  "seedBrief": "Original mint-green baby dragon, cream belly, peach inner ears, expressive dark eyes, rounded horns, soft modern 3D clay rendering, waving hello, isolated on transparent background.",
+  "variantPromptPrefix": "Create ONE original transparent-background square sticker for the ChildWatch family app. Reference image is CHARACTER AND ART STYLE REFERENCE: exactly the same adorable mint green baby dragon, cream belly, peach inner ears, small rounded horns, big expressive dark eyes and polished soft 3D clay rendering. Preserve its design and premium contemporary sticker aesthetics. ",
+  "variantPromptSuffix": " Full subject isolated, centred, generous transparent margins, readable at 72px. Simple sculptural shapes, warm studio lighting, no black outlines, no text, no logos, no background, no extra characters. Real alpha transparency. This is one coherent sticker collection.",
+  "actions": {
+    "hug": "The dragon embraces a big soft coral heart with both arms, eyes gently closed, tender smile. Emotion: warm hug.",
+    "love": "The dragon blows a kiss, one small coral heart floating beside its face, affectionate happy eyes. Emotion: I love you.",
+    "miss": "The dragon sits with a slightly wistful affectionate expression, holding a small peach envelope close to its chest. Emotion: I miss you.",
+    "home": "The dragon peeks smiling from the doorway of a tiny cream and mint house with a peach roof, compact composition. Message: I am home.",
+    "way": "The dragon walks briskly wearing a tiny peach backpack, clear lifted-foot walking pose. Message: on my way.",
+    "pickup": "The dragon stands waving beside a tiny friendly rounded cream family car, compact clear silhouette. Message: pick me up.",
+    "okay": "The dragon gives a confident cheerful thumbs-up, friendly reassuring smile. Message: everything is okay.",
+    "thanks": "The dragon gratefully places both hands over its chest and inclines its head slightly, warm smile. Emotion: thank you.",
+    "great": "The dragon makes a happy little jump holding one soft golden star, broad joyful eyes. Emotion: awesome.",
+    "night": "The dragon curls asleep on a small peach pillow, eyes closed, tiny golden crescent moon beside it. Message: good night.",
+    "play": "The dragon holds a rounded peach and cream game controller and smiles invitingly. Message: let's play."
+  },
+  "originalSha256": {
+    "hello": "0e6433eea0061c7cfdb34ec8c2612796f9c13d1bcbe03a9f4048986e9a1fe603",
+    "hug": "0800adebd2a7508c3dfa3f910d4107d4202cede9237882ff6d1163dd3414efce",
+    "love": "11c873e910d5f46ba666abf5e1626b757f9a2b13d59ed507506ba96c80e90f54",
+    "miss": "4cfbc964e329feade113a828a78f4952305344370dd6c56133dab0dc66f7bb60",
+    "home": "29a042f5da90715ec6eeeb5d2521ebef831415f29c3ed0964ae88f9571bfd0dd",
+    "way": "1be07d74ec1a4333ee1c0b174cfd8ea16717fabdac6ac069bd8be220120fbcb8",
+    "pickup": "adf229ff264372eb700a5a69f46f7738f64cfa1573e57f0b694332c0dbe7403e",
+    "okay": "22c7e5cc517f1b747997d21a6cf0155f482231c74646404133c871e7fc9d24c2",
+    "thanks": "f57ad3ef2383f84db69cf9235ea67c7f31b7fcd56b8c0efe2511a4c1601d1f0a",
+    "great": "caf0f2feb94cd465a67fbadd9190d4f7f3cb1cd69867e3274f56150fadb9851e",
+    "night": "b8549a7ba7a894c987a206e5cf75cff1c5d98907efe5718d999dfe239b3b70e8",
+    "play": "c5d3644ac84fdf264d4912bd295789ee4dfecaa0fe0f19ea7ad500f2c83bdeb8"
+  },
+  "export": "256x256 RGBA PNG; two 12-frame/100ms transparent GIFs with whole-image rock/pulse",
+  "originalsKeptLocally": ".runtime/chat-catalog-modern-originals"
+}

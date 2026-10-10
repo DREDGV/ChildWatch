@@ -14,7 +14,14 @@ android {
 
 dependencies {
     api 'com.google.android.material:material:1.11.0'
+    implementation 'com.github.bumptech.glide:glide:4.16.0'
     testImplementation 'junit:junit:4.13.2'
     androidTestImplementation 'androidx.test.ext:junit:1.1.5'
     androidTestImplementation 'androidx.test:runner:1.5.2'
+}
+
+// The GIF policy test reads shipped catalog bytes outside this module.
+tasks.withType(org.gradle.api.tasks.testing.Test).configureEach {
+    inputs.files(rootProject.file('server/assets/chat-catalog/v1/hello-wave.gif'),
+        rootProject.file('server/assets/chat-catalog/v1/heart-pulse.gif'))
 }

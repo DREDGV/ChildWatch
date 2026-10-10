@@ -78,6 +78,13 @@ class ChatConversationV2Activity : AppCompatActivity() {
     private val media by lazy { repository.attachments(this) }
     private val transcriptions by lazy { repository.transcriptions(this) }
     private var transcriptionEnabled = false
+    private val mediaCatalog by lazy { repository.mediaCatalog(this) }
+    private var catalogEnabled = false
+    private var gifEnabled = false
+    private var catalogDialog: ru.example.childwatch.designsystem.ChatMediaCatalogDialog? = null
+    private var catalogLoadJob: Job? = null
+    private var catalogActionJob: Job? = null
+    private var loadedCatalog: ru.childwatch.shared.chat.ChatV2MediaCatalogResponse? = null
     private var transcriptionDialog: ru.example.childwatch.designsystem.ChatTranscriptionDialog? = null
     private var transcriptionObserverJob: Job? = null
     private var transcriptionActionJob: Job? = null
@@ -134,6 +141,8 @@ class ChatConversationV2Activity : AppCompatActivity() {
             mediaEnabled = capability?.attachments == true
             voiceEnabled = mediaEnabled && "VOICE" in capability!!.attachmentTypes
             transcriptionEnabled = voiceEnabled && capability?.transcription == true
+            catalogEnabled = mediaEnabled && capability?.mediaCatalog == true
+            gifEnabled = mediaEnabled && "GIF" in capability!!.attachmentTypes
             binding.attachmentButton.visibility = if (mediaEnabled) View.VISIBLE else View.GONE
             updateComposerState()
         }
@@ -151,20 +160,101 @@ class ChatConversationV2Activity : AppCompatActivity() {
 
     private fun showAttachmentPicker() {
         if (!mediaEnabled || mediaDraft != null || mediaPreparing) return
-        val choices = mutableListOf(getString(R.string.chat_media_photo), getString(R.string.chat_media_file))
-        if (voiceEnabled) choices.add(getString(R.string.chat_voice_title))
+        val options = mutableListOf(getString(R.string.chat_media_photo) to "IMAGE", getString(R.string.chat_media_file) to "FILE")
+        if (voiceEnabled) options.add(getString(R.string.chat_voice_title) to "VOICE")
+        if (gifEnabled) options.add(getString(R.string.chat_catalog_phone_gif) to "GIF")
+        if (catalogEnabled) options.add(getString(R.string.chat_catalog_title) to "CATALOG")
         AlertDialog.Builder(this).setTitle(R.string.chat_media_attach)
-            .setItems(choices.toTypedArray()) { _, index ->
-                if (index == 2) {
-                    voicePermissionScope = media.currentScopeKey()
-                    if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) showVoiceRecorder()
-                    else voicePermission.launch(android.Manifest.permission.RECORD_AUDIO)
-                } else {
-                    pickerType = if (index == 0) "IMAGE" else "FILE"
-                    pickerScope = media.currentScopeKey()
-                    documentPicker.launch(if (index == 0) arrayOf("image/jpeg", "image/png", "image/webp", "image/gif") else arrayOf("*/*"))
+            .setItems(options.map { it.first }.toTypedArray()) { _, index ->
+                when (val type = options[index].second) {
+                    "VOICE" -> {
+                        voicePermissionScope = media.currentScopeKey()
+                        if (androidx.core.content.ContextCompat.checkSelfPermission(this, android.Manifest.permission.RECORD_AUDIO) == android.content.pm.PackageManager.PERMISSION_GRANTED) showVoiceRecorder()
+                        else voicePermission.launch(android.Manifest.permission.RECORD_AUDIO)
+                    }
+                    "CATALOG" -> showMediaCatalog()
+                    else -> {
+                        pickerType = type; pickerScope = media.currentScopeKey()
+                        documentPicker.launch(when (type) {
+                            "GIF" -> arrayOf("image/gif")
+                            "IMAGE" -> arrayOf("image/jpeg", "image/png", "image/webp", "image/gif")
+                            else -> arrayOf("*/*")
+                        })
+                    }
                 }
             }.setNegativeButton(android.R.string.cancel, null).show()
+    }
+
+    private fun showMediaCatalog() {
+        if (!catalogEnabled || mediaPreparing || mediaDraft != null) return
+        val guard = media.currentScopeKey() ?: return
+        catalogDialog?.close()
+        lateinit var panel: ru.example.childwatch.designsystem.ChatMediaCatalogDialog
+        panel = ru.example.childwatch.designsystem.ChatMediaCatalogDialog(this, { guard == media.currentScopeKey() },
+            object : ru.example.childwatch.designsystem.ChatMediaCatalogDialog.Actions {
+                override fun pick(id: String) = attachCatalogItem(panel, guard, id)
+                override fun retry() = loadMediaCatalog(panel, guard)
+                override fun motion(enabled: Boolean) = updateVisibleMedia(enabled)
+                override fun closed() {
+                    catalogLoadJob?.cancel(); catalogLoadJob = null
+                    catalogActionJob?.cancel(); catalogActionJob = null
+                    loadedCatalog = null
+                }
+            })
+        catalogDialog = panel; panel.show(); loadMediaCatalog(panel, guard)
+    }
+
+    private fun loadMediaCatalog(panel: ru.example.childwatch.designsystem.ChatMediaCatalogDialog, guard: String) {
+        catalogLoadJob?.cancel()
+        catalogLoadJob = lifecycleScope.launch {
+            try {
+                val catalog = mediaCatalog.load(conversationId)
+                if (guard != media.currentScopeKey() || catalogDialog !== panel || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@launch
+                loadedCatalog = catalog
+                panel.items(catalog.items.orEmpty().map { ru.example.childwatch.designsystem.ChatMediaCatalogDialog.Entry(it.id, it.label, it.type) })
+                for (item in catalog.items.orEmpty()) {
+                    val file = mediaCatalog.fetch(conversationId, catalog, item)
+                    val bitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { decodeMediaImage(file) }
+                    if (guard != media.currentScopeKey() || catalogDialog !== panel || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) return@launch
+                    panel.preview(item.id, bitmap)
+                }
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) { if (guard == media.currentScopeKey() && catalogDialog === panel) panel.failed() }
+        }
+    }
+
+    private fun attachCatalogItem(panel: ru.example.childwatch.designsystem.ChatMediaCatalogDialog, guard: String, id: String) {
+        if (guard != media.currentScopeKey() || mediaPreparing || mediaDraft != null) return
+        val catalog = loadedCatalog ?: return
+        val item = catalog.items.orEmpty().firstOrNull { it.id == id } ?: return
+        mediaPreparing = true; panel.busy(true); updateComposerState()
+        catalogActionJob = lifecycleScope.launch {
+            try {
+                val file = mediaCatalog.fetch(conversationId, catalog, item)
+                check(guard == media.currentScopeKey()) { "CONTEXT_CHANGED" }
+                val displayName = item.label + if (item.type == "GIF") ".gif" else ".png"
+                val uri = androidx.core.content.FileProvider.getUriForFile(this@ChatConversationV2Activity, "$packageName.fileprovider", file, displayName)
+                mediaDraft = media.createDraft(conversationId, uri, displayName, item.mimeType, item.type)
+                catalogActionJob = null
+                panel.close(); catalogDialog = null
+            } catch (cancelled: CancellationException) { throw cancelled }
+            catch (_: Exception) {
+                if (guard == media.currentScopeKey() && catalogDialog === panel) panel.failed()
+            } finally {
+                mediaPreparing = false; catalogActionJob = null
+                if (catalogDialog === panel) panel.busy(false)
+                renderMediaDraft()
+            }
+        }
+    }
+
+    private fun updateVisibleMedia(animate: Boolean) {
+        val list = binding.messagesRecyclerView
+        for (index in 0 until list.childCount) {
+            val image = list.getChildAt(index).findViewById<android.widget.ImageView>(R.id.attachmentImage)
+            if (image != null) ru.example.childwatch.designsystem.ChatAnimatedMedia.update(image,
+                animate && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED))
+        }
     }
 
     private fun showVoiceRecorder() {
@@ -195,6 +285,8 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        updateVisibleMedia(false)
+        catalogDialog?.close(); catalogDialog = null
         transcriptionDialog?.close(); transcriptionDialog = null
         mediaDownloadJob?.cancel()
         voiceDialog?.interrupt()
@@ -350,11 +442,12 @@ class ChatConversationV2Activity : AppCompatActivity() {
                     }
                     val mime = ru.example.childwatch.designsystem.ChatAttachmentInputPolicy.mimeType(contentResolver.getType(uri))
                     ru.example.childwatch.designsystem.ChatAttachmentInputPolicy.validate(
-                        if (type == "IMAGE") ru.example.childwatch.designsystem.ChatAttachmentInputPolicy.Mode.IMAGE else ru.example.childwatch.designsystem.ChatAttachmentInputPolicy.Mode.FILE, mime, size)
+                        if (type in setOf("IMAGE", "GIF")) ru.example.childwatch.designsystem.ChatAttachmentInputPolicy.Mode.IMAGE else ru.example.childwatch.designsystem.ChatAttachmentInputPolicy.Mode.FILE, mime, size)
                     Pair(ru.example.childwatch.designsystem.ChatAttachmentInputPolicy.displayName(name), mime)
                 }
                 check(guard != null && guard == media.currentScopeKey()) { "CONTEXT_CHANGED" }
-                mediaDraft = media.createDraft(conversationId, uri, metadata.first, metadata.second, type)
+                val actualType = if (type == "IMAGE" && metadata.second == "image/gif") "GIF" else type
+                mediaDraft = media.createDraft(conversationId, uri, metadata.first, metadata.second, actualType)
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (error: Exception) {
                 val resource = when (error.message) {
@@ -397,7 +490,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
             binding.attachmentDraftProgress.isIndeterminate = false
             binding.attachmentDraftProgress.progress = progress
             binding.attachmentDraftProgress.visibility = if (draft.state in setOf("QUEUED", "UPLOADING", "UPLOADED")) View.VISIBLE else View.GONE
-            if (previewChanged && draft.attachmentType in setOf("IMAGE", "GIF")) {
+            if (previewChanged && draft.attachmentType in setOf("IMAGE", "GIF", "STICKER")) {
                 val guard = media.currentScopeKey()
                 lifecycleScope.launch {
                     val bitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { decodeMediaImage(java.io.File(draft.localPath)) }
@@ -424,14 +517,28 @@ class ChatConversationV2Activity : AppCompatActivity() {
         val attachment = message.attachments.firstOrNull() ?: return
         val guard = media.currentScopeKey()
         lifecycleScope.launch {
+            var downloaded: java.io.File? = null
             try {
-                val file = media.download(conversationId, attachment)
-                try {
-                    val bitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { decodeMediaImage(file) }
-                    if (guard == media.currentScopeKey() && image.tag == attachment.attachmentId) image.setImageBitmap(bitmap)
-                } finally { file.delete() }
+                val file = media.download(conversationId, attachment); downloaded = file
+                if (attachment.type == "GIF") {
+                    val safe = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        file.length() <= 10L * 1024 * 1024 && ru.example.childwatch.designsystem.ChatGifPolicy.previewable(file.readBytes())
+                    }
+                    if (!safe) {
+                        if (guard == media.currentScopeKey() && image.tag == attachment.attachmentId) image.contentDescription = getString(R.string.chat_gif_preview_limited)
+                        return@launch
+                    }
+                }
+                if (guard != media.currentScopeKey() || image.tag != attachment.attachmentId) return@launch
+                ru.example.childwatch.designsystem.ChatAnimatedMedia.load(image, file,
+                    { guard == media.currentScopeKey() && image.tag == attachment.attachmentId },
+                    { lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && ru.example.childwatch.designsystem.ChatAnimatedMedia.animationsEnabled(this@ChatConversationV2Activity) },
+                    { file.delete() })
+                downloaded = null // Decoder owns the temporary file until ready/failed/cleared.
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { if (image.tag == attachment.attachmentId) image.contentDescription = getString(R.string.chat_media_unavailable) }
+            catch (_: Exception) {
+                if (guard == media.currentScopeKey() && image.tag == attachment.attachmentId) image.contentDescription = getString(R.string.chat_media_unavailable)
+            } finally { downloaded?.delete() }
         }
     }
 
@@ -754,6 +861,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
         connectionStatusCard.setOnClickListener { openGroupSettings() }
         messagesRecyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
+                updateVisibleMedia(true)
                 if (isNearBottom()) {
                     pendingNewMessages = 0
                     newMessagesButton.visibility = View.GONE
@@ -973,7 +1081,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
-        binding.messagesRecyclerView.post { recordVisibleMessages() }
+        binding.messagesRecyclerView.post { recordVisibleMessages(); updateVisibleMedia(true) }
     }
 
     private fun recordVisibleMessages() {

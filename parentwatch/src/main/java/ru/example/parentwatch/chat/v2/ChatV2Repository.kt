@@ -65,6 +65,8 @@ class ChatV2Repository(
     private val receiptScopeProvider: () -> ChatV2ReceiptScope? = { receiptScope }
 ) {
     private val gson = Gson()
+    fun mediaCatalog(context: Context) = ChatMediaCatalogService(context.applicationContext,
+        this, attachments(context), api, clock)
     fun transcriptions(context: Context) = ChatTranscriptionService(context.applicationContext,
         attachments(context), api, database.chatTranscriptionV2Dao(), clock)
     suspend fun getCachedMessageByClientId(clientMessageId: String): ConversationMessage? {

@@ -1,0 +1,159 @@
+{
+  "version": 1,
+  "items": [
+    {
+      "id": "hello",
+      "label": "Привет",
+      "type": "STICKER",
+      "mimeType": "image/png",
+      "filename": "hello.png",
+      "width": 256,
+      "height": 256,
+      "sizeBytes": 65319,
+      "sha256": "3b9c2d44e11b1f9dd10eae0f989ce9d82cbe1cbb6aaa8867017f8aff05ebf29d"
+    },
+    {
+      "id": "hug",
+      "label": "Обнимаю",
+      "type": "STICKER",
+      "mimeType": "image/png",
+      "filename": "hug.png",
+      "width": 256,
+      "height": 256,
+      "sizeBytes": 72415,
+      "sha256": "1b6f04330d28ced00214cd2e88eba4830126376d7051c478e6f40b13516ae182"
+    },
+    {
+      "id": "love",
+      "label": "Люблю",
+      "type": "STICKER",
+      "mimeType": "image/png",
+      "filename": "love.png",
+      "width": 256,
+      "height": 256,
+      "sizeBytes": 68007,
+      "sha256": "86d195d85073ec7ad35e50f657beae95f61e9ca458211e51b97809331d3390f4"
+    },
+    {
+      "id": "miss",
+      "label": "Скучаю",
+      "type": "STICKER",
+      "mimeType": "image/png",
+      "filename": "miss.png",
+      "width": 256,
+      "height": 256,
+      "sizeBytes": 76892,
+      "sha256": "604301b3dff71579c5a6f4569727963edf876ae44efaf1cbea539dcff6bae479"
+    },
+    {
+      "id": "home",
+      "label": "Я дома",
+      "type": "STICKER",
+      "mimeType": "image/png",
+      "filename": "home.png",
+      "width": 256,
+      "height": 256,
+      "sizeBytes": 84976,
+      "sha256": "fd0f3b13c238ae65ecbc3cb3f9430c5fd70b13d3c0e9903228bf19cd5dc168ec"
+    },
+    {
+      "id": "way",
+      "label": "В пути",
+      "type": "STICKER",
+      "mimeType": "image/png",
+      "filename": "way.png",
+      "width": 256,
+      "height": 256,
+      "sizeBytes": 65374,
+      "sha256": "ba908bcab710f617a921108f4e7abe05abeb8315196fb5a0762f561f853c6199"
+    },
+    {
+      "id": "pickup",
+      "label": "Забери меня",
+      "type": "STICKER",
+      "mimeType": "image/png",
+      "filename": "pickup.png",
+      "width": 256,
+      "height": 256,
+      "sizeBytes": 70879,
+      "sha256": "a35f6f7b83283a3889d4f6afec996f018c72087ca3a9202236e40c7e136dccb4"
+    },
+    {
+      "id": "okay",
+      "label": "Всё хорошо",
+      "type": "STICKER",
+      "mimeType": "image/png",
+      "filename": "okay.png",
+      "width": 256,
+      "height": 256,
+      "sizeBytes": 68498,
+      "sha256": "418e948b01e3c64f5ebaf82a269cace36cc85679245107f908d7d153eb4a6fb5"
+    },
+    {
+      "id": "thanks",
+      "label": "Спасибо",
+      "type": "STICKER",
+      "mimeType": "image/png",
+      "filename": "thanks.png",
+      "width": 256,
+      "height": 256,
+      "sizeBytes": 67323,
+      "sha256": "cbf94f8de59cfcd850cf2913f31de5283f3c9cb624c0be2d4c4c7033bcb6d418"
+    },
+    {
+      "id": "great",
+      "label": "Супер",
+      "type": "STICKER",
+      "mimeType": "image/png",
+      "filename": "great.png",
+      "width": 256,
+      "height": 256,
+      "sizeBytes": 69700,
+      "sha256": "3ba6e59f901e27699e77933c498ca211a4e48ed5a571f44bd5acf7bd7a24616b"
+    },
+    {
+      "id": "night",
+      "label": "Спокойной ночи",
+      "type": "STICKER",
+      "mimeType": "image/png",
+      "filename": "night.png",
+      "width": 256,
+      "height": 256,
+      "sizeBytes": 73868,
+      "sha256": "c6246c11e669f15a7496a460a76a378b3ad6f26ed6a2711ab1cebc41025e3dbb"
+    },
+    {
+      "id": "play",
+      "label": "Давай играть",
+      "type": "STICKER",
+      "mimeType": "image/png",
+      "filename": "play.png",
+      "width": 256,
+      "height": 256,
+      "sizeBytes": 76653,
+      "sha256": "1dea1dd3e38cf1644087a54ea0899baff6daebe6f8bc4256fba2b3ddae9790cf"
+    },
+    {
+      "id": "hello-wave",
+      "label": "Привет",
+      "type": "GIF",
+      "mimeType": "image/gif",
+      "filename": "hello-wave.gif",
+      "width": 256,
+      "height": 256,
+      "sizeBytes": 249726,
+      "sha256": "bbabf69a85dc9d7bb726a72552ba4b1bd730ad38ac3be89304b14e4061019a2f"
+    },
+    {
+      "id": "heart-pulse",
+      "label": "Люблю",
+      "type": "GIF",
+      "mimeType": "image/gif",
+      "filename": "heart-pulse.gif",
+      "width": 256,
+      "height": 256,
+      "sizeBytes": 268632,
+      "sha256": "346764cc097afa70f93796b86960ea290bcbe2285ca5ac28233f1814c6d6b3cf"
+    }
+  ]
+}

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_catalog_title">Стикеры и GIF</string>
+    <string name="chat_catalog_stickers">Стикеры</string>
+    <string name="chat_catalog_gifs">GIF</string>
+    <string name="chat_catalog_loading">Загружаем семейный набор…</string>
+    <string name="chat_catalog_hint">Выберите картинку. Отправка — обычной кнопкой в чате.</string>
+    <string name="chat_catalog_animate">Анимировать GIF</string>
+    <string name="chat_catalog_retry">Повторить загрузку</string>
+    <string name="chat_catalog_failed">Набор недоступен. Проверьте соединение и повторите.</string>
+    <string name="chat_catalog_attaching">Прикрепляем картинку…</string>
+    <string name="chat_catalog_phone_gif">GIF из телефона</string>
+    <string name="chat_gif_preview_limited">GIF не подходит для предпросмотра. Его можно скачать.</string>
+</resources>

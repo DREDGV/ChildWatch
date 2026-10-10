@@ -18,7 +18,9 @@ data class ChatV2CapabilitiesResponse(
     val attachmentTypes: List<String> = emptyList(),
     val transcription: Boolean = false,
     val transcriptionReason: String? = null,
-    val transcriptionMaxDurationMs: Long = 180_000
+    val transcriptionMaxDurationMs: Long = 180_000,
+    val mediaCatalog: Boolean = false,
+    val mediaCatalogVersion: Int? = null
 )
 data class ChatV2AttachmentResponse(val success: Boolean = false, val attachment: ChatV2AttachmentDto? = null)
 data class ChatV2AttachmentCancelResponse(val success: Boolean = false)
@@ -26,7 +28,7 @@ data class ChatV2AttachmentCancelResponse(val success: Boolean = false)
 object ChatAttachmentPolicy {
     const val FILE_LIMIT = 25L * 1024 * 1024
     const val MEDIA_LIMIT = 10L * 1024 * 1024
-    val TYPES = setOf("IMAGE", "FILE", "GIF", "VOICE")
+    val TYPES = setOf("IMAGE", "FILE", "GIF", "VOICE", "STICKER")
     fun maxBytes(type: String): Long = if (type == "FILE") FILE_LIMIT else MEDIA_LIMIT
     fun validate(type: String, size: Long, mime: String, durationMs: Long? = null) {
         require(type in TYPES) { "ATTACHMENT_TYPE_UNSUPPORTED" }
@@ -34,6 +36,7 @@ object ChatAttachmentPolicy {
         require(mime.isNotBlank() && !mime.contains('\n') && !mime.contains('\r')) { "ATTACHMENT_MIME_INVALID" }
         if (type == "IMAGE") require(mime in setOf("image/jpeg", "image/png", "image/webp")) { "IMAGE_FORMAT_UNSUPPORTED" }
         if (type == "GIF") require(mime == "image/gif") { "GIF_FORMAT_INVALID" }
+        if (type == "STICKER") require(mime == "image/png") { "STICKER_FORMAT_INVALID" }
         if (type == "VOICE") {
             require(mime in setOf("audio/mp4", "audio/x-m4a", "audio/m4a")) { "VOICE_FORMAT_INVALID" }
             require(durationMs != null && durationMs in 1..180_000) { "VOICE_DURATION_LIMIT" }

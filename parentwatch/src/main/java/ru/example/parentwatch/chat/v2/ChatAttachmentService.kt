@@ -110,7 +110,7 @@ class ChatAttachmentService internal constructor(
         val staged = ChatAttachmentPrivateStore.copyDocument(context, uri, copyScope,
             if (type in setOf("FILE", "VOICE")) ChatAttachmentInputPolicy.Mode.FILE else ChatAttachmentInputPolicy.Mode.IMAGE,
             java.util.function.BooleanSupplier { job?.isActive == false })
-        try {
+        ChatDraftCommit.finishPrepared(job, persist = {
             require(staged.sizeBytes <= limit) { "ATTACHMENT_SIZE_LIMIT" }
             val actualMime = if (staged.mimeType == "application/octet-stream") mimeType else staged.mimeType
             ChatAttachmentPolicy.validate(type, staged.sizeBytes, actualMime, durationMs)
@@ -122,7 +122,7 @@ class ChatAttachmentService internal constructor(
                 durationMs, createdAt = now, updatedAt = now)
             check(drafts.insert(draft) != -1L) { "DRAFT_CONFLICT" }
             draft
-        } catch (error: Exception) { staged.file.delete(); throw error }
+        }, discard = { staged.file.delete() })
     }
     suspend fun send(id: String, caption: String, senderName: String, senderRole: ConversationMemberRole) {
         val draft = drafts.get(id) ?: throw IllegalArgumentException("DRAFT_UNAVAILABLE")

@@ -7,6 +7,11 @@ import retrofit2.http.*
 import ru.childwatch.shared.chat.*
 /** Inherits the same authenticated Retrofit client as text chat. */
 interface ChatMediaApi {
+    @GET("api/chat/v2/conversations/{conversationId}/media-catalog")
+    suspend fun getChatMediaCatalog(@Path("conversationId") conversationId: String): Response<ChatV2MediaCatalogResponse>
+    @Streaming @GET("api/chat/v2/conversations/{conversationId}/media-catalog/{version}/{itemId}/content")
+    suspend fun getChatMediaCatalogContent(@Path("conversationId") conversationId: String,
+        @Path("version") version: Int, @Path("itemId") itemId: String): Response<ResponseBody>
     @Multipart @POST("api/chat/v2/conversations/{conversationId}/transcriptions")
     suspend fun createChatTranscription(@Path("conversationId") conversationId: String,
         @Part file: MultipartBody.Part, @Part("clientRequestId") clientRequestId: RequestBody,

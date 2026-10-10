@@ -12,7 +12,7 @@ function createChatV2Routes(
   const router = express.Router();
 
   const handleError = (res, error) => {
-    if (error instanceof ChatConversationService.Error || error instanceof require("../services/ChatAttachmentStore").Error || error instanceof require("../services/ChatTranscriptionService").Error) {
+    if (error instanceof ChatConversationService.Error || error instanceof require("../services/ChatAttachmentStore").Error || error instanceof require("../services/ChatTranscriptionService").Error || error instanceof require("../services/ChatMediaCatalog").Error) {
       return res.status(error.status).json({
         error: error.message,
         code: error.code,
@@ -27,6 +27,7 @@ function createChatV2Routes(
 
   router.use(require("./chat-attachments")(chatService, handleError));
   router.use(require("./chat-transcriptions")(chatService, handleError));
+  router.use(require("./chat-media-catalog")(chatService, handleError));
 
   router.get("/conversations", async (req, res) => {
     try {

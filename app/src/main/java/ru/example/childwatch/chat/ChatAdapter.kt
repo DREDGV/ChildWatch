@@ -8,6 +8,7 @@ import androidx.recyclerview.widget.DiffUtil
 import androidx.recyclerview.widget.ListAdapter
 import androidx.recyclerview.widget.RecyclerView
 import ru.example.childwatch.R
+import ru.example.childwatch.designsystem.ChatAnimatedMedia
 
 class ChatAdapter(
     private val currentUser: String,
@@ -49,6 +50,21 @@ class ChatAdapter(
         holder.bind(getItem(position))
     }
 
+    override fun onViewDetachedFromWindow(holder: MessageViewHolder) {
+        holder.stopMediaAnimation()
+        super.onViewDetachedFromWindow(holder)
+    }
+
+    override fun onViewRecycled(holder: MessageViewHolder) {
+        holder.releaseMediaPreview()
+        super.onViewRecycled(holder)
+    }
+
+    override fun onViewAttachedToWindow(holder: MessageViewHolder) {
+        super.onViewAttachedToWindow(holder)
+        holder.resumeVisibleMediaAnimation()
+    }
+
     inner class MessageViewHolder(itemView: View, private val isOutgoing: Boolean) :
         RecyclerView.ViewHolder(itemView) {
         private val messageText: TextView = itemView.findViewById(R.id.messageText)
@@ -63,14 +79,31 @@ class ChatAdapter(
         private val attachmentMeta: TextView? = itemView.findViewById(R.id.attachmentMeta)
         private val attachmentOpen: TextView? = itemView.findViewById(R.id.attachmentOpen)
 
+        fun stopMediaAnimation() {
+            attachmentImage?.let { ChatAnimatedMedia.update(it, false) }
+        }
+
+        fun releaseMediaPreview() {
+            attachmentImage?.let { ChatAnimatedMedia.clear(it); it.tag = null }
+        }
+
+        fun resumeVisibleMediaAnimation() {
+            attachmentImage?.post {
+                if (bindingAdapterPosition != RecyclerView.NO_POSITION && itemView.isAttachedToWindow) {
+                    attachmentImage?.let { ChatAnimatedMedia.update(it, true) }
+                }
+            }
+        }
+
         fun bind(message: ChatMessage) {
             val withdrawn = message.deletedAt != null
             val attachment = message.attachments.firstOrNull().takeUnless { withdrawn }
             attachmentCard?.visibility = if (attachment == null) View.GONE else View.VISIBLE
             attachmentImage?.apply {
+                // Cancel the old target while its attachment tag still identifies its ownership.
+                ChatAnimatedMedia.clear(this)
                 tag = attachment?.attachmentId
-                setImageDrawable(null)
-                visibility = if (attachment?.type in listOf("IMAGE", "GIF")) View.VISIBLE else View.GONE
+                visibility = if (attachment?.type in listOf("IMAGE", "GIF", "STICKER")) View.VISIBLE else View.GONE
                 if (visibility == View.VISIBLE) onAttachmentPreview?.invoke(message, this)
             }
             attachmentName?.text = attachment?.filename.orEmpty()
@@ -82,7 +115,7 @@ class ChatAdapter(
                 } else size
             }.orEmpty()
             attachmentOpen?.apply {
-                setText(if (attachment?.type == "VOICE") R.string.chat_voice_listen else if (attachment?.type in listOf("IMAGE", "GIF")) R.string.chat_media_open else R.string.chat_media_download)
+                setText(if (attachment?.type == "VOICE") R.string.chat_voice_listen else if (attachment?.type in listOf("IMAGE", "GIF", "STICKER")) R.string.chat_media_open else R.string.chat_media_download)
                 setOnClickListener(if (attachment == null) null else View.OnClickListener { onAttachmentOpen?.invoke(message) })
             }
             messageText.visibility = if (!withdrawn && message.text.isBlank() && attachment != null) View.GONE else View.VISIBLE
