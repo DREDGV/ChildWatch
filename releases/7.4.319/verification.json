@@ -1,0 +1,47 @@
+{
+  "version": "7.4.319",
+  "versionCode": 2000000319,
+  "sourceCommit": "996c8521c67a09c0d94f6f13efeb5d4289b66ef0",
+  "apps": {
+    "child": {
+      "packageName": "ru.example.parentwatch.debug",
+      "versionCode": 2000000319,
+      "versionName": "7.4.319-debug",
+      "buildType": "debug",
+      "sizeBytes": 38984092,
+      "sha256": "c20a218bb11c2ef030881d5be6617143a93d4f7f2639e076ffb8ec87605903ce",
+      "file": "ChildDevice-7.4.319-debug.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": ""
+    },
+    "parent": {
+      "packageName": "ru.example.childwatch",
+      "versionCode": 2000000319,
+      "versionName": "7.4.319",
+      "buildType": "debug",
+      "sizeBytes": 45824630,
+      "sha256": "1456cee5538d607789dea29e4a535508a43354673c0d1660f8ea891c7cb587b1",
+      "file": "ParentMonitor-7.4.319.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": ""
+    }
+  },
+  "serverPayloadFiles": 6,
+  "serverRuntimeFiles": 3,
+  "literalDependencies": 46,
+  "baselineUnchangedFilesChecked": 67,
+  "transcriptionEnabled": false,
+  "installed": false,
+  "serverPublished": false,
+  "otaPublished": false,
+  "archives": {
+    "ota-7.4.319.zip": {
+      "sha256": "6ed2c7af16ea9fc492cc34dbd030eeeee0829196d74074c4ff7274206f680852",
+      "sizeBytes": 59196968
+    },
+    "server-patch-7.4.319.zip": {
+      "sha256": "e55d96c6d30790f6bf6abfbefa4cdb9ed3e2aa4d0c59e24c947cd9527574f9b8",
+      "sizeBytes": 33180
+    }
+  }
+}

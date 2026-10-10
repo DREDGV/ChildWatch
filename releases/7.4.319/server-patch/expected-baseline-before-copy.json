@@ -1,0 +1,281 @@
+{
+  "version": "7.4.308",
+  "files": [
+    {
+      "path": "server/assets/chat-catalog/v1/README.md",
+      "sha256": "90a4a52a067fd610b9dd5d6cbb6748764b7ef734aad945b14e17151c0a90cb6c"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/artwork-provenance.json",
+      "sha256": "936495cf695e6c38793af77fe8b98acad9fb194e094038296669f3725179d3af"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/catalog.json",
+      "sha256": "fea96154d9f0ea41704df3c79475673d33af037bcb19c563e10afd32b616ee38"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/great.png",
+      "sha256": "3ba6e59f901e27699e77933c498ca211a4e48ed5a571f44bd5acf7bd7a24616b"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/heart-pulse.gif",
+      "sha256": "346764cc097afa70f93796b86960ea290bcbe2285ca5ac28233f1814c6d6b3cf"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/hello-wave.gif",
+      "sha256": "bbabf69a85dc9d7bb726a72552ba4b1bd730ad38ac3be89304b14e4061019a2f"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/hello.png",
+      "sha256": "3b9c2d44e11b1f9dd10eae0f989ce9d82cbe1cbb6aaa8867017f8aff05ebf29d"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/home.png",
+      "sha256": "fd0f3b13c238ae65ecbc3cb3f9430c5fd70b13d3c0e9903228bf19cd5dc168ec"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/hug.png",
+      "sha256": "1b6f04330d28ced00214cd2e88eba4830126376d7051c478e6f40b13516ae182"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/love.png",
+      "sha256": "86d195d85073ec7ad35e50f657beae95f61e9ca458211e51b97809331d3390f4"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/miss.png",
+      "sha256": "604301b3dff71579c5a6f4569727963edf876ae44efaf1cbea539dcff6bae479"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/night.png",
+      "sha256": "c6246c11e669f15a7496a460a76a378b3ad6f26ed6a2711ab1cebc41025e3dbb"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/okay.png",
+      "sha256": "418e948b01e3c64f5ebaf82a269cace36cc85679245107f908d7d153eb4a6fb5"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/pickup.png",
+      "sha256": "a35f6f7b83283a3889d4f6afec996f018c72087ca3a9202236e40c7e136dccb4"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/play.png",
+      "sha256": "1dea1dd3e38cf1644087a54ea0899baff6daebe6f8bc4256fba2b3ddae9790cf"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/thanks.png",
+      "sha256": "cbf94f8de59cfcd850cf2913f31de5283f3c9cb624c0be2d4c4c7033bcb6d418"
+    },
+    {
+      "path": "server/assets/chat-catalog/v1/way.png",
+      "sha256": "ba908bcab710f617a921108f4e7abe05abeb8315196fb5a0762f561f853c6199"
+    },
+    {
+      "path": "server/auth/AuthManager.js",
+      "sha256": "118952b79bc7d2448a0c4d5c7af2cb26a34231f94ee2b2607a026fec6d546ac9"
+    },
+    {
+      "path": "server/database/DatabaseManager.js",
+      "sha256": "7937d4bfb6e644b0efa56f827c2e52386329595f4dce2c9656862c3557ab3bb8"
+    },
+    {
+      "path": "server/index.js",
+      "sha256": "8b01a7e067b7ddc214b0347ae886b63ea984dd1d3e700b62c5dc17ba1ffa54b1"
+    },
+    {
+      "path": "server/managers/AttentionSignalManager.js",
+      "sha256": "d9d029ab9fef4855363f2229d1002f59830f734d992351dce2a5c3b2af295e12"
+    },
+    {
+      "path": "server/managers/CommandManager.js",
+      "sha256": "25cfa947f8cec8c8cc0c5c00ea06e5c9fcfb6fc4703b83094c36b3233f0bc6a8"
+    },
+    {
+      "path": "server/managers/WebSocketManager.js",
+      "sha256": "898ef0f56e9a1f39abf3ffe0a5f2fdc6d8f5ce2488b6dcbc0e2ccab00e0e3816"
+    },
+    {
+      "path": "server/middleware/AuthMiddleware.js",
+      "sha256": "0e9212fca52468b2a1d52e2edd51ef04f9980294182b6c2a58f62fb9c945a4ac"
+    },
+    {
+      "path": "server/middleware/SocketAuthMiddleware.js",
+      "sha256": "46c2cd940477a4b0e95d6bbec71297b10e51ddb459fa45b2ccc3e5c40db1fed6"
+    },
+    {
+      "path": "server/package-lock.json",
+      "sha256": "f62f75bb7629edfe0cbee1b2ce88db5746b31d82e59171028ebe64afb02c5936"
+    },
+    {
+      "path": "server/package.json",
+      "sha256": "65c4701a4fe6887cd44a2677d72ae0613af5ba9231c0ffaffb15984acc7f718b"
+    },
+    {
+      "path": "server/routes/alerts.js",
+      "sha256": "c57050d9fe23811d32dd88c58c127718d5047e3677b91ed242d4a6f3be649eda"
+    },
+    {
+      "path": "server/routes/avatars.js",
+      "sha256": "fcdcce031bc2f2de31b40a32ed19d4782778d1b0fea2a22e2fd92a7a443af42c"
+    },
+    {
+      "path": "server/routes/chat-attachments.js",
+      "sha256": "8cdcfce557b59876597fa36647565e1bddb054323f4e2033cf7903129556fd1b"
+    },
+    {
+      "path": "server/routes/chat-media-catalog.js",
+      "sha256": "6bbf289e67545a78afceebf21ce327af1d2902c6b4eff353cdf1df180691153d"
+    },
+    {
+      "path": "server/routes/chat-transcriptions.js",
+      "sha256": "500565ecfe844959e6e88834aded644467913fc99d5c42a4d0b5fb4aedc8f270"
+    },
+    {
+      "path": "server/routes/chat-v2.js",
+      "sha256": "d295a93797094b73e06689de1046a8ad1b7c71cb7778320533a335023c8231fe"
+    },
+    {
+      "path": "server/routes/chat.js",
+      "sha256": "8b5637be43475785e8d8573fe977bb39fabe215845c042dd20b9ee7d8592be84"
+    },
+    {
+      "path": "server/routes/debug.js",
+      "sha256": "5f7e251c3e548043b1e4aa88b9df821c81e6e1c85c3bc919f7de96b4b16be9f5"
+    },
+    {
+      "path": "server/routes/families.js",
+      "sha256": "98009da4b1dd0119bd54cfb1444a3590fa1ec7cbfff5c62f60616bf8134c3150"
+    },
+    {
+      "path": "server/routes/family-onboarding.js",
+      "sha256": "67394277d48eba798c067cb100952002ab5edfc2f0f105b9a3e4004d76fbbd42"
+    },
+    {
+      "path": "server/routes/family-places.js",
+      "sha256": "d49db0d1a1a946a87f22f5df44c404dd022ca6b0fd343ba443fbf2d0b3a2dc05"
+    },
+    {
+      "path": "server/routes/location.js",
+      "sha256": "ee4283046e158e9602b5b539bd98d2f2406a74822651f26e7c92a635f165d836"
+    },
+    {
+      "path": "server/routes/me.js",
+      "sha256": "10ac212a728e24a1c15823e360f508ef9404fe821b8fc57052d9428226716400"
+    },
+    {
+      "path": "server/routes/media.js",
+      "sha256": "84316cbe72ea47c78a6e1fb484ffb387e47202eb6be7a3de898639c4eb5640d7"
+    },
+    {
+      "path": "server/routes/pickups.js",
+      "sha256": "b090d4f48608e162bda422800a28a85abeeb294229870159239322629f41c3d7"
+    },
+    {
+      "path": "server/routes/streaming.js",
+      "sha256": "c3976219c67bbd1569a0e43add771fff8c80255cfd510515e3424db29e71ccb4"
+    },
+    {
+      "path": "server/routes/updates.js",
+      "sha256": "3d8f26da1a14c48b88591bf040963fb96ae0e985b4eb619ff10f2e22b65fb5fe"
+    },
+    {
+      "path": "server/scripts/benchmark-chat-transcription.js",
+      "sha256": "b9eaadbe03238b3694fff96a4c80069513702d5cf6e96dff7b12a8b7411ec019"
+    },
+    {
+      "path": "server/scripts/transcription-exec-guard.py",
+      "sha256": "36768014aae66f4db3ed01586c34551646ddc6edf9b7a56b8aeefe7a43d2db4f"
+    },
+    {
+      "path": "server/services/AppUsageDailyArchiveService.js",
+      "sha256": "1fcfb51663c7baea7709327eb7d3a166c8e9fdbdc7e853d5bb3b1eae3cbde909"
+    },
+    {
+      "path": "server/services/AvatarPresetCatalog.js",
+      "sha256": "2bce40587b89024c3e526f3dfedea4deaabc9474d8bda12aef693dcff706a3f9"
+    },
+    {
+      "path": "server/services/ChatAttachmentStore.js",
+      "sha256": "d913bed8b7f69e6e1cc2eca30f5f6eb16eaf8b28d0f13ff571b6962aba1fbe93"
+    },
+    {
+      "path": "server/services/ChatConversationService.js",
+      "sha256": "e5dce74b4299fc3b766b8ce9d8e22638de19e1266acceaa1e6b2ef4ea245dbcb"
+    },
+    {
+      "path": "server/services/ChatMediaCatalog.js",
+      "sha256": "b753569fe4a08a6aa14c0587541dec72e338d6541da98fcbeb86a3c74c7b8195"
+    },
+    {
+      "path": "server/services/ChatTranscriptionRunner.js",
+      "sha256": "0258785306013808debd0f9ad9959538c2e2d69976d19c3653dc9bac4a1134b5"
+    },
+    {
+      "path": "server/services/ChatTranscriptionService.js",
+      "sha256": "84855c2a10c509721a921d4104609528bc58f324ec0247bdd9a92fa076af7a06"
+    },
+    {
+      "path": "server/services/ChatV2SocketService.js",
+      "sha256": "710998c1b10213ce056846e6d1526afb88a5745e254f43eb1d72436582622597"
+    },
+    {
+      "path": "server/services/DeviceAccessService.js",
+      "sha256": "79b8b035363673ea02f60608f2e0bdbedf3623a04a4480e73f0d824b96331b65"
+    },
+    {
+      "path": "server/services/DeviceStatusReadService.js",
+      "sha256": "efe6b86dd3ffdd357f83cb5d594d1fc167f32d961c5edde080fb9289b05a4a4c"
+    },
+    {
+      "path": "server/services/FamilyBatterySnapshot.js",
+      "sha256": "a35cd33932799094312b77f5a2e00308a3ba596374c4291f7a99b62ebeed3cce"
+    },
+    {
+      "path": "server/services/FamilyHistoryPageStore.js",
+      "sha256": "7a02acd5127df6d14192f81fbab9d37051018ccc07e7b85160baef944af71d65"
+    },
+    {
+      "path": "server/services/FamilyIdentityService.js",
+      "sha256": "46e3c9871d558b027fd52dbf990e830291140bac07eb5ed37fcb22d870bf368a"
+    },
+    {
+      "path": "server/services/FamilyOnboardingService.js",
+      "sha256": "677a0f7d107c119855e37ca011b7748b7aa9707eec247c1200141a0810aa2c5b"
+    },
+    {
+      "path": "server/services/FamilyPermissionService.js",
+      "sha256": "1a3e649da98b93c18f78556c35765888c7f9b5f605be339cc9e4ad98a1ce70f6"
+    },
+    {
+      "path": "server/services/FamilyPickupService.js",
+      "sha256": "27f5190a7cace75abb020195ad7a7d97e9cb561a9fcd9e87564e6d3a21ca6031"
+    },
+    {
+      "path": "server/services/FamilyPlacePresencePolicy.js",
+      "sha256": "d9a445e5c572e87a38bc5ffcdf1925ab6b47e21737410ef3e1d239a5861a8710"
+    },
+    {
+      "path": "server/services/FamilyPlacesService.js",
+      "sha256": "bb4b008ff9fb6bea0482cd216e2f0ff7c4cfdc4435278d5a7a6d0b4339ec2257"
+    },
+    {
+      "path": "server/services/LocationMotionStore.js",
+      "sha256": "f0c91964054f1aa9d094d06807f8c2bc5d5939e46d1e847798386a46fe89dce7"
+    },
+    {
+      "path": "server/services/LocationRetention.js",
+      "sha256": "76053c4f6c1a47ad4398afcbf362463a0701d0a030841e7b755a56a7ccffb9b7"
+    },
+    {
+      "path": "server/services/PhotoDeliveryStore.js",
+      "sha256": "f77b3c01bb7efa71f74305d55af1ee2d0a6a174fbf1f573dba03e40faa190f47"
+    },
+    {
+      "path": "server/validators/DataValidator.js",
+      "sha256": "1968d12afdf3ecd8e52dce52f422dda04e4c35aca489393908c38c5acf3393eb"
+    },
+    {
+      "path": "server/working-server.js",
+      "sha256": "65d41dffc1a7436bd516f7d33e3648e23b9056b680107b1b9a2b31bf5c3fd211"
+    }
+  ]
+}

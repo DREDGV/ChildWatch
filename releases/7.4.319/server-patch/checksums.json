@@ -1,0 +1,45 @@
+{
+  "formatVersion": 1,
+  "candidateVersion": "7.4.319",
+  "sourceCommit": "996c8521c67a09c0d94f6f13efeb5d4289b66ef0",
+  "baselineVersion": "7.4.308",
+  "transcriptionEnabled": false,
+  "files": [
+    {
+      "path": "server/index.js",
+      "role": "runtime",
+      "sizeBytes": 57820,
+      "sha256": "e55ff04a6120735253683efa155eb1441e004517583286a849548ae77d5acabd"
+    },
+    {
+      "path": "server/routes/chat-v2.js",
+      "role": "runtime",
+      "sizeBytes": 9164,
+      "sha256": "6dc7a6729bf942e8d4d17187c7475462de44b1f0511af5f34e51a9e9d7d70895"
+    },
+    {
+      "path": "server/services/ChatPresenceService.js",
+      "role": "runtime",
+      "sizeBytes": 3654,
+      "sha256": "90e7a5d4a079d7a2f6e01ce978574957ea37c2a5fb1872b54ef600a12aead0f2"
+    },
+    {
+      "path": "server/__tests__/chat-presence.test.js",
+      "role": "isolated-tests",
+      "sizeBytes": 4189,
+      "sha256": "153c3dc1758476f54eb9f66ea7ac5ecebb29f0c5efa5c25727b61512ee414269"
+    },
+    {
+      "path": "server/__tests__/chat-v2-routes.test.js",
+      "role": "isolated-tests",
+      "sizeBytes": 18845,
+      "sha256": "334f0dcbf9d294516c792dac969a74897902143bd34ca7d9846b0a81223a4109"
+    },
+    {
+      "path": "server/__tests__/chat-group-conversation.test.js",
+      "role": "isolated-tests",
+      "sizeBytes": 13037,
+      "sha256": "b8017b718af49f1f21c0c163fddd8c5e424291ed88b547a41bf184ddc5134ddf"
+    }
+  ]
+}
