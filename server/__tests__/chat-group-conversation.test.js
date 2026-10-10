@@ -92,10 +92,7 @@ describe("group conversations", () => {
     expect(conversation.title).toBe("Школа");
     expect(conversation.createdByMemberId).toBe(first);
     // The family conversation holds everybody; this group must not.
-    expect(await db.getGroupConversationMemberIds(conversation.id)).toEqual([
-      first,
-      second,
-    ]);
+    expect((await db.getGroupConversationMemberIds(conversation.id)).sort()).toEqual([first, second].sort());
     expect(await db.getFamilyAdminMemberId(family.id)).toBeTruthy();
   });
 
@@ -161,28 +158,27 @@ describe("group conversations", () => {
     const second = memberByDevice.get(parentTwo);
     const third = memberByDevice.get(child);
 
-    const conversation = await db.createGroupConversation({
-      familyId: family.id,
-      title: "Кружок",
-      memberIds: [first, second],
-      createdByMemberId: first,
-    });
+    // Membership is a set. Equal join timestamps legitimately tie-break on random member IDs.
+    const clock = jest.spyOn(Date, "now").mockReturnValue(Date.now());
+    try {
+      const conversation = await db.createGroupConversation({
+        familyId: family.id,
+        title: "Кружок",
+        memberIds: [first, second],
+        createdByMemberId: first,
+      });
 
-    expect(
-      await db.addGroupConversationMembers(conversation.id, [third])
-    ).toEqual([first, second, third]);
-    // Adding somebody twice is not an error and does not duplicate the seat.
-    expect(await db.addGroupConversationMembers(conversation.id, [third])).toEqual(
-      [first, second, third]
-    );
+      expect((await db.addGroupConversationMembers(conversation.id, [third])).sort())
+        .toEqual([first, second, third].sort());
+      // Adding somebody twice is not an error and does not duplicate the seat.
+      expect((await db.addGroupConversationMembers(conversation.id, [third])).sort())
+        .toEqual([first, second, third].sort());
 
-    expect(await db.removeGroupConversationMember(conversation.id, second)).toEqual(
-      [first, third]
-    );
-    expect(await db.getGroupConversationMemberIds(conversation.id)).toEqual([
-      first,
-      third,
-    ]);
+      expect((await db.removeGroupConversationMember(conversation.id, second)).sort())
+        .toEqual([first, third].sort());
+      expect((await db.getGroupConversationMemberIds(conversation.id)).sort())
+        .toEqual([first, third].sort());
+    } finally { clock.mockRestore(); }
   });
 
   test("the family chat and a direct chat reject a chosen membership", async () => {
