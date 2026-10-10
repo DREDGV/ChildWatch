@@ -106,6 +106,25 @@ class ChatAdapter(
                 visibility = if (attachment?.type in listOf("IMAGE", "GIF", "STICKER")) View.VISIBLE else View.GONE
                 if (visibility == View.VISIBLE) onAttachmentPreview?.invoke(message, this)
             }
+            val emotion = attachment?.type in listOf("GIF", "STICKER")
+            val density = itemView.resources.displayMetrics.density
+            attachmentCard?.apply {
+                setBackgroundColor(if (emotion) android.graphics.Color.TRANSPARENT else context.getColor(R.color.cw_color_primary_container))
+                val pad = if (emotion) 0 else (12 * density).toInt()
+                setPadding(pad, pad, pad, pad)
+                minimumWidth = if (emotion) 0 else (160 * density).toInt()
+            }
+            attachmentImage?.apply {
+                scaleType = if (emotion) android.widget.ImageView.ScaleType.FIT_CENTER else android.widget.ImageView.ScaleType.CENTER_CROP
+                layoutParams = layoutParams.apply { height = ((if (emotion) 200 else 150) * density).toInt() }
+                contentDescription = attachment?.filename ?: context.getString(R.string.chat_media_preview)
+                setOnClickListener(if (attachment == null) null else View.OnClickListener { onAttachmentOpen?.invoke(message) })
+            }
+            attachmentName?.visibility = if (emotion) View.GONE else View.VISIBLE
+            attachmentMeta?.visibility = if (emotion) View.GONE else View.VISIBLE
+            attachmentOpen?.visibility = if (emotion) View.GONE else View.VISIBLE
+            timestampText.setTextColor(itemView.context.getColor(R.color.cw_color_on_surface_variant))
+            senderText?.setTextColor(itemView.context.getColor(R.color.cw_color_on_surface_variant))
             attachmentName?.text = attachment?.filename.orEmpty()
             attachmentMeta?.text = attachment?.let {
                 val size = android.text.format.Formatter.formatShortFileSize(itemView.context, it.sizeBytes)

@@ -38,7 +38,8 @@ public final class ChatAnimatedMedia {
         AtomicBoolean ended = new AtomicBoolean();
         Runnable finish = () -> { if (ended.compareAndSet(false, true)) finished.run(); };
         Glide.with(view).asDrawable().load(file).override(384, 384)
-            .diskCacheStrategy(DiskCacheStrategy.NONE).skipMemoryCache(true).dontAnimate()
+            // Glide 4 dontAnimate() disables GIF decoding itself, not only transitions.
+            .diskCacheStrategy(DiskCacheStrategy.NONE).skipMemoryCache(true)
             .into(new CustomViewTarget<ImageView, Drawable>(view) {
                 @Override public void onResourceReady(@NonNull Drawable value, @Nullable Transition<? super Drawable> transition) {
                     if (view.getTag(R.id.chat_animated_media_binding) == binding && current.getAsBoolean()) {

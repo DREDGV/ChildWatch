@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="chat_media_attach">Прикрепить</string>
-    <string name="chat_media_photo">Изображение</string>
-    <string name="chat_media_file">Файл · оригинал</string>
+    <string name="chat_media_photo">Фото</string>
+    <string name="chat_media_file">Документ</string>
+    <string name="chat_media_audio">Аудио</string>
     <string name="chat_media_preview">Предпросмотр изображения</string>
     <string name="chat_media_remove">Убрать</string>
     <string name="chat_media_cancel">Отменить отправку</string>

@@ -8,8 +8,10 @@ android {
 
     defaultConfig {
         minSdk 26
+        targetSdk 34
         testInstrumentationRunner 'androidx.test.runner.AndroidJUnitRunner'
     }
+    sourceSets.androidTest.assets.srcDir(rootProject.file('server/assets/chat-catalog/v1'))
 }
 
 dependencies {

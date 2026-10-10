@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.ChatFixture" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/cw_color_primary</item>
+        <item name="colorOnPrimary">@color/cw_color_on_primary</item>
+        <item name="colorSurface">@color/cw_color_surface</item>
+        <item name="colorOnSurface">@color/cw_color_on_surface</item>
+    </style>
+</resources>

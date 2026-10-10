@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="chat_catalog_title">Стикеры и GIF</string>
+    <string name="chat_catalog_title">Эмоции</string>
+    <string name="chat_catalog_emoji">Смайлы</string>
     <string name="chat_catalog_stickers">Стикеры</string>
     <string name="chat_catalog_gifs">GIF</string>
     <string name="chat_catalog_loading">Загружаем семейный набор…</string>
-    <string name="chat_catalog_hint">Выберите картинку. Отправка — обычной кнопкой в чате.</string>
+    <string name="chat_catalog_hint">Выберите эмоцию для сообщения</string>
     <string name="chat_catalog_animate">Анимировать GIF</string>
     <string name="chat_catalog_retry">Повторить загрузку</string>
     <string name="chat_catalog_failed">Набор недоступен. Проверьте соединение и повторите.</string>
