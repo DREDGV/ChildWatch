@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical" android:background="@color/cw_color_background">
+    <ScrollView android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" android:fillViewport="true">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="20dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/nearby_probe_title" android:textSize="24sp" android:textStyle="bold" android:textColor="@color/cw_color_on_background" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="@string/nearby_probe_intro" android:textSize="16sp" android:textColor="@color/cw_color_on_surface_variant" />
+            <com.google.android.material.checkbox.MaterialCheckBox android:id="@+id/probeAllowed" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:layout_marginTop="12dp" android:text="@string/nearby_probe_allow" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/nearby_probe_privacy" android:textSize="14sp" android:textColor="@color/cw_color_on_surface_variant" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/probePermissions" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:layout_marginTop="12dp" android:text="@string/nearby_probe_permissions" android:textAllCaps="false" style="@style/Widget.ParentWatch.Button.Outlined" />
+            <com.google.android.material.checkbox.MaterialCheckBox android:id="@+id/probeActiveWifi" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/nearby_probe_active_wifi" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/probeScan" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/nearby_probe_scan" android:textAllCaps="false" style="@style/Widget.ChildWatch.Button.Primary" />
+            <TextView android:id="@+id/probeStatus" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:text="@string/nearby_probe_off" android:textSize="16sp" android:textColor="@color/cw_color_on_background" android:accessibilityLiveRegion="polite" />
+            <TextView android:id="@+id/probeCooldown" android:layout_width="match_parent" android:layout_height="wrap_content" android:textSize="14sp" android:textColor="@color/cw_color_on_surface_variant" android:visibility="gone" />
+            <ProgressBar android:id="@+id/probeProgress" style="?android:attr/progressBarStyleHorizontal" android:layout_width="match_parent" android:layout_height="wrap_content" android:indeterminate="true" android:visibility="gone" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/probeCancel" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/nearby_probe_cancel" android:textAllCaps="false" android:visibility="gone" style="@style/Widget.ParentWatch.Button.Outlined" />
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="@string/nearby_probe_limits" android:textSize="14sp" android:textColor="@color/cw_color_on_surface_variant" />
+            <LinearLayout android:id="@+id/probeResults" android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:layout_marginTop="16dp" />
+        </LinearLayout>
+    </ScrollView>
+    <com.google.android.material.button.MaterialButton android:id="@+id/probeClose" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginHorizontal="20dp" android:layout_marginBottom="12dp" android:minHeight="48dp" android:text="@string/nearby_probe_close" android:textAllCaps="false" style="@style/Widget.ParentWatch.Button.Outlined" />
+</LinearLayout>

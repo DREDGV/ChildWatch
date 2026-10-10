@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nearby_probe_title">Проверка окружения</string>
+    <string name="nearby_probe_intro">Однократный поиск Wi-Fi и доступных Bluetooth-сигналов на этом телефоне. Проверка длится не более 15 секунд, повтор — не чаще раза в минуту.</string>
+    <string name="nearby_probe_allow">Разрешить локальную проверку на этом телефоне</string>
+    <string name="nearby_probe_privacy">Результаты остаются на этом экране и не отправляются в семью. Выключение разрешения очищает список. Этот выбор пока не разрешает удалённое сканирование.</string>
+    <string name="nearby_probe_permissions">Предоставить разрешения Android</string>
+    <string name="nearby_probe_active_wifi">Запросить свежий поиск Wi-Fi, если Android разрешит</string>
+    <string name="nearby_probe_scan">Проверить окружение</string>
+    <string name="nearby_probe_cancel">Остановить проверку</string>
+    <string name="nearby_probe_close">Закрыть</string>
+    <string name="nearby_probe_off">Локальная проверка выключена.</string>
+    <string name="nearby_probe_ready">Можно начать проверку. Автоматического поиска нет.</string>
+    <string name="nearby_probe_permission_hint">Для доступных результатов предоставьте разрешения Android. Без них соответствующий источник будет отмечен отдельно.</string>
+    <string name="nearby_probe_scanning">Проверяем окружение — до 15 секунд…</string>
+    <string name="nearby_probe_done">Проверка завершена. Ниже — результаты и ограничения каждого источника.</string>
+    <string name="nearby_probe_failed">Проверка не завершилась. Проверьте разрешения и состояние радиомодулей, затем повторите.</string>
+    <string name="nearby_probe_cancelled">Проверка остановлена. Новый поиск начнётся только по нажатию.</string>
+    <string name="nearby_probe_limits">Не все устройства передают обнаруживаемый сигнал. Имя сигнала не указывает владельца, а его сила — точное расстояние. Телефон не подключается к найденным устройствам и сетям.</string>
+    <string name="nearby_probe_screen_off">Во время проверки экран был выключен. Android может приостановить Bluetooth-поиск: список не доказывает отсутствие устройств.</string>
+    <string name="nearby_probe_cooldown">Повторный поиск доступен примерно через %1$d сек.</string>
+    <string name="nearby_source_wifi">Wi-Fi</string>
+    <string name="nearby_source_classic">Bluetooth Classic</string>
+    <string name="nearby_source_ble">Bluetooth LE</string>
+    <string name="nearby_state_cooldown">Повторный поиск пока ограничен. Подождите минуту от предыдущего запуска.</string>
+    <string name="nearby_state_permission">Android не предоставил необходимые разрешения.</string>
+    <string name="nearby_state_radio_off">Радиомодуль выключен. Список не обновлялся.</string>
+    <string name="nearby_state_location_off">На телефоне выключено определение местоположения, необходимое Android для этого поиска.</string>
+    <string name="nearby_state_unsupported">Этот источник недоступен на телефоне.</string>
+    <string name="nearby_state_not_started">Новый поиск не запущен: Android отказал или источник занят. Сохранённые результаты ниже имеют прежний возраст.</string>
+    <string name="nearby_state_bt_busy">Bluetooth занят обнаружением или соединением. Чтобы не мешать ему, новый поиск не запущен.</string>
+    <string name="nearby_state_bt_unknown">Не удалось проверить, занят ли Bluetooth соединением. Поиск пропущен, чтобы не прервать его работу.</string>
+    <string name="nearby_state_ready">Есть результаты наблюдения. Их возраст указан отдельно.</string>
+    <string name="nearby_state_empty">Обнаруживаемых сигналов не получено. Это не доказывает отсутствие устройств.</string>
+    <string name="nearby_state_stale">Свежих результатов нет. Показаны только прежние наблюдения.</string>
+    <string name="nearby_signal_unknown">Неизвестное имя</string>
+    <string name="nearby_age_unknown">время наблюдения неизвестно</string>
+    <string name="nearby_age_seconds">наблюдалось %1$d сек. назад</string>
+    <string name="nearby_age_stale">устарело · %1$d сек. назад</string>
+    <string name="nearby_signal_detail">Сигнал %1$d дБм · %2$s</string>
+</resources>

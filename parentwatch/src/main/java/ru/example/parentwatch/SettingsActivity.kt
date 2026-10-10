@@ -336,6 +336,9 @@ class SettingsActivity : AppCompatActivity() {
         binding.assistantRecoveryButton.setOnClickListener {
             startActivity(Intent(this, ru.example.parentwatch.debug.AssistantPilotControlActivity::class.java))
         }
+        binding.nearbyProbeButton.setOnClickListener {
+            startActivity(Intent(this, ru.example.parentwatch.nearby.NearbySignalsProbeActivity::class.java))
+        }
         updatePermissionsSummary()
 
         // Service controls
