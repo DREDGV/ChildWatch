@@ -1,0 +1,62 @@
+{
+    "bytes":  2331404,
+    "files":  50,
+    "catalog":  [
+                    "assets/chat-catalog/v1/artwork-provenance.json",
+                    "assets/chat-catalog/v1/catalog.json",
+                    "assets/chat-catalog/v1/great.png",
+                    "assets/chat-catalog/v1/heart-pulse.gif",
+                    "assets/chat-catalog/v1/hello-wave.gif",
+                    "assets/chat-catalog/v1/hello.png",
+                    "assets/chat-catalog/v1/home.png",
+                    "assets/chat-catalog/v1/hug.png",
+                    "assets/chat-catalog/v1/love.png",
+                    "assets/chat-catalog/v1/miss.png",
+                    "assets/chat-catalog/v1/night.png",
+                    "assets/chat-catalog/v1/okay.png",
+                    "assets/chat-catalog/v1/pickup.png",
+                    "assets/chat-catalog/v1/play.png",
+                    "assets/chat-catalog/v1/README.md",
+                    "assets/chat-catalog/v1/thanks.png",
+                    "assets/chat-catalog/v1/way.png"
+                ],
+    "tests":  [
+                  "chat-attachments.test.js",
+                  "chat-media-catalog.test.js",
+                  "chat-transcriptions.test.js",
+                  "chat-v2-routes.test.js",
+                  "chat-v2-socket.test.js",
+                  "chat-message-edit-delete.test.js",
+                  "location-access-control.test.js",
+                  "location-motion.node.cjs"
+              ],
+    "dependencyManifests":  [
+                                "package.json",
+                                "package-lock.json"
+                            ],
+    "runtime":  [
+                    "database/DatabaseManager.js",
+                    "index.js",
+                    "managers/WebSocketManager.js",
+                    "routes/chat-attachments.js",
+                    "routes/chat-media-catalog.js",
+                    "routes/chat-transcriptions.js",
+                    "routes/chat-v2.js",
+                    "routes/location.js",
+                    "scripts/benchmark-chat-transcription.js",
+                    "scripts/transcription-exec-guard.py",
+                    "services/ChatAttachmentStore.js",
+                    "services/ChatConversationService.js",
+                    "services/ChatMediaCatalog.js",
+                    "services/ChatTranscriptionRunner.js",
+                    "services/ChatTranscriptionService.js",
+                    "services/LocationMotionStore.js",
+                    "working-server.js",
+                    "managers/AttentionSignalManager.js",
+                    "routes/family-places.js",
+                    "services/AppUsageDailyArchiveService.js",
+                    "services/DeviceStatusReadService.js",
+                    "services/FamilyPlacePresencePolicy.js",
+                    "services/FamilyPlacesService.js"
+                ]
+}

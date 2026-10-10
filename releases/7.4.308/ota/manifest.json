@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "generatedAt": 1791639311808,
+  "generatedBy": "scripts\\stage-release.ps1",
+  "apps": {
+    "child": {
+      "packageName": "ru.example.parentwatch.debug",
+      "versionCode": 2000000308,
+      "versionName": "7.4.308-debug",
+      "buildType": "debug",
+      "sizeBytes": 38962240,
+      "sha256": "6081c00938e92a5227bc0a2c8251c99c649796ff41daab475b76fc3f1791eb9c",
+      "file": "ChildDevice-7.4.308-debug.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": "Тестовый выпуск: вложения, голосовые сообщения, стикеры и GIF; обновлена передача данных скорости, добавлена добровольная локальная проверка Wi-Fi/Bluetooth в настройках. Новые функции чата требуют обновлённого сервера. Данные сохраняются."
+    },
+    "parent": {
+      "packageName": "ru.example.childwatch",
+      "versionCode": 2000000308,
+      "versionName": "7.4.308",
+      "buildType": "debug",
+      "sizeBytes": 45802846,
+      "sha256": "0bdf3d10b18609d2632cb12957caaf8714364e17006d3359f91a2c17b80f1880",
+      "file": "ParentMonitor-7.4.308.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": "Тестовый выпуск: обновлены расчёт скорости, плавное движение карты и слежение; добавлены вложения, голосовые сообщения, собственные стикеры и GIF. Новые функции чата требуют обновлённого сервера. Данные сохраняются."
+    }
+  }
+}

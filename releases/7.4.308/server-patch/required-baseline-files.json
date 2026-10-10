@@ -1,0 +1,119 @@
+{
+  "note": "Referenced unchanged dependencies must exist in the approved existing server baseline; hashes describe current source for operator comparison, not a live-server verdict.",
+  "files": [
+    {
+      "path": "auth/AuthManager.js",
+      "sha256": "118952b79bc7d2448a0c4d5c7af2cb26a34231f94ee2b2607a026fec6d546ac9"
+    },
+    {
+      "path": "managers/CommandManager.js",
+      "sha256": "25cfa947f8cec8c8cc0c5c00ea06e5c9fcfb6fc4703b83094c36b3233f0bc6a8"
+    },
+    {
+      "path": "middleware/AuthMiddleware.js",
+      "sha256": "0e9212fca52468b2a1d52e2edd51ef04f9980294182b6c2a58f62fb9c945a4ac"
+    },
+    {
+      "path": "middleware/SocketAuthMiddleware.js",
+      "sha256": "46c2cd940477a4b0e95d6bbec71297b10e51ddb459fa45b2ccc3e5c40db1fed6"
+    },
+    {
+      "path": "routes/alerts.js",
+      "sha256": "c57050d9fe23811d32dd88c58c127718d5047e3677b91ed242d4a6f3be649eda"
+    },
+    {
+      "path": "routes/avatars.js",
+      "sha256": "fcdcce031bc2f2de31b40a32ed19d4782778d1b0fea2a22e2fd92a7a443af42c"
+    },
+    {
+      "path": "routes/chat.js",
+      "sha256": "8b5637be43475785e8d8573fe977bb39fabe215845c042dd20b9ee7d8592be84"
+    },
+    {
+      "path": "routes/debug.js",
+      "sha256": "5f7e251c3e548043b1e4aa88b9df821c81e6e1c85c3bc919f7de96b4b16be9f5"
+    },
+    {
+      "path": "routes/families.js",
+      "sha256": "98009da4b1dd0119bd54cfb1444a3590fa1ec7cbfff5c62f60616bf8134c3150"
+    },
+    {
+      "path": "routes/family-onboarding.js",
+      "sha256": "67394277d48eba798c067cb100952002ab5edfc2f0f105b9a3e4004d76fbbd42"
+    },
+    {
+      "path": "routes/me.js",
+      "sha256": "10ac212a728e24a1c15823e360f508ef9404fe821b8fc57052d9428226716400"
+    },
+    {
+      "path": "routes/media.js",
+      "sha256": "84316cbe72ea47c78a6e1fb484ffb387e47202eb6be7a3de898639c4eb5640d7"
+    },
+    {
+      "path": "routes/pickups.js",
+      "sha256": "b090d4f48608e162bda422800a28a85abeeb294229870159239322629f41c3d7"
+    },
+    {
+      "path": "routes/streaming.js",
+      "sha256": "c3976219c67bbd1569a0e43add771fff8c80255cfd510515e3424db29e71ccb4"
+    },
+    {
+      "path": "routes/updates.js",
+      "sha256": "3d8f26da1a14c48b88591bf040963fb96ae0e985b4eb619ff10f2e22b65fb5fe"
+    },
+    {
+      "path": "services/AvatarPresetCatalog.js",
+      "sha256": "2bce40587b89024c3e526f3dfedea4deaabc9474d8bda12aef693dcff706a3f9"
+    },
+    {
+      "path": "services/ChatV2SocketService.js",
+      "sha256": "710998c1b10213ce056846e6d1526afb88a5745e254f43eb1d72436582622597"
+    },
+    {
+      "path": "services/DeviceAccessService.js",
+      "sha256": "79b8b035363673ea02f60608f2e0bdbedf3623a04a4480e73f0d824b96331b65"
+    },
+    {
+      "path": "services/FamilyBatterySnapshot.js",
+      "sha256": "a35cd33932799094312b77f5a2e00308a3ba596374c4291f7a99b62ebeed3cce"
+    },
+    {
+      "path": "services/FamilyHistoryPageStore.js",
+      "sha256": "7a02acd5127df6d14192f81fbab9d37051018ccc07e7b85160baef944af71d65"
+    },
+    {
+      "path": "services/FamilyIdentityService.js",
+      "sha256": "46e3c9871d558b027fd52dbf990e830291140bac07eb5ed37fcb22d870bf368a"
+    },
+    {
+      "path": "services/FamilyOnboardingService.js",
+      "sha256": "677a0f7d107c119855e37ca011b7748b7aa9707eec247c1200141a0810aa2c5b"
+    },
+    {
+      "path": "services/FamilyPermissionService.js",
+      "sha256": "1a3e649da98b93c18f78556c35765888c7f9b5f605be339cc9e4ad98a1ce70f6"
+    },
+    {
+      "path": "services/FamilyPickupService.js",
+      "sha256": "27f5190a7cace75abb020195ad7a7d97e9cb561a9fcd9e87564e6d3a21ca6031"
+    },
+    {
+      "path": "services/LocationRetention.js",
+      "sha256": "76053c4f6c1a47ad4398afcbf362463a0701d0a030841e7b755a56a7ccffb9b7"
+    },
+    {
+      "path": "services/PhotoDeliveryStore.js",
+      "sha256": "f77b3c01bb7efa71f74305d55af1ee2d0a6a174fbf1f573dba03e40faa190f47"
+    },
+    {
+      "path": "validators/DataValidator.js",
+      "sha256": "1968d12afdf3ecd8e52dce52f422dda04e4c35aca489393908c38c5acf3393eb"
+    }
+  ],
+  "npmPackages": [
+    "express",
+    "multer",
+    "socket.io",
+    "sqlite3"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "versionCode": 2000000308,
+  "baseCommit": "fe3de61832007e277882d58bed49eab558a17c3b",
+  "note": "Pre-existing SecurePreferences source delta included in main APK; original dirty files preserved.",
+  "sourceDeltaPatchSha256": "7a1841b4ae433aef88cd87b55d615115e518d5478f2529ad6f9c0e5995c48b3f",
+  "sourceFile": {
+    "path": "app/src/main/java/ru/example/childwatch/utils/SecurePreferences.kt",
+    "sha256": "9cf425b5c4521e35bb70e0bbe19e795d34eb2a52e85e99d803857f0446bd58f9"
+  },
+  "preExistingRegressionTest": {
+    "path": "app/src/androidTest/java/ru/example/childwatch/utils/SecurePreferencesRemovalTest.kt",
+    "sha256": "f2b2df2f6c6802a51d4b0bf71898ad545d0b783039a839c60daee37dac600be9"
+  },
+  "instrumentationBuildReservation": 309,
+  "instrumentationMainApksInstalled": false,
+  "patchApplication": "git apply --unidiff-zero releases/7.4.308/source-delta.patch on baseCommit"
+}
