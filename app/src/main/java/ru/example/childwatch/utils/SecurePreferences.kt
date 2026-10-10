@@ -100,7 +100,7 @@ class SecurePreferences(
      */
     fun putString(key: String, value: String?) {
         if (value == null) {
-            prefs.edit().remove(key).apply()
+            remove(key)
             return
         }
         
@@ -269,10 +269,8 @@ class SecurePreferences(
      * Remove key
      */
     fun remove(key: String) {
-        prefs.edit().remove(key).apply()
-        if (isEncryptionEnabled() && isSensitiveKey(key)) {
-            prefs.edit().remove("enc_$key").apply()
-        }
+        // Clear both representations even when encryption is currently unavailable.
+        prefs.edit().remove(key).remove("enc_$key").apply()
     }
     
     /**
