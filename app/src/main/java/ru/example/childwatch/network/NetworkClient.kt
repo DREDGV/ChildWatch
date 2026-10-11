@@ -109,6 +109,30 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
         effectiveContextResolver.resolveFamilyId().orEmpty(), effectiveContextResolver.resolveSelfMemberId().orEmpty(),
         effectiveContextResolver.resolveOwnParentId())
 
+    /** A separate game connection retains TLS policy and the immutable owner's scope. */
+    fun familySnakeCredentials(scope: List<String>): ru.example.childwatch.designsystem.SnakeRealtimeBridge.Credentials {
+        check(android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) { "GAME_BACKGROUND_REQUIRED" }
+        val capabilities = familyGamesRequest(scope, "GET", "/capabilities", null)
+        if (capabilities.optJSONObject("realtime")?.optString("namespace") != "/family-games")
+            throw ru.example.childwatch.designsystem.GameOnlineBridge.Failure(501, "SNAKE_UNSUPPORTED")
+        if (gameIdentity() != scope)
+            throw ru.example.childwatch.designsystem.GameOnlineBridge.Failure(403, "GAME_CONTEXT_CHANGED")
+        val token = getAuthToken()?.takeIf(String::isNotBlank)
+            ?: throw ru.example.childwatch.designsystem.GameOnlineBridge.Failure(401, "GAME_AUTH_REQUIRED")
+        val captured = scope.toList()
+        val builder = client.newBuilder().callTimeout(0, TimeUnit.SECONDS).connectTimeout(10, TimeUnit.SECONDS)
+        builder.interceptors().clear()
+        builder.addInterceptor { chain ->
+            if (gameIdentity() != captured) throw IOException("GAME_CONTEXT_CHANGED")
+            val response = chain.proceed(chain.request())
+            if (gameIdentity() != captured) { response.close(); throw IOException("GAME_CONTEXT_CHANGED") }
+            response
+        }
+        val gameClient = builder.build()
+        return ru.example.childwatch.designsystem.SnakeRealtimeBridge.Credentials(
+            ensureHttpsUrl(scope[0]).trimEnd('/'), scope[1], scope[2], token, gameClient, gameClient)
+    }
+
     private fun checkGameScope(request: Request) {
         request.tag(GameRequestScope::class.java)?.let {
             if (it.identity.size != 4 || it.identity.any(String::isBlank) || gameIdentity() != it.identity)

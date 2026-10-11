@@ -12,6 +12,9 @@ import java.util.UUID;
 
 /** Explicit invitations, no implicit acceptance and no background game polling. */
 public class FamilyGameLobbyActivity extends GameScreen {
+    public static final String EXTRA_GAME_TYPE="gameType";
+    private String gameType="BATTLESHIP";
+    private boolean snake;
     private final Handler handler=new Handler(Looper.getMainLooper());
     private GameOnlineBridge.Client client;
     private LinearLayout matches;
@@ -21,8 +24,9 @@ public class FamilyGameLobbyActivity extends GameScreen {
     private com.google.android.material.button.MaterialButton invite,retry;
     private final Runnable tick=()->refresh();
     @Override public void onCreate(Bundle state){
-        super.onCreate(state);screen("Семейный Морской бой");client=new GameOnlineBridge.Client(this);
-        notice("Пригласите близкого. Каждый расставляет свой флот на своём телефоне; корабли соперника скрыты.");
+        super.onCreate(state);snake="SNAKE_COOP".equals(getIntent().getStringExtra(EXTRA_GAME_TYPE));gameType=snake?"SNAKE_COOP":"BATTLESHIP";
+        screen(snake?"Семейная Змейка":"Семейный Морской бой");client=new GameOnlineBridge.Client(this);
+        notice(snake?getString(R.string.cw_snake_online_help):"Пригласите близкого. Каждый расставляет свой флот на своём телефоне; корабли соперника скрыты.");
         invite=addButton("Пригласить в игру",true,this::choose);
         retry=addButton("Повторить отправку",false,()->{
             if(busy)return;busy=true;controls();client.retry(this::result);
@@ -41,8 +45,8 @@ public class FamilyGameLobbyActivity extends GameScreen {
         busy=true;controls();client.read("/capabilities",(json,error)->{
             busy=false;supported=false;
             if(error!=null){notice(GameOnlineBridge.explain(error));controls();return;}
-            JSONArray games=json.optJSONArray("games");if(games!=null)for(int i=0;i<games.length();i++)if("BATTLESHIP".equals(games.optString(i)))supported=true;
-            if(!supported){notice("Сервер пока не поддерживает Морской бой. Можно играть против компьютера.");controls();return;}
+            JSONArray games=json.optJSONArray("games");if(games!=null)for(int i=0;i<games.length();i++)if(gameType.equals(games.optString(i)))supported=true;
+            if(!supported){notice(snake?"Сервер пока не поддерживает семейную Змейку. Одиночная игра доступна без сети.":"Сервер пока не поддерживает Морской бой. Можно играть против компьютера.");controls();return;}
             loadMembers();
         });
     }
@@ -61,7 +65,7 @@ public class FamilyGameLobbyActivity extends GameScreen {
             new MaterialAlertDialogBuilder(this).setTitle("Пригласить "+names.get(index)+"?")
                 .setMessage("Приглашение появится в разделе «Игры» на его телефоне и будет доступно 15 минут.")
                 .setNegativeButton("Отмена",null).setPositiveButton("Пригласить",(confirm,w)->{
-                    try{JSONObject body=new JSONObject().put("gameId",UUID.randomUUID().toString()).put("type","BATTLESHIP").put("targetMemberId",others.get(index).getString("memberId"));
+                    try{JSONObject body=new JSONObject().put("gameId",UUID.randomUUID().toString()).put("type",gameType).put("targetMemberId",others.get(index).getString("memberId"));
                         busy=true;controls();client.write("/",body,this::result);
                     }catch(Exception error){notice("Не удалось подготовить приглашение.");}
                 }).show();
@@ -80,15 +84,15 @@ public class FamilyGameLobbyActivity extends GameScreen {
     private void showMatches(JSONArray rows){
         matches.removeAllViews();int count=0;
         if(rows!=null)for(int i=0;i<rows.length();i++){
-            JSONObject g=rows.optJSONObject(i);if(g==null||!"BATTLESHIP".equals(g.optString("type")))continue;
+            JSONObject g=rows.optJSONObject(i);if(g==null||!gameType.equals(g.optString("type")))continue;
             String status=g.optString("status"),id=g.optString("id");boolean host="X".equals(g.optString("myMark"));
             JSONObject peer=g.optJSONObject(host?"guest":"host");String name=peer==null?"Участник семьи":peer.optString("displayName","Участник семьи");
-            String state="INVITED".equals(status)?host?"Приглашение отправлено":"Приглашает сыграть":"SETUP".equals(status)?"Расстановка кораблей":"PLAYING".equals(status)?"Партия идёт":"Партия завершена";
+            String state="INVITED".equals(status)?host?"Приглашение отправлено":"Приглашает сыграть":"SETUP".equals(status)?snake?"Ожидает готовности игроков":"Расстановка кораблей":"PLAYING".equals(status)?"Партия идёт":"Партия завершена";
             matches.addView(label(name+"\n"+state,18));count++;
             if("INVITED".equals(status)){
                 if(!host)matches.addView(button("Принять приглашение",true,()->action(g,"ACCEPT")));
                 matches.addView(button(host?"Отменить приглашение":"Отклонить",false,()->action(g,host?"CANCEL":"DECLINE")));
-            }else matches.addView(button("Открыть поле",true,()->startActivity(new Intent(this,BattleshipActivity.class).putExtra("gameId",id))));
+            }else if(!snake||snakeCanOpen(status))matches.addView(button("Открыть поле",true,()->open(g)));
         }
         if(count==0)matches.addView(label("Пока нет партий. Пригласите участника семьи, чтобы сыграть вместе.",16));
     }
@@ -101,9 +105,15 @@ public class FamilyGameLobbyActivity extends GameScreen {
     private void result(JSONObject json,Exception error){
         busy=false;controls();notice(error==null?"Действие подтверждено.":GameOnlineBridge.explain(error));
         if(error==null&&json.optJSONObject("game")!=null){JSONObject g=json.optJSONObject("game");
-            if(active&&("SETUP".equals(g.optString("status"))||"PLAYING".equals(g.optString("status"))))
-                startActivity(new Intent(this,BattleshipActivity.class).putExtra("gameId",g.optString("id")));
+            if(active&&gameType.equals(g.optString("type"))&&("SETUP".equals(g.optString("status"))||"PLAYING".equals(g.optString("status"))))
+                open(g);
         }
         if(active)refresh();
+    }
+    private boolean snakeCanOpen(String status){return "SETUP".equals(status)||"PLAYING".equals(status)||"WON".equals(status)||"LOST".equals(status);}
+    private void open(JSONObject game){
+        if(!gameType.equals(game.optString("type"))){notice("Эта партия относится к другой игре. Откройте её через каталог игр.");return;}
+        if(snake&&!snakeCanOpen(game.optString("status"))){notice("Партия закрыта. Можно отправить новое приглашение.");return;}
+        startActivity(new Intent(this,snake?SnakeOnlineActivity.class:BattleshipActivity.class).putExtra("gameId",game.optString("id")));
     }
 }

@@ -37,9 +37,9 @@ public final class GameDetailsActivity extends AppCompatActivity {
         add(body,text(sea?R.string.cw_catalog_battleship_rules:snake?R.string.cw_catalog_snake_rules:R.string.cw_catalog_arkanoid_rules,16,false),8);
         MaterialButton solo=button(sea?R.string.cw_catalog_computer:R.string.cw_catalog_play,true);solo.setId(R.id.gameDetailsSolo);add(body,solo,24);
         solo.setOnClickListener(v->startActivity(new Intent(this,sea?BattleshipActivity.class:snake?SnakeActivity.class:ArcanoidActivity.class)));
-        if(sea){MaterialButton family=button(R.string.cw_catalog_family,false);family.setId(R.id.gameDetailsFamily);add(body,family,8);
-            family.setOnClickListener(v->startActivity(new Intent(this,FamilyGameLobbyActivity.class)));
-            add(body,text(R.string.cw_catalog_family_connection,14,false),8);
+        if(sea||snake){MaterialButton family=button(R.string.cw_catalog_family,false);family.setId(R.id.gameDetailsFamily);add(body,family,8);
+            family.setOnClickListener(v->startActivity(new Intent(this,FamilyGameLobbyActivity.class).putExtra(FamilyGameLobbyActivity.EXTRA_GAME_TYPE,snake?"SNAKE_COOP":"BATTLESHIP")));
+            add(body,text(snake?R.string.cw_snake_online_help:R.string.cw_catalog_family_connection,14,false),8);
         }
     }
     private TextView text(int res,int size,boolean bold){TextView v=new TextView(this);v.setText(res);v.setTextSize(size);v.setTextColor(ContextCompat.getColor(this,bold?R.color.cw_color_on_surface:R.color.cw_color_on_surface_variant));if(bold)v.setTypeface(v.getTypeface(),android.graphics.Typeface.BOLD);return v;}

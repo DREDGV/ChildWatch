@@ -10,7 +10,13 @@ import java.util.concurrent.Executors;
 
 /** Applications provide authenticated transport; UI never handles credentials. */
 public final class GameOnlineBridge {
-    public interface Host { String scopeKey(); JSONObject request(String method, String path, JSONObject body) throws Exception; }
+    public interface Host {
+        String scopeKey();
+        JSONObject request(String method, String path, JSONObject body) throws Exception;
+        default SnakeRealtimeBridge.Credentials snakeCredentials() throws Exception {
+            throw new Failure(501, "SNAKE_UNSUPPORTED");
+        }
+    }
     public static volatile Host host;
     public static class Failure extends Exception {
         public final int status;

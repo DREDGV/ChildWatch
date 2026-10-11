@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
-    <application>
+    <uses-permission android:name="android.permission.INTERNET" />
+    <application android:usesCleartextTraffic="true">
+        <activity android:name="ru.example.childwatch.designsystem.SnakeOnlineFixtureActivity" android:exported="false" android:screenOrientation="portrait" android:theme="@style/Theme.ChildWatch.Arcanoid" />
         <activity android:name="ru.example.childwatch.designsystem.SnakeFixtureActivity" android:exported="false" android:screenOrientation="portrait" android:theme="@style/Theme.ChildWatch.Arcanoid" />
         <activity android:name="ru.example.childwatch.designsystem.BattleshipFixtureActivity" android:exported="false" android:screenOrientation="portrait" android:theme="@style/Theme.ChildWatch.Arcanoid" />
         <activity android:name="ru.example.childwatch.designsystem.GamesFixtureActivity" android:exported="false" android:theme="@style/Theme.ChildWatch.Arcanoid" />

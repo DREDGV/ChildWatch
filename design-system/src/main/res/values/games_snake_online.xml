@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cw_snake_online_pause">Пауза</string>
+    <string name="cw_snake_online_pausing">Ставим общую игру на паузу…</string>
+    <string name="cw_snake_online_ready">Я готов</string>
+    <string name="cw_snake_online_buttons">Кнопки управления</string>
+    <string name="cw_snake_online_left">Повернуть налево</string>
+    <string name="cw_snake_online_up">Повернуть вверх</string>
+    <string name="cw_snake_online_down">Повернуть вниз</string>
+    <string name="cw_snake_online_right">Повернуть направо</string>
+    <string name="cw_snake_online_score">Общий счёт: %1$d</string>
+    <string name="cw_snake_online_legend">Ваша змейка — зелёная. %1$s — синяя.</string>
+    <string name="cw_snake_online_loading">Подключаемся к партии…</string>
+    <string name="cw_snake_online_playing">Собирайте еду вместе</string>
+    <string name="cw_snake_online_waiting">Ждём готовности второго игрока</string>
+    <string name="cw_snake_online_waiting_connection">Ждём подключения второго игрока</string>
+    <string name="cw_snake_online_paused">Общая пауза. Для продолжения нужны оба игрока.</string>
+    <string name="cw_snake_online_reconnecting">Связь прервана. Управление приостановлено; подключаемся заново.</string>
+    <string name="cw_snake_online_countdown">Оба готовы. Начинаем через %1$d сек.</string>
+    <string name="cw_snake_online_over">Партия завершена. Общий счёт: %1$d</string>
+    <string name="cw_snake_online_won">Поле заполнено! Общий счёт: %1$d</string>
+    <string name="cw_snake_online_retry">Подключиться снова</string>
+    <string name="cw_snake_online_unavailable">Партия недоступна. Вернитесь к списку семейных игр.</string>
+    <string name="cw_snake_online_unsupported">Сервер пока не поддерживает семейную Змейку. Нужен серверный выпуск; одиночная игра доступна без сети.</string>
+    <string name="cw_snake_online_command_timeout">Действие не подтверждено. Повторите.</string>
+    <string name="cw_snake_online_slow">Игра на паузе из-за задержки сервера.</string>
+    <string name="cw_snake_online_replaced">Игра открыта на другом устройстве этого игрока.</string>
+    <string name="cw_snake_online_input_wait">Поворот не принят. Дождитесь следующего хода.</string>
+    <string name="cw_snake_online_help">Вместе собирайте еду на общем поле. Каждый управляет своей змейкой. Столкновение завершает общую партию; временный обрыв ставит её на паузу.</string>
+</resources>
