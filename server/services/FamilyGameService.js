@@ -1,6 +1,7 @@
 const { randomBytes } = require('node:crypto');
 const Battleship = require('./BattleshipRules');
 const Snake = require('./SnakeRules');
+const Arcanoid = require('./ArcanoidRules');
 const DeviceAccessService = require('./DeviceAccessService');
 
 class GameError extends Error {
@@ -80,13 +81,15 @@ class FamilyGameService {
   view(row, actor, members) {
     const battleship = row.type === 'BATTLESHIP';
     const snake = row.type === 'SNAKE_COOP';
+    const arcanoid = row.type === 'ARKANOID_COOP';
     const mark = actor.memberId === row.host_member_id ? 'X' : 'O';
     return {
       id: row.id, familyId: row.family_id, type: row.type, status: row.status,
-      version: row.version, board: battleship || snake ? null : JSON.parse(row.board), nextMark: row.next_mark,
+      version: row.version, board: battleship || snake || arcanoid ? null : JSON.parse(row.board), nextMark: row.next_mark,
       ...(battleship ? { battleship: Battleship.view(JSON.parse(row.board),mark,!OPEN.includes(row.status),
         row.next_mark === 'X' ? row.host_member_id : row.next_mark === 'O' ? row.guest_member_id : null) } : {}),
       ...(snake ? { snake: Snake.view(Snake.restore(JSON.parse(row.board))) } : {}),
+      ...(arcanoid ? { arcanoid: Arcanoid.view(Arcanoid.restore(JSON.parse(row.board))) } : {}),
       myMark: actor.memberId === row.host_member_id ? 'X' : 'O',
       host: { memberId: row.host_member_id, displayName: members.find(m => m.id === row.host_member_id)?.displayName || '' },
       guest: { memberId: row.guest_member_id, displayName: members.find(m => m.id === row.guest_member_id)?.displayName || '' },
@@ -124,7 +127,7 @@ class FamilyGameService {
 
   async create(actor, input) {
     await this.ensure();
-    if (!uuid(input.gameId) || !['TIC_TAC_TOE','BATTLESHIP','SNAKE_COOP'].includes(input.type) ||
+    if (!uuid(input.gameId) || !['TIC_TAC_TOE','BATTLESHIP','SNAKE_COOP','ARKANOID_COOP'].includes(input.type) ||
         typeof input.targetMemberId !== 'string' || input.targetMemberId.length > 160)
       fail(400, 'GAME_INVALID_INVITATION');
     return this.db.withTransaction(async () => {
@@ -147,6 +150,7 @@ class FamilyGameService {
       const now = this.clock();
       const initialBoard = input.type === 'BATTLESHIP' ? Battleship.initial()
         : input.type === 'SNAKE_COOP' ? Snake.snapshot(Snake.initial(randomBytes(8).readBigInt64BE().toString(), 'NORMAL'))
+        : input.type === 'ARKANOID_COOP' ? Arcanoid.snapshot(Arcanoid.initial())
         : Array(9).fill(null);
       await this.db.run(`INSERT INTO family_games
         (id,family_id,host_member_id,guest_member_id,type,status,board,next_mark,version,created_at,updated_at,expires_at)
@@ -181,13 +185,14 @@ class FamilyGameService {
       const board = JSON.parse(row.board);
       const battleship = row.type === 'BATTLESHIP';
       const snake = row.type === 'SNAKE_COOP';
-      if ((snake && ['MOVE','FIRE','PLACE_FLEET'].includes(input.action)) || (battleship && input.action === 'MOVE') || (!battleship && ['FIRE','PLACE_FLEET'].includes(input.action)))
+      const arcanoid = row.type === 'ARKANOID_COOP';
+      if (((snake || arcanoid) && ['MOVE','FIRE','PLACE_FLEET'].includes(input.action)) || (battleship && input.action === 'MOVE') || (!battleship && ['FIRE','PLACE_FLEET'].includes(input.action)))
         fail(400,'GAME_INVALID_ACTION');
       let status = row.status, next = row.next_mark, winner = null, line = null;
       if (['ACCEPT','DECLINE'].includes(input.action)) {
         if (row.status !== 'INVITED' || actor.memberId !== row.guest_member_id) fail(409,'GAME_ACTION_NOT_ALLOWED');
-        status = input.action === 'ACCEPT' ? (battleship || snake ? 'SETUP' : 'PLAYING') : 'DECLINED';
-        next = input.action === 'ACCEPT' && !battleship && !snake ? 'X' : null;
+        status = input.action === 'ACCEPT' ? (battleship || snake || arcanoid ? 'SETUP' : 'PLAYING') : 'DECLINED';
+        next = input.action === 'ACCEPT' && !battleship && !snake && !arcanoid ? 'X' : null;
       } else if (input.action === 'CANCEL') {
         if (row.status !== 'INVITED' || actor.memberId !== row.host_member_id) fail(409,'GAME_ACTION_NOT_ALLOWED');
         status = 'CANCELLED'; next = null;
@@ -197,11 +202,11 @@ class FamilyGameService {
         board.fleets[mark] = Battleship.fleet(input.ships);
         if (board.fleets.X && board.fleets.O) { status = 'PLAYING'; next = 'X'; }
       } else {
-        if (row.status !== 'PLAYING' && !((battleship || snake) && row.status === 'SETUP' && input.action === 'RESIGN')) fail(409,'GAME_ACTION_NOT_ALLOWED');
+        if (row.status !== 'PLAYING' && !((battleship || snake || arcanoid) && row.status === 'SETUP' && input.action === 'RESIGN')) fail(409,'GAME_ACTION_NOT_ALLOWED');
         const mark = actor.memberId === row.host_member_id ? 'X' : 'O';
         if (input.action === 'RESIGN') {
           status = 'RESIGNED'; next = null;
-          winner = actor.memberId === row.host_member_id ? row.guest_member_id : row.host_member_id;
+          winner = arcanoid ? null : actor.memberId === row.host_member_id ? row.guest_member_id : row.host_member_id;
         } else {
           if (mark !== next) fail(409,'GAME_NOT_YOUR_TURN');
           if (battleship) {

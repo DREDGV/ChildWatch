@@ -48,6 +48,27 @@ async function move(f,game,cell) {
   return (await f.service.action(game.nextMark === 'X' ? f.actors.host : f.actors.guest,game.id,command(game,'MOVE',cell))).game;
 }
 
+test('arkanoid invitation preserves consent and rejects legacy game mutations',async () => {
+  const f = await fixture();
+  try {
+    const input = {...invite(),type:'ARKANOID_COOP'};
+    let game = (await f.service.create(f.actors.host,input)).game;
+    assert.equal(game.status,'INVITED'); assert.equal(game.board,null);
+    assert.deepEqual(game.arcanoid.paddles,[500,500]);
+    assert.equal(game.arcanoid.lives,3); assert.equal(game.arcanoid.levelCount,6);
+    assert.equal((await f.service.create(f.actors.host,input)).replayed,true);
+    await assert.rejects(f.service.get(f.actors.other,game.id),{status:404});
+    game = (await f.service.action(f.actors.guest,game.id,command(game,'ACCEPT'))).game;
+    assert.equal(game.status,'SETUP'); assert.equal(game.nextMark,null);
+    const saved = (await f.db.get('SELECT board FROM family_games WHERE id=?',[game.id])).board;
+    for (const action of ['MOVE','FIRE','PLACE_FLEET'])
+      await assert.rejects(f.service.action(f.actors.host,game.id,command(game,action,0)),{code:'GAME_INVALID_ACTION'});
+    assert.equal((await f.db.get('SELECT board FROM family_games WHERE id=?',[game.id])).board,saved);
+    game = (await f.service.action(f.actors.guest,game.id,command(game,'RESIGN'))).game;
+    assert.equal(game.status,'RESIGNED'); assert.equal(game.winnerMemberId,null);
+  } finally { await f.close(); }
+});
+
 test('invitation is consented, retryable, and member-bound across devices',async () => {
   const f = await fixture();
   try {
@@ -211,7 +232,7 @@ test('HTTP routes require actor context and keep rooms private',async () => {
   try {
     assert.equal((await request(null,'host','/capabilities')).status,401);
     assert.equal((await request('a','guest','/capabilities')).status,403);
-    assert.deepEqual((await request('a','host','/capabilities')).body.games,['TIC_TAC_TOE','BATTLESHIP','SNAKE_COOP']);
+    assert.deepEqual((await request('a','host','/capabilities')).body.games,['TIC_TAC_TOE','BATTLESHIP','SNAKE_COOP','ARKANOID_COOP']);
     const input = invite(), created = await request('a','host','',input);
     assert.equal(created.status,201); assert.equal(created.cache,'no-store');
     assert.equal((await request('a','host','',input)).status,200);

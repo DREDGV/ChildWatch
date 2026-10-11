@@ -30,6 +30,8 @@ const createFamilyGameRoutes = require("./routes/family-games");
 const FamilyGameService = require("./services/FamilyGameService");
 const SnakeSessionService = require("./services/SnakeSessionService");
 const SnakeSocketService = require("./services/SnakeSocketService");
+const ArcanoidSessionService = require("./services/ArcanoidSessionService");
+const ArcanoidSocketService = require("./services/ArcanoidSocketService");
 const mediaRoutes = require("./routes/media");
 const streamingRoutes = require("./routes/streaming");
 const alertsRoutes = require("./routes/alerts");
@@ -76,6 +78,8 @@ const gameNamespace = io.of('/family-games');
 const authenticateGameSocket = new SocketAuthMiddleware(authManager, { required: true }).authenticate();
 gameNamespace.use(authenticateGameSocket);
 const snakeSockets = new SnakeSocketService(gameNamespace, snakeSessions, { authenticate: authenticateGameSocket });
+const arcanoidSessions = new ArcanoidSessionService(familyGameService);
+const arcanoidSockets = new ArcanoidSocketService(gameNamespace, arcanoidSessions, { authenticate: authenticateGameSocket });
 const attentionSignalManager = new AttentionSignalManager({
   wsManager,
   dbManager,
@@ -1676,6 +1680,8 @@ async function startServer() {
   await initializeDatabase();
   await snakeSessions.ensure();
   snakeSockets.start();
+  await arcanoidSessions.ensure();
+  arcanoidSockets.start();
   return new Promise((resolve, reject) => {
     const onError = (error) => reject(error);
     server.once("error", onError);
