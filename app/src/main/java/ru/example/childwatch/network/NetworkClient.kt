@@ -104,6 +104,63 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
         .build()
     private val chatV2Apis = ConcurrentHashMap<String, ChildWatchApi>()
 
+    private data class GameRequestScope(val identity: List<String>)
+    private fun gameIdentity() = listOf(effectiveContextResolver.resolveServerUrl().trim().trimEnd('/'),
+        effectiveContextResolver.resolveFamilyId().orEmpty(), effectiveContextResolver.resolveSelfMemberId().orEmpty(),
+        effectiveContextResolver.resolveOwnParentId())
+
+    private fun checkGameScope(request: Request) {
+        request.tag(GameRequestScope::class.java)?.let {
+            if (it.identity.size != 4 || it.identity.any(String::isBlank) || gameIdentity() != it.identity)
+                throw IOException("GAME_CONTEXT_CHANGED")
+        }
+    }
+
+    /** Background-only game transport shares authentication, token refresh and certificate policy. */
+    fun familyGamesRequest(scope: List<String>, method: String, path: String, body: JSONObject?): JSONObject {
+        if (scope.size != 4 || scope.any(String::isBlank) || gameIdentity() != scope)
+            throw ru.example.childwatch.designsystem.GameOnlineBridge.Failure(403, "GAME_CONTEXT_CHANGED")
+        val members = path == "/members"
+        val validPath = path == "/" || path == "/capabilities" ||
+            Regex("^/[A-Za-z0-9_-]+(/actions)?$").matches(path)
+        require(validPath && (method == "GET" || method == "POST") && (!members || method == "GET"))
+        val url = ensureHttpsUrl(scope[0]).toHttpUrl().newBuilder()
+        if (members) url.addPathSegments("api/families").addPathSegment(scope[1]).addPathSegment("members")
+        else url.addPathSegments("api/family-games" + if (path == "/") "" else path)
+        url.addQueryParameter("familyId", scope[1]).addQueryParameter("actorMemberId", scope[2])
+        val request = Request.Builder().url(url.build()).tag(GameRequestScope::class.java, GameRequestScope(scope.toList()))
+        if (method == "POST") request.post((body ?: JSONObject()).toString().toRequestBody("application/json".toMediaType()))
+        else request.get()
+        return client.newBuilder().callTimeout(25, TimeUnit.SECONDS).build().newCall(request.build()).execute().use { response ->
+            if (gameIdentity() != scope)
+                throw ru.example.childwatch.designsystem.GameOnlineBridge.Failure(403, "GAME_CONTEXT_CHANGED")
+            // Some legacy 401 paths close the body after an unsuccessful token refresh.
+            // Preserve the actual HTTP failure even when its body is unavailable.
+            val raw = if (response.isSuccessful) response.body?.string().orEmpty()
+                else runCatching { response.body?.string().orEmpty() }.getOrDefault("")
+            val json = runCatching { JSONObject(raw) }.getOrNull()
+            if (!response.isSuccessful) throw ru.example.childwatch.designsystem.GameOnlineBridge.Failure(
+                response.code, json?.optString("code")?.takeIf { it.matches(Regex("GAME_[A-Z_]+")) } ?: "GAME_REQUEST_FAILED")
+            if (json == null || !json.optBoolean("success"))
+                throw ru.example.childwatch.designsystem.GameOnlineBridge.Failure(502, "GAME_INVALID_RESPONSE")
+            if (members) {
+                if (json.optString("familyId") != scope[1])
+                    throw ru.example.childwatch.designsystem.GameOnlineBridge.Failure(403, "GAME_CONTEXT_CHANGED")
+                val result = org.json.JSONArray()
+                val rows = json.optJSONArray("members") ?: org.json.JSONArray()
+                for (index in 0 until rows.length()) {
+                    val row = rows.optJSONObject(index) ?: continue
+                    if (row.optString("familyId") != scope[1] || row.optString("id").isBlank() ||
+                        row.optInt("isActive", 0) != 1) continue
+                    result.put(JSONObject().put("memberId", row.getString("id"))
+                        .put("displayName", row.optString("displayName")))
+                }
+                JSONObject().put("members", result).put("actorMemberId", scope[2])
+            } else json
+        }
+    }
+
+
     /**
      * Chat v2 uses the primary authenticated OkHttp client. This is important:
      * its 401 handler refreshes and persists the Bearer token before retrying,
@@ -245,7 +302,9 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
     private inner class AuthInterceptor : Interceptor {
         override fun intercept(chain: Interceptor.Chain): Response {
             val originalRequest = chain.request()
+            checkGameScope(originalRequest)
             fun checkOwnStatusScope() {
+                checkGameScope(originalRequest)
                 originalRequest.tag(DeviceStatusRequestScope::class.java)?.let { expected ->
                     if (expected.identity.size != 4 || expected.identity.any { it.isBlank() } ||
                         placeIdentity() != expected.identity) throw IOException("DEVICE_STATUS_CONTEXT_CHANGED")
@@ -340,6 +399,7 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
                         response.close()
                     }
                     
+                    checkGameScope(request)
                     response = chain.proceed(request)
                     
                     if (response.isSuccessful) {

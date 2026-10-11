@@ -22,5 +22,9 @@ public class GamesActivity extends AppCompatActivity {
         findViewById(R.id.gamesClose).setOnClickListener(view -> finish());
         findViewById(R.id.gamesArcanoid).setOnClickListener(view ->
             startActivity(new Intent(this, ArcanoidActivity.class)));
+        findViewById(R.id.gamesBattleship).setOnClickListener(view ->
+            startActivity(new Intent(this, BattleshipActivity.class)));
+        findViewById(R.id.gamesBattleshipFamily).setOnClickListener(view ->
+            startActivity(new Intent(this, FamilyGameLobbyActivity.class)));
     }
 }

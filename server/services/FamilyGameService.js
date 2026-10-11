@@ -1,3 +1,4 @@
+const Battleship = require('./BattleshipRules');
 const DeviceAccessService = require('./DeviceAccessService');
 
 class GameError extends Error {
@@ -5,7 +6,7 @@ class GameError extends Error {
 }
 const fail = (status, code) => { throw new GameError(status, code); };
 const uuid = value => typeof value === 'string' && /^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(value);
-const OPEN = ['INVITED', 'PLAYING'];
+const OPEN = ['INVITED', 'SETUP', 'PLAYING'];
 const LINES = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
 
 /** Authoritative, consented family games. Participants are members, never handset IDs. */
@@ -24,6 +25,9 @@ class FamilyGameService {
         next_mark TEXT, winner_member_id TEXT, winning_line TEXT,
         version INTEGER NOT NULL, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
         expires_at INTEGER NOT NULL)`);
+      const columns = await this.db.all('PRAGMA table_info(family_games)');
+      if (!columns.some(column => column.name === 'type'))
+        await this.db.run("ALTER TABLE family_games ADD COLUMN type TEXT NOT NULL DEFAULT 'TIC_TAC_TOE'");
       await this.db.run('CREATE INDEX IF NOT EXISTS games_family_updated ON family_games(family_id,updated_at)');
       await this.db.run(`CREATE TABLE IF NOT EXISTS family_game_actions (
         id TEXT PRIMARY KEY, game_id TEXT NOT NULL, member_id TEXT NOT NULL,
@@ -57,7 +61,7 @@ class FamilyGameService {
   async expire(familyId) {
     const now = this.clock();
     await this.db.run(`UPDATE family_games SET status='EXPIRED',next_mark=NULL,version=version+1,updated_at=?
-      WHERE family_id=? AND expires_at<=? AND status IN ('INVITED','PLAYING')`, [now, familyId, now]);
+      WHERE family_id=? AND expires_at<=? AND status IN ('INVITED','SETUP','PLAYING')`, [now, familyId, now]);
   }
 
   async row(actor, id, members) {
@@ -72,9 +76,13 @@ class FamilyGameService {
   }
 
   view(row, actor, members) {
+    const battleship = row.type === 'BATTLESHIP';
+    const mark = actor.memberId === row.host_member_id ? 'X' : 'O';
     return {
-      id: row.id, familyId: row.family_id, type: 'TIC_TAC_TOE', status: row.status,
-      version: row.version, board: JSON.parse(row.board), nextMark: row.next_mark,
+      id: row.id, familyId: row.family_id, type: row.type, status: row.status,
+      version: row.version, board: battleship ? null : JSON.parse(row.board), nextMark: row.next_mark,
+      ...(battleship ? { battleship: Battleship.view(JSON.parse(row.board),mark,!OPEN.includes(row.status),
+        row.next_mark === 'X' ? row.host_member_id : row.next_mark === 'O' ? row.guest_member_id : null) } : {}),
       myMark: actor.memberId === row.host_member_id ? 'X' : 'O',
       host: { memberId: row.host_member_id, displayName: members.find(m => m.id === row.host_member_id)?.displayName || '' },
       guest: { memberId: row.guest_member_id, displayName: members.find(m => m.id === row.guest_member_id)?.displayName || '' },
@@ -107,7 +115,7 @@ class FamilyGameService {
 
   async create(actor, input) {
     await this.ensure();
-    if (!uuid(input.gameId) || input.type !== 'TIC_TAC_TOE' ||
+    if (!uuid(input.gameId) || !['TIC_TAC_TOE','BATTLESHIP'].includes(input.type) ||
         typeof input.targetMemberId !== 'string' || input.targetMemberId.length > 160)
       fail(400, 'GAME_INVALID_INVITATION');
     return this.db.withTransaction(async () => {
@@ -116,7 +124,7 @@ class FamilyGameService {
       const existing = await this.db.get('SELECT * FROM family_games WHERE id=?', [input.gameId]);
       if (existing) {
         if (existing.family_id !== actor.familyId || existing.host_member_id !== actor.memberId ||
-            existing.guest_member_id !== input.targetMemberId) fail(409,'GAME_ID_REUSED');
+            existing.guest_member_id !== input.targetMemberId || existing.type !== input.type) fail(409,'GAME_ID_REUSED');
         return { replayed: true, game: this.view(await this.row(actor,input.gameId,members),actor,members) };
       }
       if (input.targetMemberId === actor.memberId || !members.some(m => m.id === input.targetMemberId))
@@ -129,9 +137,9 @@ class FamilyGameService {
       if (count.total >= 5) fail(429, 'GAME_INVITATION_LIMIT');
       const now = this.clock();
       await this.db.run(`INSERT INTO family_games
-        (id,family_id,host_member_id,guest_member_id,status,board,next_mark,version,created_at,updated_at,expires_at)
-        VALUES (?,?,?,?,'INVITED',?,NULL,1,?,?,?)`,
-      [input.gameId,actor.familyId,actor.memberId,input.targetMemberId,JSON.stringify(Array(9).fill(null)),now,now,now+15*60_000]);
+        (id,family_id,host_member_id,guest_member_id,type,status,board,next_mark,version,created_at,updated_at,expires_at)
+        VALUES (?,?,?,?,?,'INVITED',?,NULL,1,?,?,?)`,
+      [input.gameId,actor.familyId,actor.memberId,input.targetMemberId,input.type,JSON.stringify(input.type === 'BATTLESHIP' ? Battleship.initial() : Array(9).fill(null)),now,now,now+15*60_000]);
       return { replayed: false, game: this.view(await this.row(actor,input.gameId,members),actor,members) };
     });
   }
@@ -139,10 +147,13 @@ class FamilyGameService {
   async action(actor, id, input) {
     await this.ensure();
     if (!uuid(input.actionId) || !Number.isSafeInteger(input.version) || input.version < 1 ||
-        !['ACCEPT','DECLINE','CANCEL','MOVE','RESIGN'].includes(input.action) ||
+        !['ACCEPT','DECLINE','CANCEL','MOVE','RESIGN','PLACE_FLEET','FIRE'].includes(input.action) ||
         (input.action === 'MOVE' && (!Number.isInteger(input.cell) || input.cell < 0 || input.cell > 8)) ||
-        (input.action !== 'MOVE' && input.cell !== undefined)) fail(400,'GAME_INVALID_ACTION');
-    const payload = JSON.stringify({ action: input.action, version: input.version, cell: input.cell });
+        (input.action === 'FIRE' && (!Number.isInteger(input.cell) || input.cell < 0 || input.cell > 99)) ||
+        (!['MOVE','FIRE'].includes(input.action) && input.cell !== undefined) ||
+        (input.action !== 'PLACE_FLEET' && input.ships !== undefined) ||
+        (input.action === 'PLACE_FLEET' && !Battleship.fleet(input.ships))) fail(400,'GAME_INVALID_ACTION');
+    const payload = JSON.stringify({ action: input.action, version: input.version, cell: input.cell, ships: input.action === 'PLACE_FLEET' ? Battleship.fleet(input.ships) : undefined });
     return this.db.withTransaction(async () => {
       const members = await this.context(actor);
       await this.expire(actor.familyId);
@@ -156,28 +167,43 @@ class FamilyGameService {
       if (!OPEN.includes(row.status)) fail(409,'GAME_CLOSED');
       if (row.version !== input.version) fail(409,'GAME_VERSION_CONFLICT');
       const board = JSON.parse(row.board);
+      const battleship = row.type === 'BATTLESHIP';
+      if ((battleship && input.action === 'MOVE') || (!battleship && ['FIRE','PLACE_FLEET'].includes(input.action)))
+        fail(400,'GAME_INVALID_ACTION');
       let status = row.status, next = row.next_mark, winner = null, line = null;
       if (['ACCEPT','DECLINE'].includes(input.action)) {
         if (row.status !== 'INVITED' || actor.memberId !== row.guest_member_id) fail(409,'GAME_ACTION_NOT_ALLOWED');
-        status = input.action === 'ACCEPT' ? 'PLAYING' : 'DECLINED';
-        next = input.action === 'ACCEPT' ? 'X' : null;
+        status = input.action === 'ACCEPT' ? (battleship ? 'SETUP' : 'PLAYING') : 'DECLINED';
+        next = input.action === 'ACCEPT' && !battleship ? 'X' : null;
       } else if (input.action === 'CANCEL') {
         if (row.status !== 'INVITED' || actor.memberId !== row.host_member_id) fail(409,'GAME_ACTION_NOT_ALLOWED');
         status = 'CANCELLED'; next = null;
+      } else if (battleship && input.action === 'PLACE_FLEET') {
+        const mark = actor.memberId === row.host_member_id ? 'X' : 'O';
+        if (row.status !== 'SETUP' || board.fleets[mark]) fail(409,'GAME_ACTION_NOT_ALLOWED');
+        board.fleets[mark] = Battleship.fleet(input.ships);
+        if (board.fleets.X && board.fleets.O) { status = 'PLAYING'; next = 'X'; }
       } else {
-        if (row.status !== 'PLAYING') fail(409,'GAME_ACTION_NOT_ALLOWED');
+        if (row.status !== 'PLAYING' && !(battleship && row.status === 'SETUP' && input.action === 'RESIGN')) fail(409,'GAME_ACTION_NOT_ALLOWED');
         const mark = actor.memberId === row.host_member_id ? 'X' : 'O';
         if (input.action === 'RESIGN') {
           status = 'RESIGNED'; next = null;
           winner = actor.memberId === row.host_member_id ? row.guest_member_id : row.host_member_id;
         } else {
           if (mark !== next) fail(409,'GAME_NOT_YOUR_TURN');
-          if (board[input.cell] !== null) fail(409,'GAME_CELL_OCCUPIED');
-          board[input.cell] = mark;
-          line = LINES.find(cells => cells.every(cell => board[cell] === mark)) || null;
-          if (line) { status = 'WON'; winner = actor.memberId; next = null; }
-          else if (board.every(Boolean)) { status = 'DRAW'; next = null; }
-          else next = mark === 'X' ? 'O' : 'X';
+          if (battleship) {
+            if (board.shots[mark].some(shot => shot.cell === input.cell)) fail(409,'GAME_CELL_OCCUPIED');
+            const shot = Battleship.fire(board,mark,input.cell);
+            if (shot.won) { status = 'WON'; winner = actor.memberId; next = null; }
+            else if (shot.result === 'MISS') next = mark === 'X' ? 'O' : 'X';
+          } else {
+            if (board[input.cell] !== null) fail(409,'GAME_CELL_OCCUPIED');
+            board[input.cell] = mark;
+            line = LINES.find(cells => cells.every(cell => board[cell] === mark)) || null;
+            if (line) { status = 'WON'; winner = actor.memberId; next = null; }
+            else if (board.every(Boolean)) { status = 'DRAW'; next = null; }
+            else next = mark === 'X' ? 'O' : 'X';
+          }
         }
       }
       const now = this.clock();

@@ -377,6 +377,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupUI() {
         findViewById<View>(R.id.homeGamesButton).setOnClickListener {
+            ru.example.parentwatch.games.FamilyGamesHost.register(this)
             ru.example.childwatch.designsystem.GamesMenu.show(this)
         }
         // The sheet temporarily reparents notices out of the activity's view tree.

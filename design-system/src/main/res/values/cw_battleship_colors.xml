@@ -1,0 +1,7 @@
+<resources>
+    <color name="cw_sea_surface">#122F43</color>
+    <color name="cw_sea_grid">#51758C</color>
+    <color name="cw_sea_ship">#63D7C8</color>
+    <color name="cw_sea_hit">#FF9B86</color>
+    <color name="cw_sea_ink">#EDF6FA</color>
+</resources>

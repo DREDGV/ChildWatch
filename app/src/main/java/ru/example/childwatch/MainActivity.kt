@@ -330,6 +330,7 @@ class MainActivity : AppCompatActivity() {
 
     private fun setupUI() {
         binding.homeGamesButton.setOnClickListener {
+            ru.example.childwatch.games.FamilyGamesHost.register(this)
             ru.example.childwatch.designsystem.GamesMenu.show(this)
         }
         binding.homeUpdateButton.setOnClickListener {

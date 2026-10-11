@@ -211,7 +211,7 @@ test('HTTP routes require actor context and keep rooms private',async () => {
   try {
     assert.equal((await request(null,'host','/capabilities')).status,401);
     assert.equal((await request('a','guest','/capabilities')).status,403);
-    assert.deepEqual((await request('a','host','/capabilities')).body.games,['TIC_TAC_TOE']);
+    assert.deepEqual((await request('a','host','/capabilities')).body.games,['TIC_TAC_TOE','BATTLESHIP']);
     const input = invite(), created = await request('a','host','',input);
     assert.equal(created.status,201); assert.equal(created.cache,'no-store');
     assert.equal((await request('a','host','',input)).status,200);

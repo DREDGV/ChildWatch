@@ -14,7 +14,7 @@ module.exports = function createFamilyGameRoutes(db, service = new FamilyGameSer
     } catch (error) { next(error); }
   });
   router.get('/capabilities',(req,res) => res.json({ success:true, protocolVersion:1,
-    games:['TIC_TAC_TOE'], invitationTtlSeconds:900, gameTtlSeconds:86400 }));
+    games:['TIC_TAC_TOE','BATTLESHIP'], invitationTtlSeconds:900, gameTtlSeconds:86400 }));
   router.get('/',async(req,res,next) => {
     try { res.json({ success:true,games:await service.list(req.gameActor) }); } catch(error) { next(error); }
   });

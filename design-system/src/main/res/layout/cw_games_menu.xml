@@ -29,6 +29,18 @@
             android:layout_marginTop="8dp" android:text="@string/cw_games_arcanoid_hint"
             android:textSize="14sp" android:textColor="@color/cw_color_on_surface_variant" />
 
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="24dp" android:text="Морской бой" android:textSize="22sp"
+            android:textStyle="bold" android:accessibilityHeading="true" android:textColor="@color/cw_color_on_surface" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:text="Расставьте флот и найдите корабли соперника. Попадание даёт ещё один ход."
+            android:textSize="16sp" android:textColor="@color/cw_color_on_surface_variant" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/gamesBattleship"
+            style="@style/Widget.ChildWatch.Button.Primary" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:minHeight="48dp" android:textAllCaps="false" android:text="Против компьютера" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/gamesBattleshipFamily"
+            style="@style/Widget.ChildWatch.Button.Secondary" android:layout_width="match_parent"
+            android:layout_height="wrap_content" android:minHeight="48dp" android:textAllCaps="false" android:text="С участником семьи" />
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>
 </LinearLayout>
