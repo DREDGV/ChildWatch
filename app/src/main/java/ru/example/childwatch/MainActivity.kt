@@ -329,6 +329,9 @@ class MainActivity : AppCompatActivity() {
 
 
     private fun setupUI() {
+        binding.homeGamesButton.setOnClickListener {
+            ru.example.childwatch.designsystem.GamesMenu.show(this)
+        }
         binding.homeUpdateButton.setOnClickListener {
             if (homeSheet?.isShowing != true) homeSheet = HomeDetailSheet.show(
                 binding.updateNoticeContainer, getString(R.string.cw_home_update_available)

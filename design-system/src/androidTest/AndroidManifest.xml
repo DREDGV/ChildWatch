@@ -1,5 +1,7 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
     <application>
+        <activity android:name="ru.example.childwatch.designsystem.ArcanoidLandscapeFixtureActivity" android:exported="false" android:screenOrientation="landscape" android:theme="@style/Theme.ChildWatch.Arcanoid" />
+        <activity android:name="ru.example.childwatch.designsystem.ArcanoidFixtureActivity" android:exported="false" android:screenOrientation="portrait" android:theme="@style/Theme.ChildWatch.Arcanoid" />
         <activity android:name="ru.example.childwatch.designsystem.ChatMediaFixtureActivity" android:exported="false" android:theme="@style/Theme.ChatFixture" />
     </application>
 </manifest>

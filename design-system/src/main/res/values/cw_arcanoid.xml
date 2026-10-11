@@ -1,0 +1,37 @@
+<resources>
+    <string name="cw_home_games">Игры</string>
+    <string name="cw_games_hint">Выберите, во что поиграть</string>
+    <string name="cw_games_arcanoid_hint">Для одного игрока, без интернета. Отбивайте шарик и разбивайте блоки.</string>
+    <string name="cw_games_close">Закрыть</string>
+    <string name="cw_arcanoid_title">Арканоид</string>
+    <string name="cw_arcanoid_back">Назад</string>
+    <string name="cw_arcanoid_score">Очки: %1$d   ·   Жизни: %2$d</string>
+    <string name="cw_arcanoid_field">Поле Арканоида: блоки в центре, шарик и платформа внизу</string>
+    <string name="cw_arcanoid_ready">Двигайте платформу пальцем или ползунком. Выбейте все блоки!</string>
+    <string name="cw_arcanoid_playing">Ловите шарик платформой. Нажмите «Пауза», чтобы отдохнуть.</string>
+    <string name="cw_arcanoid_paused">Пауза. Партия сохранена — продолжайте, когда будете готовы.</string>
+    <string name="cw_arcanoid_won">Все блоки разбиты! Отличная игра.</string>
+    <string name="cw_arcanoid_over">Жизни закончились. Попробуем ещё раз?</string>
+    <string name="cw_arcanoid_start">Начать</string>
+    <string name="cw_arcanoid_pause">Пауза</string>
+    <string name="cw_arcanoid_resume">Продолжить</string>
+    <string name="cw_arcanoid_restart">Заново</string>
+    <string name="cw_arcanoid_left">Платформа влево</string>
+    <string name="cw_arcanoid_right">Платформа вправо</string>
+    <string name="cw_arcanoid_paddle">Положение платформы</string>
+    <string name="cw_arcanoid_controls_toggle">Показать кнопки</string>
+    <string name="cw_arcanoid_show_controls">Показать кнопки</string>
+    <string name="cw_arcanoid_hide_controls">Скрыть кнопки</string>
+    <string name="cw_arcanoid_reset_title">Начать новую партию?</string>
+    <string name="cw_arcanoid_reset_body">Текущие очки и оставшиеся блоки будут сброшены.</string>
+    <string name="cw_arcanoid_cancel">Оставить партию</string>
+    <style name="Theme.ChildWatch.Arcanoid" parent="Theme.Material3.Light.NoActionBar">
+        <item name="colorPrimary">@color/cw_color_primary</item>
+        <item name="colorOnPrimary">@color/cw_color_on_primary</item>
+        <item name="colorSurface">@color/cw_color_surface</item>
+        <item name="colorOnSurface">@color/cw_color_on_surface</item>
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:statusBarColor">@color/cw_color_background</item>
+        <item name="android:navigationBarColor">@color/cw_color_background</item>
+    </style>
+</resources>

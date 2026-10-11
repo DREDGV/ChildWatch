@@ -1,0 +1,39 @@
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/arcanoidRoot" android:layout_width="match_parent" android:layout_height="match_parent" android:background="#152E3D">
+    <FrameLayout android:id="@+id/arcanoidField" android:layout_width="match_parent" android:layout_height="match_parent" />
+    <LinearLayout android:id="@+id/arcanoidHud" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="top" android:gravity="center_vertical" android:paddingHorizontal="4dp" android:background="#E6152E3D">
+        <com.google.android.material.button.MaterialButton android:id="@+id/arcanoidBack" style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/cw_arcanoid_back" android:textColor="#FFFFFF" />
+        <TextView android:id="@+id/arcanoidScore" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:textSize="14sp" android:textColor="#FFFFFF" android:gravity="center" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/arcanoidPause" style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/cw_arcanoid_pause" android:textColor="#FFFFFF" />
+    </LinearLayout>
+    <ScrollView android:id="@+id/arcanoidPanel" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="center" android:layout_margin="20dp" android:background="@drawable/cw_arcanoid_panel">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="20dp">
+            <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_arcanoid_title"
+                android:textSize="24sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" />
+            <TextView android:id="@+id/arcanoidStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginVertical="12dp" android:textSize="16sp" android:textColor="@color/cw_color_on_surface" android:accessibilityLiveRegion="polite" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/arcanoidAction" android:layout_width="match_parent"
+                android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/cw_arcanoid_start" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/arcanoidRestart" style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/cw_arcanoid_restart" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/arcanoidControlsToggle" style="@style/Widget.Material3.Button.TextButton"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/cw_arcanoid_controls_toggle" />
+        </LinearLayout>
+    </ScrollView>
+    <LinearLayout android:id="@+id/arcanoidControls" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_gravity="bottom" android:background="#E6F4F8F8" android:gravity="center_vertical" android:paddingHorizontal="12dp">
+        <com.google.android.material.button.MaterialButton android:id="@+id/arcanoidLeft" style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="56dp" android:layout_height="wrap_content" android:minHeight="48dp" android:paddingHorizontal="0dp"
+            android:text="←" android:contentDescription="@string/cw_arcanoid_left" />
+        <com.google.android.material.slider.Slider android:id="@+id/arcanoidPaddle" android:layout_width="0dp" android:layout_height="48dp"
+            android:layout_weight="1" android:contentDescription="@string/cw_arcanoid_paddle" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/arcanoidRight" style="@style/Widget.Material3.Button.OutlinedButton"
+            android:layout_width="56dp" android:layout_height="wrap_content" android:minHeight="48dp" android:paddingHorizontal="0dp"
+            android:text="→" android:contentDescription="@string/cw_arcanoid_right" />
+    </LinearLayout>
+</FrameLayout>

@@ -115,6 +115,7 @@
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
             </LinearLayout>
+            <com.google.android.material.button.MaterialButton android:id="@+id/homeGamesButton" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:layout_marginTop="8dp" android:text="@string/cw_home_games" android:textAllCaps="false" style="@style/Widget.ChildWatch.Button.Secondary" />
             <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/statusCard" android:layout_marginTop="10dp" style="@style/Widget.ChildWatch.Home.Card">
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical" android:paddingHorizontal="12dp" android:paddingVertical="6dp" android:tag="homeService">
                     <ImageView android:layout_width="24dp" android:layout_height="24dp" android:id="@+id/statusIcon" android:src="@drawable/cw_home_shield" android:importantForAccessibility="no" />

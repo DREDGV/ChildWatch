@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent" android:layout_height="wrap_content"
+    android:fillViewport="false">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="vertical" android:padding="20dp">
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:text="@string/cw_home_games" android:textSize="24sp" android:textStyle="bold"
+            android:accessibilityHeading="true" android:textColor="@color/cw_color_on_surface" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:text="@string/cw_games_hint"
+            android:textSize="16sp" android:textColor="@color/cw_color_on_surface_variant" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/gamesArcanoid"
+            style="@style/Widget.ChildWatch.Button.Primary"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="20dp" android:minHeight="56dp" android:textAllCaps="false"
+            android:text="@string/cw_arcanoid_title" />
+        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="8dp" android:text="@string/cw_games_arcanoid_hint"
+            android:textSize="14sp" android:textColor="@color/cw_color_on_surface_variant" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/gamesClose"
+            style="@style/Widget.ChildWatch.Button.Secondary"
+            android:layout_width="match_parent" android:layout_height="wrap_content"
+            android:layout_marginTop="20dp" android:minHeight="48dp" android:textAllCaps="false"
+            android:text="@string/cw_games_close" />
+    </LinearLayout>
+</androidx.core.widget.NestedScrollView>
