@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cw_arcanoid_level_score">Уровень %1$d/%2$d\nОчки: %3$d · Жизни: %4$d</string>
+    <string name="cw_arcanoid_level_won">Уровень пройден! Очки и жизни переходят в следующий.</string>
+    <string name="cw_arcanoid_campaign_won">Все шесть уровней пройдены!</string>
+    <string name="cw_arcanoid_next_level">Следующий уровень</string>
+</resources>

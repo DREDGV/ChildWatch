@@ -65,7 +65,7 @@ public final class BattleshipEngine {
     public static int chooseAiTarget(Cell[] observations, Random random) {
         if (observations == null || observations.length != 100 || random == null)
             throw new IllegalArgumentException("Invalid observations");
-        List<Integer> targets = new ArrayList<>(), available = new ArrayList<>();
+        List<Integer> aligned = new ArrayList<>(), targets = new ArrayList<>(), available = new ArrayList<>();
         for (int i = 0; i < 100; i++) {
             if (observations[i] == null || observations[i] == Cell.SHIP)
                 throw new IllegalArgumentException("Only public observations allowed");
@@ -76,10 +76,21 @@ public final class BattleshipEngine {
                     if (observations[r * 10 + c] == Cell.SUNK) nearSunk = true;
                     if (Math.abs(r - i / 10) + Math.abs(c - i % 10) == 1 && observations[r * 10 + c] == Cell.HIT) nearHit = true;
                 }
-            if (!nearSunk) { available.add(i); if (nearHit) targets.add(i); }
+            if (!nearSunk) {
+                available.add(i); if (nearHit) targets.add(i);
+                int row = i / SIZE, col = i % SIZE;
+                // Two contiguous hits reveal the ship axis; do not shoot perpendicular cells.
+                if (hit(observations, row, col - 1) && hit(observations, row, col - 2)
+                        || hit(observations, row, col + 1) && hit(observations, row, col + 2)
+                        || hit(observations, row - 1, col) && hit(observations, row - 2, col)
+                        || hit(observations, row + 1, col) && hit(observations, row + 2, col)) aligned.add(i);
+            }
         }
-        List<Integer> options = targets.isEmpty() ? available : targets;
+        List<Integer> options = !aligned.isEmpty() ? aligned : targets.isEmpty() ? available : targets;
         return options.isEmpty() ? -1 : options.get(random.nextInt(options.size()));
+    }
+    private static boolean hit(Cell[] observations, int row, int col) {
+        return inBounds(row, col) && observations[row * SIZE + col] == Cell.HIT;
     }
     public Shot aiMove() {
         if (mode != Mode.SOLO || current != 1) return Shot.NOT_YOUR_TURN;

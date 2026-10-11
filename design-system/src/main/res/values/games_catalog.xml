@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Artwork-only colors: stable contrast independent of application theme. -->
+    <color name="cw_game_ocean">#102D3C</color>
+    <color name="cw_game_grid">#2E5060</color>
+    <color name="cw_game_mint">#8AE0CA</color>
+    <color name="cw_game_ship_detail">#387968</color>
+    <color name="cw_game_coral">#FF947F</color>
+    <color name="cw_game_gold">#F3CF73</color>
+    <color name="cw_game_white">#F5FFFC</color>
+    <string name="cw_catalog_intro">Выберите игру</string>
+    <string name="cw_catalog_arkanoid_desc">Отбивайте мяч, разбивайте блоки и проходите уровни.</string>
+    <string name="cw_catalog_battleship_title">Морской бой</string>
+    <string name="cw_catalog_battleship_desc">Расставьте флот и найдите корабли соперника.</string>
+    <string name="cw_catalog_snake_title">Змейка</string>
+    <string name="cw_catalog_snake_desc">Собирайте еду, растите и находите свободный путь.</string>
+    <string name="cw_catalog_solo">Один игрок · без интернета</string>
+    <string name="cw_catalog_battleship_modes">Против компьютера или с семьёй</string>
+    <string name="cw_catalog_choose">Выбрать режим</string>
+    <string name="cw_catalog_rules">Как играть</string>
+    <string name="cw_catalog_play">Играть одному</string>
+    <string name="cw_catalog_computer">Против компьютера</string>
+    <string name="cw_catalog_family">С участником семьи</string>
+    <string name="cw_catalog_family_connection">У каждого своё поле на своём телефоне. Нужна связь с сервером и поддержка игры.</string>
+    <string name="cw_catalog_arkanoid_rules">Двигайте платформу пальцем и удерживайте мяч в игре. Выбейте все блоки, чтобы пройти уровень. Если мяч упадёт, вы потеряете жизнь.</string>
+    <string name="cw_catalog_snake_rules">Меняйте направление свайпом. Собирайте еду и не врезайтесь в стену или свой хвост. Поворот назад недоступен.</string>
+    <string name="cw_catalog_battleship_rules">Сначала расставьте корабли. Затем выбирайте клетку и подтверждайте выстрел. Попадание даёт ещё один ход. Побеждает тот, кто первым потопит весь флот соперника.</string>
+</resources>

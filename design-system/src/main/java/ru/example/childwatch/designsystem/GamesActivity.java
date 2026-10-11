@@ -20,11 +20,25 @@ public class GamesActivity extends AppCompatActivity {
             return insets;
         });
         findViewById(R.id.gamesClose).setOnClickListener(view -> finish());
-        findViewById(R.id.gamesArcanoid).setOnClickListener(view ->
-            startActivity(new Intent(this, ArcanoidActivity.class)));
-        findViewById(R.id.gamesBattleship).setOnClickListener(view ->
-            startActivity(new Intent(this, BattleshipActivity.class)));
-        findViewById(R.id.gamesBattleshipFamily).setOnClickListener(view ->
-            startActivity(new Intent(this, FamilyGameLobbyActivity.class)));
+        bind(R.id.gamesArcanoid, R.id.gamesArcanoidArtwork, GameArtworkView.ARKANOID);
+        bind(R.id.gamesBattleship, R.id.gamesBattleshipArtwork, GameArtworkView.BATTLESHIP);
+        bind(R.id.gamesSnake, R.id.gamesSnakeArtwork, GameArtworkView.SNAKE);
+    }
+    private void bind(int card, int artwork, String game) {
+        ((GameArtworkView)findViewById(artwork)).setGame(game);
+        int title, description, modes;
+        if(GameArtworkView.BATTLESHIP.equals(game)) {
+            title=R.string.cw_catalog_battleship_title; description=R.string.cw_catalog_battleship_desc;
+            modes=R.string.cw_catalog_battleship_modes;
+        } else if(GameArtworkView.SNAKE.equals(game)) {
+            title=R.string.cw_catalog_snake_title; description=R.string.cw_catalog_snake_desc;
+            modes=R.string.cw_catalog_solo;
+        } else {
+            title=R.string.cw_arcanoid_title; description=R.string.cw_catalog_arkanoid_desc;
+            modes=R.string.cw_catalog_solo;
+        }
+        findViewById(card).setContentDescription(getString(title)+". "+getString(description)+" "+getString(modes)+". "+getString(R.string.cw_catalog_choose));
+        findViewById(card).setOnClickListener(view -> startActivity(
+            new Intent(this, GameDetailsActivity.class).putExtra(GameDetailsActivity.EXTRA_GAME, game)));
     }
 }

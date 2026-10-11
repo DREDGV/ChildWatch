@@ -75,6 +75,24 @@ public class BattleshipEngineTest {
         try { chooseAiTarget(view, new Random(1)); fail("Hidden ship input must be rejected"); }
         catch (IllegalArgumentException expected) { }
     }
+    @Test public void botContinuesProvenAxisAndHandlesBoardEdges() {
+        Cell[] view = new Cell[100]; Arrays.fill(view, Cell.UNKNOWN); view[44] = view[45] = Cell.HIT;
+        for (int seed = 0; seed < 100; seed++) assertTrue(Arrays.asList(43, 46).contains(chooseAiTarget(view, new Random(seed))));
+        view[43] = Cell.MISS;
+        for (int seed = 0; seed < 100; seed++) assertEquals(46, chooseAiTarget(view, new Random(seed)));
+        Arrays.fill(view, Cell.UNKNOWN); view[9] = view[19] = Cell.HIT;
+        for (int seed = 0; seed < 100; seed++) assertEquals(29, chooseAiTarget(view, new Random(seed)));
+        view[39] = Cell.SUNK; // Excluded even if malformed observations suggest an extension.
+        for (int seed = 0; seed < 100; seed++) assertNotEquals(29, chooseAiTarget(view, new Random(seed)));
+        Arrays.fill(view, Cell.UNKNOWN); view[9] = view[10] = Cell.HIT;
+        for (int seed = 0; seed < 100; seed++) assertTrue(Arrays.asList(8, 19, 0, 11, 20).contains(chooseAiTarget(view, new Random(seed))));
+    }
+    @Test public void overlappingOldFootprintIsAValidAtomicShipShift() {
+        int[] original = fixture(), shifted = moveShip(original, 1, 1, false);
+        assertNotNull(shifted); assertEquals(0, shifted[0]);
+        for (int i = 1; i <= 4; i++) assertEquals(1, shifted[i]);
+        assertTrue(validateFleet(shifted)); assertEquals(1, original[0]);
+    }
     @Test public void restoredSoloGameMakesIdenticalAiMove() {
         BattleshipEngine original = new BattleshipEngine(Mode.SOLO, 17, fixture(), fixture());
         assertEquals(Shot.MISS, original.shoot(0, 9, 9));

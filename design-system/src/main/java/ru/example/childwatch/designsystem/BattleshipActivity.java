@@ -46,10 +46,11 @@ public class BattleshipActivity extends GameScreen {
         try {
             JSONArray saved=new JSONArray(prefs.getString(draftKey,"[]"));int[] restored=new int[100];
             if(saved.length()==100) { for(int i=0;i<100;i++)restored[i]=saved.getInt(i);if(BattleshipEngine.validateFleet(restored))fleet=restored; }
-            if(gameId==null&&!getIntent().getBooleanExtra("new",false)&&prefs.contains("solo-match")) {
-                engine=BattleshipEngine.restore(prefs.getString("solo-match",""));setup=false;
-            }
-        } catch(Exception badSave) { notice("Сохранённая партия недоступна. Можно начать новую."); }
+        } catch(Exception badDraft) { /* Setup and active match restore independently. */ }
+        if(gameId==null&&!getIntent().getBooleanExtra("new",false)&&prefs.contains("solo-match")) {
+            try { engine=BattleshipEngine.restore(prefs.getString("solo-match",""));setup=false; }
+            catch(Exception badSave) { notice("Сохранённая партия недоступна. Можно начать новую."); }
+        }
         if(gameId!=null)online=new GameOnlineBridge.Client(this);
         status=label("Расставьте корабли",22);content.addView(status);
         details=label("",14);content.addView(details);
@@ -86,13 +87,14 @@ public class BattleshipActivity extends GameScreen {
     private void select(int cell){
         if(busy||(online!=null&&online.hasPending()))return;
         if(setup){
-            if(ship!=0&&fleet[cell]==0){int[] moved=BattleshipEngine.moveShip(fleet,ship,cell,vertical);
+            if(ship!=0&&(fleet[cell]==0||(fleet[cell]==ship&&cell!=firstCell(ship)))){int[] moved=BattleshipEngine.moveShip(fleet,ship,cell,vertical);
                 if(moved==null){notice("Корабль не помещается или касается другого. Выберите другое место.");return;}
                 fleet=moved;saveDraft();
             } else if(fleet[cell]!=0){ship=fleet[cell];vertical=orientation(ship);notice("Выбран корабль. Нажмите на новое начало или поверните его.");}
         }
         selected=cell;render();
     }
+    private int firstCell(int id){for(int i=0;i<100;i++)if(fleet[i]==id)return i;return -1;}
     private boolean orientation(int id){int first=-1;for(int i=0;i<100;i++)if(fleet[i]==id){if(first<0)first=i;else return i-first==10;}return false;}
     private void rotate(){if(ship==0)return;int start=0;while(fleet[start]!=ship)start++;
         int[] moved=BattleshipEngine.moveShip(fleet,ship,start,!vertical);

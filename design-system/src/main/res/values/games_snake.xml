@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cw_snake_title">Змейка</string>
+    <string name="cw_snake_hint">Собирайте яблоки. Поворачивайте свайпом, избегайте стен и собственного хвоста.</string>
+    <string name="cw_snake_start">Начать игру</string>
+    <string name="cw_snake_resume">Продолжить</string>
+    <string name="cw_snake_again">Новая партия</string>
+    <string name="cw_snake_ready">Выберите удобный темп</string>
+    <string name="cw_snake_paused">Пауза. Партия сохранена.</string>
+    <string name="cw_snake_over">Партия завершена</string>
+    <string name="cw_snake_won">Всё поле ваше!</string>
+    <string name="cw_snake_score">Яблоки: %1$d\nРекорд: %2$d</string>
+    <string name="cw_snake_result">Собрано яблок: %1$d</string>
+    <string name="cw_snake_calm">Спокойно</string>
+    <string name="cw_snake_normal">Обычно</string>
+    <string name="cw_snake_fast">Быстро</string>
+    <string name="cw_snake_buttons">Показать кнопки управления</string>
+    <string name="cw_snake_feedback">Тактильный отклик</string>
+    <string name="cw_snake_reset">Начать новую партию? Текущая партия будет завершена.</string>
+    <string name="cw_snake_up">Вверх</string>
+    <string name="cw_snake_down">Вниз</string>
+    <string name="cw_snake_field">Игровое поле Змейки. Управление свайпами; кнопки можно включить на паузе.</string>
+</resources>

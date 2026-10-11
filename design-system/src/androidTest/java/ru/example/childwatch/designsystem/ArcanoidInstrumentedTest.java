@@ -21,7 +21,9 @@ public class ArcanoidInstrumentedTest {
         GamesFixtureActivity host = (GamesFixtureActivity)runner.startActivitySync(
             new Intent(runner.getTargetContext(), GamesFixtureActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         Instrumentation.ActivityMonitor monitor = runner.addMonitor(ArcanoidActivity.class.getName(), null, false);
+        Instrumentation.ActivityMonitor detailsMonitor = runner.addMonitor(GameDetailsActivity.class.getName(), null, false);
         android.app.Activity launched = null;
+        android.app.Activity details = null;
         try {
             Thread.sleep(600); runner.waitForIdleSync();
             assertEquals("Игры", host.getString(R.string.cw_home_games));
@@ -32,21 +34,30 @@ public class ArcanoidInstrumentedTest {
                 image.compress(Bitmap.CompressFormat.PNG, 100, output);
             } finally { image.recycle(); }
             runner.runOnMainSync(() -> host.findViewById(R.id.gamesArcanoid).performClick());
+            details = runner.waitForMonitorWithTimeout(detailsMonitor, 4000);
+            assertNotNull("Game card opens its full-page mode screen", details);
+            runner.waitForIdleSync(); Thread.sleep(500); screenshot(runner, details, "games-details.png");
+            android.app.Activity modes = details;
+            runner.runOnMainSync(() -> modes.findViewById(R.id.gameDetailsSolo).performClick());
             launched = runner.waitForMonitorWithTimeout(monitor, 4000);
             assertNotNull("Choosing the game opens its production activity", launched);
             android.app.Activity selected = launched;
             runner.runOnMainSync(selected::finish); launched = null;
+            runner.runOnMainSync(modes::finish); details = null;
             runner.waitForIdleSync();
             assertTrue("Return restores the games catalog", host.findViewById(R.id.gamesArcanoid).isShown());
             runner.runOnMainSync(() -> host.findViewById(R.id.gamesClose).performClick());
             assertTrue(host.isFinishing());
         } finally {
             android.app.Activity selected = launched;
+            android.app.Activity modeScreen = details;
             runner.runOnMainSync(() -> {
                 if (selected != null) selected.finish();
+                if (modeScreen != null) modeScreen.finish();
                 host.finish();
             });
             runner.removeMonitor(monitor);
+            runner.removeMonitor(detailsMonitor);
         }
     }
     @Before public void requiresUnlockedPhone() {
@@ -149,7 +160,7 @@ public class ArcanoidInstrumentedTest {
             runner.runOnMainSync(activity::finish);
         }
     }
-    private void screenshot(Instrumentation runner, ArcanoidActivity activity, String name) throws Exception {
+    private void screenshot(Instrumentation runner, android.app.Activity activity, String name) throws Exception {
         Bitmap bitmap = runner.getUiAutomation().takeScreenshot(); assertNotNull(bitmap);
         try (FileOutputStream output = new FileOutputStream(new File(activity.getFilesDir(), name))) {
             bitmap.compress(Bitmap.CompressFormat.PNG, 100, output);

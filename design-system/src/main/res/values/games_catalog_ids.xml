@@ -1,0 +1,4 @@
+<resources>
+    <item name="gameDetailsSolo" type="id" />
+    <item name="gameDetailsFamily" type="id" />
+</resources>

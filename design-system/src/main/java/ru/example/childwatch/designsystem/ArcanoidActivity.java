@@ -74,6 +74,7 @@ public class ArcanoidActivity extends AppCompatActivity {
         findViewById(R.id.arcanoidRight).setOnClickListener(v -> move(65));
         action.setOnClickListener(v -> {
             if (game.state() == ArcanoidEngine.State.PLAYING) game.pause();
+            else if (game.state() == ArcanoidEngine.State.WON && !game.campaignComplete()) { game.nextLevel(); game.launchOrResume(); }
             else if (game.state() == ArcanoidEngine.State.WON || game.state() == ArcanoidEngine.State.GAME_OVER) game.restart();
             else game.launchOrResume();
             refresh(); field.animateGame();
@@ -106,12 +107,13 @@ public class ArcanoidActivity extends AppCompatActivity {
         WindowInsetsControllerCompat window = WindowCompat.getInsetsController(getWindow(), getWindow().getDecorView());
         window.setSystemBarsBehavior(WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE);
         if (playing) window.hide(WindowInsetsCompat.Type.systemBars()); else window.show(WindowInsetsCompat.Type.systemBars());
-        score.setText(getString(R.string.cw_arcanoid_score, game.score(), game.lives()));
+        score.setText(getString(R.string.cw_arcanoid_level_score, game.level(), game.levelCount(), game.score(), game.lives()));
         int text, button;
         switch (game.state()) {
             case PLAYING: text = R.string.cw_arcanoid_playing; button = R.string.cw_arcanoid_pause; break;
             case PAUSED: text = R.string.cw_arcanoid_paused; button = R.string.cw_arcanoid_resume; break;
-            case WON: text = R.string.cw_arcanoid_won; button = R.string.cw_arcanoid_restart; break;
+            case WON: text = game.campaignComplete() ? R.string.cw_arcanoid_campaign_won : R.string.cw_arcanoid_level_won;
+                button = game.campaignComplete() ? R.string.cw_arcanoid_restart : R.string.cw_arcanoid_next_level; break;
             case GAME_OVER: text = R.string.cw_arcanoid_over; button = R.string.cw_arcanoid_restart; break;
             default: text = R.string.cw_arcanoid_ready; button = R.string.cw_arcanoid_start;
         }
