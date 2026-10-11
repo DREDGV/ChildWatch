@@ -18,30 +18,31 @@ import static org.junit.Assert.*;
 public class ArcanoidInstrumentedTest {
     @Test public void commonGamesChooserClosesAndLaunchesArcanoid() throws Exception {
         Instrumentation runner = InstrumentationRegistry.getInstrumentation();
-        ArcanoidFixtureActivity host = (ArcanoidFixtureActivity)runner.startActivitySync(
-            new Intent(runner.getTargetContext(), ArcanoidFixtureActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-        com.google.android.material.bottomsheet.BottomSheetDialog[] menu = new com.google.android.material.bottomsheet.BottomSheetDialog[1];
+        GamesFixtureActivity host = (GamesFixtureActivity)runner.startActivitySync(
+            new Intent(runner.getTargetContext(), GamesFixtureActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         Instrumentation.ActivityMonitor monitor = runner.addMonitor(ArcanoidActivity.class.getName(), null, false);
         android.app.Activity launched = null;
         try {
-            runner.runOnMainSync(() -> menu[0] = GamesMenu.show(host));
             Thread.sleep(600); runner.waitForIdleSync();
-            assertTrue(menu[0].isShowing());
             assertEquals("Игры", host.getString(R.string.cw_home_games));
-            screenshot(runner, host, "games-menu.png");
-            runner.runOnMainSync(() -> menu[0].findViewById(R.id.gamesClose).performClick());
-            assertFalse(menu[0].isShowing());
-            runner.runOnMainSync(() -> {
-                menu[0] = GamesMenu.show(host);
-                menu[0].findViewById(R.id.gamesArcanoid).performClick();
-            });
+            assertTrue(host.findViewById(R.id.gamesArcanoid).isShown());
+            assertTrue(host.findViewById(R.id.gamesClose).isShown());
+            Bitmap image = runner.getUiAutomation().takeScreenshot();
+            try (FileOutputStream output = new FileOutputStream(new File(host.getFilesDir(), "games-menu.png"))) {
+                image.compress(Bitmap.CompressFormat.PNG, 100, output);
+            } finally { image.recycle(); }
+            runner.runOnMainSync(() -> host.findViewById(R.id.gamesArcanoid).performClick());
             launched = runner.waitForMonitorWithTimeout(monitor, 4000);
             assertNotNull("Choosing the game opens its production activity", launched);
-            assertFalse(menu[0].isShowing());
+            android.app.Activity selected = launched;
+            runner.runOnMainSync(selected::finish); launched = null;
+            runner.waitForIdleSync();
+            assertTrue("Return restores the games catalog", host.findViewById(R.id.gamesArcanoid).isShown());
+            runner.runOnMainSync(() -> host.findViewById(R.id.gamesClose).performClick());
+            assertTrue(host.isFinishing());
         } finally {
             android.app.Activity selected = launched;
             runner.runOnMainSync(() -> {
-                if (menu[0] != null) menu[0].dismiss();
                 if (selected != null) selected.finish();
                 host.finish();
             });

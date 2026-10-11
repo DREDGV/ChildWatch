@@ -2,7 +2,8 @@
     <string name="cw_home_games">Игры</string>
     <string name="cw_games_hint">Выберите, во что поиграть</string>
     <string name="cw_games_arcanoid_hint">Для одного игрока, без интернета. Отбивайте шарик и разбивайте блоки.</string>
-    <string name="cw_games_close">Закрыть</string>
+    <string name="cw_games_close">Назад</string>
+    <string name="cw_games_play">Играть</string>
     <string name="cw_arcanoid_title">Арканоид</string>
     <string name="cw_arcanoid_back">Назад</string>
     <string name="cw_arcanoid_score">Очки: %1$d   ·   Жизни: %2$d</string>

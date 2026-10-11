@@ -1,12 +1,22 @@
 <?xml version="1.0" encoding="utf-8"?>
-<androidx.core.widget.NestedScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="match_parent" android:layout_height="wrap_content"
-    android:fillViewport="false">
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/gamesRoot" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="@color/cw_color_background">
+    <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:gravity="center_vertical" android:orientation="horizontal" android:padding="12dp">
+        <com.google.android.material.button.MaterialButton android:id="@+id/gamesClose"
+            style="@style/Widget.ChildWatch.Button.Secondary"
+            android:layout_width="wrap_content" android:layout_height="wrap_content"
+            android:minHeight="48dp" android:textAllCaps="false" android:text="@string/cw_games_close" />
+        <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:layout_marginStart="16dp" android:text="@string/cw_home_games"
+            android:textSize="24sp" android:textStyle="bold" android:accessibilityHeading="true"
+            android:textColor="@color/cw_color_on_surface" />
+    </LinearLayout>
+    <androidx.core.widget.NestedScrollView android:layout_width="match_parent"
+        android:layout_height="0dp" android:layout_weight="1" android:fillViewport="false">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
         android:orientation="vertical" android:padding="20dp">
-        <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:text="@string/cw_home_games" android:textSize="24sp" android:textStyle="bold"
-            android:accessibilityHeading="true" android:textColor="@color/cw_color_on_surface" />
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="8dp" android:text="@string/cw_games_hint"
             android:textSize="16sp" android:textColor="@color/cw_color_on_surface_variant" />
@@ -18,10 +28,7 @@
         <TextView android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="8dp" android:text="@string/cw_games_arcanoid_hint"
             android:textSize="14sp" android:textColor="@color/cw_color_on_surface_variant" />
-        <com.google.android.material.button.MaterialButton android:id="@+id/gamesClose"
-            style="@style/Widget.ChildWatch.Button.Secondary"
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="20dp" android:minHeight="48dp" android:textAllCaps="false"
-            android:text="@string/cw_games_close" />
+
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>
+</LinearLayout>
