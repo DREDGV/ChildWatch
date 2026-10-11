@@ -1,5 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <string name="cw_snake_online_details_show">Показать подробности и управление</string>
+    <string name="cw_snake_online_details_hide">Скрыть подробности и управление</string>
+    <string name="cw_snake_online_details_expanded">Подробности раскрыты</string>
+    <string name="cw_snake_online_details_collapsed">Подробности свёрнуты</string>
+    <string name="cw_snake_online_score_short">Еда: %1$d</string>
+    <string name="cw_snake_online_short_loading">Подключение…</string>
+    <string name="cw_snake_online_short_playing">Вы — зелёная змейка</string>
+    <string name="cw_snake_online_short_pausing">Запрошена пауза</string>
+    <string name="cw_snake_online_short_paused">Общая пауза</string>
+    <string name="cw_snake_online_short_ready">Ждём готовности</string>
+    <string name="cw_snake_online_short_peer">Ждём игрока</string>
+    <string name="cw_snake_online_short_reconnecting">Нет связи — подробности</string>
+    <string name="cw_snake_online_short_countdown">Старт через %1$d сек.</string>
+    <string name="cw_snake_online_short_over">Партия завершена</string>
+    <string name="cw_snake_online_short_won">Победа!</string>
+    <string name="cw_snake_online_short_unavailable">Партия недоступна</string>
+    <string name="cw_snake_online_short_unsupported">Нужно обновить сервер</string>
+    <string name="cw_snake_online_short_slow">Задержка сервера</string>
+    <string name="cw_snake_online_short_replaced">Открыто на другом телефоне</string>
+    <string name="cw_snake_online_short_timeout">Повторите действие</string>
+    <string name="cw_snake_online_short_turn">Поворот не принят</string>
     <string name="cw_snake_online_pause">Пауза</string>
     <string name="cw_snake_online_pausing">Ставим общую игру на паузу…</string>
     <string name="cw_snake_online_ready">Я готов</string>

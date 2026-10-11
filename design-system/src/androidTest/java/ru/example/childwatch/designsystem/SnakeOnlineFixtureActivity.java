@@ -8,14 +8,16 @@ import java.util.UUID;
 
 /** Test application only: protocol snapshots, no credentials or monitoring connection. */
 public class SnakeOnlineFixtureActivity extends SnakeOnlineActivity {
+    static volatile float requestedFontScale=1.5f;
+    static volatile String requestedPeerName="";
     FakeSession fake;
     int opened,closed;
     @Override protected void attachBaseContext(android.content.Context context){
-        android.content.res.Configuration config=new android.content.res.Configuration(context.getResources().getConfiguration());config.fontScale=1.5f;
+        android.content.res.Configuration config=new android.content.res.Configuration(context.getResources().getConfiguration());config.fontScale=requestedFontScale;
         super.attachBaseContext(context.createConfigurationContext(config));
     }
     @Override protected Session createSession(String id,SnakeRealtimeBridge.Listener listener){opened++;fake=new FakeSession(id,listener);return fake;}
-    @Override protected void loadNames(int generation){}
+    @Override protected void loadNames(int generation){setPeerName(requestedPeerName);}
     final class FakeSession implements Session {
         final String id,epoch=UUID.randomUUID().toString();final SnakeRealtimeBridge.Listener listener;
         final List<String> commands=new ArrayList<>();final List<SnakeEngine.Direction> turns=new ArrayList<>();
