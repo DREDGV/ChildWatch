@@ -1,0 +1,32 @@
+{
+  "sourceCommit": "6045939",
+  "runtimeFiles": [
+    {
+      "path": "services/FamilyGameService.js",
+      "sizeBytes": 13212,
+      "sha256": "1b7b75b60e300b883527ab2f5164e172a3349c77dba6b9a08c122c3063035161"
+    },
+    {
+      "path": "services/BattleshipRules.js",
+      "sizeBytes": 2084,
+      "sha256": "b0132b5716ca8ebb7a8e6187af4b39bfe79be308015f3df13f829b2252a99f9b"
+    },
+    {
+      "path": "routes/family-games.js",
+      "sizeBytes": 2053,
+      "sha256": "44d589594f01117f81147b91bae622846ad01a726e9eabce21dd1f7c6cd882c7"
+    }
+  ],
+  "existingDependencyReferences": [
+    {
+      "path": "services/DeviceAccessService.js",
+      "sizeBytes": 12945,
+      "sha256": "79b8b035363673ea02f60608f2e0bdbedf3623a04a4480e73f0d824b96331b65"
+    }
+  ],
+  "indexReferenceOnly": {
+    "path": "index.js",
+    "sizeBytes": 58021,
+    "sha256": "45bbf06edd67156684006efe3a29c47991dba6e40cecb22e35cdfd2785abb6b1"
+  }
+}
