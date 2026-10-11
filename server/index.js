@@ -27,6 +27,9 @@ const locationRoutes = require("./routes/location");
 const familyPlacesRoutes = require("./routes/family-places");
 const pickupRoutes = require("./routes/pickups");
 const createFamilyGameRoutes = require("./routes/family-games");
+const FamilyGameService = require("./services/FamilyGameService");
+const SnakeSessionService = require("./services/SnakeSessionService");
+const SnakeSocketService = require("./services/SnakeSocketService");
 const mediaRoutes = require("./routes/media");
 const streamingRoutes = require("./routes/streaming");
 const alertsRoutes = require("./routes/alerts");
@@ -67,6 +70,12 @@ const familyPermissionService = new FamilyPermissionService(dbManager);
 const familyIdentityService = new FamilyIdentityService(dbManager);
 const familyOnboardingService = new FamilyOnboardingService(dbManager);
 const deviceAccessService = new DeviceAccessService(dbManager);
+const familyGameService = new FamilyGameService(dbManager);
+const snakeSessions = new SnakeSessionService(familyGameService);
+const gameNamespace = io.of('/family-games');
+const authenticateGameSocket = new SocketAuthMiddleware(authManager, { required: true }).authenticate();
+gameNamespace.use(authenticateGameSocket);
+const snakeSockets = new SnakeSocketService(gameNamespace, snakeSessions, { authenticate: authenticateGameSocket });
 const attentionSignalManager = new AttentionSignalManager({
   wsManager,
   dbManager,
@@ -273,7 +282,7 @@ app.use(
 app.use("/api/location", authMiddleware.authenticate(), locationRoutes);
 app.use("/api/family-places", authMiddleware.authenticate(), familyPlacesRoutes);
 app.use("/api/pickups", authMiddleware.authenticate(), authMiddleware.rateLimit(60_000, 90), pickupRoutes);
-app.use("/api/family-games", authMiddleware.authenticate(), authMiddleware.rateLimit(60_000, 90), createFamilyGameRoutes(dbManager));
+app.use("/api/family-games", authMiddleware.authenticate(), authMiddleware.rateLimit(60_000, 90), createFamilyGameRoutes(dbManager, familyGameService));
 app.use("/api/media", authMiddleware.authenticate(), mediaRoutes);
 app.use("/api/streaming", authMiddleware.authenticate(), streamingRoutes);
 app.use("/api/debug", authMiddleware.authenticate(), debugRoutes);
@@ -1665,6 +1674,8 @@ setInterval(() => {
 // asynchronous database initialization after every server restart.
 async function startServer() {
   await initializeDatabase();
+  await snakeSessions.ensure();
+  snakeSockets.start();
   return new Promise((resolve, reject) => {
     const onError = (error) => reject(error);
     server.once("error", onError);

@@ -211,7 +211,7 @@ test('HTTP routes require actor context and keep rooms private',async () => {
   try {
     assert.equal((await request(null,'host','/capabilities')).status,401);
     assert.equal((await request('a','guest','/capabilities')).status,403);
-    assert.deepEqual((await request('a','host','/capabilities')).body.games,['TIC_TAC_TOE','BATTLESHIP']);
+    assert.deepEqual((await request('a','host','/capabilities')).body.games,['TIC_TAC_TOE','BATTLESHIP','SNAKE_COOP']);
     const input = invite(), created = await request('a','host','',input);
     assert.equal(created.status,201); assert.equal(created.cache,'no-store');
     assert.equal((await request('a','host','',input)).status,200);
@@ -220,4 +220,92 @@ test('HTTP routes require actor context and keep rooms private',async () => {
     assert.equal(accepted.status,200); assert.equal(accepted.body.game.status,'PLAYING');
     const missing = await request('a','host','/'+randomUUID()); assert.equal(missing.status,404);
   } finally { await new Promise(resolve => server.close(resolve)); await f.close(); }
+});
+
+
+test('cooperative snake invitation is stable, consented and starts in SETUP without a turn',async () => {
+  const f = await fixture();
+  try {
+    const input = {...invite(),type:'SNAKE_COOP'};
+    const created = await f.service.create(f.actors.host,input);
+    assert.equal(created.game.status,'INVITED'); assert.equal(created.game.nextMark,null);
+    assert.equal(created.game.board,null); assert.ok(created.game.snake);
+    const persisted = await f.db.get('SELECT board FROM family_games WHERE id=?',[input.gameId]);
+    const seed = JSON.parse(persisted.board)[7];
+    assert.equal(typeof seed,'string'); assert.match(seed,/^-?\d+$/);
+    assert.ok(BigInt(seed) >= -(1n<<63n) && BigInt(seed) < (1n<<63n));
+    const replay = await f.service.create(f.actors.host,input);
+    assert.equal(replay.replayed,true); assert.deepEqual(replay.game,created.game);
+    assert.equal((await f.db.get('SELECT board FROM family_games WHERE id=?',[input.gameId])).board,persisted.board);
+    await assert.rejects(f.service.create(f.actors.host,{...input,type:'BATTLESHIP'}),{code:'GAME_ID_REUSED'});
+    await assert.rejects(f.service.action(f.actors.host,input.gameId,command(created.game,'ACCEPT')),{code:'GAME_ACTION_NOT_ALLOWED'});
+    const accept = command(created.game,'ACCEPT');
+    let game = (await f.service.action(f.actors.guest2,input.gameId,accept)).game;
+    assert.equal(game.status,'SETUP'); assert.equal(game.nextMark,null);
+    assert.equal((await f.service.action(f.actors.guest,input.gameId,accept)).replayed,true);
+    for (const action of ['MOVE','FIRE'])
+      await assert.rejects(f.service.action(f.actors.host,input.gameId,command(game,action,0)),{code:'GAME_INVALID_ACTION'});
+    const ships = [[0,1,2,3],[20,21,22],[25,26,27],[40,41],[44,45],[48,49],[60],[62],[64],[66]];
+    await assert.rejects(f.service.action(f.actors.host,input.gameId,{...command(game,'PLACE_FLEET'),ships}),{code:'GAME_INVALID_ACTION'});
+    assert.equal((await f.service.get(f.actors.host,input.gameId)).version,game.version);
+    game = (await f.service.action(f.actors.host,input.gameId,command(game,'RESIGN'))).game;
+    assert.equal(game.status,'RESIGNED'); assert.equal(game.nextMark,null);
+    assert.equal(game.winnerMemberId,'guest');
+  } finally { await f.close(); }
+});
+
+test('snake authorize revalidates actor and both participants and expires stale rooms',async () => {
+  const f = await fixture();
+  try {
+    const game = (await f.service.create(f.actors.host,{...invite(),type:'SNAKE_COOP'})).game;
+    const authorized = await f.service.authorize(f.actors.guest,game.id);
+    assert.equal(authorized.row.id,game.id); assert.equal(authorized.members.length,3);
+    assert.deepEqual(f.service.view(authorized.row,f.actors.guest,authorized.members),await f.service.get(f.actors.guest,game.id));
+    await assert.rejects(f.service.authorize(f.actors.other,game.id),{status:404});
+    f.revoked.add('b'); await assert.rejects(f.service.authorize(f.actors.guest,game.id),{status:403}); f.revoked.clear();
+    f.bindings.set('b','other'); await assert.rejects(f.service.authorize(f.actors.guest,game.id),{code:'GAME_CONTEXT_CHANGED'});
+    f.bindings.set('b','guest');
+    f.advance(15*60_000);
+    assert.equal((await f.service.authorize(f.actors.host,game.id)).row.status,'EXPIRED');
+    f.members.splice(1,1); await assert.rejects(f.service.authorize(f.actors.host,game.id),{code:'GAME_PARTICIPANT_UNAVAILABLE'});
+  } finally { await f.close(); }
+});
+
+test('snake retains decline cancel and resignation during active play',async () => {
+  const f = await fixture();
+  try {
+    let game = (await f.service.create(f.actors.host,{...invite(),type:'SNAKE_COOP'})).game;
+    assert.equal((await f.service.action(f.actors.guest,game.id,command(game,'DECLINE'))).game.status,'DECLINED');
+    game = (await f.service.create(f.actors.host,{...invite(),type:'SNAKE_COOP'})).game;
+    assert.equal((await f.service.action(f.actors.host,game.id,command(game,'CANCEL'))).game.status,'CANCELLED');
+    game = (await f.service.create(f.actors.host,{...invite(),type:'SNAKE_COOP'})).game;
+    game = (await f.service.action(f.actors.guest,game.id,command(game,'ACCEPT'))).game;
+    // Simulate the realtime service's authorized start, not a client MOVE endpoint.
+    await f.db.run("UPDATE family_games SET status='PLAYING' WHERE id=?",[game.id]);
+    game = await f.service.get(f.actors.guest,game.id);
+    game = (await f.service.action(f.actors.guest,game.id,command(game,'RESIGN'))).game;
+    assert.equal(game.status,'RESIGNED'); assert.equal(game.winnerMemberId,'host');
+  } finally { await f.close(); }
+});
+
+
+test('snake snapshot and accepted invitation retry survive database restart',async () => {
+  const dir = path.resolve(__dirname,'../../.runtime/game-tests'); fs.mkdirSync(dir,{recursive:true});
+  const filename = path.join(dir,`isolated-snake-${randomUUID()}.db`);
+  let f = await fixture(filename);
+  try {
+    const invitation = {...invite(),type:'SNAKE_COOP'};
+    const first = (await f.service.create(f.actors.host,invitation)).game;
+    const accept = command(first,'ACCEPT');
+    const expected = (await f.service.action(f.actors.guest,first.id,accept)).game;
+    const snapshot = (await f.db.get('SELECT board FROM family_games WHERE id=?',[first.id])).board;
+    await f.close(); f = await fixture(filename);
+    assert.deepEqual(await f.service.get(f.actors.guest,first.id),expected);
+    assert.equal((await f.db.get('SELECT board FROM family_games WHERE id=?',[first.id])).board,snapshot);
+    assert.equal((await f.service.action(f.actors.guest2,first.id,accept)).replayed,true);
+    assert.equal((await f.service.create(f.actors.host,invitation)).replayed,true);
+  } finally {
+    await f.close();
+    for (const suffix of ['', '-wal', '-shm']) if (fs.existsSync(filename+suffix)) fs.unlinkSync(filename+suffix);
+  }
 });
