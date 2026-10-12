@@ -15,7 +15,7 @@ class FamilyGamesHost private constructor(context: Context) : GameOnlineBridge.H
         resolver.resolveFamilyId().orEmpty(), resolver.resolveSelfMemberId().orEmpty(),
         resolver.resolveChildDeviceId())
     private val captured = identity().toList()
-    private val network = NetworkClient(context.applicationContext)
+    private val network by lazy { NetworkClient(context.applicationContext) }
 
     override fun scopeKey(): String = if (captured.any(String::isBlank) || identity() != captured) "" else JSONArray(captured).toString()
 
@@ -45,8 +45,9 @@ class FamilyGamesHost private constructor(context: Context) : GameOnlineBridge.H
     }
 
     companion object {
+        fun create(context: Context): GameOnlineBridge.Host = FamilyGamesHost(context.applicationContext)
         fun register(context: Context) {
-            GameOnlineBridge.host = FamilyGamesHost(context.applicationContext)
+            GameOnlineBridge.host = create(context)
         }
     }
 }

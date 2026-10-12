@@ -280,6 +280,7 @@ class WebSocketClient(
             onAttentionTransportReadyCallback?.invoke()
             onChatV2TransportReadyCallback?.invoke()
             onRegisteredCallback?.invoke()
+            ru.example.childwatch.designsystem.FamilyGameInvitations.changed()
             if (shouldRequestMissedMessagesAfterRegistration) {
                 shouldRequestMissedMessagesAfterRegistration = false
                 requestMissedMessagesViaSocket()
@@ -901,6 +902,7 @@ class WebSocketClient(
             socket?.on(Socket.EVENT_DISCONNECT, onDisconnect)
             socket?.on(Socket.EVENT_CONNECT_ERROR, onConnectError)
             socket?.on("registered", onRegistered)
+            socket?.on("family_games:changed") { ru.example.childwatch.designsystem.FamilyGameInvitations.changed() }
             socket?.on("audio_chunk", onAudioChunk)
             socket?.on("audio_capture_error", onAudioCaptureErrorEvent)
             socket?.on("critical_alert", onCriticalAlert)

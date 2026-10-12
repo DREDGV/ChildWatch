@@ -9,6 +9,9 @@ class ChildWatchApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         EmojiManager.install(GoogleEmojiProvider())
+        ru.example.childwatch.designsystem.FamilyGameInvitations.install(this) {
+            ru.example.parentwatch.games.FamilyGamesHost.create(this)
+        }
         AppVisibilityTracker.register(this)
     }
 }

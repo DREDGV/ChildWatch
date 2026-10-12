@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cw_game_invitation_channel">Приглашения в игры</string>
+    <string name="cw_game_invitation_title">%1$s приглашает поиграть</string>
+    <string name="cw_game_invitation_body">%1$s · Откройте приглашение, чтобы принять или отказаться.</string>
+    <string name="cw_game_invitation_banner">%1$s приглашает: %2$s</string>
+    <string name="cw_game_invitation_open">Посмотреть</string>
+    <string name="cw_game_invitation_later">Позже</string>
+    <string name="cw_game_invitation_unavailable">Приглашение относится к другому профилю. Откройте игры из главного экрана.</string>
+</resources>

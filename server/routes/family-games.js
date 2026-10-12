@@ -1,8 +1,14 @@
 const express = require('express');
 const FamilyGameService = require('../services/FamilyGameService');
 
-module.exports = function createFamilyGameRoutes(db, service = new FamilyGameService(db)) {
+module.exports = function createFamilyGameRoutes(db, service = new FamilyGameService(db), { notifyChanged = async () => {} } = {}) {
   const router = express.Router();
+  async function notify(result) {
+    if (!result.replayed && result.game) {
+      try { await notifyChanged(result.game); }
+      catch (_) { console.warn('Family game notification deferred to authenticated refresh'); }
+    }
+  }
   router.use(async (req,res,next) => {
     res.set('Cache-Control','no-store');
     try {
@@ -19,11 +25,12 @@ module.exports = function createFamilyGameRoutes(db, service = new FamilyGameSer
       countdownMs:2000, leaseMs:12000, inputWindowTicks:3,
       arkanoid:{ simulationHz:60, snapshotHz:20, width:1000, height:1400, maxMoveHz:25 } } }));
   router.get('/',async(req,res,next) => {
-    try { res.json({ success:true,games:await service.list(req.gameActor) }); } catch(error) { next(error); }
+    try { res.json({ success:true,games:await service.list(req.gameActor),serverTime:service.clock() }); } catch(error) { next(error); }
   });
   router.post('/',async(req,res,next) => {
     try {
       const result = await service.create(req.gameActor,req.body || {});
+      await notify(result);
       res.status(result.replayed ? 200 : 201).json({ success:true,...result });
     } catch(error) { next(error); }
   });
@@ -31,7 +38,11 @@ module.exports = function createFamilyGameRoutes(db, service = new FamilyGameSer
     try { res.json({ success:true,game:await service.get(req.gameActor,req.params.id) }); } catch(error) { next(error); }
   });
   router.post('/:id/actions',async(req,res,next) => {
-    try { res.json({ success:true,...await service.action(req.gameActor,req.params.id,req.body || {}) }); }
+    try {
+      const result = await service.action(req.gameActor,req.params.id,req.body || {});
+      await notify(result);
+      res.json({ success:true,...result });
+    }
     catch(error) { next(error); }
   });
   router.use((error,req,res,next) => {

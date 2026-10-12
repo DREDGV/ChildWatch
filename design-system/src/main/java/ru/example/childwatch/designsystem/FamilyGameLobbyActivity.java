@@ -61,15 +61,15 @@ public class FamilyGameLobbyActivity extends GameScreen {
         for(int i=0;i<members.length();i++){JSONObject m=members.optJSONObject(i);if(m!=null&&!m.optString("memberId").equals(actor)){
             others.add(m);String name=m.optString("displayName");names.add(name.isEmpty()?"Участник семьи":name);}}
         if(others.isEmpty()){notice("Для совместной игры нужен ещё один участник семьи.");return;}
-        new MaterialAlertDialogBuilder(this).setTitle("Кого пригласить?").setItems(names.toArray(new String[0]),(d,index)->{
-            new MaterialAlertDialogBuilder(this).setTitle("Пригласить "+names.get(index)+"?")
-                .setMessage("Приглашение появится в разделе «Игры» на его телефоне и будет доступно 15 минут.")
-                .setNegativeButton("Отмена",null).setPositiveButton("Пригласить",(confirm,w)->{
-                    try{JSONObject body=new JSONObject().put("gameId",UUID.randomUUID().toString()).put("type",gameType).put("targetMemberId",others.get(index).getString("memberId"));
-                        busy=true;controls();client.write("/",body,this::result);
-                    }catch(Exception error){notice("Не удалось подготовить приглашение.");}
-                }).show();
-        }).setNegativeButton("Отмена",null).show();
+        new MaterialAlertDialogBuilder(this).setTitle(snake?"Пригласить в Змейку":arcanoid?"Пригласить в Арканоид":"Пригласить в Морской бой")
+            .setItems(names.toArray(new String[0]),(d,index)->sendInvitation(others.get(index)))
+            .setNegativeButton("Отмена",null).show();
+    }
+    private void sendInvitation(JSONObject member){
+        if(busy||client.hasPending())return;
+        try{JSONObject body=new JSONObject().put("gameId",UUID.randomUUID().toString()).put("type",gameType).put("targetMemberId",member.getString("memberId"));
+            busy=true;controls();client.write("/",body,this::result);
+        }catch(Exception error){notice("Не удалось подготовить приглашение.");}
     }
     private void refresh(){
         handler.removeCallbacks(tick);if(!active||busy||!supported)return;
@@ -83,11 +83,22 @@ public class FamilyGameLobbyActivity extends GameScreen {
     }
     private void showMatches(JSONArray rows){
         matches.removeAllViews();int count=0;
+        String focused=getIntent().getStringExtra("invitationId");
+        if(rows!=null&&focused!=null){
+            JSONArray ordered=new JSONArray();
+            for(int i=0;i<rows.length();i++){JSONObject g=rows.optJSONObject(i);if(g!=null&&focused.equals(g.optString("id")))ordered.put(g);}
+            if(ordered.length()==0)notice("Это приглашение уже недоступно. Можно отправить новое.");
+            for(int i=0;i<rows.length();i++){JSONObject g=rows.optJSONObject(i);if(g!=null&&!focused.equals(g.optString("id")))ordered.put(g);}
+            rows=ordered;
+        }
         if(rows!=null)for(int i=0;i<rows.length();i++){
             JSONObject g=rows.optJSONObject(i);if(g==null||!gameType.equals(g.optString("type")))continue;
             String status=g.optString("status"),id=g.optString("id");boolean host="X".equals(g.optString("myMark"));
             JSONObject peer=g.optJSONObject(host?"guest":"host");String name=peer==null?"Участник семьи":peer.optString("displayName","Участник семьи");
             String state="INVITED".equals(status)?host?"Приглашение отправлено":"Приглашает сыграть":"SETUP".equals(status)?snake||arcanoid?"Ожидает готовности игроков":"Расстановка кораблей":"PLAYING".equals(status)?"Партия идёт":"Партия завершена";
+            if("EXPIRED".equals(status))state="Приглашение или партия истекли";
+            else if("DECLINED".equals(status))state="Приглашение отклонено";
+            else if("CANCELLED".equals(status))state="Приглашение отменено";
             matches.addView(label(name+"\n"+state,18));count++;
             if("INVITED".equals(status)){
                 if(!host)matches.addView(button("Принять приглашение",true,()->action(g,"ACCEPT")));
@@ -103,8 +114,10 @@ public class FamilyGameLobbyActivity extends GameScreen {
         }catch(Exception error){notice("Не удалось подготовить действие.");}
     }
     private void result(JSONObject json,Exception error){
-        busy=false;controls();notice(error==null?"Действие подтверждено.":GameOnlineBridge.explain(error));
+        busy=false;controls();notice(error==null?"Готово.":GameOnlineBridge.explain(error));
         if(error==null&&json.optJSONObject("game")!=null){JSONObject g=json.optJSONObject("game");
+            if("INVITED".equals(g.optString("status"))&&"X".equals(g.optString("myMark")))
+                notice("Приглашение отправлено. Ждём ответа участника семьи.");
             if(active&&gameType.equals(g.optString("type"))&&("SETUP".equals(g.optString("status"))||"PLAYING".equals(g.optString("status"))))
                 open(g);
         }
