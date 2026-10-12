@@ -21,13 +21,15 @@ class RemotePhotoThumbnailAdapter(
     private val tokenProvider: () -> String? = { null },
     private val onPhotoClick: ((RemotePhotoItem) -> Unit)? = null,
     private val onPhotoActions: ((RemotePhotoItem) -> Unit)? = null,
-    private val heightDp: Int = 72
+    private val heightDp: Int = 144,
+    private val widthDp: Int? = null
 ) : ListAdapter<RemotePhotoItem, RemotePhotoThumbnailAdapter.ThumbnailViewHolder>(DiffCallback) {
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ThumbnailViewHolder {
         val view = LayoutInflater.from(parent.context)
             .inflate(R.layout.item_photo_thumbnail_horizontal, parent, false)
         view.layoutParams.height = (heightDp * parent.resources.displayMetrics.density).toInt()
+        widthDp?.let { view.layoutParams.width = (it * parent.resources.displayMetrics.density).toInt() }
         return ThumbnailViewHolder(view)
     }
 
@@ -55,7 +57,7 @@ class RemotePhotoThumbnailAdapter(
                 .skipMemoryCache(false)
                 .placeholder(R.drawable.ic_photo_placeholder)
                 .error(R.drawable.ic_photo_placeholder)
-                .centerCrop()
+                .fitCenter()
                 .into(imgThumbnail)
 
             itemView.setOnClickListener { onPhotoClick?.invoke(item) }

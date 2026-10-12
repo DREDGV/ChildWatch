@@ -1,17 +1,24 @@
 <?xml version="1.0" encoding="utf-8"?>
 <com.google.android.material.card.MaterialCardView xmlns:android="http://schemas.android.com/apk/res/android"
- xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent" android:layout_height="72dp"
+ xmlns:app="http://schemas.android.com/apk/res-auto" android:layout_width="match_parent" android:layout_height="144dp"
  android:layout_margin="4dp" app:cardCornerRadius="16dp" app:cardElevation="0dp" app:strokeWidth="0dp"
  android:clickable="true" android:focusable="true" android:foreground="?attr/selectableItemBackground">
- <FrameLayout android:layout_width="match_parent" android:layout_height="match_parent">
+ <LinearLayout android:layout_width="match_parent" android:layout_height="match_parent" android:orientation="vertical">
+ <FrameLayout android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1"
+  android:background="@color/cw_color_surface_container_high">
   <ImageView android:id="@+id/imgThumbnail" android:layout_width="match_parent" android:layout_height="match_parent"
-   android:importantForAccessibility="no" android:scaleType="centerCrop" />
-  <ImageButton android:id="@+id/btnPhotoActions" android:layout_width="48dp" android:layout_height="48dp"
-   android:layout_gravity="top|end" android:padding="12dp" android:background="@drawable/bg_photo_actions"
-   android:src="@drawable/ic_photo_more" android:contentDescription="@string/remote_photo_menu_title" android:visibility="gone" />
-  <TextView android:id="@+id/tvPhotoDate" android:layout_width="match_parent" android:layout_height="wrap_content"
-   android:layout_gravity="bottom" android:background="@drawable/bg_remote_photo_scrim" android:padding="8dp"
-   android:textColor="@android:color/white" android:textSize="12sp" android:maxLines="1" android:ellipsize="end"
-   android:importantForAccessibility="no" />
+   android:importantForAccessibility="no" android:scaleType="fitCenter" />
  </FrameLayout>
+ <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal"
+  android:gravity="center_vertical" android:background="@color/cw_color_surface">
+  <TextView android:id="@+id/tvPhotoDate" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+   android:padding="8dp" android:background="@color/cw_color_surface"
+   android:textColor="@color/cw_color_on_surface_variant" android:textSize="12sp" android:maxLines="2" android:ellipsize="end"
+   android:importantForAccessibility="no" />
+  <ImageButton android:id="@+id/btnPhotoActions" android:layout_width="48dp" android:layout_height="48dp"
+   android:padding="12dp" android:background="?attr/selectableItemBackgroundBorderless"
+   android:tint="@color/cw_color_on_surface_variant" android:src="@drawable/ic_photo_more"
+   android:contentDescription="@string/remote_photo_menu_title" android:visibility="gone" />
+ </LinearLayout>
+ </LinearLayout>
 </com.google.android.material.card.MaterialCardView>

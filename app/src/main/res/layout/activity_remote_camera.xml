@@ -36,7 +36,7 @@
    <com.google.android.material.button.MaterialButton android:id="@+id/btnGalleryMore" style="?attr/borderlessButtonStyle" android:layout_width="wrap_content" android:layout_height="48dp" android:text="@string/remote_photo_gallery_all" android:textSize="12sp" />
   </LinearLayout>
   <FrameLayout android:layout_width="match_parent" android:layout_height="wrap_content">
-   <androidx.recyclerview.widget.RecyclerView android:id="@+id/rvRecentPhotos" android:layout_width="match_parent" android:layout_height="160dp" android:visibility="gone" android:overScrollMode="never" />
+   <androidx.recyclerview.widget.RecyclerView android:id="@+id/rvRecentPhotos" android:layout_width="match_parent" android:layout_height="wrap_content" android:visibility="gone" android:overScrollMode="never" />
    <TextView android:id="@+id/tvPhotosEmptyHint" android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/remote_camera_gallery_subtitle_empty" android:textSize="13sp" android:textColor="?attr/colorOnSurfaceVariant" />
    <com.google.android.material.progressindicator.CircularProgressIndicator android:id="@+id/progressIndicator" android:layout_width="32dp" android:layout_height="32dp" android:layout_gravity="center" android:visibility="gone" android:indeterminate="true" />
   </FrameLayout>

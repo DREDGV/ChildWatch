@@ -238,12 +238,12 @@ class RemoteCameraActivity : AppCompatActivity() {
             thumbnailAdapter = RemotePhotoThumbnailAdapter(
                 tokenProvider = { networkClient.getAuthToken() },
                 onPhotoClick = { photoItem -> openRemotePhotoPreview(photoItem) },
-                onPhotoActions = { item -> showPhotoActions(item) }
+                onPhotoActions = { item -> showPhotoActions(item) },
+                widthDp = 160
             )
             rvRecentPhotos.apply {
-                layoutManager = object : GridLayoutManager(this@RemoteCameraActivity, 2) {
-                    override fun canScrollVertically() = false
-                }
+                layoutManager = androidx.recyclerview.widget.LinearLayoutManager(
+                    this@RemoteCameraActivity, RecyclerView.HORIZONTAL, false)
                 isNestedScrollingEnabled = false
                 adapter = thumbnailAdapter
             }
@@ -935,12 +935,10 @@ class RemoteCameraActivity : AppCompatActivity() {
             tokenProvider = { networkClient.getAuthToken() },
             onPhotoClick = { if (scope == photoScope()) openRemotePhotoPreview(it) },
             onPhotoActions = { if (scope == photoScope()) showPhotoActions(it) },
-            heightDp = 88
+            heightDp = 220
         )
         val grid = RecyclerView(this).apply {
-            layoutManager = object : GridLayoutManager(this@RemoteCameraActivity, 2) {
-                override fun canScrollVertically() = false
-            }
+            layoutManager = GridLayoutManager(this@RemoteCameraActivity, 2)
             adapter = pageAdapter
             isNestedScrollingEnabled = false
         }
@@ -974,7 +972,11 @@ class RemoteCameraActivity : AppCompatActivity() {
             addView(loading, android.widget.FrameLayout.LayoutParams(dp(40), dp(40), android.view.Gravity.CENTER))
             addView(retry, android.widget.FrameLayout.LayoutParams(-2, -2, android.view.Gravity.CENTER))
         }
-        panel.addView(galleryFrame, android.widget.LinearLayout.LayoutParams(-1, dp((pageSize / 2) * 96)))
+        // Keep navigation outside a scrolling grid: larger whole-frame previews must
+        // remain usable in landscape and with enlarged system text.
+        val galleryHeight = (resources.configuration.screenHeightDp *
+            if (resources.configuration.fontScale >= 1.5f) 0.4f else 0.55f).toInt()
+        panel.addView(galleryFrame, android.widget.LinearLayout.LayoutParams(-1, dp(galleryHeight)))
         panel.addView(row)
         val dialog = MaterialAlertDialogBuilder(this)
             .setTitle(getString(R.string.remote_photo_gallery_person_title, childName))
@@ -1012,7 +1014,9 @@ class RemoteCameraActivity : AppCompatActivity() {
                     }
                     displayedIds = ids
                     page = destination
-                    pageAdapter.submitList(files.take(pageSize).map(::photoItem))
+                    pageAdapter.submitList(files.take(pageSize).map(::photoItem)) {
+                        grid.scrollToPosition(0)
+                    }
                     loading.visibility = View.GONE
                     grid.visibility = if (files.isEmpty()) View.INVISIBLE else View.VISIBLE
                     empty.visibility = if (files.isEmpty()) View.VISIBLE else View.GONE
@@ -1037,6 +1041,8 @@ class RemoteCameraActivity : AppCompatActivity() {
         next.setOnClickListener { loadPage(page + 1) }
         dialog.setOnDismissListener { pageJob?.cancel() }
         dialog.show()
+        dialog.window?.setLayout((resources.displayMetrics.widthPixels * 0.94f).toInt(),
+            android.view.ViewGroup.LayoutParams.WRAP_CONTENT)
         loadPage(0)
     }
 
