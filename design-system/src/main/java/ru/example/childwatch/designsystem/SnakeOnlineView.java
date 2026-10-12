@@ -21,12 +21,13 @@ public final class SnakeOnlineView extends View {
     private String epoch="",tick="",phase="";
     private int own=-1,food=-1;
     private boolean active,canTurn;
-    private float cell,left,top,touchX,touchY;
-    public SnakeOnlineView(Context context,DirectionListener listener){super(context);scene=new SnakeScene(context);this.listener=listener;setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
+    private float cell,left,top;
+    private final SnakeTouch touch;
+    public SnakeOnlineView(Context context,DirectionListener listener){super(context);scene=new SnakeScene(context);this.listener=listener;touch=new SnakeTouch(getResources().getDisplayMetrics().density,listener::turn);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
     public void setPlayer(int player){own=player;invalidate();}
     public void setActive(boolean value){active=value;if(!value)freeze();invalidate();}
-    public void setCanTurn(boolean value){canTurn=value;}
-    public void freeze(){for(int p=0;p<2;p++)for(int i=0;i<motion[p].length;i++)motion[p][i].snap(cells[p][i]);canTurn=false;invalidate();}
+    public void setCanTurn(boolean value){canTurn=value;if(!value)touch.cancel();}
+    public void freeze(){touch.cancel();for(int p=0;p<2;p++)for(int i=0;i<motion[p].length;i++)motion[p][i].snap(cells[p][i]);canTurn=false;invalidate();}
     public void accept(JSONObject snapshot){
         JSONObject snake=snapshot.optJSONObject("snake");if(snake==null)return;
         String nextEpoch=snapshot.optString("epoch"),nextTick=snake.optString("tick"),nextPhase=snapshot.optString("phase");
@@ -81,17 +82,9 @@ public final class SnakeOnlineView extends View {
         }
         c.restore();if(active&&moving)postInvalidateOnAnimation();
     }
-    @Override public boolean onTouchEvent(MotionEvent event){
-        if(!canTurn||own<0)return false;
-        switch(event.getActionMasked()){
-            case MotionEvent.ACTION_DOWN:touchX=event.getX();touchY=event.getY();getParent().requestDisallowInterceptTouchEvent(true);return true;
-            case MotionEvent.ACTION_MOVE:
-                float dx=event.getX()-touchX,dy=event.getY()-touchY;
-                if(Math.max(Math.abs(dx),Math.abs(dy))>=18*getResources().getDisplayMetrics().density){listener.turn(Math.abs(dx)>Math.abs(dy)?dx>0?SnakeEngine.Direction.RIGHT:SnakeEngine.Direction.LEFT:dy>0?SnakeEngine.Direction.DOWN:SnakeEngine.Direction.UP);touchX=event.getX();touchY=event.getY();}return true;
-            case MotionEvent.ACTION_UP:performClick();return true;
-            case MotionEvent.ACTION_CANCEL:return true;
-            default:return false;
-        }
+    @Override public boolean onTouchEvent(MotionEvent event) {
+        if (!canTurn || own < 0) { touch.cancel(); return false; }
+        return touch.handle(this, event);
     }
     @Override public boolean performClick(){super.performClick();return true;}
     @Override protected void onDetachedFromWindow(){setActive(false);super.onDetachedFromWindow();}

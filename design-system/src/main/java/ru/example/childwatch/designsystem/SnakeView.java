@@ -20,23 +20,25 @@ public final class SnakeView extends View implements Choreographer.FrameCallback
     private boolean active, queued, feedback = true;
     private SnakeEngine.State displayedState;
     private long lastFrame;
-    private float cell, left, top, touchX, touchY;
+    private float cell, left, top;
+    private final SnakeTouch touch;
     public SnakeView(Context context, SnakeEngine engine, Runnable changed) {
-        super(context); scene = new SnakeScene(context); game = engine; this.changed = changed; remember();
+        super(context); scene = new SnakeScene(context); game = engine; this.changed = changed; touch = new SnakeTouch(getResources().getDisplayMetrics().density, direction -> game.turn(0, direction)); remember();
         setContentDescription(context.getString(R.string.cw_snake_field));
         setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
     }
-    public void setGame(SnakeEngine engine) { game = engine; remember(); lastFrame = 0; invalidate(); }
+    public void setGame(SnakeEngine engine) { touch.cancel(); game = engine; remember(); lastFrame = 0; invalidate(); }
     public void setFeedbackEnabled(boolean enabled) { feedback = enabled; }
     public void setActive(boolean enabled) {
         active = enabled; lastFrame = 0;
-        if (!enabled) { Choreographer.getInstance().removeFrameCallback(this); queued = false; }
+        if (!enabled) { touch.cancel(); Choreographer.getInstance().removeFrameCallback(this); queued = false; }
         else animateGame();
     }
     public void animateGame() {
         invalidate();
         if (displayedState != game.state()) { remember(); displayedState = game.state(); }
         if (game.state() != SnakeEngine.State.PLAYING) {
+            touch.cancel();
             lastFrame = 0; Choreographer.getInstance().removeFrameCallback(this); queued = false;
         } else if (active && !queued) { queued = true; Choreographer.getInstance().postFrameCallback(this); }
     }
@@ -96,21 +98,8 @@ public final class SnakeView extends View implements Choreographer.FrameCallback
         return previousY[p][old] + (game.segmentY(p, i) - previousY[p][old]) * amount;
     }
     @Override public boolean onTouchEvent(MotionEvent event) {
-        if (game.state() != SnakeEngine.State.PLAYING) return false;
-        switch (event.getActionMasked()) {
-            case MotionEvent.ACTION_DOWN:
-                touchX = event.getX(); touchY = event.getY(); getParent().requestDisallowInterceptTouchEvent(true); return true;
-            case MotionEvent.ACTION_MOVE:
-                float dx = event.getX() - touchX, dy = event.getY() - touchY;
-                if (Math.max(Math.abs(dx), Math.abs(dy)) >= 18 * getResources().getDisplayMetrics().density) {
-                    game.turn(0, Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? SnakeEngine.Direction.RIGHT : SnakeEngine.Direction.LEFT)
-                        : (dy > 0 ? SnakeEngine.Direction.DOWN : SnakeEngine.Direction.UP));
-                    touchX = event.getX(); touchY = event.getY();
-                } return true;
-            case MotionEvent.ACTION_UP: performClick(); return true;
-            case MotionEvent.ACTION_CANCEL: return true;
-            default: return false;
-        }
+        if (game.state() != SnakeEngine.State.PLAYING) { touch.cancel(); return false; }
+        return touch.handle(this, event);
     }
     @Override public boolean performClick() { super.performClick(); return true; }
     @Override protected void onDetachedFromWindow() { setActive(false); super.onDetachedFromWindow(); }

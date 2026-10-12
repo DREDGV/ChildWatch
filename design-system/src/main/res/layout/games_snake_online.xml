@@ -41,19 +41,29 @@
         style="@style/Widget.ChildWatch.Button.Primary" android:layout_width="match_parent" android:layout_height="wrap_content"
         android:layout_marginStart="20dp" android:layout_marginEnd="20dp" android:minHeight="48dp"
         android:textAllCaps="false" android:text="@string/cw_snake_online_ready" />
-    <LinearLayout android:id="@+id/snakeOnlineControls" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal" android:paddingStart="12dp" android:paddingEnd="12dp" android:paddingTop="4dp" android:paddingBottom="8dp">
-        <com.google.android.material.button.MaterialButton android:id="@+id/snakeOnlineLeft" android:layout_width="0dp" android:layout_weight="1"
-            android:layout_height="48dp" android:minWidth="48dp" android:minHeight="48dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
-            app:iconTint="@color/cw_game_white" android:contentDescription="@string/cw_snake_online_left" />
-        <com.google.android.material.button.MaterialButton android:id="@+id/snakeOnlineUp" android:layout_width="0dp" android:layout_weight="1"
-            android:layout_height="48dp" android:minWidth="48dp" android:minHeight="48dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
-            app:iconTint="@color/cw_game_white" android:contentDescription="@string/cw_snake_online_up" />
-        <com.google.android.material.button.MaterialButton android:id="@+id/snakeOnlineDown" android:layout_width="0dp" android:layout_weight="1"
-            android:layout_height="48dp" android:minWidth="48dp" android:minHeight="48dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
-            app:iconTint="@color/cw_game_white" android:contentDescription="@string/cw_snake_online_down" />
-        <com.google.android.material.button.MaterialButton android:id="@+id/snakeOnlineRight" android:layout_width="0dp" android:layout_weight="1"
-            android:layout_height="48dp" android:minWidth="48dp" android:minHeight="48dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
-            app:iconTint="@color/cw_game_white" android:contentDescription="@string/cw_snake_online_right" />
-    </LinearLayout>
+    <FrameLayout android:id="@+id/snakeOnlineControls" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingTop="4dp" android:paddingBottom="4dp">
+        <RelativeLayout android:layout_width="176dp" android:layout_height="176dp" android:layout_gravity="center">
+            <com.google.android.material.button.MaterialButton android:id="@+id/snakeOnlineUp"
+                android:layout_width="56dp" android:layout_height="56dp" android:layout_centerHorizontal="true" android:layout_alignParentTop="true"
+                android:minWidth="56dp" android:minHeight="56dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
+                app:backgroundTint="@color/cw_game_grid" app:iconTint="@color/cw_game_white" android:textColor="@color/cw_game_white"
+                 android:contentDescription="@string/cw_snake_up" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/snakeOnlineLeft"
+                android:layout_width="56dp" android:layout_height="56dp" android:layout_centerVertical="true" android:layout_alignParentStart="true"
+                android:minWidth="56dp" android:minHeight="56dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
+                app:backgroundTint="@color/cw_game_grid" app:iconTint="@color/cw_game_white" android:textColor="@color/cw_game_white"
+                 android:contentDescription="@string/cw_arcanoid_left" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/snakeOnlineRight"
+                android:layout_width="56dp" android:layout_height="56dp" android:layout_centerVertical="true" android:layout_alignParentEnd="true"
+                android:minWidth="56dp" android:minHeight="56dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
+                app:backgroundTint="@color/cw_game_grid" app:iconTint="@color/cw_game_white" android:textColor="@color/cw_game_white"
+                 android:contentDescription="@string/cw_arcanoid_right" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/snakeOnlineDown"
+                android:layout_width="56dp" android:layout_height="56dp" android:layout_centerHorizontal="true" android:layout_alignParentBottom="true"
+                android:minWidth="56dp" android:minHeight="56dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
+                app:backgroundTint="@color/cw_game_grid" app:iconTint="@color/cw_game_white" android:textColor="@color/cw_game_white"
+                 android:contentDescription="@string/cw_snake_down" />
+        </RelativeLayout>
+    </FrameLayout>
 </LinearLayout>

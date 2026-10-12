@@ -46,7 +46,31 @@ public class SnakeInstrumentedTest {
                 assertTrue("Direction button is visible", button.getGlobalVisibleRect(visible));
                 assertTrue("Direction touch target remains 48dp", button.getHeight() >= 48 * button.getResources().getDisplayMetrics().density);
             }
+            runner.runOnMainSync(() -> {
+                View up = activity.findViewById(R.id.snakeUp), down = activity.findViewById(R.id.snakeDown);
+                View left = activity.findViewById(R.id.snakeLeft), right = activity.findViewById(R.id.snakeRight);
+                assertEquals(up.getLeft(), down.getLeft()); assertTrue(up.getTop() < down.getTop());
+                assertEquals(left.getTop(), right.getTop()); assertTrue(left.getLeft() < right.getLeft());
+                assertTrue(up.getTop() < left.getTop()); assertTrue(down.getTop() > left.getTop());
+            });
             screenshot(runner, activity, "snake-playing.png");
+            runner.runOnMainSync(() -> {
+                View touchField = ((android.widget.FrameLayout)field).getChildAt(0);
+                float x = touchField.getWidth() / 2f, y = touchField.getHeight() / 2f;
+                float delta = 32 * touchField.getResources().getDisplayMetrics().density;
+                long time = android.os.SystemClock.uptimeMillis();
+                int[] actions = {android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_MOVE,
+                    android.view.MotionEvent.ACTION_MOVE, android.view.MotionEvent.ACTION_UP};
+                float[] xs = {x, x, x - delta, x - delta}, ys = {y, y + delta, y + delta, y + delta};
+                for (int i = 0; i < actions.length; i++) {
+                    android.view.MotionEvent event = android.view.MotionEvent.obtain(time, time + i * 20, actions[i], xs[i], ys[i], 0);
+                    assertTrue(touchField.onTouchEvent(event)); event.recycle();
+                }
+                activity.game.update(activity.game.tickSeconds());
+                assertEquals("First turn from finger drag", SnakeEngine.Direction.DOWN, activity.game.direction(0));
+                activity.game.update(activity.game.tickSeconds());
+                assertEquals("Second turn without lifting finger", SnakeEngine.Direction.LEFT, activity.game.direction(0));
+            });
             runner.runOnMainSync(() -> activity.findViewById(R.id.snakePause).performClick());
             assertEquals(SnakeEngine.State.PAUSED, activity.game.state());
             assertEquals(0, activity.getWindow().getAttributes().flags & android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);

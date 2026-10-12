@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/snakeRoot" android:layout_width="match_parent" android:layout_height="match_parent"
     android:orientation="vertical" android:background="@color/cw_game_ocean">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
@@ -48,11 +48,29 @@
             </LinearLayout>
         </ScrollView>
     </FrameLayout>
-    <LinearLayout android:id="@+id/snakeControls" android:layout_width="match_parent" android:layout_height="wrap_content"
-        android:orientation="horizontal" android:gravity="center" android:paddingHorizontal="12dp" android:paddingVertical="4dp">
-        <com.google.android.material.button.MaterialButton android:id="@+id/snakeLeft" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:minHeight="48dp" android:paddingHorizontal="0dp" android:text="←" android:contentDescription="@string/cw_arcanoid_left" />
-        <com.google.android.material.button.MaterialButton android:id="@+id/snakeUp" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:minHeight="48dp" android:paddingHorizontal="0dp" android:text="↑" android:contentDescription="@string/cw_snake_up" />
-        <com.google.android.material.button.MaterialButton android:id="@+id/snakeDown" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:minHeight="48dp" android:paddingHorizontal="0dp" android:text="↓" android:contentDescription="@string/cw_snake_down" />
-        <com.google.android.material.button.MaterialButton android:id="@+id/snakeRight" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content" android:minHeight="48dp" android:paddingHorizontal="0dp" android:text="→" android:contentDescription="@string/cw_arcanoid_right" />
-    </LinearLayout>
+    <FrameLayout android:id="@+id/snakeControls" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingTop="4dp" android:paddingBottom="4dp">
+        <RelativeLayout android:layout_width="176dp" android:layout_height="176dp" android:layout_gravity="center">
+            <com.google.android.material.button.MaterialButton android:id="@+id/snakeUp"
+                android:layout_width="56dp" android:layout_height="56dp" android:layout_centerHorizontal="true" android:layout_alignParentTop="true"
+                android:minWidth="56dp" android:minHeight="56dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
+                app:backgroundTint="@color/cw_game_grid" app:iconTint="@color/cw_game_white" android:textColor="@color/cw_game_white"
+                android:text="↑" android:textSize="22sp" android:contentDescription="@string/cw_snake_up" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/snakeLeft"
+                android:layout_width="56dp" android:layout_height="56dp" android:layout_centerVertical="true" android:layout_alignParentStart="true"
+                android:minWidth="56dp" android:minHeight="56dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
+                app:backgroundTint="@color/cw_game_grid" app:iconTint="@color/cw_game_white" android:textColor="@color/cw_game_white"
+                android:text="←" android:textSize="22sp" android:contentDescription="@string/cw_arcanoid_left" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/snakeRight"
+                android:layout_width="56dp" android:layout_height="56dp" android:layout_centerVertical="true" android:layout_alignParentEnd="true"
+                android:minWidth="56dp" android:minHeight="56dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
+                app:backgroundTint="@color/cw_game_grid" app:iconTint="@color/cw_game_white" android:textColor="@color/cw_game_white"
+                android:text="→" android:textSize="22sp" android:contentDescription="@string/cw_arcanoid_right" />
+            <com.google.android.material.button.MaterialButton android:id="@+id/snakeDown"
+                android:layout_width="56dp" android:layout_height="56dp" android:layout_centerHorizontal="true" android:layout_alignParentBottom="true"
+                android:minWidth="56dp" android:minHeight="56dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
+                app:backgroundTint="@color/cw_game_grid" app:iconTint="@color/cw_game_white" android:textColor="@color/cw_game_white"
+                android:text="↓" android:textSize="22sp" android:contentDescription="@string/cw_snake_down" />
+        </RelativeLayout>
+    </FrameLayout>
 </LinearLayout>
