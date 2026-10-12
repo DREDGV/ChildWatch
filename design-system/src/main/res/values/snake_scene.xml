@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="cw_snake_partner">#A8C5FF</color>
+    <color name="cw_snake_apple">#FF827C</color>
+    <color name="cw_snake_depth">#081D2B</color>
+    <color name="cw_snake_highlight">#D4FFF2</color>
+    <color name="cw_snake_scrim">#A0081D2B</color>
+    <string name="cw_snake_tempo">Темп: %1$s</string>
+</resources>

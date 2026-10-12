@@ -1,43 +1,48 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/snakeRoot" android:layout_width="match_parent" android:layout_height="match_parent"
-    android:orientation="vertical" android:background="#152E3D">
+    android:orientation="vertical" android:background="@color/cw_game_ocean">
     <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:gravity="center_vertical">
         <com.google.android.material.button.MaterialButton android:id="@+id/snakeBack" style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="48dp"
-            android:text="@string/cw_arcanoid_back" android:textColor="#FFFFFF" />
-        <TextView android:id="@+id/snakeScore" android:layout_width="0dp" android:layout_height="wrap_content"
-            android:layout_weight="1" android:textSize="14sp" android:gravity="center" android:textColor="#FFFFFF" />
+            android:text="@string/cw_arcanoid_back" android:textColor="@color/cw_game_white" />
+        <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1"
+            android:orientation="vertical" android:paddingVertical="4dp">
+            <TextView android:id="@+id/snakeScore" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textSize="16sp" android:textStyle="bold" android:gravity="center" android:textColor="@color/cw_game_white" />
+            <TextView android:id="@+id/snakeTempo" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textSize="13sp" android:gravity="center" android:textColor="@color/cw_game_mint" />
+        </LinearLayout>
         <com.google.android.material.button.MaterialButton android:id="@+id/snakePause" style="@style/Widget.Material3.Button.TextButton"
             android:layout_width="wrap_content" android:layout_height="wrap_content" android:minHeight="48dp"
-            android:text="@string/cw_arcanoid_pause" android:textColor="#FFFFFF" />
+            android:text="@string/cw_arcanoid_pause" android:textColor="@color/cw_game_white" />
     </LinearLayout>
     <FrameLayout android:id="@+id/snakeField" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1">
         <ScrollView android:id="@+id/snakePanel" android:layout_width="match_parent" android:layout_height="match_parent"
-            android:fillViewport="true" android:background="#C0152E3D">
+            android:fillViewport="true" android:background="@color/cw_snake_scrim">
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:gravity="center" android:orientation="vertical" android:padding="20dp">
                 <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                    android:orientation="vertical" android:padding="20dp" android:background="@drawable/cw_arcanoid_panel">
+                    android:orientation="vertical" android:padding="20dp" android:background="@drawable/cw_snake_panel">
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:text="@string/cw_snake_title"
-                        android:textSize="24sp" android:textStyle="bold" android:textColor="@color/cw_color_on_surface" />
+                        android:textSize="24sp" android:textStyle="bold" android:textColor="@color/cw_game_white" />
                     <TextView android:id="@+id/snakeStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:layout_marginTop="12dp" android:textSize="16sp" android:textColor="@color/cw_color_on_surface" android:accessibilityLiveRegion="polite" />
+                        android:layout_marginTop="12dp" android:textSize="16sp" android:textColor="@color/cw_game_white" android:accessibilityLiveRegion="polite" />
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp"
-                        android:text="@string/cw_snake_hint" android:textSize="14sp" android:textColor="@color/cw_color_on_surface_variant" />
+                        android:text="@string/cw_snake_hint" android:textSize="14sp" android:textColor="@color/cw_game_mint" />
                     <RadioGroup android:id="@+id/snakeDifficulty" android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:orientation="vertical" android:layout_marginTop="12dp">
-                        <RadioButton android:id="@+id/snakeCalm" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/cw_snake_calm" />
-                        <RadioButton android:id="@+id/snakeNormal" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/cw_snake_normal" />
-                        <RadioButton android:id="@+id/snakeFast" android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/cw_snake_fast" />
+                        android:orientation="horizontal" android:layout_marginTop="12dp">
+                        <RadioButton android:id="@+id/snakeCalm" android:layout_width="0dp" android:layout_weight="1" android:textColor="@color/cw_game_white" android:buttonTint="@color/cw_game_mint" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/cw_snake_calm" />
+                        <RadioButton android:id="@+id/snakeNormal" android:layout_width="0dp" android:layout_weight="1" android:textColor="@color/cw_game_white" android:buttonTint="@color/cw_game_mint" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/cw_snake_normal" />
+                        <RadioButton android:id="@+id/snakeFast" android:layout_width="0dp" android:layout_weight="1" android:textColor="@color/cw_game_white" android:buttonTint="@color/cw_game_mint" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/cw_snake_fast" />
                     </RadioGroup>
-                    <com.google.android.material.checkbox.MaterialCheckBox android:id="@+id/snakeButtonsToggle" android:layout_width="match_parent"
+                    <com.google.android.material.checkbox.MaterialCheckBox android:id="@+id/snakeButtonsToggle" android:textColor="@color/cw_game_white" android:buttonTint="@color/cw_game_mint" android:layout_width="match_parent"
                         android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/cw_snake_buttons" />
-                    <com.google.android.material.checkbox.MaterialCheckBox android:id="@+id/snakeFeedback" android:layout_width="match_parent"
+                    <com.google.android.material.checkbox.MaterialCheckBox android:id="@+id/snakeFeedback" android:textColor="@color/cw_game_white" android:buttonTint="@color/cw_game_mint" android:layout_width="match_parent"
                         android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/cw_snake_feedback" />
                     <com.google.android.material.button.MaterialButton android:id="@+id/snakeAction" android:layout_width="match_parent"
                         android:layout_height="wrap_content" android:minHeight="48dp" android:layout_marginTop="12dp" android:text="@string/cw_snake_start" />
-                    <com.google.android.material.button.MaterialButton android:id="@+id/snakeRestart" style="@style/Widget.Material3.Button.TextButton"
+                    <com.google.android.material.button.MaterialButton android:id="@+id/snakeRestart" android:textColor="@color/cw_game_mint" style="@style/Widget.Material3.Button.TextButton"
                         android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp" android:text="@string/cw_snake_again" />
                 </LinearLayout>
             </LinearLayout>

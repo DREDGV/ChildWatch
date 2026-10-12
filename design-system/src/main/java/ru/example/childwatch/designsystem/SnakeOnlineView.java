@@ -2,7 +2,6 @@ package ru.example.childwatch.designsystem;
 
 import android.content.Context;
 import android.graphics.Canvas;
-import android.graphics.Paint;
 import android.graphics.Path;
 import android.os.SystemClock;
 import android.view.MotionEvent;
@@ -14,7 +13,7 @@ import org.json.JSONObject;
 public final class SnakeOnlineView extends View {
     public interface DirectionListener { void turn(SnakeEngine.Direction direction); }
     private final DirectionListener listener;
-    private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final SnakeScene scene;
     private final Path path=new Path();
     private final int[][] cells={new int[0],new int[0]};
     private final SnakeCellMotion[][] motion={new SnakeCellMotion[0],new SnakeCellMotion[0]};
@@ -23,7 +22,7 @@ public final class SnakeOnlineView extends View {
     private int own=-1,food=-1;
     private boolean active,canTurn;
     private float cell,left,top,touchX,touchY;
-    public SnakeOnlineView(Context context,DirectionListener listener){super(context);this.listener=listener;setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
+    public SnakeOnlineView(Context context,DirectionListener listener){super(context);scene=new SnakeScene(context);this.listener=listener;setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
     public void setPlayer(int player){own=player;invalidate();}
     public void setActive(boolean value){active=value;if(!value)freeze();invalidate();}
     public void setCanTurn(boolean value){canTurn=value;}
@@ -60,10 +59,8 @@ public final class SnakeOnlineView extends View {
         super.onDraw(c);if(cell<=0)return;boolean moving=false;long now=SystemClock.uptimeMillis();
         for(SnakeCellMotion[] player:motion)for(SnakeCellMotion segment:player){segment.advance(now);moving|=segment.moving();}
         c.save();c.translate(left,top);c.scale(cell,cell);
-        paint.setStyle(Paint.Style.FILL);paint.setColor(0xff203e4c);c.drawRoundRect(-.25f,-.25f,20.25f,36.25f,.7f,.7f,paint);
-        paint.setColor(0xff193541);c.drawRoundRect(0,0,20,36,.5f,.5f,paint);
-        paint.setColor(0x063effff);for(int y=0;y<36;y++)for(int x=y%2;x<20;x+=2)c.drawRect(x,y,x+1,y+1,paint);
-        if(food>=0){float x=food%20+.5f,y=food/20+.54f;paint.setColor(0xffff9c89);c.drawCircle(x-.13f,y,.29f,paint);c.drawCircle(x+.13f,y,.29f,paint);paint.setColor(0xffa2d8ad);c.drawOval(x,y-.48f,x+.27f,y-.3f,paint);}
+        scene.board(c);
+        if(food>=0)scene.apple(c,food%20+.5f,food/20+.5f);
         for(int p=0;p<2;p++){
             if(cells[p].length==0)continue;path.reset();
             float tailX=0,tailY=0;
@@ -76,11 +73,11 @@ public final class SnakeOnlineView extends View {
                 }
                 tailX=x;tailY=y;
             }
-            boolean mine=p==own;paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(.78f);paint.setStrokeCap(Paint.Cap.ROUND);paint.setStrokeJoin(Paint.Join.ROUND);paint.setColor(mine?0xff64cfbc:0xffa8c5ff);c.drawPath(path,paint);
-            paint.setStyle(Paint.Style.FILL);float x=visual(p,0,true)+.5f,y=visual(p,0,false)+.5f;paint.setColor(mine?0xffb2eed9:0xffd3e1ff);c.drawCircle(x,y,.41f,paint);
+            boolean mine=p==own;scene.spine(c,path,mine);
             float dx="LEFT".equals(directions[p])?-1:"RIGHT".equals(directions[p])?1:0,dy="UP".equals(directions[p])?-1:"DOWN".equals(directions[p])?1:0;
             if(motion[p][0].moving()){dx=motion[p][0].axisX();dy=motion[p][0].axisY();}
-            for(int side:new int[]{-1,1}){float ex=x+dx*.14f-dy*side*.17f,ey=y+dy*.14f+dx*side*.17f;paint.setColor(0xffffffff);c.drawCircle(ex,ey,.115f,paint);paint.setColor(0xff17333d);c.drawCircle(ex+dx*.035f,ey+dy*.035f,.061f,paint);}
+            for(int i=cells[p].length-1;i>=0;i--)
+                scene.segment(c,visual(p,i,true)+.5f,visual(p,i,false)+.5f,mine,i==0,dx,dy);
         }
         c.restore();if(active&&moving)postInvalidateOnAnimation();
     }

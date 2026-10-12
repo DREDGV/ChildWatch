@@ -36,6 +36,15 @@ public class SnakeActivity extends AppCompatActivity {
         setContentView(R.layout.cw_activity_snake);
         status = findViewById(R.id.snakeStatus); score = findViewById(R.id.snakeScore);
         action = findViewById(R.id.snakeAction); difficulty = findViewById(R.id.snakeDifficulty);
+        // Narrow screens and large text use stacked speed choices with full touch targets.
+        boolean stacked = getResources().getConfiguration().fontScale >= 1.3f
+            || getResources().getConfiguration().screenWidthDp < 360;
+        difficulty.setOrientation(stacked ? android.widget.LinearLayout.VERTICAL : android.widget.LinearLayout.HORIZONTAL);
+        for (int i = 0; i < difficulty.getChildCount(); i++) {
+            android.widget.RadioGroup.LayoutParams params = new android.widget.RadioGroup.LayoutParams(
+                stacked ? -1 : 0, -2, stacked ? 0 : 1);
+            difficulty.getChildAt(i).setLayoutParams(params);
+        }
         field = new SnakeView(this, game, this::refresh);
         ((FrameLayout)findViewById(R.id.snakeField)).addView(field, 0, new FrameLayout.LayoutParams(-1, -1));
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.snakeRoot), (view, insets) -> {
@@ -97,6 +106,9 @@ public class SnakeActivity extends AppCompatActivity {
         int best = Math.max(game.score() / 10, preferences.getInt("best." + game.difficulty().name(), 0));
         preferences.edit().putInt("best." + game.difficulty().name(), best).apply();
         score.setText(getString(R.string.cw_snake_score, game.score() / 10, best));
+        int tempo = game.difficulty() == SnakeEngine.Difficulty.CALM ? R.string.cw_snake_calm
+            : game.difficulty() == SnakeEngine.Difficulty.FAST ? R.string.cw_snake_fast : R.string.cw_snake_normal;
+        ((TextView)findViewById(R.id.snakeTempo)).setText(getString(R.string.cw_snake_tempo, getString(tempo)));
         int text, button;
         switch (game.state()) {
             case PAUSED: text = R.string.cw_snake_paused; button = R.string.cw_snake_resume; break;
