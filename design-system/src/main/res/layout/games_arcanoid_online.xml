@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android" xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/arcanoidOnlineRoot" android:layout_width="match_parent" android:layout_height="match_parent"
+    android:orientation="vertical" android:background="@color/cw_game_ocean">
+    <LinearLayout android:id="@+id/arcanoidOnlineHud" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:gravity="center_vertical" android:paddingStart="8dp" android:paddingEnd="8dp" android:paddingTop="4dp">
+        <com.google.android.material.button.MaterialButton android:id="@+id/arcanoidOnlineBack"
+            style="@style/Widget.ChildWatch.Button.Secondary" android:layout_width="48dp" android:layout_height="48dp"
+            android:minWidth="48dp" android:minHeight="48dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
+            app:iconTint="@color/cw_game_white" android:contentDescription="@string/cw_games_close" />
+        <TextView android:id="@+id/arcanoidOnlineScore" android:layout_width="0dp" android:layout_weight="1" android:layout_height="wrap_content"
+            android:layout_marginStart="12dp" android:layout_marginEnd="8dp" android:textSize="16sp" android:textColor="@color/cw_game_white" android:textStyle="bold" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/arcanoidOnlineDetails"
+            style="@style/Widget.ChildWatch.Button.Secondary" android:layout_width="48dp" android:layout_height="48dp"
+            android:minWidth="48dp" android:minHeight="48dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
+            app:iconTint="@color/cw_game_white" android:contentDescription="@string/cw_arcanoid_online_details_show" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/arcanoidOnlinePause"
+            style="@style/Widget.ChildWatch.Button.Secondary" android:layout_width="48dp" android:layout_height="48dp"
+            android:minWidth="48dp" android:minHeight="48dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
+            app:iconTint="@color/cw_game_white" android:contentDescription="@string/cw_arcanoid_online_pause" />
+    </LinearLayout>
+    <TextView android:id="@+id/arcanoidOnlineStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:paddingStart="20dp" android:paddingEnd="20dp" android:paddingTop="4dp" android:paddingBottom="4dp"
+        android:textSize="16sp" android:textColor="@color/cw_game_white" android:accessibilityLiveRegion="polite" />
+    <androidx.core.widget.NestedScrollView android:id="@+id/arcanoidOnlineDetailsPanel" android:layout_width="match_parent"
+        android:layout_height="180dp" android:visibility="gone" android:background="@color/cw_game_grid"
+        android:layout_marginStart="12dp" android:layout_marginEnd="12dp" android:fillViewport="false">
+        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="vertical" android:padding="12dp">
+            <TextView android:id="@+id/arcanoidOnlinePeer" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:textSize="16sp" android:textColor="@color/cw_game_white" />
+            <TextView android:id="@+id/arcanoidOnlineDetailedStatus" android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:layout_marginTop="12dp" android:textSize="16sp" android:textColor="@color/cw_game_white" />
+            <com.google.android.material.checkbox.MaterialCheckBox android:id="@+id/arcanoidOnlineButtons"
+                android:layout_width="match_parent" android:layout_height="wrap_content" android:minHeight="48dp"
+                android:layout_marginTop="8dp" android:text="@string/cw_arcanoid_online_buttons"
+                android:textColor="@color/cw_game_white" android:buttonTint="@color/cw_game_mint" />
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+    <FrameLayout android:id="@+id/arcanoidOnlineField" android:layout_width="match_parent" android:layout_height="0dp" android:layout_weight="1" />
+    <com.google.android.material.button.MaterialButton android:id="@+id/arcanoidOnlineReady"
+        style="@style/Widget.ChildWatch.Button.Primary" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:layout_marginStart="20dp" android:layout_marginEnd="20dp" android:minHeight="48dp"
+        android:textAllCaps="false" android:text="@string/cw_arcanoid_online_ready" />
+    <LinearLayout android:id="@+id/arcanoidOnlineControls" android:layout_width="match_parent" android:layout_height="wrap_content"
+        android:orientation="horizontal" android:paddingStart="12dp" android:paddingEnd="12dp" android:paddingTop="4dp" android:paddingBottom="8dp">
+        <com.google.android.material.button.MaterialButton android:id="@+id/arcanoidOnlineLeft" android:layout_width="0dp" android:layout_weight="1"
+            android:layout_height="48dp" android:minWidth="48dp" android:minHeight="48dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
+            app:iconTint="@color/cw_game_white" android:contentDescription="@string/cw_arcanoid_online_left" />
+        <com.google.android.material.button.MaterialButton android:id="@+id/arcanoidOnlineRight" android:layout_width="0dp" android:layout_weight="1"
+            android:layout_height="48dp" android:minWidth="48dp" android:minHeight="48dp" android:padding="0dp" android:insetTop="0dp" android:insetBottom="0dp"
+            app:iconTint="@color/cw_game_white" android:contentDescription="@string/cw_arcanoid_online_right" />
+    </LinearLayout>
+</LinearLayout>

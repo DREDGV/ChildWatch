@@ -100,11 +100,19 @@ class NetworkClient(private val context: Context, private val expectedPhotoScope
         effectiveContextResolver.resolveChildDeviceId())
 
     /** A separate game connection retains TLS policy and the immutable owner's scope. */
-    fun familySnakeCredentials(scope: List<String>): ru.example.childwatch.designsystem.SnakeRealtimeBridge.Credentials {
+    fun familySnakeCredentials(scope: List<String>) = familyRealtimeCredentials(scope, "SNAKE_COOP")
+
+    fun familyArcanoidCredentials(scope: List<String>) = familyRealtimeCredentials(scope, "ARKANOID_COOP")
+
+    private fun familyRealtimeCredentials(scope: List<String>, gameType: String): ru.example.childwatch.designsystem.SnakeRealtimeBridge.Credentials {
         check(android.os.Looper.myLooper() != android.os.Looper.getMainLooper()) { "GAME_BACKGROUND_REQUIRED" }
         val capabilities = familyGamesRequest(scope, "GET", "/capabilities", null)
-        if (capabilities.optJSONObject("realtime")?.optString("namespace") != "/family-games")
-            throw ru.example.childwatch.designsystem.GameOnlineBridge.Failure(501, "SNAKE_UNSUPPORTED")
+        val realtime = capabilities.optJSONObject("realtime")
+        val games = realtime?.optJSONArray("games")
+        if (realtime?.optInt("protocolVersion") != 1 || realtime?.optString("namespace") != "/family-games" ||
+            games == null || (0 until games.length()).none { games.optString(it) == gameType })
+            throw ru.example.childwatch.designsystem.GameOnlineBridge.Failure(501,
+                if (gameType == "SNAKE_COOP") "SNAKE_UNSUPPORTED" else "ARKANOID_UNSUPPORTED")
         if (gameIdentity() != scope)
             throw ru.example.childwatch.designsystem.GameOnlineBridge.Failure(403, "GAME_CONTEXT_CHANGED")
         val token = getAuthToken()?.takeIf(String::isNotBlank)

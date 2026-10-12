@@ -36,6 +36,14 @@ class FamilyGamesHost private constructor(context: Context) : GameOnlineBridge.H
         return credentials
     }
 
+    override fun arcanoidCredentials(): ru.example.childwatch.designsystem.SnakeRealtimeBridge.Credentials {
+        check(Looper.myLooper() != Looper.getMainLooper()) { "GAME_BACKGROUND_REQUIRED" }
+        if (scopeKey().isEmpty()) throw GameOnlineBridge.Failure(403, "GAME_CONTEXT_CHANGED")
+        val credentials = network.familyArcanoidCredentials(captured)
+        if (scopeKey().isEmpty()) throw GameOnlineBridge.Failure(403, "GAME_CONTEXT_CHANGED")
+        return credentials
+    }
+
     companion object {
         fun register(context: Context) {
             GameOnlineBridge.host = FamilyGamesHost(context.applicationContext)

@@ -40,6 +40,9 @@ public final class SnakeRealtimeBridge {
             this.serverUrl=serverUrl.replaceAll("/+$","");this.familyId=familyId;this.actorMemberId=actorMemberId;this.token=token;
             this.callFactory=callFactory;this.webSocketFactory=webSocketFactory;
         }
+        String authToken(){return token;}
+        okhttp3.Call.Factory callFactory(){return callFactory;}
+        okhttp3.WebSocket.Factory webSocketFactory(){return webSocketFactory;}
     }
     /** Pure input lifecycle, deliberately separate from Android scheduling for unit verification. */
     static final class Input {

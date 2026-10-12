@@ -16,6 +16,9 @@ public final class GameOnlineBridge {
         default SnakeRealtimeBridge.Credentials snakeCredentials() throws Exception {
             throw new Failure(501, "SNAKE_UNSUPPORTED");
         }
+        default SnakeRealtimeBridge.Credentials arcanoidCredentials() throws Exception {
+            throw new Failure(501, "ARKANOID_UNSUPPORTED");
+        }
     }
     public static volatile Host host;
     public static class Failure extends Exception {
