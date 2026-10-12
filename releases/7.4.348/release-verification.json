@@ -1,0 +1,34 @@
+{
+    "roomChangesSince333":  [
+
+                            ],
+    "dependencyClosure":  true,
+    "referenceFiles":  8,
+    "installation":  "pending server deployment",
+    "version":  "7.4.348",
+    "apps":  [
+                 {
+                     "version":  "7.4.348",
+                     "code":  2000000348,
+                     "sha256":  "06b95e881f6e341b2fa86942424a176aa37c5ce8e4e458d9f904bfd08d1c17cd",
+                     "sizeBytes":  46013459,
+                     "package":  "ru.example.childwatch",
+                     "role":  "parent",
+                     "signingCertSha256":  "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d"
+                 },
+                 {
+                     "version":  "7.4.348-debug",
+                     "code":  2000000348,
+                     "sha256":  "6f3536a4fb606b80467275c2372758b6fff6ec0ee0fe16e0357778df0b290767",
+                     "sizeBytes":  39189333,
+                     "package":  "ru.example.parentwatch.debug",
+                     "role":  "child",
+                     "signingCertSha256":  "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d"
+                 }
+             ],
+    "otaPublished":  false,
+    "zipContentVerified":  true,
+    "serverPublished":  false,
+    "shaChecks":  17,
+    "runtimeFiles":  9
+}

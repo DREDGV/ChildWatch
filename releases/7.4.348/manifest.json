@@ -1,0 +1,29 @@
+{
+  "schema": 1,
+  "generatedAt": 1791780443573,
+  "generatedBy": "scripts\\stage-release.ps1",
+  "apps": {
+    "child": {
+      "packageName": "ru.example.parentwatch.debug",
+      "versionCode": 2000000348,
+      "versionName": "7.4.348-debug",
+      "buildType": "debug",
+      "sizeBytes": 39189333,
+      "sha256": "6f3536a4fb606b80467275c2372758b6fff6ec0ee0fe16e0357778df0b290767",
+      "file": "ChildDevice-7.4.348-debug.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": "Игры: Морской бой, Змейка и Арканоид для одного игрока и семейной игры. Большое игровое поле, общая пауза и восстановление соединения. Совместные режимы требуют обновления серверного комплекта игр. Данные и семейные привязки сохраняются."
+    },
+    "parent": {
+      "packageName": "ru.example.childwatch",
+      "versionCode": 2000000348,
+      "versionName": "7.4.348",
+      "buildType": "debug",
+      "sizeBytes": 46013459,
+      "sha256": "06b95e881f6e341b2fa86942424a176aa37c5ce8e4e458d9f904bfd08d1c17cd",
+      "file": "ParentMonitor-7.4.348.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": "Игры: Морской бой, Змейка и Арканоид для одного игрока и семейной игры. Большое игровое поле, общая пауза и восстановление соединения. Совместные режимы требуют обновления серверного комплекта игр. Данные и семейные привязки сохраняются."
+    }
+  }
+}
