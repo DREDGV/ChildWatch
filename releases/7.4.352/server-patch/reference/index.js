@@ -1,0 +1,1717 @@
+const express = require("express");
+const http = require("http");
+const { Server } = require("socket.io");
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+const { version: SERVER_VERSION } = require("./package.json");
+
+// Import our custom modules
+const AuthManager = require("./auth/AuthManager");
+const AuthMiddleware = require("./middleware/AuthMiddleware");
+const SocketAuthMiddleware = require("./middleware/SocketAuthMiddleware");
+const DataValidator = require("./validators/DataValidator");
+const DatabaseManager = require("./database/DatabaseManager");
+const CommandManager = require("./managers/CommandManager");
+const WebSocketManager = require("./managers/WebSocketManager");
+const AttentionSignalManager = require("./managers/AttentionSignalManager");
+const FamilyPermissionService = require("./services/FamilyPermissionService");
+const FamilyIdentityService = require("./services/FamilyIdentityService");
+const FamilyOnboardingService = require("./services/FamilyOnboardingService");
+const DeviceAccessService = require("./services/DeviceAccessService");
+
+// Import route modules
+const createChatRoutes = require("./routes/chat");
+const createChatV2Routes = require("./routes/chat-v2");
+const locationRoutes = require("./routes/location");
+const familyPlacesRoutes = require("./routes/family-places");
+const pickupRoutes = require("./routes/pickups");
+const createFamilyGameRoutes = require("./routes/family-games");
+const FamilyGameService = require("./services/FamilyGameService");
+const FamilyGameInviteDelivery = require("./services/FamilyGameInviteDelivery");
+const SnakeSessionService = require("./services/SnakeSessionService");
+const SnakeSocketService = require("./services/SnakeSocketService");
+const ArcanoidSessionService = require("./services/ArcanoidSessionService");
+const ArcanoidSocketService = require("./services/ArcanoidSocketService");
+const mediaRoutes = require("./routes/media");
+const streamingRoutes = require("./routes/streaming");
+const alertsRoutes = require("./routes/alerts");
+const avatarRoutes = require("./routes/avatars");
+const updateRoutes = require("./routes/updates");
+const debugRoutes = require("./routes/debug");
+const createFamilyRoutes = require("./routes/families");
+const createMeRoutes = require("./routes/me");
+const createFamilyOnboardingRoutes = require("./routes/family-onboarding");
+
+const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: "*",
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+  pingTimeout: 60000,
+  pingInterval: 25000,
+  maxHttpBufferSize: 1e7, // 10MB for audio chunks
+  transports: ["websocket", "polling"], // WebSocket preferred, polling fallback
+});
+
+const PORT = process.env.PORT || 3000;
+
+// Initialize managers
+const authManager = new AuthManager();
+const authMiddleware = new AuthMiddleware(authManager);
+const socketAuthMiddleware = new SocketAuthMiddleware(authManager, {
+  required: process.env.CW_REQUIRE_WS_AUTH === "1",
+});
+const validator = new DataValidator();
+const dbManager = new DatabaseManager();
+const commandManager = new CommandManager();
+const wsManager = new WebSocketManager(io, commandManager, dbManager);
+const familyPermissionService = new FamilyPermissionService(dbManager);
+const familyIdentityService = new FamilyIdentityService(dbManager);
+const familyOnboardingService = new FamilyOnboardingService(dbManager);
+const deviceAccessService = new DeviceAccessService(dbManager);
+const familyGameService = new FamilyGameService(dbManager);
+const familyGameInvites = new FamilyGameInviteDelivery(io, familyGameService);
+const snakeSessions = new SnakeSessionService(familyGameService);
+const gameNamespace = io.of('/family-games');
+const authenticateGameSocket = new SocketAuthMiddleware(authManager, { required: true }).authenticate();
+gameNamespace.use(authenticateGameSocket);
+const snakeSockets = new SnakeSocketService(gameNamespace, snakeSessions, { authenticate: authenticateGameSocket });
+const arcanoidSessions = new ArcanoidSessionService(familyGameService);
+const arcanoidSockets = new ArcanoidSocketService(gameNamespace, arcanoidSessions, { authenticate: authenticateGameSocket });
+const attentionSignalManager = new AttentionSignalManager({
+  wsManager,
+  dbManager,
+  familyPermissionService,
+});
+wsManager.setAttentionSignalManager(attentionSignalManager);
+const familyRoutes = createFamilyRoutes(
+  dbManager,
+  familyPermissionService,
+  familyIdentityService
+);
+const meRoutes = createMeRoutes(familyIdentityService);
+const familyOnboardingRoutes = createFamilyOnboardingRoutes(
+  familyOnboardingService
+);
+const chatRoutes = createChatRoutes(dbManager, familyPermissionService);
+const chatV2Routes = createChatV2Routes(dbManager, undefined, {
+  deviceConnected: deviceId => wsManager.isChildConnectedById(deviceId) ||
+    wsManager.getConnectedParentSocketIdsForParent(deviceId).length > 0,
+});
+wsManager.dbManager = dbManager;
+
+// Initialize database
+let isDbInitialized = false;
+async function initializeDatabase() {
+  try {
+    await dbManager.initialize();
+    isDbInitialized = true;
+    console.log("✅ Database initialized successfully");
+  } catch (error) {
+    console.error("❌ Database initialization failed:", error);
+    throw error;
+  }
+}
+
+// Authenticate the Socket.IO handshake before feature handlers see the socket.
+// Compatibility mode is the default until all installed Android clients send tokens.
+io.use(socketAuthMiddleware.authenticate());
+
+// Initialize WebSocket handlers
+wsManager.initialize();
+
+// Middleware
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+app.use(express.static("public"));
+
+// Apply security middleware
+app.use(authMiddleware.securityHeaders());
+app.use(authMiddleware.cors());
+app.use(authMiddleware.requestLogger());
+app.use(authMiddleware.errorHandler());
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const uploadDir = "uploads";
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const timestamp = Date.now();
+    const ext = path.extname(file.originalname);
+    cb(null, `${file.fieldname}_${timestamp}_${require("crypto").randomUUID()}${ext}`);
+  },
+});
+
+const upload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
+});
+
+function extractRecentApps(raw) {
+  if (!raw || typeof raw !== "object") {
+    return [];
+  }
+
+  const recentApps = Array.isArray(raw.recentApps) ? raw.recentApps : [];
+  return recentApps
+    .filter((item) => item && typeof item === "object")
+    .map((item) => ({
+      packageName: typeof item.packageName === "string" ? item.packageName : "",
+      appName: typeof item.appName === "string" ? item.appName : "",
+      lastUsed:
+        typeof item.lastUsed === "number"
+          ? item.lastUsed
+          : Number.parseInt(item.lastUsed, 10) || 0,
+      totalTimeInForeground:
+        typeof item.totalTimeInForeground === "number"
+          ? item.totalTimeInForeground
+          : Number.parseInt(item.totalTimeInForeground, 10) || 0,
+      isSystemApp: Boolean(item.isSystemApp),
+    }))
+    .filter((item) => item.appName || item.packageName)
+    .sort((a, b) => b.lastUsed - a.lastUsed);
+}
+
+function enrichDeviceStatus(status) {
+  if (!status) {
+    return null;
+  }
+
+  const recentApps = extractRecentApps(status.raw);
+  return {
+    ...status,
+    recentApps,
+  };
+}
+
+function formatShortId(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return "";
+  if (normalized.length <= 16) return normalized;
+  return `${normalized.slice(0, 8)}...${normalized.slice(-4)}`;
+}
+
+function looksLikeSyntheticParentDeviceId(value) {
+  const normalized = String(value || "").trim();
+  if (!normalized) return false;
+  if (normalized.startsWith("parent_socket_")) return true;
+  return /^parent_(?:\d{6,}|[A-Za-z0-9_-]{8,})$/.test(normalized);
+}
+
+function sanitizeLinkedParents(childDeviceId, linkedParents, wsManager) {
+  const dedupedById = new Map();
+
+  for (const link of linkedParents || []) {
+    const parentDeviceId = String(link?.parentDeviceId || "").trim();
+    if (!parentDeviceId || dedupedById.has(parentDeviceId)) {
+      continue;
+    }
+
+    const hasKnownDeviceRecord = [
+      link?.parentDeviceName,
+      link?.parentDeviceType,
+      link?.parentAppVersion,
+    ].some((value) => String(value || "").trim().length > 0);
+    const isOnline =
+      wsManager.getConnectedParentSocketIdsForParent(
+        parentDeviceId,
+        childDeviceId
+      ).length > 0;
+
+    if (
+      looksLikeSyntheticParentDeviceId(parentDeviceId) &&
+      !hasKnownDeviceRecord &&
+      !isOnline
+    ) {
+      continue;
+    }
+
+    dedupedById.set(parentDeviceId, link);
+  }
+
+  return Array.from(dedupedById.values());
+}
+
+function resolveChatSenderDisplayName(message) {
+  const explicit = String(message?.sender_display_name || "").trim();
+  if (explicit) return explicit;
+
+  const senderRole = String(message?.sender || "").trim();
+  const senderDeviceId = String(message?.sender_device_id || "").trim();
+  if (senderRole === "child") {
+    return senderDeviceId ? formatShortId(senderDeviceId) : "Ребенок";
+  }
+  if (senderRole === "parent") {
+    return formatShortId(senderDeviceId) || "Родитель";
+  }
+  return "Неизвестно";
+}
+
+// Initialize streaming routes with managers
+streamingRoutes.init(commandManager, dbManager, wsManager);
+// Media and streaming verify every request against the authenticated device and
+// an active parent link, so they no longer trust a raw deviceId from the client.
+mediaRoutes.init(dbManager);
+locationRoutes.init(dbManager);
+familyPlacesRoutes.init(dbManager);
+pickupRoutes.init(dbManager);
+alertsRoutes.init(dbManager, wsManager);
+
+// API Routes. Chat v2 is mounted before the legacy compatibility router so
+// every modern request uses authenticated member identity and conversation
+// access checks.
+app.use(
+  "/api/chat/v2",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60_000, 180),
+  chatV2Routes
+);
+app.use(
+  "/api/chat",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60_000, 120),
+  chatRoutes
+);
+// Location, media and streaming all verify the authenticated caller against the
+// requested device, so a raw deviceId from the client is never trusted.
+app.use("/api/location", authMiddleware.authenticate(), locationRoutes);
+app.use("/api/family-places", authMiddleware.authenticate(), familyPlacesRoutes);
+app.use("/api/pickups", authMiddleware.authenticate(), authMiddleware.rateLimit(60_000, 90), pickupRoutes);
+app.use("/api/family-games", authMiddleware.authenticate(), authMiddleware.rateLimit(60_000, 90), createFamilyGameRoutes(dbManager, familyGameService, { notifyChanged: game => familyGameInvites.changed(game) }));
+app.use("/api/media", authMiddleware.authenticate(), mediaRoutes);
+app.use("/api/streaming", authMiddleware.authenticate(), streamingRoutes);
+app.use("/api/debug", authMiddleware.authenticate(), debugRoutes);
+// Alerts are mounted with authentication: `routes/alerts.js` verifies that the
+// caller is either the alert subject itself or a parent actively linked to it.
+app.use("/api/alerts", authMiddleware.authenticate(), alertsRoutes);
+// Published application releases. Unauthenticated on purpose: a phone must be
+// able to learn that an update exists before anybody signs in, and the answer
+// holds nothing private. Rate limited by address, since there is no device yet.
+app.use("/updates", authMiddleware.rateLimit(60_000, 30), updateRoutes);
+// Profile pictures: an authenticated device may upload a picture and store the
+// returned value in its member profile. The value is a path on this server, so it
+// reaches every device in the family.
+app.use("/api/avatars", authMiddleware.authenticate(), avatarRoutes);
+app.use(
+  "/api/me",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60_000, 120),
+  meRoutes
+);
+app.use(
+  "/api/families",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60_000, 120),
+  familyRoutes
+);
+app.use(
+  "/api/family-onboarding",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60_000, 60),
+  familyOnboardingRoutes
+);
+
+// Routes
+
+// Health check
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "OK",
+    timestamp: new Date().toISOString(),
+    version: SERVER_VERSION,
+  });
+});
+
+// Device registration
+app.post(
+  "/api/auth/register",
+  authMiddleware.validateRequest({
+    body: {
+      deviceId: {
+        required: true,
+        type: "string",
+        minLength: 10,
+        maxLength: 100,
+      },
+      deviceName: { required: true, type: "string", maxLength: 100 },
+      deviceType: {
+        required: true,
+        type: "string",
+        pattern: /^(android|ios)$/,
+      },
+      appVersion: {
+        required: true,
+        type: "string",
+        pattern: /^\d+\.\d+\.\d+(?:\.\d+)?(?:[-/][A-Za-z0-9._]+)?$/,
+      },
+    },
+  }),
+  authMiddleware.rateLimit(60000, 10), // 10 requests per minute for registration
+  async (req, res) => {
+    try {
+      const { deviceId, deviceName, deviceType, appVersion } = req.body;
+      const sanitizedDeviceName = validator.sanitizeString(deviceName);
+
+      if (!validator.validateDeviceIdFormat(deviceId)) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      if (!validator.validateAppVersion(appVersion)) {
+        return res.status(400).json({
+          error: "Invalid app version format",
+          code: "INVALID_APP_VERSION",
+        });
+      }
+
+      // A device whose access was taken away must not be able to walk back in by
+      // registering again. The applications re-register themselves on any 401, so
+      // without this check a revocation lasted about a minute.
+      if (await deviceAccessService.isDeviceRevoked(deviceId)) {
+        return res.status(403).json({
+          error: "This device's access was revoked",
+          code: "DEVICE_REVOKED",
+        });
+      }
+
+      const result = authManager.registerDevice({
+        deviceId,
+        deviceName: sanitizedDeviceName,
+        deviceType,
+        appVersion,
+      });
+
+      if (result.success) {
+        try {
+          await dbManager.registerDevice(deviceId, {
+            device_name: sanitizedDeviceName,
+            device_type: deviceType,
+            app_version: appVersion,
+          });
+        } catch (dbError) {
+          console.error("Device DB registration error:", dbError);
+        }
+
+        res.json({
+          success: true,
+          authToken: result.authToken,
+          refreshToken: result.refreshToken,
+          expiresIn: result.expiresIn,
+        });
+      } else {
+        res.status(400).json({
+          error: result.error,
+          code: "REGISTRATION_FAILED",
+        });
+      }
+    } catch (error) {
+      console.error("Registration error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "REGISTRATION_ERROR",
+      });
+    }
+  }
+);
+
+// Token refresh
+app.post(
+  "/api/auth/refresh",
+  authMiddleware.validateRequest({
+    body: {
+      refreshToken: {
+        required: true,
+        type: "string",
+        minLength: 64,
+        maxLength: 64,
+      },
+      deviceId: {
+        required: true,
+        type: "string",
+        minLength: 10,
+        maxLength: 100,
+      },
+    },
+  }),
+  authMiddleware.rateLimit(60000, 20), // 20 requests per minute for refresh
+  (req, res) => {
+    try {
+      const { refreshToken, deviceId } = req.body;
+
+      // Validate device ID format
+      if (!validator.validateDeviceIdFormat(deviceId)) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      // Refresh token
+      const result = authManager.refreshToken(refreshToken, deviceId);
+
+      if (result.success) {
+        res.json({
+          success: true,
+          authToken: result.authToken,
+          refreshToken: result.refreshToken,
+          expiresIn: result.expiresIn,
+        });
+      } else {
+        res.status(401).json({
+          error: result.error,
+          code: "REFRESH_FAILED",
+        });
+      }
+    } catch (error) {
+      console.error("Token refresh error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "REFRESH_ERROR",
+      });
+    }
+  }
+);
+
+// Token validation
+app.get("/api/auth/validate", authMiddleware.authenticate(), (req, res) => {
+  res.json({
+    valid: true,
+    deviceId: req.deviceId,
+    expiresAt: req.deviceData.expiresAt,
+  });
+});
+
+// Location upload (protected)
+app.post(
+  "/api/loc",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 120), // 120 requests per minute for location
+  authMiddleware.validateRequest({
+    body: {
+      latitude: { required: true, type: "number", min: -90, max: 90 },
+      longitude: { required: true, type: "number", min: -180, max: 180 },
+      accuracy: { required: true, type: "number", min: 0, max: 1000 },
+      timestamp: { required: true, type: "number", min: 0 },
+    },
+  }),
+  async (req, res) => {
+    try {
+      const { latitude, longitude, accuracy, timestamp, deviceInfo } = req.body;
+      const deviceId = req.deviceId;
+      const registeredDevice = req.deviceData || authManager.getDeviceInfo(deviceId);
+
+      // Validate location data
+      const validation = validator.validateLocationData({
+        latitude,
+        longitude,
+        accuracy,
+        timestamp,
+        deviceId,
+      });
+
+      if (!validation.isValid) {
+        return res.status(400).json({
+          error: "Invalid location data",
+          code: "INVALID_LOCATION_DATA",
+          details: validation.errors,
+        });
+      }
+
+      // Check for suspicious location (too fast movement)
+      const deviceInfoFromAuth = authManager.getDeviceInfo(deviceId);
+      if (deviceInfoFromAuth && deviceInfoFromAuth.lastLocation) {
+        const suspiciousCheck = validator.checkSuspiciousLocation(
+          { latitude, longitude, timestamp },
+          deviceInfoFromAuth.lastLocation
+        );
+
+        if (suspiciousCheck.suspicious) {
+          authManager.updateDeviceActivity(deviceId, "suspicious", {
+            type: "suspicious_location",
+            description: suspiciousCheck.reason,
+          });
+
+          console.warn(
+            `Suspicious location from ${deviceId}: ${suspiciousCheck.reason}`
+          );
+        }
+      }
+
+      // Prepare optional device status payload from reported deviceInfo
+      let latestStatus = null;
+      if (deviceInfo && typeof deviceInfo === "object") {
+        try {
+          const batteryInfo = deviceInfo.battery || {};
+          const deviceDetails = deviceInfo.device || {};
+          const currentAppInfo = deviceInfo.currentApp || {};
+
+          // Extract app name and package from currentApp (if available)
+          let appName = null;
+          let appPackage = null;
+
+          console.log(
+            `📱 Current App Info received:`,
+            JSON.stringify(currentAppInfo)
+          );
+
+          if (currentAppInfo && !currentAppInfo.error) {
+            appName = currentAppInfo.appName || null;
+            appPackage = currentAppInfo.packageName || null;
+            console.log(`✅ App extracted: ${appName} (${appPackage})`);
+          } else {
+            console.log(
+              `⚠️ No app data: ${
+                currentAppInfo?.error || "currentApp is empty"
+              }`
+            );
+          }
+
+          latestStatus = {
+            batteryLevel:
+              typeof batteryInfo.level === "number" ? batteryInfo.level : null,
+            isCharging:
+              typeof batteryInfo.isCharging === "boolean"
+                ? batteryInfo.isCharging
+                : null,
+            chargingType: batteryInfo.chargingType || null,
+            temperature:
+              typeof batteryInfo.temperature === "number"
+                ? batteryInfo.temperature
+                : null,
+            voltage:
+              typeof batteryInfo.voltage === "number"
+                ? batteryInfo.voltage
+                : null,
+            health: batteryInfo.health || null,
+            manufacturer: deviceDetails.manufacturer || null,
+            model: deviceDetails.model || null,
+            androidVersion: deviceDetails.androidVersion || null,
+            sdkVersion:
+              typeof deviceDetails.sdkVersion === "number"
+                ? deviceDetails.sdkVersion
+                : null,
+            currentAppName: appName,
+            currentAppPackage: appPackage,
+            timestamp:
+              typeof deviceInfo.timestamp === "number"
+                ? deviceInfo.timestamp
+                : Date.now(),
+            raw: deviceInfo,
+          };
+
+          await dbManager.registerDevice(deviceId, {
+            device_name:
+              registeredDevice?.deviceName ||
+              appName ||
+              deviceDetails.model ||
+              "Unknown Device",
+            device_type: registeredDevice?.deviceType || "android",
+            app_version:
+              registeredDevice?.appVersion ||
+              req.headers["user-agent"]?.replace(/^ChildWatch\//, "") ||
+              "unknown",
+          });
+
+          await dbManager.saveDeviceStatus(deviceId, latestStatus);
+          authManager.updateDeviceStatus(deviceId, latestStatus);
+          console.log(
+            `✅ Device status saved for ${deviceId}: Battery ${latestStatus.batteryLevel}%, Model: ${latestStatus.model}`
+          );
+        } catch (statusError) {
+          console.error("❌ Failed to persist device status:", statusError);
+        }
+      }
+
+      await dbManager.registerDevice(deviceId, {
+        device_name:
+          registeredDevice?.deviceName ||
+          deviceInfo?.device?.model ||
+          "Unknown Device",
+        device_type: registeredDevice?.deviceType || "android",
+        app_version:
+          registeredDevice?.appVersion ||
+          req.headers["user-agent"]?.replace(/^ChildWatch\//, "") ||
+          "unknown",
+      });
+
+      // Save location to database. A fix from outside the retention window is not
+      // written at all: the next sweep would delete it immediately, and a parent
+      // reading history right now would watch a point appear and vanish again.
+      // The response stays successful on purpose — retrying a permanently
+      // out-of-window fix helps nobody.
+      const acceptance = require('./services/LocationRetention').acceptanceOf(timestamp);
+      if (acceptance.accepted) {
+        await dbManager.saveLocation(deviceId, {
+          latitude,
+          longitude,
+          accuracy,
+          timestamp,
+          speedMps: req.body.speedMps,
+          speedAccuracyMps: req.body.speedAccuracyMps,
+          measurementElapsedRealtimeNanos: req.body.measurementElapsedRealtimeNanos,
+          bootSessionId: req.body.bootSessionId,
+        });
+      } else {
+        console.warn(
+          `[${new Date().toISOString()}] Location from ${deviceId} refused: ${acceptance.code}`
+        );
+      }
+
+      // Log activity
+      await dbManager.logActivity(deviceId, {
+        activity_type: "location",
+        activity_data: {
+          latitude,
+          longitude,
+          accuracy,
+          batteryLevel: latestStatus?.batteryLevel ?? null,
+          isCharging: latestStatus?.isCharging ?? null,
+        },
+        timestamp,
+      });
+
+      console.log(
+        `[${new Date().toISOString()}] Location from ${deviceId}: Lat ${latitude}, Lng ${longitude}, Acc ${accuracy} at ${new Date(
+          timestamp
+        )}`
+      );
+
+      res.json({
+        success: true,
+        message: "Location received and saved",
+        deviceId: deviceId,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error("Location upload error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "LOCATION_UPLOAD_ERROR",
+      });
+    }
+  }
+);
+
+// Audio upload (protected)
+app.post(
+  "/api/audio",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 30), // 30 requests per minute for audio
+  upload.single("audio"),
+  async (req, res) => {
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          error: "No audio file provided",
+          code: "NO_AUDIO_FILE",
+        });
+      }
+
+      const deviceId = req.deviceId;
+      const { timestamp } = req.body;
+
+      // Validate file upload
+      const fileValidation = validator.validateFileUpload(req.file, ["audio"]);
+      if (!fileValidation.isValid) {
+        return res.status(400).json({
+          error: "Invalid audio file",
+          code: "INVALID_AUDIO_FILE",
+          details: fileValidation.errors,
+        });
+      }
+
+      const audioTimestamp = timestamp ? parseInt(timestamp) : Date.now();
+
+      // Save audio file metadata to database
+      await dbManager.saveAudioFile(deviceId, {
+        filename: req.file.filename,
+        file_path: req.file.path,
+        file_size: req.file.size,
+        mime_type: req.file.mimetype,
+        duration: null, // Could be extracted with ffprobe
+        timestamp: audioTimestamp,
+      });
+
+      // Log activity
+      await dbManager.logActivity(deviceId, {
+        activity_type: "audio",
+        activity_data: {
+          filename: req.file.filename,
+          size: req.file.size,
+        },
+        timestamp: audioTimestamp,
+      });
+
+      console.log(
+        `[${new Date().toISOString()}] Audio from ${deviceId}: ${
+          req.file.filename
+        } (${req.file.size} bytes)`
+      );
+
+      res.json({
+        success: true,
+        message: "Audio received and saved",
+        filename: req.file.filename,
+        deviceId: deviceId,
+        timestamp: Date.now(),
+      });
+    } catch (error) {
+      console.error("Audio upload error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "AUDIO_UPLOAD_ERROR",
+      });
+    }
+  }
+);
+
+app.post('/api/photo/result', authMiddleware.authenticate(), authMiddleware.rateLimit(60000,40), async (req,res) => {
+  try {
+    const {requestId,error,ownDeviceId}=req.body;
+    if (typeof ownDeviceId !== 'string' || !new (require('./services/DeviceAccessService'))(dbManager).isSameDevice(ownDeviceId,req.deviceId)) return res.status(403).json({success:false});
+    if (typeof requestId !== 'string' || !/^[A-Za-z0-9_-]{1,100}$/.test(requestId) || typeof error !== 'string' || !error.trim()) return res.status(400).json({success:false});
+    await require('./services/PhotoDeliveryStore').forDatabase(dbManager).fail(req.deviceId,requestId,error);
+    return res.json({success:true});
+  } catch (error) { console.error('Photo failure receipt failed',error.message); return res.status(500).json({success:false}); }
+});
+
+// Photo upload (protected)
+app.post(
+  "/api/photo",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 20), // 20 requests per minute for photos
+  upload.single("photo"),
+  async (req, res) => {
+    let retained = false;
+    try {
+      if (!req.file) {
+        return res.status(400).json({
+          error: "No photo file provided",
+          code: "NO_PHOTO_FILE",
+        });
+      }
+
+      const deviceId = req.deviceId;
+      const { timestamp, requestId, ownDeviceId } = req.body;
+      const photoAuthorization = await new (require('./services/DeviceAccessService'))(dbManager).authorizePhotoAccess(deviceId, deviceId);
+      if (!photoAuthorization.allowed) return res.status(403).json({success:false,code:photoAuthorization.code});
+      if (ownDeviceId && !new (require('./services/DeviceAccessService'))(dbManager).isSameDevice(ownDeviceId,deviceId)) return res.status(403).json({success:false,error:'Photo belongs to another phone'});
+      if (requestId && (typeof requestId !== "string" || !/^[A-Za-z0-9_-]{1,100}$/.test(requestId))) return res.status(400).json({success:false,error:"Invalid photo request ID"});
+
+      // Validate file upload
+      const fileValidation = validator.validateFileUpload(req.file, ["image"]);
+      if (!fileValidation.isValid) {
+        return res.status(400).json({
+          error: "Invalid photo file",
+          code: "INVALID_PHOTO_FILE",
+          details: fileValidation.errors,
+        });
+      }
+
+      const photoTimestamp = timestamp ? Number(timestamp) : Date.now();
+      if (!Number.isSafeInteger(photoTimestamp) || photoTimestamp <= 0) {
+        return res.status(400).json({success:false,error:"Invalid photo timestamp"});
+      }
+
+      // Save photo file metadata to database
+      const delivery = await require("./services/PhotoDeliveryStore").forDatabase(dbManager).save(deviceId, requestId || null, {
+        filename: req.file.filename,
+        file_path: req.file.path,
+        file_size: req.file.size,
+        mime_type: req.file.mimetype,
+        width: null, // Could be extracted with image processing
+        height: null,
+        timestamp: photoTimestamp,
+      });
+
+      retained = !delivery.reused;
+      if (delivery.reused) {
+        await fs.promises.unlink(req.file.path).catch(() => {});
+        return res.json({success:true,filename:delivery.filename,requestId,deviceId,timestamp:delivery.capturedAt});
+      }
+
+      if (requestId) {
+        const pending = wsManager.pendingPhotoRequests.get(requestId);
+        if (pending && wsManager.normalizeDeviceId(pending.deviceId) === wsManager.normalizeDeviceId(deviceId))
+          wsManager.clearActivePhotoRequest(pending.deviceId, requestId);
+      }
+
+      // Log activity
+      await dbManager.logActivity(deviceId, {
+        activity_type: "photo",
+        activity_data: {
+          filename: req.file.filename,
+          size: req.file.size,
+        },
+        timestamp: photoTimestamp,
+      });
+
+      console.log(
+        `[${new Date().toISOString()}] Photo from ${deviceId}: ${
+          req.file.filename
+        } (${req.file.size} bytes)`
+      );
+
+      res.json({
+        success: true,
+        message: "Photo received and saved",
+        filename: delivery.filename,
+        requestId: requestId || null,
+        deviceId: deviceId,
+        timestamp: delivery.capturedAt,
+      });
+    } catch (error) {
+      console.error("Photo upload error:", error);
+      res.status(error.status || 500).json({
+        error: "Internal server error",
+        code: "PHOTO_UPLOAD_ERROR",
+      });
+    } finally {
+      // A rejected/retried multipart file must not become an orphan on disk.
+      if (!retained && req.file?.path) await fs.promises.unlink(req.file.path).catch(() => {});
+    }
+  }
+);
+
+// Get device info (protected)
+app.get(
+  "/api/device/info",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 60), // 60 requests per minute
+  (req, res) => {
+    try {
+      const deviceId = req.deviceId;
+      const deviceInfo = authManager.getDeviceInfo(deviceId);
+
+      if (!deviceInfo) {
+        return res.status(404).json({
+          error: "Device not found",
+          code: "DEVICE_NOT_FOUND",
+        });
+      }
+
+      res.json({
+        success: true,
+        device: deviceInfo,
+      });
+    } catch (error) {
+      console.error("Get device info error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "DEVICE_INFO_ERROR",
+      });
+    }
+  }
+);
+
+// Upload latest device status snapshot without requiring a location update (protected)
+app.post(
+  "/api/device/status",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 120),
+  async (req, res) => {
+    try {
+      const deviceId = req.deviceId;
+      const { deviceInfo } = req.body || {};
+      const registeredDevice = req.deviceData || authManager.getDeviceInfo(deviceId);
+
+      if (!deviceInfo || typeof deviceInfo !== "object") {
+        return res.status(400).json({
+          error: "deviceInfo payload is required",
+          code: "INVALID_DEVICE_STATUS_PAYLOAD",
+        });
+      }
+
+      const batteryInfo = deviceInfo.battery || {};
+      const deviceDetails = deviceInfo.device || {};
+      const currentAppInfo = deviceInfo.currentApp || {};
+
+      const appName =
+        currentAppInfo && !currentAppInfo.error
+          ? currentAppInfo.appName || null
+          : null;
+      const appPackage =
+        currentAppInfo && !currentAppInfo.error
+          ? currentAppInfo.packageName || null
+          : null;
+
+      const latestStatus = {
+        batteryLevel:
+          typeof batteryInfo.level === "number" ? batteryInfo.level : null,
+        isCharging:
+          typeof batteryInfo.isCharging === "boolean"
+            ? batteryInfo.isCharging
+            : null,
+        chargingType: batteryInfo.chargingType || null,
+        temperature:
+          typeof batteryInfo.temperature === "number"
+            ? batteryInfo.temperature
+            : null,
+        voltage:
+          typeof batteryInfo.voltage === "number" ? batteryInfo.voltage : null,
+        health: batteryInfo.health || null,
+        manufacturer: deviceDetails.manufacturer || null,
+        model: deviceDetails.model || null,
+        androidVersion: deviceDetails.androidVersion || null,
+        sdkVersion:
+          typeof deviceDetails.sdkVersion === "number"
+            ? deviceDetails.sdkVersion
+            : null,
+        currentAppName: appName,
+        currentAppPackage: appPackage,
+        timestamp:
+          typeof deviceInfo.timestamp === "number"
+            ? deviceInfo.timestamp
+            : Date.now(),
+        raw: deviceInfo,
+      };
+
+      await dbManager.registerDevice(deviceId, {
+        device_name:
+          registeredDevice?.deviceName ||
+          appName ||
+          deviceDetails.model ||
+          "Unknown Device",
+        device_type: registeredDevice?.deviceType || "android",
+        app_version:
+          registeredDevice?.appVersion ||
+          req.headers["user-agent"]?.replace(/^ChildWatch\//, "") ||
+          "unknown",
+      });
+      await dbManager.saveDeviceStatus(deviceId, latestStatus);
+      authManager.updateDeviceStatus(deviceId, latestStatus);
+
+      res.json({
+        success: true,
+        deviceId,
+        status: latestStatus,
+      });
+    } catch (error) {
+      console.error("Upload device status error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "DEVICE_STATUS_UPLOAD_ERROR",
+      });
+    }
+  }
+);
+
+// Get latest device status (protected)
+app.post(
+  "/api/relationships/link",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 30),
+  async (req, res) => {
+    try {
+      const parseMarkerIconId = (rawValue) => {
+        if (rawValue === null || rawValue === undefined || rawValue === "") {
+          return null;
+        }
+        const parsed = Number.parseInt(rawValue, 10);
+        if (!Number.isFinite(parsed) || parsed < 0 || parsed > 64) {
+          return null;
+        }
+        return parsed;
+      };
+      const parentDeviceId = String(req.body.parentDeviceId || "").trim();
+      const childDeviceId = String(req.body.childDeviceId || "").trim();
+      const relationRole = String(req.body.relationRole || "guardian").trim() || "guardian";
+      const displayName = typeof req.body.displayName === "string"
+        ? req.body.displayName.trim().slice(0, 100)
+        : null;
+      let parentDisplayName = typeof req.body.parentDisplayName === "string"
+        ? req.body.parentDisplayName.trim().slice(0, 100)
+        : null;
+      let childDisplayName = typeof req.body.childDisplayName === "string"
+        ? req.body.childDisplayName.trim().slice(0, 100)
+        : null;
+      const parentMarkerIconId = parseMarkerIconId(req.body.parentMarkerIconId);
+      const childMarkerIconId = parseMarkerIconId(req.body.childMarkerIconId);
+
+      if (
+        !validator.validateDeviceIdFormat(parentDeviceId) ||
+        !validator.validateDeviceIdFormat(childDeviceId)
+      ) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      if (req.deviceId !== parentDeviceId && req.deviceId !== childDeviceId) {
+        return res.status(403).json({
+          error: "Authenticated device cannot create this link",
+          code: "LINK_FORBIDDEN",
+        });
+      }
+
+      if (!parentDisplayName && !childDisplayName && displayName) {
+        if (req.deviceId === parentDeviceId) {
+          childDisplayName = displayName;
+        } else if (req.deviceId === childDeviceId) {
+          parentDisplayName = displayName;
+        }
+      }
+
+      await dbManager.upsertDeviceLink({
+        parentDeviceId,
+        childDeviceId,
+        relationRole,
+        displayName,
+        parentDisplayName,
+        childDisplayName,
+        parentMarkerIconId,
+        childMarkerIconId,
+        createdBy: req.deviceId,
+        isActive: true,
+      });
+
+      res.json({
+        success: true,
+        parentDeviceId,
+        childDeviceId,
+        relationRole,
+        displayName,
+        parentDisplayName,
+        childDisplayName,
+        parentMarkerIconId,
+        childMarkerIconId,
+      });
+    } catch (error) {
+      console.error("Link parent-child error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "DEVICE_LINK_ERROR",
+      });
+    }
+  }
+);
+
+app.get(
+  "/api/relationships/children/:parentDeviceId",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 60),
+  async (req, res) => {
+    try {
+      const parentDeviceId = req.params.parentDeviceId;
+      if (!validator.validateDeviceIdFormat(parentDeviceId)) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      if (req.deviceId !== parentDeviceId) {
+        return res.status(403).json({
+          error: "Authenticated device cannot read these links",
+          code: "LINKS_FORBIDDEN",
+        });
+      }
+
+      const children = await dbManager.getLinkedChildren(parentDeviceId);
+      res.json({
+        success: true,
+        parentDeviceId,
+        count: children.length,
+        children,
+      });
+    } catch (error) {
+      console.error("Get linked children error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "LINKED_CHILDREN_ERROR",
+      });
+    }
+  }
+);
+
+app.get(
+  "/api/relationships/parents/:childDeviceId",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 60),
+  async (req, res) => {
+    try {
+      const childDeviceId = req.params.childDeviceId;
+      if (!validator.validateDeviceIdFormat(childDeviceId)) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      const requesterIsChild = req.deviceId === childDeviceId;
+      const requesterIsLinkedParent =
+        !requesterIsChild &&
+        (await dbManager.hasActiveDeviceLink(req.deviceId, childDeviceId));
+
+      if (!requesterIsChild && !requesterIsLinkedParent) {
+        return res.status(403).json({
+          error: "Authenticated device cannot read these links",
+          code: "LINKS_FORBIDDEN",
+        });
+      }
+
+      const parents = sanitizeLinkedParents(
+        childDeviceId,
+        await dbManager.getLinkedParents(childDeviceId),
+        wsManager
+      );
+      res.json({
+        success: true,
+        childDeviceId,
+        count: parents.length,
+        parents,
+      });
+    } catch (error) {
+      console.error("Get linked parents error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "LINKED_PARENTS_ERROR",
+      });
+    }
+  }
+);
+
+app.get(
+  "/api/relationships/presence/:childDeviceId",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 60),
+  async (req, res) => {
+    try {
+      const childDeviceId = req.params.childDeviceId;
+      if (!validator.validateDeviceIdFormat(childDeviceId)) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      const requesterIsChild = req.deviceId === childDeviceId;
+      const requesterIsLinkedParent =
+        !requesterIsChild &&
+        (await dbManager.hasActiveDeviceLink(req.deviceId, childDeviceId));
+
+      if (!requesterIsChild && !requesterIsLinkedParent) {
+        return res.status(403).json({
+          error: "Authenticated device cannot read this family context",
+          code: "PRESENCE_FORBIDDEN",
+        });
+      }
+
+      const linkedParents = sanitizeLinkedParents(
+        childDeviceId,
+        await dbManager.getLinkedParents(childDeviceId),
+        wsManager
+      );
+      const childDisplayName =
+        linkedParents
+          .map((link) => String(link?.childDisplayName || "").trim())
+          .find(Boolean) ||
+        formatShortId(childDeviceId) ||
+        "Ребенок";
+
+      const parentsById = new Map();
+      linkedParents.forEach((link) => {
+        const parentDeviceId = String(link?.parentDeviceId || "").trim();
+        if (!parentDeviceId || parentsById.has(parentDeviceId)) return;
+
+        const displayName =
+          String(link?.parentDisplayName || "").trim() ||
+          String(link?.displayName || "").trim() ||
+          String(link?.parentDeviceName || "").trim() ||
+          formatShortId(parentDeviceId) ||
+          "Родитель";
+
+        parentsById.set(parentDeviceId, {
+          role: "parent",
+          deviceId: parentDeviceId,
+          displayName,
+          isOnline:
+            wsManager.getConnectedParentSocketIdsForParent(
+              parentDeviceId,
+              childDeviceId
+            ).length > 0,
+        });
+      });
+
+      const child = {
+        role: "child",
+        deviceId: childDeviceId,
+        displayName: childDisplayName,
+        isOnline: wsManager.isChildConnectedById(childDeviceId),
+      };
+      const parents = Array.from(parentsById.values());
+      const participants = [child, ...parents];
+
+      res.json({
+        success: true,
+        childDeviceId,
+        participants,
+        onlineCount: participants.filter((item) => item.isOnline).length,
+        totalCount: participants.length,
+      });
+    } catch (error) {
+      console.error("Get family presence error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "FAMILY_PRESENCE_ERROR",
+      });
+    }
+  }
+);
+
+app.post(
+  "/api/relationships/unlink",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 30),
+  async (req, res) => {
+    try {
+      const parentDeviceId = String(req.body.parentDeviceId || "").trim();
+      const childDeviceId = String(req.body.childDeviceId || "").trim();
+
+      if (
+        !validator.validateDeviceIdFormat(parentDeviceId) ||
+        !validator.validateDeviceIdFormat(childDeviceId)
+      ) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      if (req.deviceId !== parentDeviceId && req.deviceId !== childDeviceId) {
+        return res.status(403).json({
+          error: "Authenticated device cannot remove this link",
+          code: "UNLINK_FORBIDDEN",
+        });
+      }
+
+      await dbManager.deactivateDeviceLink(parentDeviceId, childDeviceId);
+
+      res.json({
+        success: true,
+        parentDeviceId,
+        childDeviceId,
+      });
+    } catch (error) {
+      console.error("Unlink parent-child error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "DEVICE_UNLINK_ERROR",
+      });
+    }
+  }
+);
+
+// Read-only signal recovery: this endpoint never resends the sound command.
+app.get('/api/attention-signal/:requestId/status', authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000,60),async(req,res)=>{
+    try {
+      const result=await attentionSignalManager.readRequestStatus({callerDeviceId:req.deviceId,
+        requestId:req.params.requestId,targetDeviceId:req.query.targetDeviceId,
+        familyId:req.query.familyId,actorMemberId:req.query.actorMemberId});
+      if(!result.allowed) return res.status(result.httpStatus).json({success:false,code:result.code});
+      const {allowed,...body}=result;res.json(body);
+    } catch(error) {
+      console.error('Read attention request status failed:',error.message);
+      res.status(500).json({success:false,code:'ATTENTION_STATUS_UNAVAILABLE'});
+    }
+  });
+
+// Durable cumulative daily usage; distinct from bounded telemetry samples.
+app.get('/api/device/usage/:deviceId/days', authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 60), async (req, res) => {
+    try {
+      if (!validator.validateDeviceIdFormat(req.params.deviceId))
+        return res.status(400).json({ error: 'Invalid device ID format', code: 'INVALID_DEVICE_ID' });
+      const read = await new (require('./services/AppUsageDailyArchiveService'))(dbManager).read({
+        callerDeviceId: req.deviceId, targetDeviceId: req.params.deviceId, limit: req.query.limit,
+        familyId: req.query.familyId, actorMemberId: req.query.actorMemberId });
+      if (!read.allowed) return res.status(403).json({ error: 'App usage access denied', code: read.code });
+      res.json({ success: true, deviceId: req.params.deviceId, familyId: req.query.familyId ?? null,
+        actorMemberId: req.query.actorMemberId ?? null, statuses: read.statuses,
+        limit: read.limit, archive: read.archive });
+    } catch (error) {
+      console.error('Read daily usage archive failed:', error.message);
+      res.status(500).json({ error: 'Archive unavailable', code: 'APP_USAGE_ARCHIVE_ERROR' });
+    }
+  });
+
+app.get(
+  "/api/device/status/history/:deviceId",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 60),
+  async (req, res) => {
+    try {
+      const targetDeviceId = req.params.deviceId || req.deviceId;
+      const limit = Math.min(
+        Math.max(Number.parseInt(req.query.limit, 10) || 60, 1),
+        200
+      );
+
+      if (!validator.validateDeviceIdFormat(targetDeviceId)) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      const StatusReader = require('./services/DeviceStatusReadService');
+      const read = await new StatusReader(dbManager).read({ callerDeviceId: req.deviceId,
+        targetDeviceId, limit, history: true, purpose: req.query.purpose,
+        familyId: req.query.familyId, actorMemberId: req.query.actorMemberId });
+      if (!read.allowed) return res.status(403).json({ error: 'Device status access denied', code: read.code });
+      const statuses = read.statuses;
+
+      res.json({
+        success: true,
+        deviceId: targetDeviceId,
+        count: statuses.length,
+        statuses: statuses.map(status => StatusReader.redact(enrichDeviceStatus(status), read.usageAllowed)),
+      });
+    } catch (error) {
+      console.error("Get device status history error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "DEVICE_STATUS_HISTORY_ERROR",
+      });
+    }
+  }
+);
+
+// Photo readiness uses the same child/permission boundary as the actual request.
+app.get("/api/photo/readiness/:deviceId", authMiddleware.authenticate(), authMiddleware.rateLimit(60000, 60), async (req, res) => {
+  try {
+    const target = await new (require('./services/DeviceAccessService'))(dbManager)
+      .requirePhotoAccess(req, res, req.params.deviceId);
+    if (target === null) return;
+    const access = new (require('./services/DeviceAccessService'))(dbManager);
+    const statuses = await Promise.all(access.idForms(target).map(id => dbManager.getLatestDeviceStatus(id)));
+    const status = statuses.filter(Boolean).sort((a,b) => b.timestamp - a.timestamp)[0] || authManager.getDeviceStatus(target);
+    const camera = status?.raw?.camera;
+    res.json({ success: true, deviceId: target, checkedAt: Date.now(),
+      ...wsManager.getPhotoConnectionState(target),
+      camera: camera && typeof camera === 'object' && !Array.isArray(camera) ? camera : null });
+  } catch (error) {
+    console.error('Photo readiness failed:', error.message);
+    res.status(500).json({ success: false, error: 'Readiness unavailable' });
+  }
+});
+
+app.get(
+  "/api/device/status/:deviceId?",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 60),
+  async (req, res) => {
+    try {
+      const targetDeviceId = req.params.deviceId || req.deviceId;
+
+      if (!validator.validateDeviceIdFormat(targetDeviceId)) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      const StatusReader = require('./services/DeviceStatusReadService');
+      const read = await new StatusReader(dbManager).read({ callerDeviceId: req.deviceId,
+        targetDeviceId, purpose: req.query.purpose, familyId: req.query.familyId,
+        actorMemberId: req.query.actorMemberId }, id => authManager.getDeviceStatus(id));
+      if (!read.allowed) return res.status(403).json({ error: 'Device status access denied', code: read.code });
+      const status = read.status ? { ...read.status, raw: read.status.raw ?? null } : null;
+
+      res.json({
+        success: true,
+        deviceId: targetDeviceId,
+        status: StatusReader.redact(enrichDeviceStatus(status), read.usageAllowed),
+      });
+    } catch (error) {
+      console.error("Get device status error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "DEVICE_STATUS_ERROR",
+      });
+    }
+  }
+);
+
+// Chat message history (protected)
+app.get(
+  "/api/chat/history/:deviceId?",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 60), // 60 requests per minute
+  async (req, res) => {
+    try {
+      const targetDeviceId = req.params.deviceId || req.deviceId;
+      const limit = parseInt(req.query.limit) || 100;
+
+      // Validate parameters
+      if (!validator.validateDeviceIdFormat(targetDeviceId)) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      if (limit < 1 || limit > 500) {
+        return res.status(400).json({
+          error: "Limit must be between 1 and 500",
+          code: "INVALID_LIMIT",
+        });
+      }
+
+      const permission = await familyPermissionService.authorizeFeature(
+        req.deviceId,
+        targetDeviceId,
+        "CHAT"
+      );
+      if (!permission.allowed) {
+        return res.status(403).json({
+          error: "Chat access denied",
+          code: permission.code || "CHAT_ACCESS_DENIED",
+        });
+      }
+
+      // Get chat messages from database
+      const messages = await dbManager.getChatMessages(targetDeviceId, limit);
+
+      res.json({
+        success: true,
+        deviceId: targetDeviceId,
+        count: messages.length,
+        messages: messages.map((msg) => ({
+          id: String(msg.client_id || msg.client_message_id || msg.id),
+          sender: msg.sender,
+          senderRole: msg.sender,
+          senderDeviceId: msg.sender_device_id || "",
+          senderDisplayName: resolveChatSenderDisplayName(msg),
+          message: msg.message,
+          timestamp: msg.timestamp,
+          isRead: msg.is_read === 1,
+          createdAt: new Date(msg.created_at * 1000).toISOString(),
+        })),
+      });
+    } catch (error) {
+      console.error("Get chat history error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "CHAT_HISTORY_ERROR",
+      });
+    }
+  }
+);
+
+// Mark chat messages as read (protected)
+app.post(
+  "/api/chat/mark-read/:deviceId?",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 30), // 30 requests per minute
+  async (req, res) => {
+    try {
+      const targetDeviceId = req.params.deviceId || req.deviceId;
+
+      // Validate device ID
+      if (!validator.validateDeviceIdFormat(targetDeviceId)) {
+        return res.status(400).json({
+          error: "Invalid device ID format",
+          code: "INVALID_DEVICE_ID",
+        });
+      }
+
+      const permission = await familyPermissionService.authorizeFeature(
+        req.deviceId,
+        targetDeviceId,
+        "CHAT"
+      );
+      if (!permission.allowed) {
+        return res.status(403).json({
+          error: "Chat access denied",
+          code: permission.code || "CHAT_ACCESS_DENIED",
+        });
+      }
+
+      // Mark messages as read in database
+      await dbManager.markMessagesAsRead(targetDeviceId);
+
+      res.json({
+        success: true,
+        deviceId: targetDeviceId,
+        message: "Messages marked as read",
+      });
+    } catch (error) {
+      console.error("Mark messages as read error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "MARK_READ_ERROR",
+      });
+    }
+  }
+);
+
+// Get server statistics (protected)
+app.get(
+  "/api/admin/stats",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 10), // 10 requests per minute
+  (req, res) => {
+    try {
+      const deviceId = req.deviceId;
+
+      // Check if device has admin permissions
+      if (!authManager.checkDevicePermissions(deviceId, "admin")) {
+        return res.status(403).json({
+          error: "Admin access required",
+          code: "ADMIN_ACCESS_REQUIRED",
+        });
+      }
+
+      const authStats = authManager.getAuthStats();
+      const validatorStats = {
+        rateLimitEntries: validator.rateLimitMap.size,
+        maxRequestsPerMinute: validator.maxRequestsPerMinute,
+        maxRequestsPerHour: validator.maxRequestsPerHour,
+      };
+
+      res.json({
+        success: true,
+        stats: {
+          auth: authStats,
+          validator: validatorStats,
+          server: {
+            uptime: process.uptime(),
+            memory: process.memoryUsage(),
+            version: SERVER_VERSION,
+          },
+        },
+      });
+    } catch (error) {
+      console.error("Get stats error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "STATS_ERROR",
+      });
+    }
+  }
+);
+
+// Revoke device access (protected)
+app.post(
+  "/api/admin/revoke",
+  authMiddleware.authenticate(),
+  authMiddleware.rateLimit(60000, 5), // 5 requests per minute
+  authMiddleware.validateRequest({
+    body: {
+      targetDeviceId: {
+        required: true,
+        type: "string",
+        minLength: 10,
+        maxLength: 100,
+      },
+    },
+  }),
+  (req, res) => {
+    try {
+      const adminDeviceId = req.deviceId;
+      const { targetDeviceId } = req.body;
+
+      // Check if device has admin permissions
+      if (!authManager.checkDevicePermissions(adminDeviceId, "admin")) {
+        return res.status(403).json({
+          error: "Admin access required",
+          code: "ADMIN_ACCESS_REQUIRED",
+        });
+      }
+
+      const success = authManager.revokeDeviceAccess(targetDeviceId);
+
+      if (success) {
+        res.json({
+          success: true,
+          message: "Device access revoked",
+          deviceId: targetDeviceId,
+        });
+      } else {
+        res.status(404).json({
+          error: "Device not found",
+          code: "DEVICE_NOT_FOUND",
+        });
+      }
+    } catch (error) {
+      console.error("Revoke device error:", error);
+      res.status(500).json({
+        error: "Internal server error",
+        code: "REVOKE_ERROR",
+      });
+    }
+  }
+);
+
+// 404 handler
+app.use(authMiddleware.notFoundHandler());
+
+// Cleanup interval for streaming sessions
+setInterval(() => {
+  commandManager.cleanup();
+  // Positional retention: pruneIfDue owns the interval (one sweep per hour), the
+  // deletes are batched, and nothing here runs on a request path.
+  require('./services/LocationRetention')
+    .pruneIfDue(dbManager)
+    .then((result) => {
+      if (result.swept) console.log('Location retention sweep', JSON.stringify(result.removed));
+    })
+    .catch((error) => console.error('Location retention sweep failed', error.message));
+}, 60000); // Every minute
+
+// Do not accept HTTP or WebSocket traffic before additive migrations and the
+// legacy-to-v2 chat projection have completed. Previously listen() raced the
+// asynchronous database initialization after every server restart.
+async function startServer() {
+  await initializeDatabase();
+  await snakeSessions.ensure();
+  snakeSockets.start();
+  await arcanoidSessions.ensure();
+  arcanoidSockets.start();
+  return new Promise((resolve, reject) => {
+    const onError = (error) => reject(error);
+    server.once("error", onError);
+    server.listen(PORT, "0.0.0.0", () => {
+      server.off("error", onError);
+      console.log(`ChildWatch Server running on port ${PORT}`);
+      console.log(`Health check: http://localhost:${PORT}/api/health`);
+      console.log(
+        `Register device: POST http://localhost:${PORT}/api/auth/register`
+      );
+      console.log(
+        `Audio streaming: POST http://localhost:${PORT}/api/streaming/start`
+      );
+      console.log(`WebSocket: ws://localhost:${PORT}`);
+      console.log(`Server version: ${SERVER_VERSION} (WebSocket enabled)`);
+      console.log(`Environment: ${process.env.NODE_ENV || "development"}`);
+      resolve(server);
+    });
+  });
+}
+
+if (require.main === module) {
+  startServer().catch((error) => {
+    console.error("ChildWatch Server failed to start:", error);
+    process.exitCode = 1;
+  });
+}
+
+module.exports = app;
+module.exports.startServer = startServer;
+module.exports.server = server;

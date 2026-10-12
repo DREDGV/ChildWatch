@@ -1,0 +1,79 @@
+{
+  "schema": 1,
+  "version": "7.4.352",
+  "sourceCommit": "81640642439d150393e5eb8d19ca7cb72761999a",
+  "publishedBaseline": "7.4.348",
+  "apps": {
+    "child": {
+      "packageName": "ru.example.parentwatch.debug",
+      "versionCode": 2000000352,
+      "versionName": "7.4.352-debug",
+      "buildType": "debug",
+      "sizeBytes": 39195489,
+      "sha256": "08c71900a94cf4d10d5a30a5eed0f272d1fa058f6d425070d0e457144e3435c0",
+      "file": "ChildDevice-7.4.352-debug.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": "Галерея показывает снимки целиком. Приглашения в семейные игры доступны из разных экранов. Новая Змейка: оформление поля, крестовина и управление пальцем без отрыва. Для доставки приглашений обновите серверный delta к348. Данные и семейные привязки сохраняются."
+    },
+    "parent": {
+      "packageName": "ru.example.childwatch",
+      "versionCode": 2000000352,
+      "versionName": "7.4.352",
+      "buildType": "debug",
+      "sizeBytes": 46036059,
+      "sha256": "137df15703b9c5856a24be88267279d1bf46e36d041dee048dfcfb6a54e71373",
+      "file": "ParentMonitor-7.4.352.apk",
+      "signingCertSha256": "4ca0ad1687dfff330ef81aedb2f226989f7936820ee4749300358172fef7982d",
+      "notes": "Галерея показывает снимки целиком. Приглашения в семейные игры доступны из разных экранов. Новая Змейка: оформление поля, крестовина и управление пальцем без отрыва. Для доставки приглашений обновите серверный delta к348. Данные и семейные привязки сохраняются."
+    }
+  },
+  "packageAndCertificateMatchBaseline": true,
+  "archivesIntegrity": true,
+  "buildLog": ".runtime/interim-release-build-2026-10-13.log",
+  "serverTests": {
+    "pass": 18,
+    "fail": 0
+  },
+  "sharedUnitTests": {
+    "pass": 117,
+    "fail": 0
+  },
+  "nativeFixture": {
+    "Samsung": {
+      "pass": 4,
+      "fail": 0
+    },
+    "scope": "Snake local/coop fixture; not a real VPS paired game"
+  },
+  "installedDevices": [
+    {
+      "serial": "R5CX71CKKJW",
+      "package": "ru.example.childwatch",
+      "versionCode": 2000000352,
+      "versionName": "7.4.352",
+      "install": "Success",
+      "mainStartup": "ok"
+    },
+    {
+      "serial": "ZY227XB2QD",
+      "package": "ru.example.parentwatch.debug",
+      "versionCode": 2000000352,
+      "versionName": "7.4.352-debug",
+      "install": "Success",
+      "mainStartup": "ok"
+    }
+  ],
+  "serverPublished": false,
+  "otaPublished": false,
+  "installLog": ".runtime/interim-install-352.log",
+  "startupLogs": [
+    ".runtime/release352-startup-R5CX71CKKJW.log",
+    ".runtime/release352-startup-ZY227XB2QD.log"
+  ],
+  "startupErrorMarkers": 0,
+  "runtimeLimitations": [
+    "Real VPS paired invite/game delivery pending server delta",
+    "Gallery actual-photo/landscape/200 percent manual acceptance pending",
+    "Listening and new remote capture not initiated by agent"
+  ]
+}

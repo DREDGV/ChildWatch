@@ -1,0 +1,91 @@
+{
+  "schema": 1,
+  "version": "7.4.352",
+  "baseline": "7.4.348",
+  "sourceCommit": "81640642439d150393e5eb8d19ca7cb72761999a",
+  "files": [
+    {
+      "path": "server/routes/family-games.js",
+      "sizeBytes": 2740,
+      "sha256": "5afa840710f0df079cac3db829dcc8f7cffd432c969c75572956fd6794530bff",
+      "purpose": "runtime"
+    },
+    {
+      "path": "server/services/FamilyGameInviteDelivery.js",
+      "sizeBytes": 1024,
+      "sha256": "4809bc8ddec1d0563dcebf1ece675ac80a033b2ffbd341feb3db2c942b7ee5ce",
+      "purpose": "runtime"
+    },
+    {
+      "path": "reference/index.js",
+      "sizeBytes": 59391,
+      "sha256": "7eed3c534ee41ea7214cfb5d45016e1acf958c0422c7cfbf77a17fff54da3953",
+      "purpose": "reference"
+    },
+    {
+      "path": "tests/game-invite-delivery.node.cjs",
+      "sizeBytes": 3093,
+      "sha256": "f442fbe573c88b05c1488741fcb776306037826db6a2bec235682884576096d6",
+      "purpose": "test"
+    },
+    {
+      "path": "tests/family-games.node.cjs",
+      "sizeBytes": 20435,
+      "sha256": "401583dcabb1dd5489ae4b686c4d6c83d1d3ade8624da2217f4a7c4716724847",
+      "purpose": "test"
+    }
+  ],
+  "unchangedBaselineRuntime": [
+    {
+      "path": "server/services/FamilyGameService.js",
+      "sha256": "7eb97fa7e04d30e6cf16e25a2f68fa305f220b52b9a48382b9e68d0088751243",
+      "purpose": "server",
+      "sizeBytes": 14342
+    },
+    {
+      "path": "server/services/BattleshipRules.js",
+      "sha256": "b0132b5716ca8ebb7a8e6187af4b39bfe79be308015f3df13f829b2252a99f9b",
+      "purpose": "server",
+      "sizeBytes": 2084
+    },
+    {
+      "path": "server/services/SnakeRules.js",
+      "sha256": "bf6a523fc06c9fc8bcdc3916242ed1409a966f5cdb99cc9b9847edc0b319cc4a",
+      "purpose": "server",
+      "sizeBytes": 7841
+    },
+    {
+      "path": "server/services/SnakeSessionService.js",
+      "sha256": "0c1ec1ee83f89197f898c9c17986d033cdc87eddf237708b9919b2a08e9a0934",
+      "purpose": "server",
+      "sizeBytes": 11546
+    },
+    {
+      "path": "server/services/SnakeSocketService.js",
+      "sha256": "f551ec538588d76d0d33a3a12573d2a6c4961e82100c9326ca4bc77a97d200b3",
+      "purpose": "server",
+      "sizeBytes": 3845
+    },
+    {
+      "path": "server/services/ArcanoidRules.js",
+      "sha256": "a849503214e42b034d343d1be5dbca44081d2bc8af2e78564cc38c4fa76c739c",
+      "purpose": "server",
+      "sizeBytes": 7308
+    },
+    {
+      "path": "server/services/ArcanoidSessionService.js",
+      "sha256": "3484a377b802e89a8a1358c8c8cd0ecbae9d70a0819c8a3fa6946544c8cdad09",
+      "purpose": "server",
+      "sizeBytes": 13140
+    },
+    {
+      "path": "server/services/ArcanoidSocketService.js",
+      "sha256": "0190957e8dfa77752884a08f3352d35664479ae6aa4f57f77a0e5344b0745ee4",
+      "purpose": "server",
+      "sizeBytes": 4285
+    }
+  ],
+  "newNpmDependencies": false,
+  "dataIncluded": false,
+  "indexBaselineSha256": "903e971ceeccb725e41599634ca210a580c5f0e0d87a73e788625bf4bbca024d"
+}

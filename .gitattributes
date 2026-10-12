@@ -20,4 +20,5 @@
 
 # This release manifest hashes exact packaged bytes; keep payloads unchanged on checkout.
 /releases/7.4.348/** -text
+/releases/7.4.352/** -text
 
