@@ -8,9 +8,9 @@ public class SnakeCellMotionTest {
         SnakeCellMotion motion=new SnakeCellMotion(105);
         motion.append(106,0,180);motion.append(126,90,180);
         assertEquals(5.5f,motion.x(),.0001f);assertEquals(5f,motion.y(),.0001f);
-        motion.advance(135);assertEquals(5.75f,motion.x(),.0001f);assertEquals(5f,motion.y(),.0001f);
-        motion.advance(180);assertEquals(6f,motion.x(),.0001f);assertEquals(5f,motion.y(),.0001f);
-        motion.advance(270);assertEquals(6f,motion.x(),.0001f);assertEquals(5.5f,motion.y(),.0001f);
+        motion.advance(135);assertEquals(5.875f,motion.x(),.0001f);assertEquals(5f,motion.y(),.0001f);
+        motion.advance(150);assertEquals(6f,motion.x(),.0001f);assertEquals(5f,motion.y(),.0001f);
+        motion.advance(210);assertEquals(6f,motion.x(),.0001f);assertEquals(5.5f,motion.y(),.0001f);
         motion.advance(360);assertEquals(6f,motion.y(),.0001f);assertFalse(motion.moving());
     }
     @Test public void fourthBufferedCellSnapsInsteadOfGrowingLatency(){
@@ -30,17 +30,20 @@ public class SnakeCellMotionTest {
     }
     @Test public void growingTailCopiesPendingRouteBeforePredecessorMovesOn(){
         SnakeCellMotion tail=new SnakeCellMotion(105);tail.append(106,0,180);tail.append(126,90,180);
-        SnakeCellMotion grown=tail.copy();tail.append(127,100,180);grown.append(126,100,180);
-        tail.advance(135);grown.advance(135);assertEquals(tail.x(),grown.x(),0);assertEquals(tail.y(),grown.y(),0);
+        SnakeCellMotion grown=tail.copy();grown.append(126,100,180);tail.append(127,100,180);
+        assertEquals(5.583333f,grown.x(),.0001f);
         tail.advance(450);grown.advance(450);
-        assertEquals(6.5f,tail.x(),.0001f);assertEquals(6f,grown.x(),0);assertEquals(6f,grown.y(),0);
-        assertFalse(grown.moving());assertTrue(tail.moving());
+        assertEquals(7f,tail.x(),.0001f);assertEquals(6f,grown.x(),0);assertEquals(6f,grown.y(),0);
+        assertFalse(grown.moving());assertFalse(tail.moving());
     }
     @Test public void duplicateTargetDoesNotFlushThreeBufferedLegs(){
         SnakeCellMotion motion=new SnakeCellMotion(105);
         motion.append(106,0,180);motion.append(126,0,180);motion.append(127,0,180);motion.append(127,0,180);
         assertTrue(motion.moving());motion.advance(270);
-        assertEquals(6f,motion.x(),0);assertEquals(5.5f,motion.y(),.0001f);
+        assertEquals(7f,motion.x(),0);assertEquals(6f,motion.y(),.0001f);
+    }
+    @Test public void wrapMovesThroughEdgeAndNeverThroughCentre(){
+        SnakeCellMotion motion=new SnakeCellMotion(19);motion.append(0,0,180);motion.advance(90);assertEquals(19.5f,motion.x(),.0001f);assertEquals(1,motion.axisX(),0);motion.advance(180);assertEquals(0,motion.x(),0);
     }
     @Test public void bodyJoinsAtAcceptedCornerAndEyesFollowCurrentLeg(){
         SnakeCellMotion head=new SnakeCellMotion(106),neck=new SnakeCellMotion(105);

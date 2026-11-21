@@ -813,7 +813,29 @@ class AudioStreamingActivity : AppCompatActivity() {
         }
     }
 
+    private var listeningPresenceJob: kotlinx.coroutines.Job? = null
+
+    private fun startListeningPresencePolling() {
+        if (listeningPresenceJob?.isActive == true) return
+        listeningPresenceJob = lifecycleScope.launch {
+            var previous: DeviceStatusSnapshotScope? = null
+            while (isActive) {
+                val scope = snapshotScope()
+                if (scope != previous) {
+                    binding.listeningPresenceText.setText(ru.example.childwatch.designsystem.R.string.cw_listening_unknown)
+                    previous = scope
+                }
+                val status = scope?.let { networkClient.getStreamingStatus(it.actor[0], it.targetDeviceId, quick = true) }
+                val presence = status?.listeningPresence?.takeIf { snapshotScope() == scope }
+                binding.listeningPresenceText.text =
+                    ru.example.childwatch.designsystem.ListeningPresenceLabel.text(this@AudioStreamingActivity, presence)
+                delay(4_000L)
+            }
+        }
+    }
+
     private fun startChildStatusPolling() {
+        startListeningPresencePolling()
         if (statusPollingJob?.isActive == true) return
         statusPollingJob = lifecycleScope.launch {
             fetchChildStatus()
@@ -825,6 +847,9 @@ class AudioStreamingActivity : AppCompatActivity() {
     }
 
     private fun stopChildStatusPolling() {
+        listeningPresenceJob?.cancel()
+        listeningPresenceJob = null
+        binding.listeningPresenceText.setText(ru.example.childwatch.designsystem.R.string.cw_listening_unknown)
         statusReadGeneration++
         statusPollingJob?.cancel()
         statusPollingJob = null

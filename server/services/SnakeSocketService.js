@@ -16,7 +16,7 @@ class SnakeSocketService {
     this.timer.unref(); return this;
   }
   register(socket) {
-    const token = randomUUID(); let actor = null, gameId = null, pending = false;
+    const token = randomUUID(); let actor = null, gameId = null, queued = 0; let chain = Promise.resolve();
     let quotaAt = 0, quota = 0;
     const validate = async () => {
       if (!this.authenticate) return socket.authMode === 'authenticated' && Boolean(socket.authenticatedDeviceId);
@@ -26,10 +26,11 @@ class SnakeSocketService {
     const execute = work => async (input, ack) => {
       const now = this.sessions.clock();
       if (now - quotaAt >= 1000) { quotaAt = now; quota = 0; }
-      if (++quota > 20 || pending) return respond(ack, { success: false, code: 'SNAKE_BUSY' });
+      if (++quota > 20 || queued >= 8) return respond(ack, { success: false, code: 'SNAKE_BUSY' });
       if (!input || typeof input !== 'object' || JSON.stringify(input).length > 2048)
         return respond(ack, { success: false, code: 'SNAKE_INVALID_INPUT' });
-      pending = true;
+      queued++; const received = this.sessions.clock();
+      const task = chain.then(async () => {
       try {
         if (!await validate() || socket.authMode !== 'authenticated' || !socket.authenticatedDeviceId)
           throw new FamilyGameService.Error(401, 'GAME_AUTH_REQUIRED');
@@ -37,9 +38,11 @@ class SnakeSocketService {
       } catch (error) {
         respond(ack, { success: false, code: error instanceof FamilyGameService.Error ? error.code : 'SNAKE_UNAVAILABLE' });
         if (!(error instanceof FamilyGameService.Error)) console.error('Snake socket failed:', error.message);
-      } finally { pending = false; }
+      } finally { queued--; require('./GameTiming').sample('Snake.receiveApply',this.sessions.clock()-received); }
+      }); chain = task.catch(() => {}); return task;
     };
     socket.on('snake:join', execute(async input => {
+      if (input.protocolVersion !== 2) throw new FamilyGameService.Error(409, 'GAME_UPDATE_REQUIRED');
       if (gameId) await this.sessions.leave(token);
       actor = await this.sessions.games.actor(socket.authenticatedDeviceId, input.familyId);
       if (input.actorMemberId !== actor.memberId) throw new FamilyGameService.Error(403, 'GAME_CONTEXT_CHANGED');

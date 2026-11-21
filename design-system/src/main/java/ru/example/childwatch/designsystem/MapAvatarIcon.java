@@ -23,7 +23,7 @@ public final class MapAvatarIcon {
                                   String speedLabel) {
         float density = context.getResources().getDisplayMetrics().density;
         TextPaint labelPaint = new TextPaint(Paint.ANTI_ALIAS_FLAG);
-        labelPaint.setTextSize(11f * context.getResources().getDisplayMetrics().scaledDensity);
+        labelPaint.setTextSize(12f * context.getResources().getDisplayMetrics().scaledDensity);
         labelPaint.setTypeface(android.graphics.Typeface.create("sans-serif-medium", android.graphics.Typeface.NORMAL));
         String label = speedLabel == null || speedLabel.trim().isEmpty() || stale ? null
             : TextUtils.ellipsize(speedLabel.trim(), labelPaint, 120f * density, TextUtils.TruncateAt.END).toString();
@@ -61,7 +61,7 @@ public final class MapAvatarIcon {
             canvas.drawCircle(centerX, centerY, portraitRadius, paint);
         }
         if (label != null) {
-            float top = centerY + 24f * density;
+            float top = centerY + 22f * density;
             android.graphics.RectF badge = new android.graphics.RectF(centerX - labelWidth / 2,
                 top, centerX + labelWidth / 2, top + labelHeight);
             paint.setColor(context.getColor(R.color.cw_color_surface));

@@ -113,7 +113,7 @@ async function fixture() {
     }
   };
 }
-const join = (client, gameId, actorMemberId) => client.call('arkanoid:join', { gameId, familyId: 'family', actorMemberId });
+const join = (client, gameId, actorMemberId) => client.call('arkanoid:join', { gameId, familyId: 'family', actorMemberId, protocolVersion:2 });
 const command = (client, state, action, extra = {}) => client.call('arkanoid:command', {
   gameId: state.gameId, epoch: state.epoch, action, ...extra
 });
@@ -169,5 +169,18 @@ test('expired token loses both commands and streaming on existing real socket',a
     f.advance(250);await f.sessions.pulse();assert.equal((await host.state(s=>s.reason==='ACCESS_CHANGED')).phase,'PAUSED');
     const denied=await guest.state(s=>s.code==='GAME_AUTH_REQUIRED');assert.equal(denied.arcanoid,undefined);
     assert.equal(f.sessions.rooms.get(f.game.id).connections[1],null);
+  }finally{await f.close();}
+});
+test('v2 accepts pipelined moves and an older command never moves the platform backwards',async()=>{
+  const f=await fixture();try{
+    const host=await f.client('host'),guest=await f.client('guest');
+    assert.equal((await host.call('arkanoid:join',{gameId:f.game.id,familyId:'family',actorMemberId:'host'})).code,'GAME_UPDATE_REQUIRED');
+    await join(host,f.game.id,'host');const state=await join(guest,f.game.id,'guest');
+    await command(host,state,'READY');await command(guest,state,'READY');f.advance(2000);await f.sessions.pulse();
+    const playing=await host.state(value=>value.phase==='PLAYING');
+    const [first,next]=await Promise.all([command(host,playing,'MOVE',{sequence:1,position:.1}),command(host,playing,'MOVE',{sequence:3,position:.9})]);
+    assert.equal(first.success,true);assert.equal(next.success,true);
+    assert.equal((await command(host,playing,'MOVE',{sequence:2,position:.2})).replayed,true);
+    assert.equal(f.sessions.rooms.get(f.game.id).targets[0],900);
   }finally{await f.close();}
 });

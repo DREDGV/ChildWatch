@@ -205,6 +205,7 @@ class CommandManager {
             lastOwnerSeenAt: Date.now(),
             listeners: reused ? (existingSession.listeners || new Set([normalizedParentId]))
                 : new Set([normalizedParentId]),
+            recentDeliveries: reused ? existingSession.recentDeliveries : undefined,
         };
 
         this.streamingSessions.set(deviceId, nextSession);
@@ -475,6 +476,24 @@ class CommandManager {
     isRecording(deviceId) {
         const session = this.streamingSessions.get(deviceId);
         return session ? session.recording : false;
+    }
+
+    noteAudioDelivery(deviceId, parentId, deliveredAt = Date.now()) {
+        if (!parentId || !this.isStreamingListener(deviceId, parentId)) return;
+        const session = this.streamingSessions.get(deviceId);
+        if (!session.recentDeliveries) session.recentDeliveries = new Map();
+        const id = this.normalizeParentId(parentId);
+        if (deliveredAt > (session.recentDeliveries.get(id) ?? -Infinity)) {
+            session.recentDeliveries.set(id, deliveredAt);
+        }
+    }
+
+    recentStreamingListeners(deviceId, now = Date.now()) {
+        const session = this.streamingSessions.get(deviceId);
+        if (!session?.recentDeliveries) return [];
+        return [...session.recentDeliveries].filter(([id, at]) =>
+            at >= session.startTime && at <= now && now - at <= 8_000 && this.isStreamingListener(deviceId, id)
+        ).map(([id]) => id);
     }
 
     getSessionInfo(deviceId) {

@@ -337,6 +337,7 @@ class ChatV2SocketService {
           clientMessageId: raw?.clientMessageId,
           text: raw?.text,
           clientSentAt: raw?.clientSentAt,
+          replyToMessageId: raw?.replyToMessageId,
         }
       );
       const canonicalConversationId = this.normalizeId(

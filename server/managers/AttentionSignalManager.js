@@ -47,6 +47,8 @@ const REQUEST_KEYS = new Set([
   "vibrationPattern",
   "createdAt",
   "expiresAt",
+  "note",
+  "noteDurationSeconds",
 ]);
 const STOP_REQUEST_KEYS = new Set([
   "requestId",
@@ -140,6 +142,13 @@ class AttentionSignalManager {
     const vibrationPattern = this.normalizeId(raw.vibrationPattern).toUpperCase();
     const durationMs = raw.durationMs;
     const volumePercent = raw.volumePercent;
+    if (raw.note !== undefined && (typeof raw.note !== "string" ||
+        !raw.note.trim() || raw.note.trim().length > 240)) return { error: "INVALID_NOTE" };
+    const note = raw.note?.trim();
+    const noteDurationSeconds = raw.noteDurationSeconds ?? 0;
+    if (![0, 15, 30, 60].includes(noteDurationSeconds) || (!note && raw.noteDurationSeconds !== undefined)) {
+      return { error: "INVALID_NOTE_DURATION" };
+    }
     const createdAt = raw.createdAt;
     const expiresAt = raw.expiresAt ?? createdAt + ATTENTION.DEFAULT_TTL_MS;
 
@@ -204,6 +213,7 @@ class AttentionSignalManager {
         vibrationPattern: raw.vibrate ? vibrationPattern : "OFF",
         createdAt,
         expiresAt,
+        ...(note ? { note, noteDurationSeconds } : {}),
       },
     };
   }
@@ -228,7 +238,7 @@ class AttentionSignalManager {
     return { ok: true };
   }
 
-  async persistInitial(request, status, reason = null, errorCode = null) {
+  async persistInitial({ note, noteDurationSeconds, ...request }, status, reason = null, errorCode = null) {
     return this.dbManager.saveAttentionSignalEvent({
       ...request,
       status,
@@ -414,15 +424,17 @@ class AttentionSignalManager {
     const delivered = this.wsManager.emitToExactDevice(
       request.targetDeviceId,
       ATTENTION.START,
-      request
+      request,
+      request.note ? (targetSocket) => targetSocket.handshake?.auth?.attentionNotes === "1" : undefined
     );
     if (delivered === 0) {
       this.clearPending(request.requestId);
+      const needsUpdate = request.note && this.wsManager.getConnectedSocketIdsForDevice(request.targetDeviceId).length > 0;
       const payload = this.makeStatus(
         request,
         "FAILED",
-        "TARGET_OFFLINE",
-        "TARGET_NOT_CONNECTED"
+        needsUpdate ? "TARGET_UPDATE_REQUIRED" : "TARGET_OFFLINE",
+        needsUpdate ? "TARGET_UPDATE_REQUIRED" : "TARGET_NOT_CONNECTED"
       );
       this.emitStatusToSocket(socket, payload);
       await this.dbManager.updateAttentionSignalStatus(payload);

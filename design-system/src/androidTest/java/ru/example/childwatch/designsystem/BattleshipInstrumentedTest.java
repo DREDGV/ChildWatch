@@ -90,6 +90,8 @@ public class BattleshipInstrumentedTest {
         GameOnlineBridge.Host previous=GameOnlineBridge.host;String scope="online-fixture-"+java.util.UUID.randomUUID();
         JSONObject projected=new JSONObject("{id:'fixture-game',type:'BATTLESHIP',status:'PLAYING',version:1,myMark:'X',nextMark:'X',host:{memberId:'host'},guest:{memberId:'guest'},battleship:{myShips:[[11,12,13,14]],myShots:[],opponentShots:[],mySunkShips:[],opponentSunkShips:[]}}" );
         java.util.List<String> actions=new java.util.ArrayList<>();
+        java.util.concurrent.atomic.AtomicBoolean delayNextRead=new java.util.concurrent.atomic.AtomicBoolean();
+        CountDownLatch readStarted=new CountDownLatch(1),releaseRead=new CountDownLatch(1);
         GameOnlineBridge.host=new GameOnlineBridge.Host(){
             public String scopeKey(){return scope;}
             public JSONObject request(String method,String path,JSONObject body)throws Exception{
@@ -98,7 +100,12 @@ public class BattleshipInstrumentedTest {
                     if(actions.size()==1){projected.put("version",2).put("nextMark","O");
                         projected.getJSONObject("battleship").getJSONArray("myShots").put(new JSONObject().put("cell",0).put("result","MISS"));throw new IOException("ACK_LOST");}
                 }
-                return new JSONObject().put("game",new JSONObject(projected.toString()));
+                JSONObject response=new JSONObject().put("game",new JSONObject(projected.toString()));
+                if("GET".equals(method)&&delayNextRead.getAndSet(false)){
+                    readStarted.countDown();
+                    if(!releaseRead.await(5,java.util.concurrent.TimeUnit.SECONDS))throw new IOException("READ_TIMEOUT");
+                }
+                return response;
             }
         };
         BattleshipFixtureActivity activity=null;
@@ -107,8 +114,14 @@ public class BattleshipInstrumentedTest {
             Thread.sleep(800);runner.waitForIdleSync();View root=activity.getWindow().getDecorView();
             assertNotNull(find(root,TextView.class,"Ваш ход"));
             BattleshipBoardView board=find(root,BattleshipBoardView.class,null);
+            delayNextRead.set(true);
+            runner.runOnMainSync(()->find(root,TextView.class,"Обновить поле").performClick());
+            assertTrue("Refresh is in flight",readStarted.await(3,java.util.concurrent.TimeUnit.SECONDS));
             runner.runOnMainSync(()->{float s=board.getWidth()/11f;MotionEvent e=MotionEvent.obtain(0,0,MotionEvent.ACTION_UP,s*1.5f,s*1.5f,0);board.dispatchTouchEvent(e);e.recycle();});
-            runner.runOnMainSync(()->find(root,TextView.class,"Выстрелить в А1").performClick());
+            TextView fire=find(root,TextView.class,"Выстрелить в А1");
+            assertNotNull("Selection responds while refresh is in flight",fire);
+            assertTrue(fire.isEnabled());
+            runner.runOnMainSync(fire::performClick);
             Thread.sleep(500);runner.waitForIdleSync();
             TextView retry=find(root,TextView.class,"Повторить отправку");assertTrue(retry.isShown());
             android.graphics.Rect shown=new android.graphics.Rect();assertTrue("Retry is reachable without scrolling",retry.getGlobalVisibleRect(shown));
@@ -119,8 +132,11 @@ public class BattleshipInstrumentedTest {
             runner.runOnMainSync(retry::performClick);Thread.sleep(500);runner.waitForIdleSync();
             assertEquals(2,actions.size());assertEquals(actions.get(0),actions.get(1));
             assertNotNull(find(root,TextView.class,"Ждём соперника"));
+            releaseRead.countDown();Thread.sleep(250);runner.waitForIdleSync();
+            assertNotNull("Late refresh cannot restore the previous turn",find(root,TextView.class,"Ждём соперника"));
             screenshot(runner,context,"battleship-online-confirmed.png");
         }finally{
+            releaseRead.countDown();
             BattleshipFixtureActivity opened=activity;if(opened!=null)runner.runOnMainSync(opened::finish);
             GameOnlineBridge.host=previous;context.getSharedPreferences("family-games-outbox",0).edit().remove("pending:"+scope).commit();
         }

@@ -20,12 +20,12 @@ public final class SnakeOnlineView extends View {
     private final String[] directions={"RIGHT","LEFT"};
     private String epoch="",tick="",phase="";
     private int own=-1,food=-1;
-    private boolean active,canTurn;
+    private boolean active,canTurn;private long lastFrame;
     private float cell,left,top;
     private final SnakeTouch touch;
     public SnakeOnlineView(Context context,DirectionListener listener){super(context);scene=new SnakeScene(context);this.listener=listener;touch=new SnakeTouch(getResources().getDisplayMetrics().density,listener::turn);setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);}
     public void setPlayer(int player){own=player;invalidate();}
-    public void setActive(boolean value){active=value;if(!value)freeze();invalidate();}
+    public void setActive(boolean value){active=value;lastFrame=0;if(!value)freeze();invalidate();}
     public void setCanTurn(boolean value){canTurn=value;if(!value)touch.cancel();}
     public void freeze(){touch.cancel();for(int p=0;p<2;p++)for(int i=0;i<motion[p].length;i++)motion[p][i].snap(cells[p][i]);canTurn=false;invalidate();}
     public void accept(JSONObject snapshot){
@@ -34,7 +34,7 @@ public final class SnakeOnlineView extends View {
         if(epoch.equals(nextEpoch)&&tick.equals(nextTick)&&phase.equals(nextPhase))return;
         boolean adjacent=false;try{adjacent=Long.parseLong(nextTick)==Long.parseLong(tick)+1;}catch(NumberFormatException ignored){}
         boolean animate=active&&adjacent&&epoch.equals(nextEpoch)&&"PLAYING".equals(phase)&&"PLAYING".equals(nextPhase)&&android.animation.ValueAnimator.areAnimatorsEnabled();
-        long now=SystemClock.uptimeMillis();int duration=animate?Math.min(180,Math.max(0,snake.optInt("tickMs",180))):0;
+        long now=SystemClock.uptimeMillis();int duration=animate?Math.max(0,snake.optInt("tickMs",180)):0;
         JSONArray players=snake.optJSONArray("players");if(players==null)return;
         for(int p=0;p<2;p++){
             JSONObject player=players.optJSONObject(p);if(player==null)return;
@@ -57,10 +57,10 @@ public final class SnakeOnlineView extends View {
     private float visual(int p,int i,boolean horizontal){return horizontal?motion[p][i].x():motion[p][i].y();}
     @Override protected void onSizeChanged(int w,int h,int oldw,int oldh){float margin=12*getResources().getDisplayMetrics().density;cell=Math.max(0,Math.min((w-margin*2)/20,(h-margin*2)/36));left=(w-cell*20)/2;top=(h-cell*36)/2;}
     @Override protected void onDraw(Canvas c){
-        super.onDraw(c);if(cell<=0)return;boolean moving=false;long now=SystemClock.uptimeMillis();
+        super.onDraw(c);if(cell<=0)return;boolean moving=false;long now=SystemClock.uptimeMillis();if(active&&canTurn&&lastFrame>0)GameTiming.sample("Snake.frameInterval",now-lastFrame);lastFrame=now;
         for(SnakeCellMotion[] player:motion)for(SnakeCellMotion segment:player){segment.advance(now);moving|=segment.moving();}
         c.save();c.translate(left,top);c.scale(cell,cell);
-        scene.board(c);
+        scene.board(c);c.clipRect(0,0,SnakeEngine.COLUMNS,SnakeEngine.ROWS);
         if(food>=0)scene.apple(c,food%20+.5f,food/20+.5f);
         for(int p=0;p<2;p++){
             if(cells[p].length==0)continue;path.reset();
@@ -68,6 +68,7 @@ public final class SnakeOnlineView extends View {
             for(int i=cells[p].length-1;i>=0;i--){
                 float x=visual(p,i,true),y=visual(p,i,false);
                 if(i==cells[p].length-1)path.moveTo(x+.5f,y+.5f);
+                else if(SnakeTopology.separated(x,y,tailX,tailY))path.moveTo(x+.5f,y+.5f);
                 else {
                     if(x!=tailX&&y!=tailY&&motion[p][i].joinsViaBend(tailX,tailY))path.lineTo(motion[p][i].bendX()+.5f,motion[p][i].bendY()+.5f);
                     path.lineTo(x+.5f,y+.5f);
@@ -78,9 +79,9 @@ public final class SnakeOnlineView extends View {
             float dx="LEFT".equals(directions[p])?-1:"RIGHT".equals(directions[p])?1:0,dy="UP".equals(directions[p])?-1:"DOWN".equals(directions[p])?1:0;
             if(motion[p][0].moving()){dx=motion[p][0].axisX();dy=motion[p][0].axisY();}
             for(int i=cells[p].length-1;i>=0;i--)
-                scene.segment(c,visual(p,i,true)+.5f,visual(p,i,false)+.5f,mine,i==0,dx,dy);
+                SnakeTopology.segment(scene,c,visual(p,i,true)+.5f,visual(p,i,false)+.5f,mine,i==0,dx,dy);
         }
-        c.restore();if(active&&moving)postInvalidateOnAnimation();
+        c.restore();if(active&&(moving||canTurn&&"PLAYING".equals(phase)))postInvalidateOnAnimation();
     }
     @Override public boolean onTouchEvent(MotionEvent event) {
         if (!canTurn || own < 0) { touch.cancel(); return false; }

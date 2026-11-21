@@ -31,9 +31,11 @@ interface ChatConversationV2Dao {
      */
     @Query(
         "SELECT * FROM chat_conversations_v2 WHERE is_archived = 0 " +
+            "AND (type != 'GROUP' OR EXISTS (SELECT 1 FROM chat_conversation_members_v2 m " +
+            "WHERE m.conversation_id = chat_conversations_v2.conversation_id AND m.member_id = :memberId AND m.is_local_user = 1)) " +
             "ORDER BY last_message_at DESC, updated_at DESC, conversation_id ASC"
     )
-    fun observeAll(): Flow<List<ChatConversationV2Entity>>
+    fun observeAll(memberId: String?): Flow<List<ChatConversationV2Entity>>
 
     @Query(
         "SELECT * FROM chat_conversations_v2 WHERE is_archived = 0 " +

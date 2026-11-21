@@ -278,6 +278,16 @@
                             android:textColor="#E6FFFFFF"
                             android:textSize="12sp" />
 
+                        <TextView
+                            android:id="@+id/listeningPresenceText"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="6dp"
+                            android:text="@string/cw_listening_unknown"
+                            android:textColor="@android:color/white"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
                     </LinearLayout>
 
                 </LinearLayout>

@@ -24,6 +24,9 @@ class UpdatePreferences(context: Context) {
         private const val KEY_PENDING_NOTE = "pending_failure_note"
         private const val KEY_OFFERED_MANIFEST = "offered_manifest_json"
         private const val KEY_OFFERED_VERSION = "offered_version_code"
+        private const val KEY_CHECK_RESULT_AT = "check_result_at"
+        private const val KEY_CHECK_RESULT_STATE = "check_result_state"
+        private const val KEY_CHECK_RESULT_RELEASE = "check_result_release"
         private const val KEY_LAST_CHECK_VERSION = "last_successful_check_version_code"
     }
 
@@ -35,9 +38,32 @@ class UpdatePreferences(context: Context) {
         if (prefs.getString(KEY_SERVER, null) == base) return false
         prefs.edit().putString(KEY_SERVER, base)
             .remove(KEY_LAST_CHECK).remove(KEY_LAST_CHECK_VERSION)
+            .remove(KEY_CHECK_RESULT_AT).remove(KEY_CHECK_RESULT_STATE).remove(KEY_CHECK_RESULT_RELEASE)
             .remove(KEY_OFFERED_MANIFEST).remove(KEY_OFFERED_VERSION)
             .remove(KEY_DISMISSED_VERSION).remove(KEY_DISMISSED_AT).apply()
         return true
+    }
+
+    data class CheckResult(val completedAt: Long, val state: UpdateManager.CheckState, val version: String?)
+
+    fun lastCheckResult(serverBase: String): CheckResult? {
+        if (prefs.getString(KEY_SERVER, null) != serverBase) return null
+        val completedAt = prefs.getLong(KEY_CHECK_RESULT_AT, 0L)
+        val stateName = prefs.getString(KEY_CHECK_RESULT_STATE, null)
+        val state = UpdateManager.CheckState.entries.firstOrNull {
+            it.name == stateName && it != UpdateManager.CheckState.SKIPPED
+        } ?: return null
+        if (completedAt <= 0L) return null
+        return CheckResult(completedAt, state, prefs.getString(KEY_CHECK_RESULT_RELEASE, null))
+    }
+
+    fun recordCheckResult(serverBase: String, state: UpdateManager.CheckState, version: String?) {
+        if (state == UpdateManager.CheckState.SKIPPED || prefs.getString(KEY_SERVER, null) != serverBase) return
+        prefs.edit()
+            .putLong(KEY_CHECK_RESULT_AT, System.currentTimeMillis())
+            .putString(KEY_CHECK_RESULT_STATE, state.name)
+            .putString(KEY_CHECK_RESULT_RELEASE, version)
+            .apply()
     }
 
     fun dismissalStillActive(versionCode: Int, now: Long = System.currentTimeMillis()): Boolean {

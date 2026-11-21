@@ -5,9 +5,14 @@ import android.os.Bundle
 import android.view.View
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatActivity
+import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import org.json.JSONObject
 import ru.childwatch.shared.chat.Conversation
@@ -29,6 +34,7 @@ class ChatConversationsActivity : AppCompatActivity() {
     private lateinit var adapter: ChatConversationListAdapter
     private var cachedConversations: List<Conversation> = emptyList()
     private var refreshInProgress = false
+    private var membershipRefreshJob: Job? = null
     private val subscribedConversationIds = linkedSetOf<String>()
     private val chatV2MessageListener: (JSONObject) -> Unit = { payload ->
         if (payload.optString("conversationId") in subscribedConversationIds) refresh()
@@ -187,13 +193,22 @@ class ChatConversationsActivity : AppCompatActivity() {
     override fun onStart() {
         super.onStart()
         if (::repository.isInitialized) {
+            showConversations(cachedConversations)
             WebSocketManager.addChatV2MessageListener(chatV2MessageListener)
             WebSocketManager.addChatV2ReceiptListener(chatV2ReceiptListener)
             refresh()
+            membershipRefreshJob = lifecycleScope.launch {
+                while (isActive) {
+                    delay(20_000L)
+                    refresh()
+                }
+            }
         }
     }
 
     override fun onStop() {
+        membershipRefreshJob?.cancel()
+        membershipRefreshJob = null
         subscribedConversationIds.toList().forEach(WebSocketManager::unsubscribeChatV2)
         subscribedConversationIds.clear()
         WebSocketManager.removeChatV2MessageListener(chatV2MessageListener)
@@ -231,15 +246,12 @@ class ChatConversationsActivity : AppCompatActivity() {
     }
 
     private suspend fun refreshNow() {
-        val local = repository.getCachedConversations()
-        if (local.isNotEmpty()) {
-            cachedConversations = local
-            showConversations(local)
-            updateRealtimeSubscriptions(local)
-            binding.statusText.setText(R.string.chat_v2_ready)
-        } else {
-            binding.statusText.setText(R.string.chat_v2_syncing)
-        }
+        cachedConversations = repository.getCachedConversations()
+        showConversations(cachedConversations)
+        updateRealtimeSubscriptions(cachedConversations)
+        binding.statusText.setText(
+            if (cachedConversations.isEmpty()) R.string.chat_v2_syncing else R.string.chat_v2_ready
+        )
         try {
             cachedConversations = repository.refreshConversations(
                 legacyChildDeviceId = resolveTargetChildDeviceId()
@@ -248,22 +260,30 @@ class ChatConversationsActivity : AppCompatActivity() {
             updateRealtimeSubscriptions(cachedConversations)
             repository.flushOutbox()
             binding.statusText.setText(R.string.chat_v2_ready)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
         } catch (_: Exception) {
-            if (cachedConversations.isEmpty()) {
-                cachedConversations = repository.getCachedConversations()
-                showConversations(cachedConversations)
-            }
             binding.statusText.setText(R.string.chat_v2_offline)
         }
     }
 
     private fun showConversations(items: List<Conversation>) {
-        adapter.submitList(items.sortedByDescending { it.updatedAt })
+        val scope = repository.attachments(this).currentScopeKey()
+        val rows = items.sortedByDescending { it.updatedAt }.map { item ->
+            val draft = scope?.let {
+                ru.example.childwatch.designsystem.ChatTextDraft.peek(this, it, item.conversationId)
+            }
+            val firstLine = draft?.lineSequence()?.firstOrNull { it.isNotBlank() }?.trim()
+            if (firstLine == null) item
+            else item.copy(lastMessagePreview = getString(R.string.chat_draft_preview, firstLine.take(100)))
+        }
+        adapter.submitList(rows)
         binding.emptyState.visibility = if (items.isEmpty()) View.VISIBLE else View.GONE
         binding.conversationsRecyclerView.visibility = if (items.isEmpty()) View.GONE else View.VISIBLE
     }
 
     private fun updateRealtimeSubscriptions(items: List<Conversation>) {
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) return
         val wanted = items.mapTo(linkedSetOf()) { it.conversationId }
         (subscribedConversationIds - wanted).forEach(WebSocketManager::unsubscribeChatV2)
         (wanted - subscribedConversationIds).forEach(WebSocketManager::subscribeChatV2)

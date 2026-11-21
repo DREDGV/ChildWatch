@@ -38,14 +38,12 @@ public class SnakeEngineTest {
         assertTrue(g.turn(0, SnakeEngine.Direction.DOWN)); g.launchOrResume(); g.tick();
         assertEquals(SnakeEngine.State.PLAYING, g.state()); assertEquals(185, g.segmentY(0,0)*20+g.segmentX(0,0));
     }
-    @Test public void wallCollisionIsAtomicAndTerminalStateCanBeRestored() {
+    @Test public void joinedEdgesWrapAndRestorePaused() {
         SnakeEngine g = fixture(new int[]{19,18,17}, SnakeEngine.Direction.RIGHT, null, null, 100);
-        long[] before = g.snapshot(); g.launchOrResume(); g.tick();
-        assertEquals(SnakeEngine.State.GAME_OVER, g.state()); assertEquals(19, g.segmentX(0,0));
-        assertEquals(0, g.score()); assertEquals(1, g.ticks());
-        SnakeEngine copy = new SnakeEngine(); assertTrue(copy.restore(g.snapshot()));
-        assertEquals(SnakeEngine.State.GAME_OVER, copy.state()); copy.launchOrResume(); copy.tick();
-        assertEquals(1, copy.ticks()); assertNotEquals(before[3], copy.snapshot()[3]);
+        g.launchOrResume(); g.tick();
+        assertEquals(SnakeEngine.State.PLAYING,g.state());assertEquals(0,g.segmentX(0,0));assertEquals(0,g.segmentY(0,0));
+        SnakeEngine copy = new SnakeEngine();assertTrue(copy.restore(g.snapshot()));
+        assertEquals(SnakeEngine.State.PAUSED,copy.state());copy.launchOrResume();copy.tick();assertEquals(1,copy.segmentX(0,0));
     }
     @Test public void cooperativeHeadOnAndHeadSwapHaveNoPlayerOrderWinner() {
         SnakeEngine same = fixture(new int[]{165,164,163}, SnakeEngine.Direction.RIGHT,
@@ -55,6 +53,22 @@ public class SnakeEngineTest {
         SnakeEngine swap = fixture(new int[]{165,164,163}, SnakeEngine.Direction.RIGHT,
                 new int[]{166,167,168}, SnakeEngine.Direction.LEFT, 300);
         swap.launchOrResume(); swap.tick(); assertEquals(SnakeEngine.State.GAME_OVER, swap.state());
+    }
+    @Test public void everyEdgeWrapsAndSavedWrappedBodiesRestore() {
+        int[][] bodies={{19,18,17},{0,1,2},{5,25,45},{705,685,665}};
+        SnakeEngine.Direction[] directions={SnakeEngine.Direction.RIGHT,SnakeEngine.Direction.LEFT,SnakeEngine.Direction.UP,SnakeEngine.Direction.DOWN};
+        int[] expected={0,19,705,5};
+        for(int i=0;i<4;i++){
+            SnakeEngine game=fixture(bodies[i],directions[i],null,null,300);game.launchOrResume();game.tick();
+            assertEquals(SnakeEngine.State.PLAYING,game.state());assertEquals(expected[i],game.segmentY(0,0)*20+game.segmentX(0,0));
+            game.pause();SnakeEngine restored=new SnakeEngine();assertTrue(restored.restore(game.snapshot()));assertArrayEquals(game.snapshot(),restored.snapshot());
+        }
+    }
+    @Test public void wrappingIntoBodyAndSwappingHeadsAcrossEdgeStillCollide(){
+        SnakeEngine body=fixture(new int[]{19,18,38,39,20,0,1},SnakeEngine.Direction.RIGHT,null,null,300);
+        body.launchOrResume();body.tick();assertEquals(SnakeEngine.State.GAME_OVER,body.state());assertEquals(19,body.segmentX(0,0));
+        SnakeEngine swap=fixture(new int[]{19,18,17},SnakeEngine.Direction.RIGHT,new int[]{0,1,2},SnakeEngine.Direction.LEFT,300);
+        swap.launchOrResume();swap.tick();assertEquals(SnakeEngine.State.GAME_OVER,swap.state());assertEquals(19,swap.segmentX(0,0));assertEquals(0,swap.segmentX(1,0));
     }
     @Test public void cooperativeVacatedTailAllowedUnlessOtherSnakeGrows() {
         int[] one = {165,164,163}, two = {167,166,186,185};

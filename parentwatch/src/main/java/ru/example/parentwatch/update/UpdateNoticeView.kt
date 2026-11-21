@@ -2,7 +2,6 @@ package ru.example.parentwatch.update
 
 import android.content.Context
 import android.graphics.Typeface
-import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
@@ -11,6 +10,7 @@ import androidx.core.content.ContextCompat
 import com.google.android.material.button.MaterialButton
 import com.google.android.material.card.MaterialCardView
 import ru.example.parentwatch.R
+import ru.example.childwatch.designsystem.UpdateReleaseNotification
 
 /**
  * The quiet notice that says a new version exists.
@@ -56,6 +56,21 @@ class UpdateNoticeView(private val context: Context) {
         setPadding(0, dp(4), 0, 0)
     }
 
+    private val notesHeading = TextView(context).apply {
+        text = context.getString(ru.example.childwatch.designsystem.R.string.cw_update_whats_new)
+        setTextColor(color(R.color.cw_color_on_info_container))
+        typeface = Typeface.DEFAULT_BOLD
+        textSize = 14f
+        setPadding(0, dp(8), 0, 0)
+        androidx.core.view.ViewCompat.setAccessibilityHeading(this, true)
+    }
+
+    private val notesText = TextView(context).apply {
+        setTextColor(color(R.color.cw_color_on_info_container))
+        textSize = 14f
+        setPadding(0, dp(4), 0, 0)
+    }
+
     private val updateButton: MaterialButton = MaterialButton(context).apply {
         text = context.getString(R.string.update_notice_action)
     }
@@ -74,27 +89,11 @@ class UpdateNoticeView(private val context: Context) {
 
         column.addView(title)
         column.addView(message)
+        column.addView(notesHeading)
+        column.addView(notesText)
 
-        val row = LinearLayout(context).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER_VERTICAL
-            setPadding(0, dp(12), 0, 0)
-        }
-        row.addView(
-            updateButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            )
-        )
-        row.addView(
-            dismissButton,
-            LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.WRAP_CONTENT,
-                ViewGroup.LayoutParams.WRAP_CONTENT
-            ).apply { marginStart = dp(8) }
-        )
-        column.addView(row)
+        column.addView(updateButton, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        column.addView(dismissButton, ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
 
         view.addView(column)
     }
@@ -112,6 +111,11 @@ class UpdateNoticeView(private val context: Context) {
         } else {
             context.getString(R.string.update_notice_message_plain)
         }
+        val notes = UpdateReleaseNotification.shortNotes(release.notes)
+        notesText.text = notes
+        val notesVisibility = if (notes.isBlank()) View.GONE else View.VISIBLE
+        notesText.visibility = notesVisibility
+        notesHeading.visibility = notesVisibility
         updateButton.setOnClickListener { onUpdate() }
         dismissButton.setOnClickListener { onDismiss() }
         view.visibility = View.VISIBLE

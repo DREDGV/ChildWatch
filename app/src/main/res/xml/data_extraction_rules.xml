@@ -1,9 +1,13 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <data-extraction-rules>
     <cloud-backup>
+        <exclude domain="sharedpref" path="incoming_attention_messages.xml"/>
+        <exclude domain="sharedpref" path="chat_text_drafts.xml"/>
         <exclude domain="sharedpref" path="childwatch_prefs.xml"/>
     </cloud-backup>
     <device-transfer>
+        <exclude domain="sharedpref" path="incoming_attention_messages.xml"/>
+        <exclude domain="sharedpref" path="chat_text_drafts.xml"/>
         <exclude domain="sharedpref" path="childwatch_prefs.xml"/>
     </device-transfer>
 </data-extraction-rules>

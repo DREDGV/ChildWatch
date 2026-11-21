@@ -97,7 +97,18 @@ data class ConversationMessage(
     val failureCode: String? = null,
     val legacyMessageId: String? = null,
     val messageType: String = "TEXT",
-    val attachments: List<ChatV2AttachmentDto> = emptyList()
+    val attachments: List<ChatV2AttachmentDto> = emptyList(),
+    val replyToMessageId: String? = null
+)
+
+data class ConversationSearch(val messages: List<ConversationMessage>, val hasMore: Boolean, val fromCache: Boolean)
+
+data class ConversationAnchor(
+    val sequence: Long,
+    val firstSequence: Long,
+    val lastSequence: Long,
+    val canContinue: Boolean = false,
+    val fromCache: Boolean = false
 )
 
 data class ConversationPage(
@@ -131,3 +142,17 @@ data class ChatOutboxItem(
     val nextAttemptAt: Long = 0,
     val lastErrorCode: String? = null
 )
+
+/** Count arrivals even when the observed history window is full or an older page is prepended. */
+fun countNewIncomingMessages(
+    previous: List<ConversationMessage>,
+    current: List<ConversationMessage>,
+    localMemberId: String?
+): Int {
+    if (previous.isEmpty()) return 0
+    val lastSequence = previous.maxOfOrNull { it.serverSequence ?: 0L } ?: 0L
+    return current.count { message ->
+        (message.serverSequence ?: 0L) > lastSequence &&
+            (localMemberId == null || message.senderMemberId != localMemberId)
+    }
+}

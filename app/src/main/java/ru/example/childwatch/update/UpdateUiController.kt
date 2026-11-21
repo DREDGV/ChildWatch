@@ -23,6 +23,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import ru.example.childwatch.R
+import ru.example.childwatch.designsystem.UpdateReleaseNotification
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -37,9 +38,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * - the check happens off the main thread and never blocks the screen from opening,
  *   because an update is the least important thing happening on a phone that is
  *   being used to watch a child;
- * - a failed check is silent. No dialog, no message, no delay: a person opening the
- *   application to see where their child is must not be told about a network they
- *   cannot fix;
+ * - check results appear in the summary below the button without opening a dialog;
  * - every progress indicator is dismissed on **any** failure, including the failures
  *   that are not `Exception` — in a `finally`, so there is no path that leaves a
  *   spinner on the screen with nothing behind it.
@@ -48,6 +47,7 @@ class UpdateUiController(
     private val context: Context,
     private val scope: LifecycleCoroutineScope,
     private val noticeContainer: LinearLayout,
+    private val checkSummary: TextView,
     private val serverUrlProvider: () -> String?,
     private val packageName: String = context.packageName
 ) {
@@ -61,6 +61,7 @@ class UpdateUiController(
     }
 
     private val manager = UpdateManager(context, packageName)
+    private val preferences = UpdatePreferences(context)
     private val installer = UpdateInstaller(context)
     private val notice = UpdateNoticeView(context)
 
@@ -90,6 +91,35 @@ class UpdateUiController(
         }
     }
 
+    private fun resolveUpdateServer(): String = try {
+        serverUrlProvider()?.trim().orEmpty().trimEnd('/')
+    } catch (error: Exception) {
+        Log.w(TAG, "Could not resolve the server address", error)
+        ""
+    }
+
+    private fun renderCheckSummary(serverUrl: String, checking: Boolean = false) {
+        val result = preferences.lastCheckResult(serverUrl)
+        val previous = result?.let {
+            val outcome = when (it.state) {
+                UpdateManager.CheckState.CURRENT -> context.getString(R.string.update_check_current)
+                UpdateManager.CheckState.AVAILABLE -> context.getString(R.string.update_check_available, it.version.orEmpty())
+                UpdateManager.CheckState.FAILED -> context.getString(R.string.update_check_failed)
+                UpdateManager.CheckState.SKIPPED -> return@let null
+            }
+            val date = java.util.Date(it.completedAt)
+            val day = android.text.format.DateFormat.getDateFormat(context).format(date)
+            val time = android.text.format.DateFormat.getTimeFormat(context).format(date)
+            context.getString(R.string.update_check_summary, "$day $time", outcome)
+        }
+        val summary = if (checking) {
+            listOfNotNull(context.getString(R.string.update_check_running), previous).joinToString("\n")
+        } else {
+            previous ?: context.getString(R.string.update_check_no_summary)
+        }
+        if (checkSummary.text.toString() != summary) checkSummary.text = summary
+    }
+
     /**
      * Checks for updates and puts the notice on the screen when there is
      * something to say.
@@ -98,9 +128,11 @@ class UpdateUiController(
      * [UpdateManager] is what stops that from being a request per resume.
      */
     fun checkAndShowNotice(force: Boolean = false) {
+        val serverUrl = resolveUpdateServer()
         if (checkJob?.isActive == true) {
             if (force && !forcedCheckQueued) {
                 forcedCheckQueued = true
+                renderCheckSummary(serverUrl, checking = true)
                 val active = checkJob
                 scope.launch {
                     try {
@@ -113,24 +145,18 @@ class UpdateUiController(
             }
             return
         }
-        if (force) Toast.makeText(context, R.string.update_check_running, Toast.LENGTH_SHORT).show()
-        val serverUrl = try {
-            serverUrlProvider()?.trim().orEmpty()
-        } catch (error: Exception) {
-            Log.w(TAG, "Could not resolve the server address", error)
-            ""
-        }
         if (manager.bindServer(serverUrl)) {
             hideNotice()
             offered = null
         }
+        renderCheckSummary(serverUrl, checking = force)
         manager.previouslyOfferedRelease()?.let { earlier ->
             if (force || manager.shouldOffer(earlier)) showNotice(earlier)
         }
 
         checkJob = scope.launch {
             val release = try {
-                manager.checkForUpdate(serverUrl.orEmpty(), force)
+                manager.checkForUpdate(serverUrl, force)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (error: Throwable) {
@@ -139,20 +165,19 @@ class UpdateUiController(
                 Log.w(TAG, "The update check did not complete", error)
                 null
             }
-            if (serverUrlProvider()?.trim().orEmpty().trimEnd('/') != serverUrl.trimEnd('/')) {
+            val activeServer = resolveUpdateServer()
+            if (activeServer != serverUrl) {
                 hideNotice()
                 offered = null
+                renderCheckSummary(activeServer, checking = forcedCheckQueued)
                 return@launch
             }
+            preferences.recordCheckResult(serverUrl, manager.lastCheckState, release?.versionName)
+            renderCheckSummary(serverUrl, checking = forcedCheckQueued)
             if (release == null) {
                 if (manager.lastCheckState == UpdateManager.CheckState.CURRENT) {
                     hideNotice()
                     offered = null
-                }
-                if (force) {
-                    val message = if (manager.lastCheckState == UpdateManager.CheckState.CURRENT)
-                        R.string.update_check_current else R.string.update_check_failed
-                    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
                 }
                 return@launch
             }
@@ -168,7 +193,7 @@ class UpdateUiController(
 
     /** Puts the notice at the top of the screen's content. */
     private fun showNotice(release: UpdateRelease) {
-        if (offered?.versionCode == release.versionCode && notice.isShowing()) return
+        if (offered == release && notice.isShowing()) return
         offered = release
         val offerServer = serverUrlProvider()?.trim().orEmpty().trimEnd('/')
 
@@ -189,14 +214,19 @@ class UpdateUiController(
             onDismiss = {
                 // Later snoozes this release for one day; the cached offer remains.
                 manager.dismiss(release.versionCode)
-                notice.hide()
+                hideNotice()
                 offered = null
             }
         )
+        val message = if (release.versionName.isBlank()) context.getString(R.string.update_notice_message_plain)
+            else context.getString(R.string.update_notice_message, release.versionName)
+        UpdateReleaseNotification.show(context, release.versionCode, R.drawable.ic_notification,
+            context.getString(R.string.update_notice_title), message, release.notes)
     }
 
     /** Hides the notice, for a launch that no longer needs it. */
     fun hideNotice() {
+        UpdateReleaseNotification.clear(context)
         notice.hide()
     }
 

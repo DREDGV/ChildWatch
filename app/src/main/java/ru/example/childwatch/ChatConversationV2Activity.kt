@@ -6,6 +6,7 @@ import android.widget.Toast
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.Lifecycle
+import androidx.core.view.doOnNextLayout
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -30,6 +31,7 @@ import ru.example.childwatch.chat.ChatAdapter
 import ru.example.childwatch.chat.ChatMessage
 import androidx.core.widget.doAfterTextChanged
 import ru.example.childwatch.chat.v2.ChatV2Repository
+import ru.example.childwatch.chat.v2.ChatV2RepositoryException
 import ru.example.childwatch.chat.v2.GroupManagementDialog
 import ru.example.childwatch.databinding.ActivityChatBinding
 import ru.example.childwatch.network.NetworkClient
@@ -74,6 +76,9 @@ class ChatConversationV2Activity : AppCompatActivity() {
     private lateinit var binding: ActivityChatBinding
     private lateinit var repository: ChatV2Repository
 
+    private var textDraft: ru.example.childwatch.designsystem.ChatTextDraft? = null
+    private var composerScope: String? = null
+    private var restoringDraft = false
     private val media by lazy { repository.attachments(this) }
     private val transcriptions by lazy { repository.transcriptions(this) }
     private var transcriptionEnabled = false
@@ -127,11 +132,41 @@ class ChatConversationV2Activity : AppCompatActivity() {
         pendingSaveScope = null
     }
 
+    private var replySource: ConversationMessage? = null
+    private var restoredReplyId: String? = null
+    private var historyAnchor: ru.childwatch.shared.chat.ConversationAnchor? = null
+    private var pendingAnchorScroll: Long? = null
+    private var unreadBoundary: Long? = null
+    private var readingUnreadWindow = false
+    private var historyJob: Job? = null
+    private var historySearchJob: Job? = null
+    private var historySearch: ru.example.childwatch.designsystem.ChatHistorySearchDialog? = null
+
+    private fun showReply(source: ConversationMessage?) {
+        replySource = source
+        binding.chatReplyPanel.visibility = if (source == null) View.GONE else View.VISIBLE
+        binding.chatReplyAuthor.text = source?.let { getString(R.string.chat_reply_to, it.senderDisplayName) }.orEmpty()
+        binding.chatReplyText.text = source?.let(::quoteBody).orEmpty()
+        binding.chatReplySource.setOnClickListener(source?.let { original ->
+            View.OnClickListener { openMessageContext(original.messageId) }
+        })
+        updateComposerState()
+    }
+
+    private fun quoteBody(source: ConversationMessage): String =
+        source.text.trim().take(160).ifBlank {
+            source.attachments.firstOrNull()?.filename ?: getString(R.string.chat_quote_attachment)
+        }
+
+    private fun quotePreview(source: ConversationMessage): String =
+        if (source.deletedAt != null) getString(R.string.chat_message_deleted)
+        else getString(R.string.chat_reply_preview, source.senderDisplayName, quoteBody(source))
+
     private fun updateComposerState() {
         val draft = mediaDraft
         val busy = textSendInProgress || mediaPreparing || mediaSendJob?.isActive == true || draft?.state in setOf("QUEUED", "UPLOADING", "UPLOADED")
         binding.sendButton.isEnabled = !busy && (!binding.messageInput.text.isNullOrBlank() || draft != null)
-        binding.attachmentButton.isEnabled = mediaEnabled && !busy && draft == null
+        binding.attachmentButton.isEnabled = mediaEnabled && !busy && draft == null && replySource == null
         binding.attachmentDraftCancel.isEnabled = !mediaPreparing
     }
 
@@ -159,7 +194,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
 
     private fun showAttachmentPicker() {
-        if (!mediaEnabled || mediaDraft != null || mediaPreparing) return
+        if (!mediaEnabled || mediaDraft != null || mediaPreparing || replySource != null) return
         val guard = media.currentScopeKey() ?: return
         attachmentPicker?.dismiss()
         attachmentPicker = ru.example.childwatch.designsystem.ChatAttachmentPickerDialog.show(this, voiceEnabled) { type ->
@@ -191,7 +226,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
 
     private fun showMediaCatalog() {
-        if ((!catalogEnabled && !gifEnabled) || mediaPreparing || mediaDraft != null) return
+        if ((!catalogEnabled && !gifEnabled) || mediaPreparing || mediaDraft != null || replySource != null) return
         val guard = media.currentScopeKey() ?: return
         catalogDialog?.close()
         lateinit var panel: ru.example.childwatch.designsystem.ChatMediaCatalogDialog
@@ -266,7 +301,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
 
     private fun showVoiceRecorder() {
-        if (!voiceEnabled || mediaDraft != null || mediaPreparing) return
+        if (!voiceEnabled || mediaDraft != null || mediaPreparing || replySource != null) return
         val guard = media.currentScopeKey() ?: return
         voiceDialog?.close()
         val recorder = ru.example.childwatch.designsystem.ChatVoiceRecordingDialog(this,
@@ -293,6 +328,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        textDraft?.flush()
         presenceWatcher.stop()
         participantsDialog?.close(); participantsDialog = null
         attachmentPicker?.dismiss(); attachmentPicker = null
@@ -492,8 +528,11 @@ class ChatConversationV2Activity : AppCompatActivity() {
             val size = android.text.format.Formatter.formatShortFileSize(this, draft.sizeBytes)
             val progress = ((draft.progressBytes.toDouble() / draft.sizeBytes.coerceAtLeast(1)) * 100).toInt().coerceIn(0, 100)
             val state = when (draft.state) {
-                "QUEUED", "UPLOADING", "UPLOADED" -> getString(R.string.chat_media_uploading, progress)
-                "FAILED", "RETRY" -> getString(R.string.chat_media_failed)
+                "QUEUED" -> getString(R.string.chat_status_queued)
+                "UPLOADING" -> getString(R.string.chat_media_uploading, progress)
+                "UPLOADED" -> getString(R.string.chat_media_finishing)
+                "RETRY" -> getString(R.string.chat_media_retry_scheduled)
+                "FAILED" -> getString(R.string.chat_media_failed)
                 else -> size
             }
             binding.attachmentDraftText.text = if (draft.attachmentType in setOf("GIF", "STICKER")) {
@@ -503,7 +542,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
             binding.attachmentDraftCancel.setText(if (draft.state == "DRAFT") R.string.chat_media_remove else R.string.chat_media_cancel)
             binding.attachmentDraftProgress.isIndeterminate = false
             binding.attachmentDraftProgress.progress = progress
-            binding.attachmentDraftProgress.visibility = if (draft.state in setOf("QUEUED", "UPLOADING", "UPLOADED")) View.VISIBLE else View.GONE
+            binding.attachmentDraftProgress.visibility = if (draft.state == "UPLOADING") View.VISIBLE else View.GONE
             if (previewChanged && draft.attachmentType in setOf("IMAGE", "GIF", "STICKER")) {
                 val guard = media.currentScopeKey()
                 lifecycleScope.launch {
@@ -624,8 +663,15 @@ class ChatConversationV2Activity : AppCompatActivity() {
                 repository.flushOutbox()
                 scrollToBottom()
             } catch (cancelled: CancellationException) { throw cancelled }
-            catch (_: Exception) { Toast.makeText(this@ChatConversationV2Activity, R.string.chat_media_failed, Toast.LENGTH_LONG).show() }
-            finally { mediaSendJob = null; updateComposerState() }
+            catch (_: Exception) {
+                val saved = media.getDraft(draft.clientMessageId)
+                val reason = when (saved?.state) {
+                    "RETRY" -> R.string.chat_media_retry_scheduled
+                    "FAILED" -> R.string.chat_media_failed
+                    else -> R.string.chat_media_unavailable
+                }
+                Toast.makeText(this@ChatConversationV2Activity, reason, Toast.LENGTH_LONG).show()
+            } finally { mediaSendJob = null; updateComposerState() }
         }
         updateComposerState()
     }
@@ -637,12 +683,10 @@ class ChatConversationV2Activity : AppCompatActivity() {
     private var syncJob: Job? = null
     private var messageObserverJob: Job? = null
     private var initialScrollDone = false
-    private var previousMessageCount = 0
     private var pendingNewMessages = 0
     private var displayedMessageLimit = INITIAL_MESSAGE_LIMIT
     private var nextBeforeSequence: Long? = null
     private var loadingOlderMessages = false
-    private var olderMessagesPendingRender = false
 
     /** Pending "is writing" report and the timer that clears a stale indicator. */
     private var typingReportJob: Job? = null
@@ -662,17 +706,19 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
     private val chatV2ErrorListener: (JSONObject) -> Unit = { payload ->
         if (payload.optString("conversationId") == conversationId) {
-            runOnUiThread { binding.connectionStatusText.setText(R.string.chat_v2_offline) }
+            runOnUiThread { showChatStatus(R.string.chat_v2_offline) }
         }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         binding = ActivityChatBinding.inflate(layoutInflater)
+        binding.messageInput.isSaveEnabled = false
         setContentView(binding.root)
 
         pickerType = savedInstanceState?.getString("media_picker_type") ?: "FILE"
         pickerScope = savedInstanceState?.getString("media_picker_scope")
+        restoredReplyId = savedInstanceState?.getString("chat_reply_source")
         savedInstanceState?.getString("media_save_file")?.let { path ->
             val file = java.io.File(path)
             val expectedRoot = java.io.File(cacheDir, "chat-attachments").canonicalFile
@@ -700,6 +746,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
 
     override fun onSaveInstanceState(outState: Bundle) {
+        outState.putString("chat_reply_source", replySource?.messageId)
         outState.putString("media_picker_type", pickerType)
         outState.putString("media_picker_scope", pickerScope)
         pendingSave?.let { outState.putString("media_save_file", it.first.absolutePath); outState.putString("media_save_metadata", gson.toJson(it.second)) }
@@ -735,6 +782,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        historySearch?.dismiss()
         if (::binding.isInitialized) ru.example.childwatch.designsystem.ChatAnimatedMedia.clear(binding.attachmentDraftImage)
         emojiPopup?.dismiss()
         emojiPopup = null
@@ -742,17 +790,19 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
 
     private fun configureStaticUi() = with(binding) {
-        chatPartnerName.text = intent.getStringExtra(EXTRA_CONVERSATION_TITLE)
+        val initialTitle = intent.getStringExtra(EXTRA_CONVERSATION_TITLE)
             ?.takeIf { it.isNotBlank() } ?: getString(R.string.chat_title_family)
-        // The two lines under the name describe the conversation, and both are written
-        // once it has been read; a placeholder here would be a sentence about something
-        // not yet known, and the empty state already carries its own text.
-        chatPartnerMeta.visibility = View.GONE
-        chatMembersText.visibility = View.GONE
-        connectionStatusText.setText(R.string.chat_v2_syncing)
+        connectionStatusCard.visibility = View.GONE
+        compactChatHeader.visibility = View.VISIBLE
+        compactChatHeader.showConversation(initialTitle, "")
+        FamilyAvatarRenderer.bind(compactChatHeader.avatar(), null, initialTitle)
+        compactChatHeader.bindActions({ onBackPressedDispatcher.onBackPressed() }, ::showParticipants, ::openHistorySearch)
+        showChatStatus(R.string.chat_v2_syncing)
         typingIndicator.visibility = View.GONE
-        chatInfoButton.visibility = View.GONE
+        composerMetaText.visibility = View.GONE
+        sendButton.setIconResource(R.drawable.cw_chat_send_arrow)
         emptyStateTitle.setText(R.string.chat_v2_no_messages)
+        emptyStateText.setText(R.string.chat_empty_hint)
 
         emojiPopup = EmojiPopup(root, messageInput)
         emojiButton.setOnClickListener { showEmotions() }
@@ -769,14 +819,41 @@ class ChatConversationV2Activity : AppCompatActivity() {
         // The send button now shows its own empty state, so it must follow the
         // input instead of looking ready when there is nothing to send.
         messageInput.doAfterTextChanged { editable ->
+            if (restoringDraft) {
+                updateComposerState()
+                return@doAfterTextChanged
+            }
+            if (textDraft != null && composerScope == media.currentScopeKey()) {
+                textDraft?.changed(editable?.toString().orEmpty())
+            }
             updateComposerState()
             reportTyping(!editable.isNullOrBlank())
         }
         newMessagesButton.setOnClickListener { scrollToBottom() }
+        chatReplyCancel.setOnClickListener { showReply(null) }
+        chatHistoryLatest.setOnClickListener { scrollToBottom() }
+        chatHistoryContinue.setOnClickListener {
+            renderedMessages.lastOrNull { it.serverSequence != null }?.let {
+                val readThrough = historyAnchor?.let { anchor -> viewedWatermark >= anchor.lastSequence } == true
+                openMessageContext(it.messageId, keepReadingUnread = readingUnreadWindow && readThrough)
+            }
+        }
+        onBackPressedDispatcher.addCallback(this@ChatConversationV2Activity,
+            object : androidx.activity.OnBackPressedCallback(true) {
+                override fun handleOnBackPressed() {
+                    if (historyAnchor != null || historyJob?.isActive == true) {
+                        historyJob?.cancel()
+                        scrollToBottom()
+                    }
+                    else { isEnabled = false; onBackPressedDispatcher.onBackPressed(); isEnabled = true }
+                }
+            })
         messagesRecyclerView.addOnScrollListener(object : RecyclerView.OnScrollListener() {
             override fun onScrolled(recyclerView: RecyclerView, dx: Int, dy: Int) {
                 updateVisibleMedia(true)
-                if (isNearBottom()) {
+                if (historyAnchor != null) {
+                    recordVisibleMessages()
+                } else if (isNearBottom()) {
                     pendingNewMessages = 0
                     newMessagesButton.visibility = View.GONE
                     recordVisibleMessages()
@@ -873,26 +950,14 @@ class ChatConversationV2Activity : AppCompatActivity() {
     private fun renderConversationPresence(snapshot: ru.childwatch.shared.chat.ChatPresenceSnapshot?) {
         if (!::binding.isInitialized) return
         presenceSnapshot = snapshot
-        binding.peerPresenceRow.visibility = View.VISIBLE
-        binding.peerPresenceRow.minimumHeight = (48 * resources.displayMetrics.density).toInt()
-        binding.peerPresenceRow.isClickable = true
-        binding.peerPresenceRow.isFocusable = true
-        binding.peerPresenceRow.setOnClickListener { showParticipants() }
-        binding.peerPresenceText.text = if (snapshot == null) {
-            getString(ru.example.childwatch.designsystem.R.string.chat_participants_unavailable)
-        } else getString(ru.example.childwatch.designsystem.R.string.chat_participants_summary,
-            snapshot.participants.count { it.chatOpen }, snapshot.participants.size)
-        val color = getColor(if (snapshot != null) ru.example.childwatch.designsystem.R.color.cw_color_primary
-            else ru.example.childwatch.designsystem.R.color.cw_color_on_surface_variant)
-        binding.peerPresenceText.setTextColor(color)
-        binding.peerPresenceDot.background?.mutate()?.setTint(color)
         participantsDialog?.render(participantEntries(), snapshot != null)
     }
 
     private fun showParticipants() {
-        if (conversation == null) return
+        val current = conversation ?: return
         participantsDialog?.close()
-        participantsDialog = ru.example.childwatch.designsystem.ChatParticipantsDialog(this).also {
+        val openSettings = if (current.type == ConversationType.GROUP) Runnable { openGroupSettings() } else null
+        participantsDialog = ru.example.childwatch.designsystem.ChatParticipantsDialog(this, openSettings).also {
             it.render(participantEntries(), presenceSnapshot != null)
             it.show()
         }
@@ -914,6 +979,9 @@ class ChatConversationV2Activity : AppCompatActivity() {
         val age = System.currentTimeMillis() - message.timestamp
         val isMine = message.isMine
         val labels = mutableListOf<String>()
+        if (message.serverMessageId != null && mediaDraft == null && !mediaPreparing && composerScope != null) {
+            labels += getString(R.string.chat_reply)
+        }
         if (isMine && message.attachments.isEmpty() && age <= MESSAGE_EDIT_WINDOW_MS) {
             labels += getString(R.string.chat_action_edit_message)
         }
@@ -928,6 +996,13 @@ class ChatConversationV2Activity : AppCompatActivity() {
             .setItems(actions) { _, which ->
                 val chosen = actions[which]
                 when {
+                    chosen == getString(R.string.chat_reply) -> {
+                        val source = renderedMessages.firstOrNull { it.messageId == message.serverMessageId && it.deletedAt == null }
+                        if (source != null) {
+                            showReply(source)
+                            binding.messageInput.requestFocus()
+                        }
+                    }
                     chosen == getString(R.string.chat_action_edit_message) ->
                         promptEditMessage(message)
                     chosen == getString(R.string.chat_action_delete_for_everyone) ->
@@ -1004,21 +1079,38 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
 
     private suspend fun loadConversation() {
+        val openingScope = media.currentScopeKey()
         binding.loadingIndicator.visibility = View.VISIBLE
-        conversation = repository.getCachedConversations()
-            .firstOrNull { it.conversationId == conversationId }
+        conversation = repository.getCachedConversation(conversationId)
         if (conversation == null) {
             runCatching { repository.refreshConversations(resolveTargetChildDeviceId()) }
-            conversation = repository.getCachedConversations()
-                .firstOrNull { it.conversationId == conversationId }
+            conversation = repository.getCachedConversation(conversationId)
         }
         val current = conversation
         if (current == null) {
+            if (finishIfGroupAccessLost()) return
             Toast.makeText(this, R.string.chat_v2_offline, Toast.LENGTH_LONG).show()
             finish()
             return
         }
 
+        if (finishIfGroupAccessLost()) return
+        if (media.currentScopeKey() != openingScope) {
+            finish()
+            return
+        }
+        composerScope = openingScope
+        composerScope?.let { scope ->
+            textDraft = ru.example.childwatch.designsystem.ChatTextDraft(this, scope, conversationId).also { draft ->
+                restoringDraft = true
+                try {
+                    if (binding.messageInput.length() == 0) draft.restore(binding.messageInput)
+                    else draft.changed(binding.messageInput.text.toString())
+                } finally {
+                    restoringDraft = false
+                }
+            }
+        }
         startConversationPresence()
         val localMember = current.members.firstOrNull { it.isLocalUser }
         renderHeader(current)
@@ -1034,25 +1126,36 @@ class ChatConversationV2Activity : AppCompatActivity() {
             },
             onMessageLongPress = { message -> showMessageActions(message) },
             onAttachmentOpen = { message -> openAttachment(message) },
-            onAttachmentPreview = { message, image -> previewAttachment(message, image) }
+            onAttachmentPreview = { message, image -> previewAttachment(message, image) },
+            onQuoteOpen = { openMessageContext(it) }
         ).also { chatAdapter ->
             binding.messagesRecyclerView.layoutManager = LinearLayoutManager(this)
             binding.messagesRecyclerView.adapter = chatAdapter
         }
         binding.loadingIndicator.visibility = View.GONE
 
+        restoredReplyId?.let { id ->
+            if (composerScope != null) {
+                val source = repository.quoteSources(conversationId, listOf(id))[id]
+                if (source?.deletedAt == null) showReply(source)
+            }
+            restoredReplyId = null
+        }
+        if (composerScope != null && current.lastSequence > current.lastReadSequence) {
+            try {
+                repository.loadMessageAnchor(conversationId, unread = true)?.let { anchor ->
+                    unreadBoundary = anchor.sequence
+                    setHistoryAnchor(anchor, readWindow = true)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                Toast.makeText(this, R.string.chat_history_open_failed, Toast.LENGTH_SHORT).show()
+            }
+        }
         observeMessages(localMember?.memberId)
         startMedia()
-        lifecycleScope.launch {
-            // The list is read again so a group that was renamed, or that somebody else
-            // has just been added to, reaches this header without waiting for the screen
-            // to be reopened.
-            runCatching { repository.refreshConversations(resolveTargetChildDeviceId()) }
-            val refreshed = repository.getCachedConversations()
-                .firstOrNull { it.conversationId == conversationId } ?: return@launch
-            conversation = refreshed
-            renderHeader(refreshed)
-        }
+        lifecycleScope.launch { reloadAfterGroupChange() }
         syncOnce()
     }
 
@@ -1067,70 +1170,16 @@ class ChatConversationV2Activity : AppCompatActivity() {
      * already says which group this is. The family chat and a direct conversation are
      * left exactly as they were.
      */
-    private fun renderHeader(current: Conversation) = with(binding) {
-        val otherMember = current.members.firstOrNull { !it.isLocalUser }
-        if (current.type == ConversationType.DIRECT && otherMember != null) {
-            chatPartnerName.text = otherMember.displayName
-            // The line says what this conversation is and who is on the other side.
-            // It was hidden for a direct chat from the day it was written, so nobody
-            // ever saw it; the owner asked for it to be shown everywhere.
-            chatPartnerMeta.visibility = View.VISIBLE
-            chatPartnerMeta.text = getString(
-                R.string.chat_v2_direct_meta,
-                roleLabel(otherMember.role)
-            )
-            chatMembersText.visibility = View.GONE
-            FamilyAvatarRenderer.bind(
-                chatAvatar,
-                otherMember.avatarKey,
-                otherMember.displayName
-            )
-        } else {
-            chatPartnerName.text = current.title
-            // Shown for every kind now, with the count that belongs to it: the owner
-            // asked for the line that says how many people are in the conversation.
-            chatPartnerMeta.visibility = View.VISIBLE
-            chatPartnerMeta.text = if (current.type == ConversationType.GROUP) {
-                resources.getQuantityString(
-                    R.plurals.chat_v2_group_member_count,
-                    current.members.size,
-                    current.members.size
-                )
-            } else {
-                resources.getQuantityString(
-                    R.plurals.chat_v2_family_member_count,
-                    current.members.size,
-                    current.members.size
-                )
-            }
-            // A family chat has no single peer, but the conversation itself owns a
-            // shared picture; only one without a picture falls back to the letter
-            // drawn from the title.
-            FamilyAvatarRenderer.bind(chatAvatar, current.avatarKey, current.title)
-            val names = memberNames(current)
-            // A conversation whose membership is not on this phone says nothing about
-            // it, rather than showing a line with no people in it.
-            if (current.type == ConversationType.GROUP && names.isNotBlank()) {
-                chatMembersText.text = getString(R.string.chat_v2_group_members, names)
-                chatMembersText.visibility = View.VISIBLE
-            } else {
-                chatMembersText.visibility = View.GONE
-            }
-        }
+    private fun renderHeader(current: Conversation) {
+        val peer = current.members.firstOrNull { !it.isLocalUser }.takeIf { current.type == ConversationType.DIRECT }
+        val title = peer?.displayName ?: current.title
+        val subtitle = if (peer != null) roleLabel(peer.role) else memberNames(current)
+        binding.compactChatHeader.showConversation(title, subtitle)
+        FamilyAvatarRenderer.bind(binding.compactChatHeader.avatar(), current.avatarKey ?: peer?.avatarKey, title)
+    }
 
-        val isGroup = current.type == ConversationType.GROUP
-        connectionStatusCard.isClickable = isGroup
-        connectionStatusCard.isFocusable = isGroup
-        connectionStatusCard.setOnClickListener(
-            if (isGroup) View.OnClickListener { openGroupSettings() } else null
-        )
-        chatInfoButton.visibility = if (isGroup) View.VISIBLE else View.GONE
-        chatInfoButton.contentDescription = getString(
-            if (isGroup) R.string.chat_v2_group_info_desc else R.string.chat_info_button_desc
-        )
-        chatInfoButton.setOnClickListener(
-            if (isGroup) View.OnClickListener { openGroupSettings() } else null
-        )
+    private fun showChatStatus(resId: Int) {
+        binding.compactChatHeader.showConnectionNotice(if (resId == R.string.chat_v2_ready) "" else getString(resId))
     }
 
     /** Everybody in the conversation, with this device's own member named as such. */
@@ -1162,24 +1211,34 @@ class ChatConversationV2Activity : AppCompatActivity() {
         )
     }
 
-    /**
-     * Reads this conversation again after the group changed, and closes the screen when
-     * the group is no longer one of this phone's conversations.
-     *
-     * The screen closes without a sentence of its own: every way a group can disappear
-     * from here — a member leaving, the administrator closing it, or it being closed once
-     * too few people were left — has already said so on the screen that caused it.
-     */
+    /** Refreshes the header after membership or group settings change. */
     private suspend fun reloadAfterGroupChange() {
-        runCatching { repository.refreshConversations(resolveTargetChildDeviceId()) }
-        val current = repository.getCachedConversations()
-            .firstOrNull { it.conversationId == conversationId }
-        if (current == null) {
-            runOnUiThread { finish() }
+        try {
+            repository.refreshConversations(resolveTargetChildDeviceId())
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
             return
         }
+        if (finishIfGroupAccessLost()) return
+        val current = repository.getCachedConversation(conversationId) ?: return
         conversation = current
-        runOnUiThread { renderHeader(current) }
+        renderHeader(current)
+    }
+
+    private suspend fun finishIfGroupAccessLost(): Boolean {
+        if (!repository.isGroupAccessLost(conversationId)) return false
+        finishUnavailableGroup()
+        return true
+    }
+
+    private fun finishUnavailableGroup() {
+        if (isFinishing || isDestroyed) return
+        textDraft?.discard()
+        textDraft = null
+        conversation = null
+        Toast.makeText(this, R.string.group_gone, Toast.LENGTH_LONG).show()
+        finish()
     }
 
     private fun roleLabel(role: ConversationMemberRole): String = when (role) {
@@ -1188,11 +1247,99 @@ class ChatConversationV2Activity : AppCompatActivity() {
         ConversationMemberRole.GUARDIAN -> getString(R.string.family_role_relative)
     }
 
+    private fun openHistorySearch() {
+        if (!initialScrollDone && historyAnchor == null) return
+        if (conversation == null || composerScope == null || composerScope != media.currentScopeKey()) return
+        historySearch?.dismiss()
+        val search = ru.example.childwatch.designsystem.ChatHistorySearchDialog(this) { query ->
+            historySearchJob?.cancel()
+            historySearchJob = lifecycleScope.launch {
+                val dialog = historySearch ?: return@launch
+                try {
+                    val result = repository.searchMessages(conversationId, query)
+                    if (!dialog.isShowing || dialog !== historySearch || composerScope != media.currentScopeKey()) return@launch
+                    val message = when {
+                        result.fromCache && result.messages.isEmpty() -> getString(R.string.chat_search_cache_empty)
+                        result.messages.isEmpty() -> getString(R.string.chat_search_empty)
+                        result.fromCache -> getString(R.string.chat_search_cache_label)
+                        result.hasMore -> getString(R.string.chat_search_limited)
+                        else -> ""
+                    }
+                    val labels = result.messages.map {
+                        val date = java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.SHORT, java.text.DateFormat.SHORT)
+                            .format(java.util.Date(it.serverCreatedAt ?: it.clientSentAt))
+                        getString(R.string.chat_search_result, it.senderDisplayName, date, it.text.trim().take(180))
+                    }
+                    dialog.showResults(labels, message) { index ->
+                        result.messages.getOrNull(index)?.let {
+                            dialog.dismiss()
+                            openMessageContext(it.messageId)
+                        }
+                    }
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    if (dialog.isShowing && dialog === historySearch) dialog.setStatus(getString(R.string.chat_search_failed))
+                }
+            }
+        }
+        historySearch = search
+        search.onDismiss {
+            if (historySearch === search) {
+                historySearch = null
+                historySearchJob?.cancel()
+            }
+        }
+        search.show()
+    }
+
+    private fun openMessageContext(messageId: String, keepReadingUnread: Boolean = false) {
+        if (conversation == null || composerScope == null || composerScope != media.currentScopeKey()) return
+        historyJob?.cancel()
+        historyJob = lifecycleScope.launch {
+            binding.loadingIndicator.visibility = View.VISIBLE
+            try {
+                val anchor = repository.loadMessageAnchor(conversationId, messageId)
+                if (anchor == null) Toast.makeText(this@ChatConversationV2Activity, R.string.chat_original_unavailable, Toast.LENGTH_SHORT).show()
+                else {
+                    setHistoryAnchor(anchor, readWindow = keepReadingUnread)
+                    observeMessages(conversation?.localMemberId)
+                }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                Toast.makeText(this@ChatConversationV2Activity, R.string.chat_history_open_failed, Toast.LENGTH_SHORT).show()
+            } finally {
+                binding.loadingIndicator.visibility = View.GONE
+            }
+        }
+    }
+
+    private fun setHistoryAnchor(anchor: ru.childwatch.shared.chat.ConversationAnchor, readWindow: Boolean) {
+        historyAnchor = anchor
+        pendingAnchorScroll = anchor.sequence
+        readingUnreadWindow = readWindow && !anchor.fromCache
+        binding.chatHistoryNavigation.visibility = View.VISIBLE
+        binding.chatHistoryContinue.visibility = if (anchor.canContinue) View.VISIBLE else View.GONE
+        binding.newMessagesButton.visibility = View.GONE
+    }
+
     private fun observeMessages(localMemberId: String?) {
         messageObserverJob?.cancel()
         messageObserverJob = lifecycleScope.launch {
-            repository.observeMessages(conversationId, displayedMessageLimit).collectLatest { newestFirst ->
-                renderMessages(newestFirst.asReversed(), localMemberId)
+            val anchor = historyAnchor
+            val stream = if (anchor == null) repository.observeMessages(conversationId, displayedMessageLimit)
+                else repository.observeMessageAnchor(conversationId, anchor)
+            stream.collectLatest { messages ->
+                val ordered = if (anchor == null) messages.asReversed() else messages
+                val composerReply = replySource?.messageId
+                val quotes = repository.quoteSources(conversationId, ordered.mapNotNull { it.replyToMessageId } + listOfNotNull(composerReply))
+                if (anchor != historyAnchor) return@collectLatest
+                if (composerReply != null && composerReply == replySource?.messageId) {
+                    val source = quotes[composerReply]?.takeIf { it.deletedAt == null }
+                    if (source != replySource) showReply(source)
+                }
+                renderMessages(ordered, localMemberId, quotes)
             }
         }
     }
@@ -1202,12 +1349,18 @@ class ChatConversationV2Activity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        if (composerScope != null && composerScope != media.currentScopeKey()) {
+            finish()
+            return
+        }
         binding.root.post { startConversationPresence() }
         binding.messagesRecyclerView.post { recordVisibleMessages(); updateVisibleMedia(true) }
     }
 
     private fun recordVisibleMessages() {
-        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || !isNearBottom()) return
+        if (!lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || pendingAnchorScroll != null) return
+        if (historyAnchor == null && !isNearBottom()) return
+        if (historyAnchor != null && !readingUnreadWindow) return
         val manager = binding.messagesRecyclerView.layoutManager as? LinearLayoutManager ?: return
         val lastVisible = manager.findLastVisibleItemPosition()
         if (lastVisible < 0) return
@@ -1227,19 +1380,58 @@ class ChatConversationV2Activity : AppCompatActivity() {
         }
     }
 
-    private fun renderMessages(messages: List<ConversationMessage>, localMemberId: String?) {
+    private fun renderMessages(
+        messages: List<ConversationMessage>,
+        localMemberId: String?,
+        quotes: Map<String, ConversationMessage>
+    ) {
+        val anchor = historyAnchor
         val wasNearBottom = isNearBottom()
-        val added = (messages.size - previousMessageCount).coerceAtLeast(0)
-        previousMessageCount = messages.size
-        val rows = messages.map { it.toLegacy(localMemberId) }
+        val zone = java.time.ZoneId.systemDefault()
+        val today = java.time.LocalDate.now(zone)
+        var previousDay: java.time.LocalDate? = null
+        val rows = messages.map { message ->
+            val timestamp = message.serverCreatedAt ?: message.clientSentAt
+            val day = java.time.Instant.ofEpochMilli(timestamp).atZone(zone).toLocalDate()
+            val dayLabel = if (day == previousDay) null else if (day == today) {
+                getString(R.string.chat_day_today)
+            } else android.text.format.DateUtils.formatDateTime(this, timestamp,
+                android.text.format.DateUtils.FORMAT_SHOW_DATE or android.text.format.DateUtils.FORMAT_ABBREV_MONTH)
+            previousDay = day
+            message.toLegacy(localMemberId).copy(
+                dayLabel = dayLabel,
+                quoteLabel = message.replyToMessageId?.let { id -> quotes[id]?.let(::quotePreview) ?: getString(R.string.chat_reply_original) },
+                unreadBoundary = message.serverSequence != null && message.serverSequence == unreadBoundary,
+                historyTarget = anchor != null && message.serverSequence == anchor.sequence
+            )
+        }
         adapter?.submitMessages(rows) {
+            if (anchor != historyAnchor) return@submitMessages
+            val added = ru.childwatch.shared.chat.countNewIncomingMessages(renderedMessages, messages, localMemberId)
             renderedMessages = messages
             binding.messagesRecyclerView.post { recordVisibleMessages() }
             binding.emptyStateCard.visibility = if (rows.isEmpty()) View.VISIBLE else View.GONE
-            if (!initialScrollDone || wasNearBottom) {
+            if (anchor != null) {
+                pendingAnchorScroll?.let { sequence ->
+                    val position = messages.indexOfFirst { it.serverSequence == sequence }
+                    val recycler = binding.messagesRecyclerView
+                    val manager = recycler.layoutManager as? LinearLayoutManager
+                    if (position < 0 || manager == null) {
+                        pendingAnchorScroll = null
+                    } else {
+                        recycler.doOnNextLayout {
+                            if (anchor == historyAnchor && pendingAnchorScroll == sequence) {
+                                pendingAnchorScroll = null
+                                recordVisibleMessages()
+                            }
+                        }
+                        manager.scrollToPositionWithOffset(position, 0)
+                    }
+                }
+            } else if (!initialScrollDone || wasNearBottom) {
                 initialScrollDone = true
                 scrollToBottom()
-            } else if (added > 0 && !olderMessagesPendingRender) {
+            } else if (added > 0) {
                 pendingNewMessages += added
                 binding.newMessagesButton.text = getString(
                     R.string.chat_v2_new_messages,
@@ -1247,15 +1439,19 @@ class ChatConversationV2Activity : AppCompatActivity() {
                 )
                 binding.newMessagesButton.visibility = View.VISIBLE
             }
-            if (olderMessagesPendingRender && added > 0) olderMessagesPendingRender = false
         }
     }
 
     private fun sendMessage() {
+        if (composerScope != null && composerScope != media.currentScopeKey()) {
+            finish()
+            return
+        }
         if (textSendInProgress || mediaPreparing) return
         if (mediaDraft != null) { sendMediaDraft(); return }
         val text = binding.messageInput.text?.toString().orEmpty()
         if (text.isBlank()) return
+        val reply = replySource
         val current = conversation ?: return
         val localMember = current.members.firstOrNull { it.isLocalUser }
         textSendInProgress = true
@@ -1268,15 +1464,18 @@ class ChatConversationV2Activity : AppCompatActivity() {
                     senderDisplayName = localMember?.displayName
                         ?: getString(R.string.chat_sender_you),
                     senderRole = localMember?.role ?: ConversationMemberRole.GUARDIAN,
-                    senderMemberId = localMember?.memberId
+                    senderMemberId = localMember?.memberId,
+                    replyToMessageId = reply?.messageId
                 )
+                if (replySource == reply) showReply(null)
                 if (binding.messageInput.text?.toString() == text) binding.messageInput.text?.clear()
                 scrollToBottom()
                 val sentRealtime = WebSocketManager.sendChatV2Message(
                     conversationId = conversationId,
                     clientMessageId = queued.clientMessageId,
                     text = queued.text,
-                    clientSentAt = queued.clientSentAt
+                    clientSentAt = queued.clientSentAt,
+                    replyToMessageId = queued.replyToMessageId
                 ) { acknowledgement ->
                     lifecycleScope.launch {
                         val dto = acknowledgement.optJSONObject("message")?.let { message ->
@@ -1344,7 +1543,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
             }
             runCatching { repository.cacheRealtimeMessage(dto) }
                 .onSuccess {
-                    binding.connectionStatusText.setText(R.string.chat_v2_ready)
+                    showChatStatus(R.string.chat_v2_ready)
                     updateReadReceiptStatus()
                 }
                 .onFailure { syncOnce() }
@@ -1352,6 +1551,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
 
     private fun loadOlderMessages() {
+        if (historyAnchor != null || historyJob?.isActive == true) return
         val before = nextBeforeSequence ?: return
         if (loadingOlderMessages || !::repository.isInitialized) return
         loadingOlderMessages = true
@@ -1364,12 +1564,16 @@ class ChatConversationV2Activity : AppCompatActivity() {
                 )
                 nextBeforeSequence = page.nextBeforeSequence
                 if (page.messages.isNotEmpty()) {
-                    olderMessagesPendingRender = true
                     displayedMessageLimit += page.messages.size
                     observeMessages(conversation?.localMemberId)
                 }
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: ChatV2RepositoryException) {
+                if (error.code == "GROUP_ACCESS_REVOKED") finishUnavailableGroup()
+                else showChatStatus(R.string.chat_v2_offline)
             } catch (_: Exception) {
-                binding.connectionStatusText.setText(R.string.chat_v2_offline)
+                showChatStatus(R.string.chat_v2_offline)
             } finally {
                 loadingOlderMessages = false
             }
@@ -1379,6 +1583,7 @@ class ChatConversationV2Activity : AppCompatActivity() {
     private suspend fun syncOnce() {
         if (!::repository.isInitialized || conversation == null) return
         try {
+            if (finishIfGroupAccessLost()) return
             repository.flushOutbox()
             val page = repository.syncMessagesPage(conversationId, limit = 200)
             if (displayedMessageLimit == INITIAL_MESSAGE_LIMIT) {
@@ -1387,8 +1592,11 @@ class ChatConversationV2Activity : AppCompatActivity() {
             updateReadReceiptStatus()
         } catch (cancelled: CancellationException) {
             throw cancelled
+        } catch (error: ChatV2RepositoryException) {
+            if (error.code == "GROUP_ACCESS_REVOKED") finishUnavailableGroup()
+            else showChatStatus(R.string.chat_v2_offline)
         } catch (_: Exception) {
-            binding.connectionStatusText.setText(R.string.chat_v2_offline)
+            showChatStatus(R.string.chat_v2_offline)
         }
     }
 
@@ -1404,13 +1612,13 @@ class ChatConversationV2Activity : AppCompatActivity() {
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (_: Exception) {
-            binding.connectionStatusText.setText(R.string.chat_v2_offline)
+            showChatStatus(R.string.chat_v2_offline)
             return false
         }
     }
 
     private suspend fun updateReadReceiptStatus() {
-        binding.connectionStatusText.setText(if (repository.hasPendingReadReceipt(conversationId))
+        showChatStatus(if (repository.hasPendingReadReceipt(conversationId))
             R.string.chat_v2_read_receipt_pending else R.string.chat_v2_ready)
     }
 
@@ -1421,6 +1629,16 @@ class ChatConversationV2Activity : AppCompatActivity() {
     }
 
     private fun scrollToBottom() {
+        if (historyAnchor != null) {
+            historyJob?.cancel()
+            historyAnchor = null
+            pendingAnchorScroll = null
+            readingUnreadWindow = false
+            initialScrollDone = false
+            binding.chatHistoryNavigation.visibility = View.GONE
+            observeMessages(conversation?.localMemberId)
+            return
+        }
         val last = (adapter?.itemCount ?: 0) - 1
         if (last >= 0) binding.messagesRecyclerView.scrollToPosition(last)
         binding.messagesRecyclerView.post { recordVisibleMessages() }
@@ -1446,8 +1664,11 @@ class ChatConversationV2Activity : AppCompatActivity() {
             editedAt = editedAt,
             deletedAt = deletedAt,
             attachments = attachments,
+            serverMessageId = messageId.takeIf { serverSequence != null },
+            replyToMessageId = replyToMessageId,
             status = when (deliveryState) {
-                ChatDeliveryState.QUEUED, ChatDeliveryState.SENDING -> ChatMessage.MessageStatus.SENDING
+                ChatDeliveryState.QUEUED -> ChatMessage.MessageStatus.QUEUED
+                ChatDeliveryState.SENDING -> ChatMessage.MessageStatus.SENDING
                 ChatDeliveryState.ACCEPTED -> ChatMessage.MessageStatus.SENT
                 ChatDeliveryState.DELIVERED -> ChatMessage.MessageStatus.DELIVERED
                 ChatDeliveryState.READ -> ChatMessage.MessageStatus.READ

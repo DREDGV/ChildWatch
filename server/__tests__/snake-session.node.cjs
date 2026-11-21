@@ -169,8 +169,9 @@ test('paused checkpoint failure is retryable and room capacity is bounded', asyn
 test('failed terminal SQLite checkpoint is retried; restart retains result', async () => {
   const f = await fixture(); try {
     await f.start(); const room = f.sessions.rooms.get(f.game.id);
-    // Head x=5, moving right: collision at the fifteenth tick. Checkpoint batches are independent.
-    for (let i = 0; i < 14; i++) { f.advance(180); await f.command(0, 'PING'); await f.command(1, 'PING'); await f.sessions.pulse(); }
+    // Force a head-on body collision; joined edges no longer kill the snakes.
+    room.engine.players[0].body=[165,164,163];room.engine.players[0].direction='RIGHT';
+    room.engine.players[1].body=[167,168,169];room.engine.players[1].direction='LEFT';
     const run = f.db.run.bind(f.db); let rejected = false;
     f.db.run = async (sql, args) => {
       if (!rejected && sql.includes('INSERT INTO family_snake_sessions')) { rejected = true; throw new Error('write failed once'); }
@@ -191,11 +192,11 @@ test('socket handler rejects unauthenticated and wrong-member joins and sends no
       on(event, handler) { this.handlers[event] = handler; }, emit(event, payload) { this.messages.push({ event, payload }); } };
     new SocketService({}, f.sessions).register(socket);
     const call = async input => { let result; await socket.handlers['snake:join'](input, value => { result = value; }); return result; };
-    assert.equal((await call({ familyId: 'family', actorMemberId: 'host', gameId: f.game.id })).code, 'GAME_AUTH_REQUIRED');
+    assert.equal((await call({ protocolVersion:2, familyId: 'family', actorMemberId: 'host', gameId: f.game.id })).code, 'GAME_AUTH_REQUIRED');
     socket.authMode = 'authenticated'; socket.authenticatedDeviceId = 'a';
-    assert.equal((await call({ familyId: 'family', actorMemberId: 'guest', gameId: f.game.id })).code, 'GAME_CONTEXT_CHANGED');
+    assert.equal((await call({ protocolVersion:2, familyId: 'family', actorMemberId: 'guest', gameId: f.game.id })).code, 'GAME_CONTEXT_CHANGED');
     assert.equal(socket.messages.length, 0);
-    assert.equal((await call({ familyId: 'family', actorMemberId: 'host', gameId: f.game.id })).success, true);
+    assert.equal((await call({ protocolVersion:2, familyId: 'family', actorMemberId: 'host', gameId: f.game.id })).success, true);
     assert.equal(socket.messages.at(-1).event, 'snake:state');
     socket.connected = false; await socket.handlers.disconnect(); await f.sessions.chain;
     assert.equal(f.sessions.rooms.get(f.game.id).connections[0], null);

@@ -19,7 +19,9 @@ import org.json.JSONObject;
 /** Foreground game connection; never touches the application's monitoring channel. */
 public class SnakeOnlineActivity extends AppCompatActivity {
     protected interface Session { void start(); void command(String action); void turn(SnakeEngine.Direction direction); void close(); }
+    private boolean endedExternally;
     private Session session;
+    private GameResultActions results;
     private GameOnlineBridge.Client names;
     private TextView status,detailedStatus,score,peer;
     private MaterialButton ready,pause;
@@ -52,6 +54,7 @@ public class SnakeOnlineActivity extends AppCompatActivity {
         findViewById(R.id.snakeOnlineRoot).addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->sizeDetails());
         bind(R.id.snakeOnlineLeft,SnakeEngine.Direction.LEFT);bind(R.id.snakeOnlineRight,SnakeEngine.Direction.RIGHT);
         bind(R.id.snakeOnlineUp,SnakeEngine.Direction.UP);bind(R.id.snakeOnlineDown,SnakeEngine.Direction.DOWN);
+        results=new GameResultActions(this,(android.widget.LinearLayout)findViewById(R.id.snakeOnlineRoot),gameId);
         setStatus(R.string.cw_snake_online_loading);setDetails(false);refresh();
     }
     protected Session createSession(String id,SnakeRealtimeBridge.Listener listener){
@@ -79,6 +82,9 @@ public class SnakeOnlineActivity extends AppCompatActivity {
         });
     }
     private void showStatus(String code){
+        if("GAME_CLOSED".equals(code)){endedExternally=true;connected=false;field.freeze();setStatus(R.string.cw_game_closed_by_player);refresh();return;}
+        if(endedExternally||(snapshot!=null&&"FINISHED".equals(snapshot.optString("phase")))){connected=false;field.freeze();refresh();return;}
+
         if("CONNECTED".equals(code)){connected=snapshot!=null;retry=false;if(snapshot!=null)showState();refresh();return;}
         if("SNAKE_COMMAND_TIMEOUT".equals(code)){localPause=false;setStatus(R.string.cw_snake_online_command_timeout);refresh();return;}
         int text=R.string.cw_snake_online_reconnecting;
@@ -87,6 +93,7 @@ public class SnakeOnlineActivity extends AppCompatActivity {
         if(transientInput){setStatus(R.string.cw_snake_online_input_wait);refresh();return;}
         connected=false;field.freeze();retry=false;
         if("SNAKE_CONNECTION_REPLACED".equals(code)){text=R.string.cw_snake_online_replaced;retry=true;}
+        else if("GAME_UPDATE_REQUIRED".equals(code)){text=R.string.cw_game_update_required;}
         else if("SNAKE_UNSUPPORTED".equals(code)){text=R.string.cw_snake_online_unsupported;}
         else if("GAME_CLOSED".equals(code)||"GAME_ACCESS_DENIED".equals(code)||"GAME_CONTEXT_CHANGED".equals(code)||"GAME_NOT_FOUND".equals(code)||"GAME_PARTICIPANT_UNAVAILABLE".equals(code)||"GAME_AUTH_REQUIRED".equals(code)||"GAME_FORBIDDEN".equals(code)){text=R.string.cw_snake_online_unavailable;}
         else if("CONNECTING".equals(code)){text=R.string.cw_snake_online_loading;}
@@ -109,7 +116,7 @@ public class SnakeOnlineActivity extends AppCompatActivity {
     }
     private boolean playing(){return active&&connected&&!localPause&&player>=0&&snapshot!=null&&"PLAYING".equals(snapshot.optString("phase"));}
     private void refresh(){
-        if(field==null)return;boolean playing=playing();field.setCanTurn(playing);
+        if(field==null)return;if(results!=null)results.show(endedExternally||(snapshot!=null&&"FINISHED".equals(snapshot.optString("phase"))));boolean playing=playing();field.setCanTurn(playing);
         text(peer,getString(R.string.cw_snake_online_legend,peerName));
         boolean paused=connected&&player>=0&&snapshot!=null&&"PAUSED".equals(snapshot.optString("phase"));
         JSONArray readiness=snapshot==null?null:snapshot.optJSONArray("ready");
@@ -181,5 +188,5 @@ public class SnakeOnlineActivity extends AppCompatActivity {
     @Override protected void onPause(){
         active=false;generation++;connected=false;if(field!=null){field.setActive(false);refresh();}if(session!=null){session.close();session=null;}if(names!=null){names.close();names=null;}super.onPause();
     }
-    @Override protected void onDestroy(){if(session!=null)session.close();if(names!=null)names.close();super.onDestroy();}
+    @Override protected void onDestroy(){if(session!=null)session.close();if(names!=null)names.close();if(results!=null)results.close();super.onDestroy();}
 }

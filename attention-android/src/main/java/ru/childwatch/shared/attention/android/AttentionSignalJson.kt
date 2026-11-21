@@ -23,7 +23,9 @@ object AttentionSignalJson {
             vibrate = json.optBoolean("vibrate", true),
             vibrationPattern = AttentionVibrationPattern.fromWire(json.optString("vibrationPattern")),
             createdAt = json.optLong("createdAt", now),
-            expiresAt = json.optLong("expiresAt", now + 30_000L)
+            expiresAt = json.optLong("expiresAt", now + 30_000L),
+            note = json.optionalString("note"),
+            noteDurationSeconds = json.optInt("noteDurationSeconds", 0)
         ).normalized(now)
 
     fun requestToJson(request: AttentionSignalRequest): JSONObject = JSONObject().apply {
@@ -41,6 +43,10 @@ object AttentionSignalJson {
         put("vibrationPattern", request.vibrationPattern.name)
         put("createdAt", request.createdAt)
         put("expiresAt", request.expiresAt)
+        request.note?.let {
+            put("note", it)
+            put("noteDurationSeconds", request.noteDurationSeconds)
+        }
     }
 
     fun statusFromJson(json: JSONObject): AttentionSignalStatusEvent? {

@@ -182,11 +182,109 @@ class FamilyPlacesController(
             content.addView(MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
                 isAllCaps = false; setSingleLine(false)
                 text = "${place.getString("name")} · ${place.getInt("radius")} м\n" +
+                    (if (place.optInt("is_key") == 1) activity.getString(R.string.family_places_key) + "\n" else "") +
+                    (if (place.optInt("notifications_enabled", 1) == 0) activity.getString(R.string.family_places_notifications_disabled) + "\n" else "") +
                     presenceText(place)
                 setOnClickListener { dialog.dismiss(); actions(t, place, scope) }
             })
         }
+        if (places.isNotEmpty()) content.addView(MaterialButton(activity, null, com.google.android.material.R.attr.materialButtonOutlinedStyle).apply {
+            setText(R.string.family_places_batch)
+            isAllCaps = false
+            setOnClickListener {
+                dialog.dismiss()
+                editNotifications(t, scope)
+            }
+        }, 2)
         dialog.setOnShowListener { fit(scrolling); dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener { dialog.dismiss(); edit(t, null, scope) } }
+        dialog.show()
+    }
+    private fun editNotifications(t: Target, scope: String) {
+        if (!current(t, scope)) return
+        val rows = places.toList()
+        val content = body()
+        content.addView(label(activity.getString(R.string.family_places_batch_hint, t.name)))
+        val modes = android.widget.RadioGroup(activity).apply { orientation = LinearLayout.VERTICAL }
+        val labels = listOf(R.string.family_places_batch_all, R.string.family_places_batch_key, R.string.family_places_batch_selected)
+        val choices = labels.map { title ->
+            androidx.appcompat.widget.AppCompatRadioButton(activity).apply {
+                id = android.view.View.generateViewId()
+                setText(title)
+                minHeight = dp(48)
+            }.also { modes.addView(it) }
+        }
+        content.addView(modes)
+        val selection = LinearLayout(activity).apply { orientation = LinearLayout.VERTICAL }
+        val checkboxes = rows.map { row ->
+            com.google.android.material.checkbox.MaterialCheckBox(activity).apply {
+                text = row.getString("name")
+                isChecked = row.optInt("notifications_enabled", 1) == 1
+                minHeight = dp(48)
+            }.also { selection.addView(it) }
+        }
+        content.addView(selection)
+        modes.setOnCheckedChangeListener { _, id ->
+            selection.visibility = if (id == choices[2].id) android.view.View.VISIBLE else android.view.View.GONE
+        }
+        val subscribed = rows.filter { it.optInt("notifications_enabled", 1) == 1 }
+        modes.check(when {
+            subscribed.size == rows.size -> choices[0].id
+            subscribed.isNotEmpty() && rows.all { it.optInt("notifications_enabled", 1) == it.optInt("is_key") } -> choices[1].id
+            else -> choices[2].id
+        })
+        val enter = MaterialSwitch(activity).apply {
+            setText(R.string.family_places_enter)
+            isChecked = subscribed.isEmpty() || subscribed.any { it.optInt("on_enter") == 1 }
+        }
+        val exit = MaterialSwitch(activity).apply {
+            setText(R.string.family_places_exit)
+            isChecked = subscribed.isEmpty() || subscribed.any { it.optInt("on_exit") == 1 }
+        }
+        content.addView(enter)
+        content.addView(exit)
+        val message = label("")
+        content.addView(message)
+        val scrolling = scroll(content)
+        val dialog = tracked(MaterialAlertDialogBuilder(activity).setTitle(R.string.family_places_batch)
+            .setView(scrolling).setPositiveButton(R.string.family_places_save, null)
+            .setNegativeButton(R.string.family_places_cancel, null).create())
+        dialog.setOnShowListener {
+            fit(scrolling)
+            val button = dialog.getButton(AlertDialog.BUTTON_POSITIVE)
+            button.setOnClickListener {
+                val selected = checkboxes.mapIndexedNotNull { index, box -> rows[index].getString("id").takeIf { box.isChecked } }
+                val mode = when (modes.checkedRadioButtonId) {
+                    choices[1].id -> "KEY"
+                    choices[2].id -> "SELECTED"
+                    else -> "ALL"
+                }
+                if ((!enter.isChecked && !exit.isChecked) || (mode == "SELECTED" && selected.isEmpty())) {
+                    message.setText(R.string.family_places_batch_validation)
+                    return@setOnClickListener
+                }
+                if (!current(t, scope)) { dialog.dismiss(); return@setOnClickListener }
+                val data = JSONObject().put("targetMemberId", t.memberId).put("mode", mode)
+                    .put("ids", org.json.JSONArray(selected)).put("onEnter", enter.isChecked).put("onExit", exit.isChecked)
+                button.isEnabled = false
+                activity.lifecycleScope.launch {
+                    try {
+                        val result = network.familyPlacesRequest(t.familyId, "PATCH", "/notifications", data, expectedScope = scope)
+                        if (!dialog.isShowing) return@launch
+                        if (!current(t, scope)) { dialog.dismiss(); return@launch }
+                        if (result.optInt("updated") == 0) {
+                            message.setText(R.string.family_places_batch_empty)
+                        } else {
+                            dialog.dismiss()
+                            show()
+                            FamilyPlaceSync.sync(activity, force = true)
+                        }
+                    } catch (cancelled: CancellationException) { throw cancelled }
+                    catch (failure: Exception) {
+                        if (dialog.isShowing && current(t, scope)) message.text = error(failure)
+                    } finally { if (dialog.isShowing) button.isEnabled = true }
+                }
+            }
+        }
         dialog.show()
     }
     private fun actions(t: Target, place: JSONObject, scope: String) {
@@ -243,6 +341,8 @@ class FamilyPlacesController(
         }); radiusText(); content.addView(radius)
         val enter = MaterialSwitch(activity).apply { setText(R.string.family_places_enter); isChecked = existing?.optInt("on_enter", 1) != 0 }
         val exit = MaterialSwitch(activity).apply { setText(R.string.family_places_exit); isChecked = existing?.optInt("on_exit", 1) != 0 }
+        val key = MaterialSwitch(activity).apply { setText(R.string.family_places_key); isChecked = existing?.optInt("is_key") == 1 }
+        content.addView(key)
         content.addView(enter); content.addView(exit); content.addView(label(activity.getString(R.string.family_places_hint)))
         val errorLabel = label(""); content.addView(errorLabel)
         val scrolling = scroll(content)
@@ -258,7 +358,7 @@ class FamilyPlacesController(
                 if (!current(t, scope)) { dialog.dismiss(); return@setOnClickListener }
                 val data = JSONObject().put("targetMemberId", t.memberId).put("name", value).put("requestId", requestId)
                     .put("latitude", point.first).put("longitude", point.second).put("radius", radii[radius.progress])
-                    .put("onEnter", enter.isChecked).put("onExit", exit.isChecked)
+                    .put("onEnter", enter.isChecked).put("onExit", exit.isChecked).put("isKey", key.isChecked)
                 button.setText(R.string.family_places_saving); button.isEnabled = false; dialog.getButton(AlertDialog.BUTTON_NEGATIVE).isEnabled = false; dialog.setCancelable(false)
                 activity.lifecycleScope.launch {
                     try {

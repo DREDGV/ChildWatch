@@ -16,6 +16,9 @@ import android.widget.SeekBar
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.ScrollView
+import android.widget.EditText
+import android.text.InputFilter
+import androidx.core.widget.doAfterTextChanged
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.bottomsheet.BottomSheetDialog
 import com.google.android.material.button.MaterialButton
@@ -83,6 +86,7 @@ class AttentionSignalSheet(
     private var dismissed = false
     private var accessDenied = false
     private var statusDetails = ""
+    private var recipientNeedsUpdate = false
     private val lifecycleOwner = generateSequence(context) { (it as? ContextWrapper)?.baseContext }
         .filterIsInstance<LifecycleOwner>().firstOrNull()
     private val lifecycleObserver = LifecycleEventObserver { _, event ->
@@ -135,8 +139,12 @@ class AttentionSignalSheet(
         val next = AttentionSignalSenderPolicy.onStatus(old, event, attemptNow(old, attemptElapsedAt))
         if (next != old) {
             senderState = next
-            statusDetails = listOfNotNull(event.reason, event.errorCode, event.message)
-                .distinct().joinToString(" · ")
+            recipientNeedsUpdate = event.errorCode == "TARGET_UPDATE_REQUIRED"
+            statusDetails = if (recipientNeedsUpdate) {
+                "Обновите ChildWatch на телефоне получателя, чтобы отправить текст."
+            } else {
+                listOfNotNull(event.reason, event.errorCode, event.message).distinct().joinToString(" · ")
+            }
         }
         renderSender()
     }
@@ -168,6 +176,7 @@ class AttentionSignalSheet(
         val canStop = AttentionSignalSenderPolicy.canStop(state, now)
         statusText.text = buildString {
             when {
+                state.isTerminal && recipientNeedsUpdate -> append("Сообщение не отправлено")
                 state.isTerminal -> append(statusLabel(requireNotNull(state.status)))
                 state.stoppedWaiting -> append("Ожидание прекращено. Это не отменяет сигнал на телефоне.")
                 state.isUnknown -> append("Исход сигнала неизвестен. Подтверждения от телефона нет; звук мог быть запущен.")
@@ -275,6 +284,8 @@ class AttentionSignalSheet(
     fun show() {
         val root = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
+            isFocusableInTouchMode = true
+            requestFocus()
             setPadding(dp(24), dp(16), dp(24), dp(24))
         }
         root.addView(text("Сигнал внимания", 24f, Typeface.BOLD))
@@ -282,6 +293,9 @@ class AttentionSignalSheet(
             .withTopMargin(4))
         root.addView(targetPersonCard().withTopMargin(16).withBottomMargin(16))
 
+        val preferences = context.getSharedPreferences("attention_sender_settings", Context.MODE_PRIVATE)
+        val durations = AttentionSignalContract.selectableDurationsMs
+        val defaultDuration = 2 // Five seconds, the existing default.
         val settings = LinearLayout(context).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(dp(16), dp(16), dp(16), dp(16))
@@ -289,26 +303,34 @@ class AttentionSignalSheet(
 
         val durationSpinner = spinner(
             AttentionSignalContract.selectableDurationsMs.map { "${it / 1_000} сек" }
-        ).also { it.setSelection(2) }
+        ).apply {
+            setSelection(durations.indexOf(preferences.getLong("duration", durations[defaultDuration]))
+                .takeIf { it >= 0 } ?: defaultDuration)
+            contentDescription = "Длительность"
+        }
         settings.addView(label("Длительность"))
         settings.addView(durationSpinner)
 
         val toneValues = AttentionTone.entries.toList()
         val toneSpinner = spinner(listOf("Сигнал", "Мелодия звонка", "Будильник", "Сирена"))
+        toneSpinner.setSelection(toneValues.indexOf(AttentionTone.fromWire(preferences.getString("tone", null))))
+        toneSpinner.contentDescription = "Звук"
         settings.addView(label("Звук").withTopMargin(12))
         settings.addView(toneSpinner)
 
         val volumeText = label("Громкость: 100%").withTopMargin(12) as TextView
         val volumeSeek = SeekBar(context).apply {
             max = 100
-            progress = 100
+            progress = preferences.getInt("volume", 100).coerceIn(0, max)
+            contentDescription = "Громкость"
         }
+        volumeText.text = "Громкость: ${volumeSeek.progress}%"
         settings.addView(volumeText)
         settings.addView(volumeSeek)
 
         val vibrationSwitch = SwitchMaterial(context).apply {
             text = "Вибрация"
-            isChecked = true
+            isChecked = preferences.getBoolean("vibrate", true)
         }
         val patternValues = listOf(
             AttentionVibrationPattern.PULSE,
@@ -317,16 +339,31 @@ class AttentionSignalSheet(
         )
         val patternSpinner = spinner(listOf("Импульс", "Срочно", "SOS"))
         settings.addView(vibrationSwitch.withTopMargin(8))
-        settings.addView(label("Ритм вибрации"))
+        val patternLabel = label("Ритм вибрации")
+        patternSpinner.contentDescription = "Ритм вибрации"
+        patternSpinner.setSelection(patternValues.indexOf(
+            AttentionVibrationPattern.fromWire(preferences.getString("pattern", null))
+        ).coerceAtLeast(0))
+        settings.addView(patternLabel)
         settings.addView(patternSpinner)
 
         val settingsSummary = text("", 14f, Typeface.NORMAL)
+        val vibrationOnly = SwitchMaterial(context).apply {
+            text = "Только вибрация"
+            isChecked = preferences.getBoolean("vibration_only", false)
+            minHeight = dp(48)
+        }
         fun updateSettingsSummary() {
+            val patternVisibility = if (vibrationSwitch.isChecked || vibrationOnly.isChecked) View.VISIBLE else View.GONE
+            patternLabel.visibility = patternVisibility
+            patternSpinner.visibility = patternVisibility
             settingsSummary.text = buildString {
-                append(toneSpinner.selectedItem).append(", ")
-                append(AttentionSignalContract.selectableDurationsMs[durationSpinner.selectedItemPosition] / 1_000)
-                    .append(" сек, ").append(volumeSeek.progress).append("%")
-                append(if (vibrationSwitch.isChecked) ", с вибрацией" else ", без вибрации")
+                append(if (vibrationOnly.isChecked) "Вибрация" else toneSpinner.selectedItem).append(", ")
+                append(durations[durationSpinner.selectedItemPosition] / 1_000).append(" сек")
+                if (!vibrationOnly.isChecked) {
+                    append(", ").append(volumeSeek.progress).append("%")
+                    append(if (vibrationSwitch.isChecked) ", с вибрацией" else ", без вибрации")
+                }
             }
         }
         val settingsToggle = MaterialButton(context, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
@@ -358,14 +395,75 @@ class AttentionSignalSheet(
             patternSpinner.isEnabled = checked
             updateSettingsSummary()
         }
+        val savedText = text("", 14f, Typeface.NORMAL).apply {
+            accessibilityLiveRegion = View.ACCESSIBILITY_LIVE_REGION_POLITE
+            visibility = View.GONE
+        }
+        settings.addView(MaterialButton(context).apply {
+            text = "Запомнить на этом телефоне"
+            isAllCaps = false
+            setOnClickListener {
+                if (!contextAllowed()) return@setOnClickListener
+                preferences.edit()
+                    .putLong("duration", durations[durationSpinner.selectedItemPosition])
+                    .putString("tone", toneValues[toneSpinner.selectedItemPosition].name)
+                    .putBoolean("vibration_only", vibrationOnly.isChecked)
+                    .putInt("volume", volumeSeek.progress)
+                    .putBoolean("vibrate", vibrationSwitch.isChecked)
+                    .putString("pattern", patternValues[patternSpinner.selectedItemPosition].name)
+                    .apply()
+                settingsToggle.performClick()
+                savedText.text = "Настройки сигнала сохранены"
+                savedText.visibility = View.VISIBLE
+            }
+        }.withTopMargin(8))
+        settings.addView(MaterialButton(context, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
+            text = "Вернуть стандартные значения"
+            isAllCaps = false
+            setOnClickListener {
+                durationSpinner.setSelection(defaultDuration)
+                toneSpinner.setSelection(0)
+                vibrationOnly.isChecked = false
+                volumeSeek.progress = 100
+                vibrationSwitch.isChecked = true
+                patternSpinner.setSelection(0)
+                updateSettingsSummary()
+            }
+        })
         updateSettingsSummary()
+        fun updateOutputMode() {
+            val only = vibrationOnly.isChecked
+            toneSpinner.isEnabled = !only
+            volumeSeek.isEnabled = !only
+            vibrationSwitch.isEnabled = !only
+            updateSettingsSummary()
+        }
+        vibrationOnly.setOnCheckedChangeListener { _, _ -> updateOutputMode() }
+        updateOutputMode()
+        root.addView(vibrationOnly)
         root.addView(settingsSummary)
+        root.addView(savedText)
         root.addView(settingsToggle)
         root.addView(MaterialCardView(context).apply {
             radius = dp(16).toFloat()
             cardElevation = 0f
             addView(settings)
         })
+
+        val noteInput = EditText(context).apply {
+            hint = "Сообщение к сигналу"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+            maxLines = 4
+            filters = arrayOf(InputFilter.LengthFilter(AttentionSignalContract.MAX_MESSAGE_LENGTH))
+        }
+        val noteDuration = spinner(listOf("До нажатия «Прочитано»", "15 секунд", "30 секунд", "1 минута"))
+        noteDuration.contentDescription = "Когда закрыть сообщение"
+        noteDuration.visibility = View.GONE
+        noteInput.doAfterTextChanged {
+            noteDuration.visibility = if (it.isNullOrBlank()) View.GONE else View.VISIBLE
+        }
+        root.addView(noteInput.withTopMargin(8))
+        root.addView(noteDuration)
 
         statusText = text("Готов к отправке", 14f, Typeface.BOLD).apply {
             setPadding(dp(16), dp(12), dp(16), dp(12))
@@ -406,21 +504,25 @@ class AttentionSignalSheet(
                     requesterDisplayName = target.requesterDisplayName,
                     tone = toneValues[toneSpinner.selectedItemPosition],
                     durationMs = AttentionSignalContract.selectableDurationsMs[durationSpinner.selectedItemPosition],
-                    volumePercent = volumeSeek.progress,
-                    vibrate = vibrationSwitch.isChecked,
-                    vibrationPattern = if (vibrationSwitch.isChecked) {
+                    volumePercent = if (vibrationOnly.isChecked) 0 else volumeSeek.progress,
+                    vibrate = vibrationOnly.isChecked || vibrationSwitch.isChecked,
+                    vibrationPattern = if (vibrationOnly.isChecked || vibrationSwitch.isChecked) {
                         patternValues[patternSpinner.selectedItemPosition]
                     } else {
                         AttentionVibrationPattern.OFF
                     },
                     createdAt = now,
-                    expiresAt = now + AttentionSignalContract.DEFAULT_TTL_MS
+                    expiresAt = now + AttentionSignalContract.DEFAULT_TTL_MS,
+                    note = noteInput.text.toString().trim().takeIf { it.isNotEmpty() },
+                    noteDurationSeconds = if (noteInput.text.isNullOrBlank()) 0
+                        else AttentionSignalContract.messageDisplayDurationsSeconds[noteDuration.selectedItemPosition]
                 ).normalized(now)
                 request.validationError(now)?.let { error ->
                     statusText.text = "Нельзя отправить сигнал: $error"
                     return@setOnClickListener
                 }
                 activeRequest = request
+                recipientNeedsUpdate = false
                 attemptElapsedAt = SystemClock.elapsedRealtime()
                 senderState = AttentionSignalSenderPolicy.start(request.requestId, request.targetDeviceId, now, request.durationMs)
                 statusDetails = ""
@@ -558,6 +660,7 @@ class AttentionSignalSheet(
     }
 
     private fun spinner(values: List<String>) = Spinner(context).apply {
+        minimumHeight = dp(48)
         adapter = ArrayAdapter(context, android.R.layout.simple_spinner_dropdown_item, values)
     }
 

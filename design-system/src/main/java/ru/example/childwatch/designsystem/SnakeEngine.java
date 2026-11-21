@@ -8,7 +8,7 @@ import java.util.Set;
 /** Grid rules shared by solo and cooperative play; rendering never changes simulation time. */
 public final class SnakeEngine {
     public static final int COLUMNS = 20, ROWS = 36;
-    private static final int CELLS = COLUMNS * ROWS, VERSION = 1;
+    private static final int CELLS = COLUMNS * ROWS, VERSION = 2;
     public enum Mode { SOLO, COOP }
     public enum Difficulty { CALM, NORMAL, FAST }
     public enum State { READY, PLAYING, PAUSED, WON, GAME_OVER }
@@ -88,8 +88,8 @@ public final class SnakeEngine {
             if (!turns[p].isEmpty()) nextDirections[p] = turns[p].removeFirst();
             int x = bodies[p][0] % COLUMNS + nextDirections[p].dx;
             int y = bodies[p][0] / COLUMNS + nextDirections[p].dy;
+            x = Math.floorMod(x, COLUMNS); y = Math.floorMod(y, ROWS);
             heads[p] = cell(x, y); grows[p] = heads[p] == food;
-            if (x < 0 || x >= COLUMNS || y < 0 || y >= ROWS) collision = true;
         }
         if (players() == 2 && (heads[0] == heads[1]
                 || (heads[0] == bodies[1][0] && heads[1] == bodies[0][0]))) collision = true;
@@ -141,7 +141,7 @@ public final class SnakeEngine {
         if (data == null || data.length < 15 || data.length > 15 + CELLS + 4) return false;
         try {
             int i = 0;
-            if (data[i++] != VERSION) return false;
+            long version = data[i++]; if (version != 1 && version != VERSION) return false;
             Mode nextMode = Mode.values()[ordinal(data[i++], Mode.values().length)];
             Difficulty nextDifficulty = Difficulty.values()[ordinal(data[i++], Difficulty.values().length)];
             State nextState = State.values()[ordinal(data[i++], State.values().length)];
@@ -167,8 +167,8 @@ public final class SnakeEngine {
                 }
                 if (length > 1) {
                     int head = nextBodies[p][0], neck = nextBodies[p][1];
-                    if (head % COLUMNS - neck % COLUMNS != nextDirections[p].dx
-                            || head / COLUMNS - neck / COLUMNS != nextDirections[p].dy) return false;
+                    if (Math.floorMod(neck % COLUMNS + nextDirections[p].dx, COLUMNS) != head % COLUMNS
+                            || Math.floorMod(neck / COLUMNS + nextDirections[p].dy, ROWS) != head / COLUMNS) return false;
                 }
                 Direction last = nextDirections[p];
                 for (int n = 0; n < count; n++) {
@@ -195,7 +195,7 @@ public final class SnakeEngine {
     private static int ordinal(long value, int limit) {
         if (value < 0 || value >= limit) throw new IllegalArgumentException("ordinal"); return (int) value;
     }
-    private static int distance(int a, int b) { return Math.abs(a % COLUMNS - b % COLUMNS) + Math.abs(a / COLUMNS - b / COLUMNS); }
+    private static int distance(int a, int b) { int x=Math.abs(a%SnakeEngine.COLUMNS-b%SnakeEngine.COLUMNS), y=Math.abs(a/SnakeEngine.COLUMNS-b/SnakeEngine.COLUMNS); return Math.min(x,SnakeEngine.COLUMNS-x)+Math.min(y,SnakeEngine.ROWS-y); }
     private static int cell(int x, int y) { return y * COLUMNS + x; }
     private void checkPlayer(int p) { if (p < 0 || p >= players()) throw new IllegalArgumentException("player"); }
     private void checkSegment(int p, int n) { checkPlayer(p); if (n < 0 || n >= lengths[p]) throw new IllegalArgumentException("segment"); }

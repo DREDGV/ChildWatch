@@ -8,6 +8,15 @@ public class MapMarkerMotionPolicyTest {
     private MapMarkerMotionPolicy.Fix fix(String device, double longitude, long age, double accuracy) {
         return new MapMarkerMotionPolicy.Fix(device, 0, longitude, NOW - age, accuracy);
     }
+    @Test public void delayedFixDoesNotResetTheDisplayedPosition() {
+        assertTrue(MapMarkerMotionPolicy.isOlder(fix("a", 0, 0, 3), fix("a", .001, 10_000, 3)));
+        assertFalse(MapMarkerMotionPolicy.isOlder(fix("a", 0, 0, 3), fix("b", .001, 10_000, 3)));
+        MapMarkerMotionPolicy.Fix current = new MapMarkerMotionPolicy.Fix("a", 0, 0, NOW - 10, 3, 8L, "boot");
+        MapMarkerMotionPolicy.Fix delayed = new MapMarkerMotionPolicy.Fix("a", 0, 0, NOW, 3, 7L, "boot");
+        assertTrue(MapMarkerMotionPolicy.isOlder(current, delayed));
+        assertFalse(MapMarkerMotionPolicy.isOlder(current,
+                new MapMarkerMotionPolicy.Fix("a", 0, 0, NOW - 20, 3, 1L, "new-boot")));
+    }
     @Test public void freshWalkAndTravelCanTransition() {
         assertTrue(MapMarkerMotionPolicy.shouldAnimate(fix("a", 0, 10_000, 3), fix("a", .0001, 0, 3), NOW));
         assertTrue(MapMarkerMotionPolicy.shouldAnimate(fix("a", 0, 30_000, 5), fix("a", .005, 0, 5), NOW));

@@ -19,9 +19,16 @@ data class ChatMessage(
     val editedAt: Long? = null,
     /** Set when the message was withdrawn for everyone. */
     val deletedAt: Long? = null,
-    val attachments: List<ru.childwatch.shared.chat.ChatV2AttachmentDto> = emptyList()
+    val attachments: List<ru.childwatch.shared.chat.ChatV2AttachmentDto> = emptyList(),
+    val serverMessageId: String? = null,
+    val replyToMessageId: String? = null,
+    val quoteLabel: String? = null,
+    val unreadBoundary: Boolean = false,
+    val historyTarget: Boolean = false,
+    val dayLabel: String? = null
 ) {
     enum class MessageStatus {
+        QUEUED,
         SENDING,
         SENT,
         DELIVERED,
@@ -30,6 +37,7 @@ data class ChatMessage(
     }
 
     fun statusToServerValue(): String = when (status) {
+        MessageStatus.QUEUED -> "sending"
         MessageStatus.SENDING -> "sending"
         MessageStatus.SENT -> "sent"
         MessageStatus.DELIVERED -> "delivered"

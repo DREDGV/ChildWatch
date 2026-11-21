@@ -1,6 +1,9 @@
 <resources>
     <string name="update_check_button">Проверить обновления</string>
     <string name="update_check_running">Проверяем обновления…</string>
-    <string name="update_check_current">На сервере пока нет более новой версии приложения</string>
+    <string name="update_check_current">Новых версий нет</string>
+    <string name="update_check_available">Найдена версия %1$s</string>
+    <string name="update_check_summary">Последняя проверка %1$s\n%2$s</string>
+    <string name="update_check_no_summary">Результат проверки пока недоступен</string>
     <string name="update_check_failed">Не удалось проверить обновления. Проверьте подключение и попробуйте ещё раз.</string>
 </resources>

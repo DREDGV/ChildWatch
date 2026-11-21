@@ -55,7 +55,7 @@ class AttentionSignalController(
 
         try {
             acquireWakeLock(request.durationMs)
-            setTemporaryAlarmVolume(request.volumePercent)
+            if (request.volumePercent > 0) setTemporaryAlarmVolume(request.volumePercent)
             startVibration(request)
             startSound(request)
             timeout = Runnable {

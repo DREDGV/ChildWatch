@@ -25,6 +25,10 @@ public final class ChatParticipantsDialog {
     private final TextView summary;
 
     public ChatParticipantsDialog(Activity activity) {
+        this(activity, null);
+    }
+
+    public ChatParticipantsDialog(Activity activity, Runnable openGroupSettings) {
         this.activity = activity;
         dialog = new BottomSheetDialog(activity);
         LinearLayout root = new LinearLayout(activity);
@@ -45,6 +49,16 @@ public final class ChatParticipantsDialog {
         scroll.addView(rows);
         int maximum = Math.round(activity.getResources().getDisplayMetrics().heightPixels * 0.48f);
         root.addView(scroll, new LinearLayout.LayoutParams(-1, maximum));
+        if (openGroupSettings != null) {
+            MaterialButton settings = new MaterialButton(activity);
+            settings.setText(R.string.chat_header_group_settings);
+            settings.setMinHeight(dp(48));
+            settings.setOnClickListener(view -> {
+                close();
+                openGroupSettings.run();
+            });
+            root.addView(settings, new LinearLayout.LayoutParams(-1, -2));
+        }
         MaterialButton close = new MaterialButton(activity);
         close.setText(R.string.chat_participants_close);
         close.setAllCaps(false);

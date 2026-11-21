@@ -47,6 +47,9 @@ interface ChatConversationMemberV2Dao {
     )
     suspend fun updateReadAt(conversationId: String, memberId: String, readAt: Long): Int
 
+    @Query("DELETE FROM chat_conversation_members_v2 WHERE conversation_id = :conversationId AND member_id = :memberId")
+    suspend fun deleteMember(conversationId: String, memberId: String): Int
+
     @Query("DELETE FROM chat_conversation_members_v2 WHERE conversation_id = :conversationId")
     suspend fun deleteForConversation(conversationId: String): Int
 }

@@ -73,6 +73,12 @@ const familyPermissionService = new FamilyPermissionService(dbManager);
 const familyIdentityService = new FamilyIdentityService(dbManager);
 const familyOnboardingService = new FamilyOnboardingService(dbManager);
 const deviceAccessService = new DeviceAccessService(dbManager);
+const LocationWatch = require("./services/LocationWatch");
+const locationWatch = new LocationWatch(dbManager, deviceAccessService);
+io.on("connection", socket => locationWatch.register(socket));
+function notifyLocationChanged(deviceId) {
+  void locationWatch.publish(deviceId).catch(error => console.warn("Map notification failed:", error.message));
+}
 const familyGameService = new FamilyGameService(dbManager);
 const familyGameInvites = new FamilyGameInviteDelivery(io, familyGameService);
 const snakeSessions = new SnakeSessionService(familyGameService);
@@ -263,7 +269,7 @@ streamingRoutes.init(commandManager, dbManager, wsManager);
 // Media and streaming verify every request against the authenticated device and
 // an active parent link, so they no longer trust a raw deviceId from the client.
 mediaRoutes.init(dbManager);
-locationRoutes.init(dbManager);
+locationRoutes.init(dbManager, notifyLocationChanged);
 familyPlacesRoutes.init(dbManager);
 pickupRoutes.init(dbManager);
 alertsRoutes.init(dbManager, wsManager);
@@ -663,7 +669,7 @@ app.post(
           speedAccuracyMps: req.body.speedAccuracyMps,
           measurementElapsedRealtimeNanos: req.body.measurementElapsedRealtimeNanos,
           bootSessionId: req.body.bootSessionId,
-        });
+        }, notifyLocationChanged);
       } else {
         console.warn(
           `[${new Date().toISOString()}] Location from ${deviceId} refused: ${acceptance.code}`
@@ -1683,6 +1689,7 @@ async function startServer() {
   await snakeSessions.ensure();
   snakeSockets.start();
   await arcanoidSessions.ensure();
+  await familyGameService.startCleanup();
   arcanoidSockets.start();
   return new Promise((resolve, reject) => {
     const onError = (error) => reject(error);

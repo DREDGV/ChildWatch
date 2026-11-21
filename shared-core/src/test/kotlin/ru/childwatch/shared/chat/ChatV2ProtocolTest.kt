@@ -7,6 +7,23 @@ import org.junit.Test
 
 class ChatV2ProtocolTest {
     @Test
+    fun groupAccessIsScopedAndDistinguishesMissingFromAuthoritativeEmpty() {
+        val scope = ChatV2ReceiptScope("server", "family", "actor", "device")
+        val own = ChatV2GroupAccessDto("family", "actor", emptyList())
+        val other = ChatV2GroupAccessDto("family", "another-member", listOf("private"))
+        val reply = ChatV2ConversationsResponse(success = true, groupAccess = listOf(own, other))
+        assertEquals(emptySet<String>(), reply.activeGroupIdsFor(scope))
+        assertEquals(null, reply.activeGroupIdsFor(scope.copy(family = "another-family")))
+        assertEquals(null, reply.copy(success = false).activeGroupIdsFor(scope))
+        assertEquals(null, reply.copy(groupAccess = null).activeGroupIdsFor(scope))
+        assertEquals(null, reply.copy(groupAccess = listOf(own, own)).activeGroupIdsFor(scope))
+        assertEquals(null, reply.copy(groupAccess = listOf(own.copy(activeGroupIds = listOf("")))).activeGroupIdsFor(scope))
+        assertEquals(setOf("group"), reply.copy(
+            groupAccess = listOf(own.copy(activeGroupIds = listOf("group")))
+        ).activeGroupIdsFor(scope))
+    }
+
+    @Test
     fun dtoMappingPreservesUnicodeWhitespaceAndIdentity() {
         val text = "  Привет 👋🏽 семье 👨‍👩‍👧‍👦  "
         val dto = ChatV2MessageDto(

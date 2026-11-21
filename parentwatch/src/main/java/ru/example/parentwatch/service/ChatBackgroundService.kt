@@ -220,6 +220,13 @@ class ChatBackgroundService : LifecycleService() {
         attentionSignalRuntime = AttentionSignalRuntime(
             context = this,
             ownDeviceId = { effectiveContextResolver.resolveChildDeviceId() },
+            messageScope = { request ->
+                val family = effectiveContextResolver.resolveFamilyId()
+                if (request.familyId != family) null
+                else ru.childwatch.shared.attention.android.IncomingAttentionMessages.scope(
+                    effectiveContextResolver.resolveServerUrl(), family, effectiveContextResolver.resolveChildDeviceId()
+                )
+            },
             emitStatus = { WebSocketManager.sendAttentionStatus(it) },
             serviceClass = ChatBackgroundService::class.java,
             mainActivityClass = MainActivity::class.java,

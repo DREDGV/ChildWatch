@@ -44,6 +44,18 @@ async function main() {
     return deviceId ? {valid:true,deviceId,deviceData:{}} : {valid:false,error:'Fixture token rejected'};
   }},{required:true}).authenticate();
   const namespace = io.of('/family-games'); namespace.use(authenticate);
+  // Test-only ACK latency; live state delivery and production services are unchanged.
+  const delay=Math.max(0,Math.min(300,Number(process.env.CW_FIXTURE_ACK_DELAY_MS)||0));
+  namespace.on('connection',socket=>{
+    const on=socket.on.bind(socket);
+    socket.on=(event,listener)=>on(event,(...args)=>{
+      if(typeof args[args.length-1]==='function'){
+        const ack=args[args.length-1];args[args.length-1]=payload=>setTimeout(()=>ack(payload),delay);
+      }
+      return listener(...args);
+    });
+  });
+
   const service = new SocketService(namespace,sessions,{authenticate}).start();
   async function close() {
     if(stopping)return;stopping=true;

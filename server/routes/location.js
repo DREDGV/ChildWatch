@@ -17,7 +17,10 @@ let sharedDatabase;
 let deviceAccess;
 let parentLocationTablesReady;
 
-router.init = (databaseManager) => {
+let notifyLocationChanged = () => {};
+
+router.init = (databaseManager, notify = () => {}) => {
+  notifyLocationChanged = notify;
   sharedDatabase = databaseManager;
   deviceAccess = new DeviceAccessService(databaseManager);
   parentLocationTablesReady = null;
@@ -720,6 +723,7 @@ router.post("/history", async (req, res) => {
         [req.deviceId,p.latitude,p.longitude,p.accuracy,p.timestamp,req.deviceId,p.timestamp,p.latitude,p.longitude]);
       await require('../services/LocationMotionStore').save(sharedDatabase, req.deviceId, p);
     }
+    if (points.length) notifyLocationChanged(req.deviceId);
     return res.json({ success: true, accepted: points.length });
   } catch (error) {
     console.error('History replay failed', error.message);
@@ -789,6 +793,7 @@ router.post("/parent/:parentId", async (req, res) => {
 
       try { await require('../services/LocationMotionStore').save(db, authorizedParentId, req.body); }
       catch (error) { console.error('Parent motion storage failed', error.message); }
+      notifyLocationChanged(authorizedParentId);
       try {
         await require('../services/FamilyPlacesService').forDatabase(db).onLocation(authorizedParentId, {
           latitude, longitude, accuracy, timestamp: timestamp || Date.now()

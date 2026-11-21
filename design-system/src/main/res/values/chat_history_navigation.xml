@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="chat_header_back">Назад</string>
+    <string name="chat_header_details">%1$s, участники переписки</string>
+    <string name="chat_header_group_settings">Настройки группы</string>
+    <string name="chat_reply_to">Ответ · %1$s</string>
+    <string name="chat_message_meta">%1$s %2$s</string>
+    <string name="chat_day_today">Сегодня</string>
+    <string name="chat_reply">Ответить</string>
+    <string name="chat_reply_preview">%1$s\n%2$s</string>
+    <string name="chat_reply_cancel">Убрать цитату</string>
+    <string name="chat_reply_original">Открыть оригинал сообщения</string>
+    <string name="chat_original_unavailable">Оригинал недоступен</string>
+    <string name="chat_quote_attachment">Вложение</string>
+    <string name="chat_history_unread">Непрочитанные сообщения</string>
+    <string name="chat_history_latest">К последним сообщениям</string>
+    <string name="chat_history_continue">Читать дальше</string>
+    <string name="chat_history_open_failed">Не удалось открыть историю. Повторите попытку.</string>
+    <string name="chat_search_title">Поиск в переписке</string>
+    <string name="chat_search_hint">Слово или фраза</string>
+    <string name="chat_search_action">Найти</string>
+    <string name="chat_search_loading">Ищем сообщения…</string>
+    <string name="chat_search_failed">Поиск недоступен. Повторите попытку.</string>
+    <string name="chat_search_empty">Совпадений нет</string>
+    <string name="chat_search_cache_empty">В сохранённой истории совпадений нет</string>
+    <string name="chat_search_cache_label">Результаты из сохранённой истории</string>
+    <string name="chat_search_limited">40 последних совпадений. Уточните запрос для более точного результата.</string>
+    <string name="chat_search_result">%1$s, %2$s\n%3$s</string>
+</resources>

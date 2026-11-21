@@ -10,13 +10,14 @@
 -->
 <resources>
 
-    <!-- Pill-shaped input, the shape people expect in a messenger. -->
+    <!-- Rounded input on the chat surface. -->
     <style name="Widget.ChildWatch.Chat.Composer" parent="Widget.ChildWatch.TextInputLayout">
-        <item name="boxCornerRadiusTopStart">@dimen/cw_corner_large</item>
-        <item name="boxCornerRadiusTopEnd">@dimen/cw_corner_large</item>
-        <item name="boxCornerRadiusBottomStart">@dimen/cw_corner_large</item>
-        <item name="boxCornerRadiusBottomEnd">@dimen/cw_corner_large</item>
-        <item name="boxBackgroundColor">@color/cw_color_surface</item>
+        <item name="boxCornerRadiusTopStart">14dp</item>
+        <item name="boxCornerRadiusTopEnd">14dp</item>
+        <item name="boxCornerRadiusBottomStart">14dp</item>
+        <item name="boxCornerRadiusBottomEnd">14dp</item>
+        <item name="boxBackgroundColor">@color/cw_color_background</item>
+        <item name="hintEnabled">false</item>
         <item name="boxStrokeColor">@color/cw_color_outline_variant</item>
         <item name="hintTextColor">@color/cw_color_on_surface_variant</item>
         <item name="android:minHeight">@dimen/cw_chat_composer_min_height</item>
@@ -51,6 +52,16 @@
     <style name="Widget.ChildWatch.Chat.Action" parent="Widget.ChildWatch.Button.Icon">
         <item name="android:layout_width">@dimen/cw_chat_action_size</item>
         <item name="android:layout_height">@dimen/cw_chat_action_size</item>
+    </style>
+
+    <style name="Widget.ChildWatch.Chat.HeaderAction" parent="Widget.Material3.Button.IconButton">
+        <item name="android:layout_width">48dp</item>
+        <item name="android:layout_height">48dp</item>
+        <item name="android:padding">12dp</item>
+        <item name="android:insetTop">0dp</item>
+        <item name="android:insetBottom">0dp</item>
+        <item name="iconPadding">0dp</item>
+        <item name="iconTint">@color/cw_color_on_surface</item>
     </style>
 
     <style name="TextAppearance.ChildWatch.Chat.ComposerHint" parent="TextAppearance.ChildWatch.Body">

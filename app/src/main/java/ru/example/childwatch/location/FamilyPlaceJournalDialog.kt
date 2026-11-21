@@ -17,9 +17,7 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
-import org.json.JSONObject
 import ru.childwatch.shared.family.FamilyPlaceJournalEvent
-import ru.childwatch.shared.family.FamilyPlaceJournalPage
 import ru.childwatch.shared.family.FamilyPlaceJournalPolicy
 import ru.example.childwatch.R
 import ru.example.childwatch.network.NetworkClient
@@ -123,7 +121,7 @@ class FamilyPlaceJournalDialog(
                 currentCoroutineContext().ensureActive()
                 if (!active()) { dialog.dismiss(); return@launch }
                 val owner = org.json.JSONArray(scope).getString(2)
-                val page = FamilyPlaceJournalPolicy.validatePage(parse(response), target.familyId, owner,
+                val page = FamilyPlaceJournalPolicy.validatePage(FamilyPlaceJournalJson.parse(response), target.familyId, owner,
                     target.memberId, requestedBefore, requestedSnapshot, System.currentTimeMillis())
                 // Never silently deduplicate a malformed continuation page.
                 require(page.events.none { it.id in displayedIds }) { "PLACE_HISTORY_DUPLICATE" }
@@ -188,29 +186,6 @@ class FamilyPlaceJournalDialog(
             LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(1)).apply { topMargin = dp(12) })
     }
 
-    private fun parse(response: JSONObject): FamilyPlaceJournalPage {
-        require(response.get("success") == true)
-        val eventRows = response.getJSONArray("events")
-        val events = (0 until eventRows.length()).map { index ->
-            val row = eventRows.getJSONObject(index)
-            FamilyPlaceJournalEvent(integer(row, "id"), string(row, "family_id"), string(row, "owner_member_id"),
-                string(row, "target_member_id"), integer(row, "measured_at"), string(row, "transition"), string(row, "place_name"))
-        }
-        val hasMore = response.get("hasMore") as? Boolean ?: throw IllegalArgumentException("PLACE_HISTORY_BOOLEAN_INVALID")
-        require(response.has("nextBefore"))
-        val next = if (response.isNull("nextBefore")) null else integer(response, "nextBefore")
-        val retention = integer(response, "retentionDays")
-        require(retention in 0..Int.MAX_VALUE.toLong())
-        return FamilyPlaceJournalPage(string(response, "familyId"), string(response, "ownerMemberId"),
-            string(response, "targetMemberId"), events, integer(response, "snapshot"), next, hasMore, retention.toInt())
-    }
-    private fun integer(row: JSONObject, key: String): Long = when (val value = row.get(key)) {
-        is Long -> value
-        is Int -> value.toLong()
-        else -> throw IllegalArgumentException("PLACE_HISTORY_INTEGER_INVALID")
-    }
-    private fun string(row: JSONObject, key: String): String =
-        row.get(key) as? String ?: throw IllegalArgumentException("PLACE_HISTORY_STRING_INVALID")
     private fun text(value: String, size: Float) = TextView(activity).apply {
         text = value; textSize = size; setTextColor(activity.getColor(R.color.cw_color_on_surface))
         layoutParams = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT)

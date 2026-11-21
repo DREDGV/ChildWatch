@@ -40,7 +40,8 @@ public class ArcanoidOnlineInstrumentedTest {
             runner.waitForIdleSync();Thread.sleep(150);
             runner.runOnMainSync(()->activity.findViewById(R.id.arcanoidOnlineRight).performClick());
             assertEquals("Guest right is decreasing server x",.58,activity.fake.moves.get(0),.00001);
-            Thread.sleep(120);assertEquals("No optimistic platform",300,activity.field.confirmedLocalPaddle(),0);
+            Thread.sleep(120);assertEquals("Authoritative platform unchanged",300,activity.field.confirmedLocalPaddle(),0);
+            assertTrue("Own platform responds before server state",activity.field.displayedLocalPaddle()>300);
             assertEquals("No predicted ball",510,activity.field.confirmedBallX(),0);
             target(activity.findViewById(R.id.arcanoidOnlinePause));field(activity);
             screenshot(runner,activity,"arcanoid-online-100-playing.png");

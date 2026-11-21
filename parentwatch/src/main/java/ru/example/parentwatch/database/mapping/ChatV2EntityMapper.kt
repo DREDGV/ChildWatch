@@ -102,6 +102,7 @@ fun ConversationMessage.toEntity(legacySender: String? = null): ChatMessageV2Ent
         serverCreatedAt = serverCreatedAt,
         editedAt = editedAt,
         deletedAt = deletedAt,
+        replyToMessageId = replyToMessageId,
         status = state.toLegacyStatus(),
         deliveryState = state.name,
         failureCode = failureCode,
@@ -136,6 +137,7 @@ fun ChatMessageV2Entity.toModel(): ConversationMessage {
         serverCreatedAt = serverCreatedAt,
         editedAt = editedAt,
         deletedAt = deletedAt,
+        replyToMessageId = replyToMessageId,
         deliveryState = enumValueOrDefault(deliveryState, status.toDeliveryState()),
         failureCode = failureCode,
         legacyMessageId = legacyMessageId

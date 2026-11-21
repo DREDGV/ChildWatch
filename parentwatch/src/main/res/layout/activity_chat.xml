@@ -3,10 +3,17 @@
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/bg_main_gradient"
+    android:background="@color/cw_color_background"
     android:orientation="vertical">
 
+    <ru.example.childwatch.designsystem.ChatCompactHeader
+        android:id="@+id/compactChatHeader"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:visibility="gone" />
+
     <com.google.android.material.appbar.AppBarLayout
+        android:id="@+id/chatLegacyAppBar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="@android:color/transparent"
@@ -163,7 +170,7 @@
         android:paddingEnd="16dp"
         android:paddingBottom="6dp"
         android:text="@string/chat_typing_parent"
-        android:textColor="#757575"
+        android:textColor="@color/cw_color_on_surface_variant"
         android:textSize="12sp"
         android:textStyle="italic"
         android:visibility="gone" />
@@ -188,7 +195,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:text="@string/chat_loading_messages"
-            android:textColor="#757575"
+            android:textColor="@color/cw_color_on_surface_variant"
             android:textSize="14sp" />
     </LinearLayout>
 
@@ -240,6 +247,29 @@
         android:padding="8dp"
         android:scrollbars="vertical" />
 
+    <LinearLayout
+        android:id="@+id/chatHistoryNavigation"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:gravity="center"
+        android:orientation="vertical"
+        android:visibility="gone">
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/chatHistoryContinue"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:text="@string/chat_history_continue" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/chatHistoryLatest"
+            style="@style/Widget.Material3.Button.TonalButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:text="@string/chat_history_latest" />
+    </LinearLayout>
+
     <com.google.android.material.button.MaterialButton
         android:id="@+id/newMessagesButton"
         style="@style/Widget.Material3.Button.TonalButton"
@@ -249,6 +279,74 @@
         android:layout_marginBottom="6dp"
         android:text="@string/chat_v2_new_messages"
         android:visibility="gone" />
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="1dp"
+        android:background="@color/cw_color_outline_variant" />
+
+    <com.google.android.material.card.MaterialCardView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="0dp"
+        android:backgroundTint="@color/cw_color_surface"
+        app:cardCornerRadius="0dp"
+        app:cardElevation="0dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:paddingHorizontal="@dimen/cw_space_2"
+            android:paddingTop="@dimen/cw_space_2"
+            android:paddingBottom="@dimen/cw_space_3">
+
+            <LinearLayout
+                android:id="@+id/chatReplyPanel"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="6dp"
+                android:background="@drawable/cw_chat_quote_surface"
+                android:gravity="center_vertical"
+                android:minHeight="48dp"
+                android:orientation="horizontal"
+                android:visibility="gone">
+                <View
+                    android:layout_width="3dp"
+                    android:layout_height="match_parent"
+                    android:background="@color/cw_color_primary"
+                    android:importantForAccessibility="no" />
+                <LinearLayout
+                    android:id="@+id/chatReplySource"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:background="?attr/selectableItemBackground"
+                    android:gravity="center_vertical"
+                    android:minHeight="48dp"
+                    android:orientation="vertical"
+                    android:paddingHorizontal="9dp"
+                    android:paddingVertical="4dp">
+                    <TextView
+                        android:id="@+id/chatReplyAuthor"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Sender" />
+                    <TextView
+                        android:id="@+id/chatReplyText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:ellipsize="end"
+                        android:maxLines="2"
+                        android:textColor="@color/cw_color_on_surface_variant"
+                        android:textSize="13sp" />
+                </LinearLayout>
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/chatReplyCancel"
+                    style="@style/Widget.ChildWatch.Chat.HeaderAction"
+                    android:contentDescription="@string/chat_reply_cancel"
+                    app:icon="@drawable/cw_chat_dismiss" />
+            </LinearLayout>
 
             <LinearLayout android:id="@+id/attachmentDraftPanel"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -267,31 +365,21 @@
                     android:layout_width="match_parent" android:layout_height="4dp" android:visibility="gone" android:max="100" />
             </LinearLayout>
 
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
 
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:background="@android:color/transparent"
-        android:elevation="8dp"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:padding="12dp">
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/emojiButton"
-            style="@style/Widget.Material3.Button.TextButton"
-            android:layout_width="48dp"
-            android:layout_height="48dp"
-            android:layout_marginEnd="8dp"
-            android:contentDescription="@string/chat_emoji_button_content_description"
-            android:insetTop="0dp"
-            android:insetBottom="0dp"
-            android:minWidth="48dp"
-            android:tooltipText="@string/chat_emoji_button_label"
-            app:icon="@drawable/ic_emoji"
-            app:iconGravity="textStart"
-            app:iconPadding="0dp"
-            app:iconTint="@color/emerald_primary" />
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/emojiButton"
+                    style="@style/Widget.ChildWatch.Chat.Action"
+                    android:contentDescription="@string/chat_emoji_button_content_description"
+                    android:tooltipText="@string/chat_emoji_button_label"
+                    app:icon="@drawable/ic_emoji"
+                    app:iconGravity="textStart"
+                    app:iconPadding="0dp"
+                    app:iconTint="@color/cw_color_primary" />
 
                 <com.google.android.material.button.MaterialButton
                     android:id="@+id/attachmentButton" style="@style/Widget.ChildWatch.Chat.Action"
@@ -299,44 +387,44 @@
                     android:contentDescription="@string/chat_media_attach" android:tooltipText="@string/chat_media_attach"
                     android:visibility="gone" app:icon="@drawable/ic_chat_attach" app:iconPadding="0dp" />
 
+                <com.google.android.material.textfield.TextInputLayout
+                    style="@style/Widget.ChildWatch.Chat.Composer"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/cw_space_1"
+                    android:layout_marginEnd="@dimen/cw_space_2"
+                    android:layout_weight="1">
 
-        <!-- Composer styling comes from the shared design-system styles, so this
-             screen and ParentMonitor cannot drift apart again. -->
-        <com.google.android.material.textfield.TextInputLayout
-            style="@style/Widget.ChildWatch.Chat.Composer"
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_marginEnd="@dimen/cw_space_2"
-            android:layout_weight="1">
+                    <com.vanniktech.emoji.EmojiEditText
+                        android:id="@+id/messageInput"
+                        style="@style/Widget.ChildWatch.Chat.Composer.Input"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:hint="@string/chat_input_hint" />
 
-            <com.vanniktech.emoji.EmojiEditText
-                android:id="@+id/messageInput"
-                style="@style/Widget.ChildWatch.Chat.Composer.Input"
+                </com.google.android.material.textfield.TextInputLayout>
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/sendButton"
+                    style="@style/Widget.ChildWatch.Chat.Send"
+                    android:contentDescription="@string/chat_send"
+                    android:enabled="false"
+                    app:icon="@drawable/ic_send" />
+
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/composerMetaText"
+                style="@style/TextAppearance.ChildWatch.Chat.ComposerHint"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:hint="@string/chat_input_hint" />
+                android:layout_marginTop="@dimen/cw_space_1"
+                android:paddingStart="@dimen/cw_space_4"
+                android:text="@string/chat_composer_hint_online"
+                android:textSize="12sp" />
 
-        </com.google.android.material.textfield.TextInputLayout>
+        </LinearLayout>
 
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/sendButton"
-            style="@style/Widget.ChildWatch.Chat.Send"
-            android:contentDescription="@string/chat_send"
-            android:enabled="false"
-            app:icon="@drawable/ic_send" />
-
-    </LinearLayout>
-
-    <TextView
-        android:id="@+id/composerMetaText"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:layout_marginStart="16dp"
-        android:layout_marginEnd="16dp"
-        android:layout_marginBottom="8dp"
-        android:text="@string/chat_composer_hint_online"
-        android:textColor="#6B7280"
-        android:textSize="12sp" />
-
+    </com.google.android.material.card.MaterialCardView>
 
 </LinearLayout>

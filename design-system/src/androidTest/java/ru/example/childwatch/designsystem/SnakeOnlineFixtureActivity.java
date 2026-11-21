@@ -34,7 +34,7 @@ public class SnakeOnlineFixtureActivity extends SnakeOnlineActivity {
                     .put("difficulty","NORMAL").put("tickMs",180).put("food",new JSONObject().put("x",10).put("y",20))
                     .put("players",new JSONArray().put(new JSONObject().put("body",new JSONArray().put(a).put(tick==0?164:165).put(tick==0?163:164)).put("direction","RIGHT"))
                         .put(new JSONObject().put("body",new JSONArray().put(b).put(tick==0?355:354).put(tick==0?356:355)).put("direction",tick==0?"LEFT":"DOWN")));
-                listener.onState(new JSONObject().put("protocolVersion",1).put("gameId",id).put("epoch",epoch).put("revision",tick+1)
+                listener.onState(new JSONObject().put("protocolVersion",2).put("gameId",id).put("epoch",epoch).put("revision",tick+1)
                     .put("phase",phase).put("reason","PAUSED".equals(phase)?"PLAYER_PAUSED":JSONObject.NULL)
                     .put("countdownMs","COUNTDOWN".equals(phase)?2000:0).put("ready",new JSONArray().put(false).put(ready))
                     .put("connected",new JSONArray().put(true).put(true)).put("snake",snake));

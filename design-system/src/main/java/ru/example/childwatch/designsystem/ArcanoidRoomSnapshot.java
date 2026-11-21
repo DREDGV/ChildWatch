@@ -16,7 +16,7 @@ public final class ArcanoidRoomSnapshot {
     private final boolean[] ready,connected;
     private final JSONObject json;
     private ArcanoidRoomSnapshot(JSONObject value)throws JSONException{
-        json=new JSONObject(value.toString());integer(json,"protocolVersion",1,1);
+        json=new JSONObject(value.toString());integer(json,"protocolVersion",2,2);
         gameId=text(json,"gameId",128);epoch=text(json,"epoch",128);revision=integer(json,"revision",0,MAX_SAFE_INTEGER);
         phase=choice(json,"phase","PAUSED","COUNTDOWN","PLAYING","FINISHED");
         reason=json.isNull("reason")?null:text(json,"reason",80);ready=pair(json,"ready");connected=pair(json,"connected");

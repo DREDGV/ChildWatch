@@ -66,6 +66,14 @@ class WebSocketClient(
     private var onChatMessageSentCallback: ((String, Boolean, Long) -> Unit)? = null
     private var onChatStatusCallback: ((String, String, Long) -> Unit)? = null
     private var onChatStatusAckCallback: ((String, String, Long) -> Unit)? = null
+    private var onLocationTransportReady: (() -> Unit)? = null
+    private var onLocationChanged: (() -> Unit)? = null
+
+    fun setLocationCallbacks(onReady: () -> Unit, onChanged: () -> Unit) {
+        onLocationTransportReady = onReady
+        onLocationChanged = onChanged
+    }
+
     private var onRegisteredCallback: (() -> Unit)? = null
     var onPhotoQueuedCallback: ((requestId: String, deviceId: String, camera: String, timestamp: Long) -> Unit)? = null
     var onPhotoRequestReceived: ((requestId: String, deviceId: String, timestamp: Long) -> Unit)? = null
@@ -279,6 +287,7 @@ class WebSocketClient(
             audioDeviceMismatchLogged = false
             onAttentionTransportReadyCallback?.invoke()
             onChatV2TransportReadyCallback?.invoke()
+            onLocationTransportReady?.invoke()
             onRegisteredCallback?.invoke()
             ru.example.childwatch.designsystem.FamilyGameInvitations.changed()
             if (shouldRequestMissedMessagesAfterRegistration) {
@@ -890,7 +899,7 @@ class WebSocketClient(
                 timeout = CONNECTION_TIMEOUT
                 tokenManager?.getAuthToken()
                     ?.takeIf { it.isNotBlank() }
-                    ?.let { authToken -> auth = mapOf("token" to authToken) }
+                    ?.let { authToken -> auth = mapOf("token" to authToken, "attentionNotes" to "1") }
                 // Socket.IO will handle ping/pong automatically
             }
 
@@ -902,6 +911,7 @@ class WebSocketClient(
             socket?.on(Socket.EVENT_DISCONNECT, onDisconnect)
             socket?.on(Socket.EVENT_CONNECT_ERROR, onConnectError)
             socket?.on("registered", onRegistered)
+            socket?.on("location:changed") { onLocationChanged?.invoke() }
             socket?.on("family_games:changed") { ru.example.childwatch.designsystem.FamilyGameInvitations.changed() }
             socket?.on("audio_chunk", onAudioChunk)
             socket?.on("audio_capture_error", onAudioCaptureErrorEvent)
@@ -1413,6 +1423,8 @@ class WebSocketClient(
         onConnectedCallback = null
         onErrorCallback = null
         onRegisteredCallback = null
+        onLocationTransportReady = null
+        onLocationChanged = null
         onCriticalAlertCallback = null
         onChatMessageCallback = null
         onChatMessageSentCallback = null

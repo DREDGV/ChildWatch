@@ -70,7 +70,7 @@ public final class SnakeView extends View implements Choreographer.FrameCallback
     @Override protected void onDraw(Canvas canvas) {
         super.onDraw(canvas); if (cell <= 0) return;
         canvas.save(); canvas.translate(left, top); canvas.scale(cell, cell);
-        scene.board(canvas);
+        scene.board(canvas); canvas.clipRect(0,0,SnakeEngine.COLUMNS,SnakeEngine.ROWS);
         if (game.foodX() >= 0) scene.apple(canvas, game.foodX() + .5f, game.foodY() + .5f);
         float interpolation = game.state() == SnakeEngine.State.PLAYING && android.animation.ValueAnimator.areAnimatorsEnabled()
             ? (float)game.interpolation() : 1;
@@ -78,24 +78,24 @@ public final class SnakeView extends View implements Choreographer.FrameCallback
             body.reset();
             for (int i = game.length(p) - 1; i >= 0; i--) {
                 float x = visualX(p, i, interpolation) + .5f, y = visualY(p, i, interpolation) + .5f;
-                if (i == game.length(p) - 1) body.moveTo(x, y); else body.lineTo(x, y);
+                if (i == game.length(p) - 1 || SnakeTopology.separated(x,y,visualX(p,i+1,interpolation)+.5f,visualY(p,i+1,interpolation)+.5f)) body.moveTo(x, y); else body.lineTo(x, y);
             }
             scene.spine(canvas, body, p == 0);
             float dx = game.direction(p) == SnakeEngine.Direction.LEFT ? -1 : game.direction(p) == SnakeEngine.Direction.RIGHT ? 1 : 0;
             float dy = game.direction(p) == SnakeEngine.Direction.UP ? -1 : game.direction(p) == SnakeEngine.Direction.DOWN ? 1 : 0;
             for (int i = game.length(p) - 1; i >= 0; i--)
-                scene.segment(canvas, visualX(p, i, interpolation) + .5f, visualY(p, i, interpolation) + .5f,
+                SnakeTopology.segment(scene, canvas, visualX(p, i, interpolation) + .5f, visualY(p, i, interpolation) + .5f,
                     p == 0, i == 0, dx, dy);
         }
         canvas.restore();
     }
     private float visualX(int p, int i, float amount) {
         int old = Math.min(i, previousLength[p] - 1); if (old < 0) return game.segmentX(p, i);
-        return previousX[p][old] + (game.segmentX(p, i) - previousX[p][old]) * amount;
+        return SnakeTopology.between(previousX[p][old],game.segmentX(p,i),amount,SnakeEngine.COLUMNS);
     }
     private float visualY(int p, int i, float amount) {
         int old = Math.min(i, previousLength[p] - 1); if (old < 0) return game.segmentY(p, i);
-        return previousY[p][old] + (game.segmentY(p, i) - previousY[p][old]) * amount;
+        return SnakeTopology.between(previousY[p][old],game.segmentY(p,i),amount,SnakeEngine.ROWS);
     }
     @Override public boolean onTouchEvent(MotionEvent event) {
         if (game.state() != SnakeEngine.State.PLAYING) { touch.cancel(); return false; }

@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cw_listening_idle">Звук вокруг · Сейчас никто не слушает</string>
+    <string name="cw_listening_waiting">Звук вокруг · Нет подтверждения передачи звука</string>
+    <string name="cw_listening_active">Сейчас слушает · %1$s</string>
+    <string name="cw_listening_active_unknown">Звук передаётся · Имя слушателя неизвестно</string>
+    <string name="cw_listening_unknown_person">имя неизвестно</string>
+    <string name="cw_listening_unknown">Звук вокруг · Статус недоступен</string>
+</resources>

@@ -2,6 +2,7 @@ const fs = require("fs");
 const os = require("os");
 const path = require("path");
 const DatabaseManager = require("../database/DatabaseManager");
+const ChatConversationService = require("../services/ChatConversationService");
 
 jest.setTimeout(30_000);
 
@@ -179,6 +180,38 @@ describe("group conversations", () => {
       expect((await db.getGroupConversationMemberIds(conversation.id)).sort())
         .toEqual([first, third].sort());
     } finally { clock.mockRestore(); }
+  });
+
+  test("group access covers groups beyond the preview and reflects removal only for the affected member", async () => {
+    const { family, memberByDevice, parentOne, parentTwo, child } =
+      await registerFamily(db, "access");
+    const first = memberByDevice.get(parentOne);
+    const second = memberByDevice.get(parentTwo);
+    const third = memberByDevice.get(child);
+    const group = await db.createGroupConversation({
+      familyId: family.id,
+      title: "Кружок",
+      memberIds: [first, second, third],
+      createdByMemberId: first,
+    });
+    const service = new ChatConversationService(db);
+    const readPreview = db.listChatConversationsForMember.bind(db);
+    jest.spyOn(db, "listChatConversationsForMember").mockImplementation(async (member, limit) =>
+      (await readPreview(member, limit)).filter(conversation => conversation.id !== group.id));
+    const listFor = device => service.listConversations(device, { includeGroupAccess: true });
+    const before = await listFor(parentTwo);
+    expect(before.conversations.some(conversation => conversation.conversationId === group.id)).toBe(false);
+    expect(before.groupAccess).toContainEqual({
+      familyId: family.id, actorMemberId: second, activeGroupIds: [group.id],
+    });
+
+    await service.removeGroupMember(parentOne, group.id, second);
+    expect((await listFor(parentTwo)).groupAccess).toContainEqual({
+      familyId: family.id, actorMemberId: second, activeGroupIds: [],
+    });
+    expect((await listFor(child)).groupAccess).toContainEqual({
+      familyId: family.id, actorMemberId: third, activeGroupIds: [group.id],
+    });
   });
 
   test("the family chat and a direct chat reject a chosen membership", async () => {

@@ -119,7 +119,7 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
         val capabilities = familyGamesRequest(scope, "GET", "/capabilities", null)
         val realtime = capabilities.optJSONObject("realtime")
         val games = realtime?.optJSONArray("games")
-        if (realtime?.optInt("protocolVersion") != 1 || realtime?.optString("namespace") != "/family-games" ||
+        if (realtime?.optInt("protocolVersion") != 2 || realtime?.optString("namespace") != "/family-games" ||
             games == null || (0 until games.length()).none { games.optString(it) == gameType })
             throw ru.example.childwatch.designsystem.GameOnlineBridge.Failure(501,
                 if (gameType == "SNAKE_COOP") "SNAKE_UNSUPPORTED" else "ARKANOID_UNSUPPORTED")
@@ -155,13 +155,14 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
         val members = path == "/members"
         val validPath = path == "/" || path == "/capabilities" ||
             Regex("^/[A-Za-z0-9_-]+(/actions)?$").matches(path)
-        require(validPath && (method == "GET" || method == "POST") && (!members || method == "GET"))
+        require(validPath && (method == "GET" || method == "POST" || method == "DELETE") && (!members || method == "GET"))
         val url = ensureHttpsUrl(scope[0]).toHttpUrl().newBuilder()
         if (members) url.addPathSegments("api/families").addPathSegment(scope[1]).addPathSegment("members")
         else url.addPathSegments("api/family-games" + if (path == "/") "" else path)
         url.addQueryParameter("familyId", scope[1]).addQueryParameter("actorMemberId", scope[2])
         val request = Request.Builder().url(url.build()).tag(GameRequestScope::class.java, GameRequestScope(scope.toList()))
         if (method == "POST") request.post((body ?: JSONObject()).toString().toRequestBody("application/json".toMediaType()))
+        else if (method == "DELETE") request.delete((body ?: JSONObject()).toString().toRequestBody("application/json".toMediaType()))
         else request.get()
         return client.newBuilder().callTimeout(25, TimeUnit.SECONDS).build().newCall(request.build()).execute().use { response ->
             if (gameIdentity() != scope)
@@ -2038,9 +2039,12 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
         effectiveContextResolver.resolveFamilyId().orEmpty().trim(),
         effectiveContextResolver.resolveSelfMemberId().orEmpty().trim(), effectiveContextResolver.resolveOwnParentId().trim())
 
+    internal fun familyPlaceReadScope(): List<String> = placeIdentity()
+
     suspend fun familyPlacesRequest(familyId: String, method: String = "GET", suffix: String = "",
         body: JSONObject? = null, after: Long? = null, targetMemberId: String? = null,
-        expectedScope: String? = null, before: Long? = null, snapshot: Long? = null): JSONObject = withContext(Dispatchers.IO) {
+        expectedScope: String? = null, before: Long? = null, snapshot: Long? = null,
+        from: Long? = null, to: Long? = null, deviceId: String? = null): JSONObject = withContext(Dispatchers.IO) {
         val expected = expectedScope?.let { encoded -> org.json.JSONArray(encoded).let { array ->
             require(array.length() == 4) { "PLACE_CONTEXT_MISSING" }
             (0 until 4).map { array.getString(it) }
@@ -2055,6 +2059,9 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
         after?.let { url.addQueryParameter("after", it.toString()) }
         before?.let { url.addQueryParameter("before", it.toString()) }
         snapshot?.let { url.addQueryParameter("snapshot", it.toString()) }
+        from?.let { url.addQueryParameter("from", it.toString()) }
+        to?.let { url.addQueryParameter("to", it.toString()) }
+        deviceId?.let { url.addQueryParameter("deviceId", it) }
         targetMemberId?.let { url.addQueryParameter("targetMemberId", it) }
         val request = Request.Builder().url(url.build()).tag(PlaceRequestScope::class.java, PlaceRequestScope(expected))
         when (method) {
@@ -2784,7 +2791,7 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
     /**
      * Get streaming status
      */
-    suspend fun getStreamingStatus(serverUrl: String, deviceId: String): StreamingStatus? {
+    suspend fun getStreamingStatus(serverUrl: String, deviceId: String, quick: Boolean = false): StreamingStatus? {
         return withContext(Dispatchers.IO) {
             try {
                 val url = "${serverUrl.trimEnd('/')}/api/streaming/status/$deviceId"
@@ -2794,7 +2801,8 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
                     .get()
                     .build()
 
-                val response = client.newCall(request).execute()
+                val http = if (quick) client.newBuilder().callTimeout(5, java.util.concurrent.TimeUnit.SECONDS).build() else client
+                val response = http.newCall(request).execute()
 
                 if (response.isSuccessful) {
                     val body = response.body?.string()
@@ -2810,7 +2818,9 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
                             ownerParentId = json.optString("ownerParentId", json.optString("parentId", "")),
                             ownerDisplayName = json.optString("ownerDisplayName", ""),
                             durationMs = json.optLong("durationMs", json.optLong("duration", 0L)),
-                            ownerStale = json.optBoolean("ownerStale", false)
+                            ownerStale = json.optBoolean("ownerStale", false),
+                            listeningPresence = json.optJSONObject("listeningPresence")
+                                ?.takeIf { json.optString("deviceId") == deviceId }
                         )
                     }
                 } else {
@@ -2818,6 +2828,8 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
                 }
 
                 null
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (e: Exception) {
                 Log.e(TAG, "Error getting streaming status", e)
                 null
@@ -2858,7 +2870,8 @@ class NetworkClient(private val context: Context, private val expectedOwnScope: 
         val ownerParentId: String = "",
         val ownerDisplayName: String = "",
         val durationMs: Long = 0L,
-        val ownerStale: Boolean = false
+        val ownerStale: Boolean = false,
+        val listeningPresence: JSONObject? = null
     )
 
     private fun parseStreamingCommandResult(

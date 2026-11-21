@@ -37,10 +37,11 @@ interface ChatOutboxV2Dao {
     @Query(
         "UPDATE chat_outbox_v2 SET state = :state, attempt_count = :attemptCount, " +
             "next_attempt_at = :nextAttemptAt, last_error = :lastError, updated_at = :updatedAt, " +
-            "lease_token = NULL, lease_expires_at = NULL WHERE outbox_id = :outboxId"
+            "lease_token = NULL, lease_expires_at = NULL WHERE outbox_id = :outboxId AND lease_token = :leaseToken"
     )
     suspend fun scheduleNextAttempt(
         outboxId: Long,
+        leaseToken: String,
         state: String,
         attemptCount: Int,
         nextAttemptAt: Long,
@@ -61,7 +62,7 @@ interface ChatOutboxV2Dao {
     suspend fun moveToConversation(sourceConversationId: String, targetConversationId: String): Int
 
     @Query(
-        "UPDATE chat_outbox_v2 SET state = 'PENDING', next_attempt_at = :now, " +
+        "UPDATE chat_outbox_v2 SET state = 'PENDING', next_attempt_at = :now, attempt_count = 0, " +
             "last_error = NULL, lease_token = NULL, lease_expires_at = NULL, updated_at = :now " +
             "WHERE client_message_id = :clientMessageId AND state = 'FAILED'"
     )

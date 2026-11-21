@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ChildWatch · Переписка</title>
+<style>
+:root {
+  color-scheme: light;
+  --primary: #126c67;
+  --ink: #171d1c;
+  --muted: #3f4947;
+  --surface: #fff;
+  --bg: #f6faf9;
+  --mint: #cdedea;
+  --line: #bec9c6;
+  --soft: #edf3f1;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: #e7efec; color: var(--ink); font: 16px/1.45 Roboto, "Segoe UI", sans-serif; }
+button, input { font: inherit; }
+button { cursor: pointer; color: inherit; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--primary); outline-offset: 3px; }
+main { max-width: 1060px; margin: auto; padding: 42px 30px; display: grid; grid-template-columns: 1fr 404px; gap: 76px; align-items: center; }
+aside { max-width: 490px; }
+h1 { font-size: clamp(28px, 4vw, 45px); line-height: 1.06; letter-spacing: -.035em; margin: 0 0 18px; }
+aside > p { max-width: 38ch; margin: 0 0 22px; color: var(--muted); }
+aside ul { margin: 0; padding: 0; list-style: none; border-top: 1px solid var(--line); }
+aside li { padding: 13px 0; border-bottom: 1px solid var(--line); }
+aside li span { display: block; color: var(--muted); font-size: .9rem; }
+.examples { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 24px; }
+.secondary, .examples button { min-height: 44px; padding: 8px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); font-size: .86rem; font-weight: 600; }
+.device { background: var(--bg); width: 100%; height: 720px; border: 6px solid #203330; border-radius: 34px; box-shadow: 0 16px 40px #223d3228; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+.system { display: flex; align-items: center; justify-content: space-between; padding: 9px 22px 2px; background: var(--surface); font-size: .78rem; font-weight: 650; }
+header { display: grid; grid-template-columns: 44px 42px minmax(0,1fr) 44px; align-items: center; gap: 8px; padding: 7px 14px 9px; background: var(--surface); border-bottom: 1px solid var(--line); }
+.avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; background: var(--mint); color: var(--primary); font-weight: 750; }
+.chat-title { font-weight: 700; }
+.members { font-size: .75rem; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.icon { border: 0; background: transparent; min-width: 44px; min-height: 44px; display: grid; place-items: center; border-radius: 50%; font-size: 1.3rem; }
+.magnify { display: block; width: 15px; height: 15px; border: 2px solid currentColor; border-radius: 50%; position: relative; margin: -4px 4px 0 0; }
+.magnify::after { content: ""; position: absolute; width: 8px; height: 2px; background: currentColor; right: -6px; bottom: -3px; transform: rotate(45deg); }
+.thread { flex: 1; min-height: 0; overflow-y: auto; padding: 14px; display: flex; flex-direction: column; gap: 10px; }
+.day { align-self: center; margin: 0; color: var(--muted); font-size: .75rem; }
+.bubble { align-self: flex-start; max-width: 88%; border: 1px solid #d8e6e1; border-radius: 16px 16px 16px 5px; background: var(--surface); padding: 9px 12px; font-size: .92rem; overflow-wrap: anywhere; }
+.own { align-self: flex-end; background: var(--mint); border-color: transparent; border-radius: 16px 16px 5px 16px; }
+.bubble p { margin: 3px 0; }
+.name { color: var(--primary); font-size: .75rem; font-weight: 700; }
+.stamp { color: var(--muted); font-size: .69rem; display: block; text-align: end; }
+.unread { display: flex; align-items: center; gap: 8px; color: var(--primary); font-size: .75rem; font-weight: 700; margin: 2px 0; }
+.unread::before, .unread::after { content: ""; flex: 1; height: 1px; background: var(--line); }
+.quote { border: 0; border-inline-start: 3px solid var(--primary); background: #ffffff9c; border-radius: 4px 9px 9px 4px; text-align: start; text-overflow: ellipsis; padding: 5px 9px; min-height: 44px; display: block; max-width: 100%; color: var(--muted); font-size: .78rem; }
+.quote strong { display: block; color: var(--primary); }
+.target { outline: 2px solid var(--primary); outline-offset: 3px; }
+.jump { align-self: center; margin: 5px 8px 8px; border: 0; border-radius: 22px; background: var(--soft); color: var(--primary); padding: 9px 16px; min-height: 44px; font-weight: 700; font-size: .81rem; }
+footer { background: var(--surface); border-top: 1px solid var(--line); padding: 9px 10px 15px; }
+.reply { display: flex; align-items: center; gap: 8px; margin-bottom: 7px; padding: 0 2px 0 10px; background: var(--soft); border-radius: 10px; }
+.reply .quote { flex: 1; background: transparent; padding-block: 6px; }
+form { margin: 0; }
+.composer { display: grid; grid-template-columns: 44px minmax(0,1fr) 44px; gap: 5px; align-items: center; }
+.composer input, .searchbar input { min-height: 44px; width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 14px; padding: 8px 13px; background: var(--bg); }
+.send { background: var(--primary); color: white; }
+.search-view { flex: 1; display: flex; flex-direction: column; min-height: 0; }
+.searchbar { display: flex; gap: 6px; background: var(--surface); padding: 9px 14px; border-bottom: 1px solid var(--line); }
+.searchbar input { flex: 1; }
+.hits { padding: 0 14px; overflow: auto; }
+.hits p { font-size: .82rem; color: var(--muted); margin: 16px 3px; }
+.hit { width: 100%; border: 0; border-bottom: 1px solid var(--line); background: transparent; text-align: start; padding: 12px 4px; display: block; overflow-wrap: anywhere; }
+.hit span { display: block; color: var(--muted); font-size: .75rem; }
+mark { background: var(--mint); color: var(--ink); border-radius: 2px; }
+@media (max-width: 850px) { main { gap: 26px; padding: 22px; grid-template-columns: minmax(220px,1fr) minmax(320px,404px); } }
+@media (max-width: 640px) { main { display: flex; flex-direction: column; padding: 16px; align-items: stretch; } .device { max-width: 404px; height: 690px; align-self: center; } aside { width: 100%; } }
+</style>
+</head>
+<body>
+<main>
+  <aside>
+    <h1>Переписка ChildWatch</h1>
+    <p>Предварительный макет семейного чата. Попробуйте найти «бассейн», открыть цитату или перейти к непрочитанному.</p>
+    <ul>
+      <li><strong>Компактная шапка</strong><span>Аватар, название, участники и заметная кнопка поиска.</span></li>
+      <li><strong>Читаемая история</strong><span>Бирюзовая граница непрочитанного и переход по цитате.</span></li>
+      <li><strong>Поле ответа</strong><span>Цитата над полем ввода. Её можно убрать одним нажатием.</span></li>
+    </ul>
+    <div class="examples">
+      <button type="button" id="demo-search">Пример поиска</button>
+      <button type="button" id="demo-unread">К непрочитанному</button>
+      <button type="button" id="demo-reply">Пример ответа</button>
+    </div>
+  </aside>
+  <section class="device" aria-label="Пример экрана семейного чата">
+    <div class="system" aria-hidden="true"><span>18:42</span><span>4G ▰</span></div>
+    <header>
+      <button class="icon" id="back" type="button" aria-label="Вернуться к переписке">‹</button>
+      <span class="avatar" aria-hidden="true">С</span>
+      <div><div class="chat-title">Семья</div><div class="members">Мама, Папа, Лёва</div></div>
+      <button class="icon" id="search" type="button" aria-label="Поиск в переписке"><span class="magnify" aria-hidden="true"></span></button>
+    </header>
+    <div class="thread" aria-label="Сообщения" tabindex="0">
+      <p class="day">Сегодня</p>
+      <article class="bubble" id="pool" data-author="Мама"><div class="name">Мама</div><p>Лёва, после школы бассейн в 18:30. Возьми полотенце.</p><time class="stamp">16:12</time></article>
+      <article class="bubble own" id="towel" data-author="Вы"><p>Полотенце уже в рюкзаке.</p><time class="stamp">16:14 ✓✓</time></article>
+      <div class="unread" id="unread">Непрочитанные сообщения</div>
+      <article class="bubble" id="meeting" data-author="Папа"><div class="name">Папа</div><p>Заберу тебя у входа после тренировки.</p><time class="stamp">18:39</time></article>
+      <article class="bubble own" id="answer" data-author="Вы">
+        <button class="quote" data-jump="pool" type="button"><strong>Мама</strong>Лёва, после школы бассейн в 18:30.</button>
+        <p>Хорошо, я уже на месте.</p><time class="stamp">18:41 ✓✓</time>
+      </article>
+    </div>
+    <button class="jump" id="latest" type="button">К последним сообщениям ↓</button>
+    <footer>
+      <div class="reply" id="reply-panel">
+        <button class="quote" id="reply-source" type="button" data-jump="meeting"><strong>Ответ Папе</strong>Заберу тебя у входа после тренировки.</button>
+        <button class="icon" id="remove-reply" type="button" aria-label="Убрать цитату">×</button>
+      </div>
+      <form class="composer">
+        <button class="icon" type="button" aria-label="Вложения" title="Вложения">＋</button>
+        <input id="message" aria-label="Сообщение" placeholder="Сообщение" autocomplete="off">
+        <button class="icon send" type="submit" aria-label="Отправить">↑</button>
+      </form>
+    </footer>
+    <section class="search-view" aria-label="Результаты поиска" hidden>
+      <form class="searchbar">
+        <input id="query" type="search" aria-label="Слово или фраза" placeholder="Слово или фраза" maxlength="120">
+        <button class="secondary" type="submit">Найти</button>
+      </form>
+      <div class="hits" aria-live="polite"></div>
+    </section>
+  </section>
+</main>
+<script>
+const byId = id => document.getElementById(id);
+const thread = document.querySelector('.thread');
+const searchView = document.querySelector('.search-view');
+const footer = document.querySelector('footer');
+const hits = document.querySelector('.hits');
+const query = byId('query');
+function mode(searching) {
+  searchView.hidden = !searching;
+  thread.hidden = footer.hidden = byId('latest').hidden = searching;
+  if (searching) query.focus();
+}
+function jump(id) {
+  mode(false);
+  thread.querySelector('.target')?.classList.remove('target');
+  const target = byId(id);
+  if (!target) return;
+  target.classList.toggle('target', id !== 'unread');
+  target.scrollIntoView({ block: 'nearest' });
+}
+function searchMessages() {
+  const term = query.value.trim();
+  const lower = term.toLocaleLowerCase('ru');
+  hits.replaceChildren();
+  if (!lower) return;
+  const matches = [...thread.querySelectorAll('.bubble')].reverse().filter(row =>
+    row.querySelector('p').textContent.toLocaleLowerCase('ru').includes(lower));
+  if (!matches.length) {
+    const empty = document.createElement('p');
+    empty.textContent = 'Совпадений нет';
+    hits.append(empty);
+  }
+  for (const row of matches) {
+    const result = document.createElement('button');
+    result.type = 'button';
+    result.className = 'hit';
+    const label = document.createElement('span');
+    label.textContent = row.dataset.author + ', ' + row.querySelector('time').textContent;
+    const preview = row.querySelector('p').textContent;
+    const at = preview.toLocaleLowerCase('ru').indexOf(lower);
+    const marked = document.createElement('mark');
+    marked.textContent = preview.slice(at, at + term.length);
+    result.append(label, preview.slice(0, at), marked, preview.slice(at + term.length));
+    result.onclick = () => jump(row.id);
+    hits.append(result);
+  }
+}
+byId('search').onclick = () => mode(true);
+byId('back').onclick = () => mode(false);
+byId('demo-search').onclick = () => { mode(true); query.value = 'бассейн'; searchMessages(); };
+byId('demo-unread').onclick = () => jump('unread');
+byId('demo-reply').onclick = () => { mode(false); byId('reply-panel').hidden = false; byId('message').focus(); };
+byId('remove-reply').onclick = () => { byId('reply-panel').hidden = true; };
+byId('latest').onclick = () => { jump(thread.lastElementChild.id); thread.scrollTop = thread.scrollHeight; };
+document.querySelector('.searchbar').onsubmit = event => { event.preventDefault(); searchMessages(); };
+document.querySelector('.device').onclick = event => {
+  const target = event.target.closest('[data-jump]');
+  if (target) jump(target.dataset.jump);
+};
+document.querySelector('.composer').onsubmit = event => {
+  event.preventDefault();
+  const field = byId('message');
+  if (!field.value.trim()) return;
+  const row = document.createElement('article');
+  row.className = 'bubble own';
+  row.id = 'mock-message-' + thread.children.length;
+  row.dataset.author = 'Вы';
+  if (!byId('reply-panel').hidden) {
+    const quote = byId('reply-source').cloneNode(true);
+    quote.removeAttribute('id');
+    row.append(quote);
+  }
+  const text = document.createElement('p');
+  text.textContent = field.value.trim();
+  const time = document.createElement('time');
+  time.className = 'stamp';
+  time.textContent = '18:42';
+  row.append(text, time);
+  thread.append(row);
+  field.value = '';
+  byId('reply-panel').hidden = true;
+  thread.scrollTop = thread.scrollHeight;
+};
+</script>
+</body>
+</html>

@@ -9,7 +9,20 @@ package ru.childwatch.shared.chat
  */
 data class ChatV2ConversationsResponse(
     val success: Boolean = false,
-    val conversations: List<ChatV2ConversationDto> = emptyList()
+    val conversations: List<ChatV2ConversationDto> = emptyList(),
+    val groupAccess: List<ChatV2GroupAccessDto>? = null
+) {
+    fun activeGroupIdsFor(scope: ChatV2ReceiptScope?): Set<String>? {
+        if (!success || scope == null || !scope.isComplete()) return null
+        return groupAccess?.singleOrNull { it.familyId == scope.family && it.actorMemberId == scope.member }
+            ?.activeGroupIds?.takeUnless { ids -> ids.any { it.isNullOrBlank() } }?.toSet()
+    }
+}
+
+data class ChatV2GroupAccessDto(
+    val familyId: String,
+    val actorMemberId: String,
+    val activeGroupIds: List<String>? = null
 )
 
 data class ChatV2DirectConversationRequest(
@@ -99,15 +112,20 @@ data class ChatV2MessagesResponse(
     val conversationId: String,
     val messages: List<ChatV2MessageDto> = emptyList(),
     val nextBeforeSequence: Long? = null,
-    val hasMore: Boolean = false
+    val hasMore: Boolean = false,
+    val anchorSequence: Long? = null,
+    val quotedMessages: List<ChatV2MessageDto>? = null
 )
+
+data class ChatV2SearchRequest(val query: String)
 
 data class ChatV2SendMessageRequest(
     val clientMessageId: String,
     val text: String,
     val clientSentAt: Long,
     val messageType: String = "TEXT",
-    val attachmentIds: List<String> = emptyList()
+    val attachmentIds: List<String> = emptyList(),
+    val replyToMessageId: String? = null
 )
 
 data class ChatV2SendMessageResponse(
@@ -180,7 +198,8 @@ data class ChatV2MessageDto(
     val receipts: List<ChatV2MessageReceiptDto> = emptyList(),
     val messageType: String? = "TEXT",
     val attachments: List<ChatV2AttachmentDto>? = emptyList(),
-    val mediaFallback: Boolean = false
+    val mediaFallback: Boolean = false,
+    val replyToMessageId: String? = null
 )
 
 data class ChatV2MessageReceiptDto(
@@ -262,6 +281,7 @@ fun ChatV2MessageDto.toDomain(): ConversationMessage = ConversationMessage(
     deletedAt = deletedAt,
     deliveryState = deliveryState.toChatDeliveryState(),
     legacyMessageId = legacyMessageId,
+    replyToMessageId = replyToMessageId.takeIf { deletedAt == null },
     messageType = messageType?.takeIf { it in ChatAttachmentPolicy.TYPES || it == "TEXT" } ?: "TEXT",
     attachments = if (deletedAt == null) attachments.orEmpty() else emptyList()
 )

@@ -8,7 +8,7 @@ import static org.junit.Assert.*;
 
 public class ArcanoidRoomSnapshotTest {
     static JSONObject room() throws Exception {
-        return new JSONObject().put("protocolVersion",1).put("gameId","game-one").put("epoch","epoch-one").put("revision",1)
+        return new JSONObject().put("protocolVersion",2).put("gameId","game-one").put("epoch","epoch-one").put("revision",1)
             .put("phase","PAUSED").put("reason",JSONObject.NULL).put("ready",new JSONArray().put(false).put(false))
             .put("connected",new JSONArray().put(true).put(true)).put("countdownMs",0)
             .put("arcanoid",new JSONObject().put("tick",0).put("width",1000).put("height",1400).put("radius",20)
@@ -57,6 +57,8 @@ public class ArcanoidRoomSnapshotTest {
         assertFalse(retry.has("player"));assertFalse(retry.has("targetTick"));
         ArcanoidRealtimeBridge.LatestPosition latest=new ArcanoidRealtimeBridge.LatestPosition();latest.offer(.1);latest.offer(.8);latest.offer(Double.NaN);
         assertEquals(.8,latest.take(),0);assertNull(latest.take());latest.offer(2);assertEquals(1,latest.take(),0);latest.offer(.3);latest.clear();assertNull(latest.take());
+        latest.offer(.9);latest.restoreIfEmpty(.2);assertEquals(.9,latest.take(),0);
+        latest.restoreIfEmpty(.2);assertEquals(.2,latest.take(),0);
     }
     private static void reject(JSONObject raw)throws Exception{try{ArcanoidRoomSnapshot.parse(raw);fail("Invalid projection accepted");}catch(JSONException expected){}}
 }

@@ -18,6 +18,98 @@ class FamilyGameService {
     this.db = db;
     this.clock = clock;
     this.access = new DeviceAccessService(db);
+    this.roomQueues = new Map();
+    this.sessionServices = [];
+  }
+
+  runRoom(id, work) {
+    const previous = this.roomQueues.get(id) || Promise.resolve();
+    const result = previous.then(work);
+    const tail = result.catch(() => {});
+    this.roomQueues.set(id, tail);
+    tail.then(() => { if (this.roomQueues.get(id) === tail) this.roomQueues.delete(id); });
+    return result;
+  }
+
+  async changed(game) {
+    if (this.notifyChanged) try { await this.notifyChanged(game); }
+    catch (_) { console.warn('Family game refresh deferred'); }
+  }
+
+  async remove(actor, id, input) {
+    await this.ensure();
+    if (!uuid(id) || !uuid(input.operationId) || !Number.isSafeInteger(input.version) || input.version < 1)
+      fail(400, 'GAME_INVALID_DELETE');
+    const payload = JSON.stringify({ delete:true, version:input.version, confirmActive:input.confirmActive === true });
+    return this.runRoom(id, async () => {
+      const result = await this.db.withTransaction(async () => {
+        const members = await this.context(actor);
+        await this.expire(actor.familyId);
+        const row = await this.row(actor,id,members);
+        const previous = await this.db.get('SELECT * FROM family_game_actions WHERE id=?',[input.operationId]);
+        if (previous) {
+          if (previous.game_id !== id || previous.member_id !== actor.memberId || previous.payload !== payload)
+            fail(409, 'GAME_ACTION_ID_REUSED');
+          return {replayed:true, game:this.view(row,actor,members)};
+        }
+        if (row.version !== input.version) fail(409, 'GAME_VERSION_CONFLICT');
+        if (OPEN.includes(row.status) && input.confirmActive !== true) fail(409, 'GAME_CONFIRM_REQUIRED');
+        const now = this.clock();
+        await this.db.run(`UPDATE family_games SET status=CASE WHEN status IN ('INVITED','SETUP','PLAYING')
+          THEN 'CANCELLED' ELSE status END,next_mark=NULL,closed_at=COALESCE(closed_at,?),
+          version=version+1,updated_at=? WHERE id=?`,[now,now,id]);
+        await this.db.run('INSERT INTO family_game_actions(id,game_id,member_id,payload,created_at) VALUES (?,?,?,?,?)',
+          [input.operationId,id,actor.memberId,payload,now]);
+        return {replayed:false,game:this.view(await this.row(actor,id,members),actor,members)};
+      });
+      if (!result.replayed) {
+        await this.changed(result.game);
+        for (const service of this.sessionServices) service.releaseGame(id);
+      }
+      return result;
+    });
+  }
+
+  async cleanup(limit = 100) {
+    await this.ensure();
+    // Expire all families, including those whose clients never open the lobby again.
+    const now = this.clock();
+    const expired = await this.db.all("SELECT * FROM family_games WHERE expires_at<=? AND status IN ('INVITED','SETUP','PLAYING')",[now]);
+    for (const row of expired) await this.runRoom(row.id, async () => {
+      const didExpire = await this.db.withTransaction(async () => {
+        const current = await this.db.get('SELECT * FROM family_games WHERE id=?',[row.id]);
+        if (!current || !OPEN.includes(current.status) || current.expires_at > now) return false;
+        await this.db.run(`UPDATE family_games SET status='EXPIRED',next_mark=NULL,closed_at=?,updated_at=?,version=version+1 WHERE id=?`,[now,now,row.id]);
+        return true;
+      });
+      if (!didExpire) return;
+      await this.changed({id:row.id,familyId:row.family_id,host:{memberId:row.host_member_id},guest:{memberId:row.guest_member_id}});
+      for (const service of this.sessionServices) service.releaseGame(row.id);
+    });
+    const rows = await this.db.all(`SELECT id FROM family_games WHERE closed_at<=?
+      AND status NOT IN ('INVITED','SETUP','PLAYING') ORDER BY closed_at LIMIT ?`,[now-86400000,limit]);
+    const tables = await this.db.all("SELECT name FROM sqlite_master WHERE type='table' AND name IN ('family_snake_sessions','family_arcanoid_sessions')");
+    for (const {id} of rows) await this.runRoom(id, async () => {
+      for (const service of this.sessionServices) service.releaseGame(id);
+      await this.db.withTransaction(async () => {
+        await this.db.run('DELETE FROM family_game_actions WHERE game_id=?',[id]);
+        for (const {name} of tables) await this.db.run(`DELETE FROM ${name} WHERE game_id=?`,[id]);
+        await this.db.run("DELETE FROM family_games WHERE id=? AND closed_at<=? AND status NOT IN ('INVITED','SETUP','PLAYING')",[id,now-86400000]);
+      });
+    });
+    return rows.length;
+  }
+
+  async startCleanup() {
+    await this.cleanup();
+    if (this.cleanupTimer) return;
+    let running = false;
+    this.cleanupTimer = setInterval(async () => {
+      if (running) return; running = true;
+      try { await this.cleanup(); } catch (error) { console.error('Game cleanup failed:',error.message); }
+      finally { running = false; }
+    },900000);
+    this.cleanupTimer.unref();
   }
 
   async ensure() {
@@ -31,6 +123,9 @@ class FamilyGameService {
       const columns = await this.db.all('PRAGMA table_info(family_games)');
       if (!columns.some(column => column.name === 'type'))
         await this.db.run("ALTER TABLE family_games ADD COLUMN type TEXT NOT NULL DEFAULT 'TIC_TAC_TOE'");
+      if (!columns.some(column => column.name === 'closed_at'))
+        await this.db.run('ALTER TABLE family_games ADD COLUMN closed_at INTEGER');
+      await this.db.run("UPDATE family_games SET closed_at=updated_at WHERE closed_at IS NULL AND status NOT IN ('INVITED','SETUP','PLAYING')");
       await this.db.run('CREATE INDEX IF NOT EXISTS games_family_updated ON family_games(family_id,updated_at)');
       await this.db.run(`CREATE TABLE IF NOT EXISTS family_game_actions (
         id TEXT PRIMARY KEY, game_id TEXT NOT NULL, member_id TEXT NOT NULL,
@@ -63,8 +158,8 @@ class FamilyGameService {
 
   async expire(familyId) {
     const now = this.clock();
-    await this.db.run(`UPDATE family_games SET status='EXPIRED',next_mark=NULL,version=version+1,updated_at=?
-      WHERE family_id=? AND expires_at<=? AND status IN ('INVITED','SETUP','PLAYING')`, [now, familyId, now]);
+    await this.db.run(`UPDATE family_games SET status='EXPIRED',next_mark=NULL,version=version+1,updated_at=?,closed_at=?
+      WHERE family_id=? AND expires_at<=? AND status IN ('INVITED','SETUP','PLAYING')`, [now, now, familyId, now]);
   }
 
   async row(actor, id, members) {
@@ -91,8 +186,8 @@ class FamilyGameService {
       ...(snake ? { snake: Snake.view(Snake.restore(JSON.parse(row.board))) } : {}),
       ...(arcanoid ? { arcanoid: Arcanoid.view(Arcanoid.restore(JSON.parse(row.board))) } : {}),
       myMark: actor.memberId === row.host_member_id ? 'X' : 'O',
-      host: { memberId: row.host_member_id, displayName: members.find(m => m.id === row.host_member_id)?.displayName || '' },
-      guest: { memberId: row.guest_member_id, displayName: members.find(m => m.id === row.guest_member_id)?.displayName || '' },
+      host: { memberId: row.host_member_id, displayName: members.find(m => m.id === row.host_member_id)?.displayName || '', avatarKey:members.find(m=>m.id===row.host_member_id)?.avatarKey || null },
+      guest: { memberId: row.guest_member_id, displayName: members.find(m => m.id === row.guest_member_id)?.displayName || '', avatarKey:members.find(m=>m.id===row.guest_member_id)?.avatarKey || null },
       winnerMemberId: row.winner_member_id, winningLine: row.winning_line ? JSON.parse(row.winning_line) : null,
       createdAt: row.created_at, updatedAt: row.updated_at, expiresAt: row.expires_at
     };
@@ -104,6 +199,7 @@ class FamilyGameService {
       const members = await this.context(actor);
       await this.expire(actor.familyId);
       const rows = await this.db.all(`SELECT * FROM family_games WHERE family_id=?
+        AND status IN ('INVITED','SETUP','PLAYING')
         AND (host_member_id=? OR guest_member_id=?) ORDER BY updated_at DESC,id LIMIT 50`,
       [actor.familyId,actor.memberId,actor.memberId]);
       return rows.filter(r => [r.host_member_id,r.guest_member_id].every(id => members.some(m => m.id === id)))
@@ -170,7 +266,7 @@ class FamilyGameService {
         (input.action !== 'PLACE_FLEET' && input.ships !== undefined) ||
         (input.action === 'PLACE_FLEET' && !Battleship.fleet(input.ships))) fail(400,'GAME_INVALID_ACTION');
     const payload = JSON.stringify({ action: input.action, version: input.version, cell: input.cell, ships: input.action === 'PLACE_FLEET' ? Battleship.fleet(input.ships) : undefined });
-    return this.db.withTransaction(async () => {
+    return this.runRoom(id, () => this.db.withTransaction(async () => {
       const members = await this.context(actor);
       await this.expire(actor.familyId);
       const row = await this.row(actor,id,members);
@@ -227,12 +323,12 @@ class FamilyGameService {
       const now = this.clock();
       const expires = input.action === 'ACCEPT' ? now+24*60*60_000 : row.expires_at;
       await this.db.run(`UPDATE family_games SET status=?,board=?,next_mark=?,winner_member_id=?,winning_line=?,
-        version=version+1,updated_at=?,expires_at=? WHERE id=?`,
-      [status,JSON.stringify(board),next,winner,line ? JSON.stringify(line) : null,now,expires,id]);
+        version=version+1,updated_at=?,expires_at=?,closed_at=? WHERE id=?`,
+      [status,JSON.stringify(board),next,winner,line ? JSON.stringify(line) : null,now,expires,OPEN.includes(status)?null:now,id]);
       await this.db.run('INSERT INTO family_game_actions(id,game_id,member_id,payload,created_at) VALUES (?,?,?,?,?)',
         [input.actionId,id,actor.memberId,payload,now]);
       return { replayed: false, game: this.view(await this.row(actor,id,members),actor,members) };
-    });
+    }));
   }
 }
 FamilyGameService.Error = GameError;

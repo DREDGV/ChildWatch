@@ -16,28 +16,39 @@ public class FamilyGameLobbyActivity extends GameScreen {
     private String gameType="BATTLESHIP";
     private boolean snake,arcanoid;
     private final Handler handler=new Handler(Looper.getMainLooper());
-    private GameOnlineBridge.Client client;
+    private GameOnlineBridge.Client client,reader;
     private LinearLayout matches;
-    private boolean active,busy,supported;
+    private boolean active,busy,supported,showingActionError;
+    private boolean reading,refreshAgain;
+    private long actionGeneration;
+    private JSONArray shownRows;
     private JSONArray members=new JSONArray();
     private String actor="";
     private com.google.android.material.button.MaterialButton invite,retry;
     private final Runnable tick=()->refresh();
+    private final Runnable changed=()->{if(active){handler.removeCallbacks(tick);handler.postDelayed(tick,150);}};
     @Override public void onCreate(Bundle state){
         super.onCreate(state);String requested=getIntent().getStringExtra(EXTRA_GAME_TYPE);snake="SNAKE_COOP".equals(requested);arcanoid="ARKANOID_COOP".equals(requested);gameType=snake?"SNAKE_COOP":arcanoid?"ARKANOID_COOP":"BATTLESHIP";
-        screen(snake?"Семейная Змейка":arcanoid?"Семейный Арканоид":"Семейный Морской бой");client=new GameOnlineBridge.Client(this);
+        screen(snake?"Семейная Змейка":arcanoid?"Семейный Арканоид":"Семейный Морской бой");
+        client=new GameOnlineBridge.Client(this);
+        reader=new GameOnlineBridge.Client(this);
         notice(snake?getString(R.string.cw_snake_online_help):arcanoid?getString(R.string.cw_arcanoid_online_help):"Пригласите близкого. Каждый расставляет свой флот на своём телефоне; корабли соперника скрыты.");
         invite=addButton("Пригласить в игру",true,this::choose);
         retry=addButton("Повторить отправку",false,()->{
-            if(busy)return;busy=true;controls();client.retry(this::result);
+            if(busy)return;
+            beginAction();
+            client.retry(this::result);
         });
-        addButton("Обновить партии",false,this::refresh);
+        addButton("Обновить партии",false,()->{
+            showingActionError=false;
+            if(supported&&!actor.isEmpty())refresh();else capabilities();
+        });
         matches=new LinearLayout(this);matches.setOrientation(LinearLayout.VERTICAL);content.addView(matches);
         controls();
     }
-    @Override protected void onResume(){super.onResume();active=true;capabilities();}
-    @Override protected void onPause(){active=false;handler.removeCallbacks(tick);super.onPause();}
-    @Override protected void onDestroy(){client.close();super.onDestroy();}
+    @Override protected void onResume(){super.onResume();active=true;GameOnlineBridge.observe(changed);capabilities();}
+    @Override protected void onPause(){active=false;GameOnlineBridge.unobserve(changed);handler.removeCallbacks(tick);super.onPause();}
+    @Override protected void onDestroy(){reader.close();client.close();super.onDestroy();}
     private void controls(){invite.setEnabled(supported&&!busy&&!client.hasPending()&&members.length()>0);
         retry.setVisibility(client.hasPending()?android.view.View.VISIBLE:android.view.View.GONE);retry.setEnabled(!busy);}
     private void capabilities(){
@@ -68,18 +79,42 @@ public class FamilyGameLobbyActivity extends GameScreen {
     private void sendInvitation(JSONObject member){
         if(busy||client.hasPending())return;
         try{JSONObject body=new JSONObject().put("gameId",UUID.randomUUID().toString()).put("type",gameType).put("targetMemberId",member.getString("memberId"));
-            busy=true;controls();client.write("/",body,this::result);
+            beginAction();client.write("/",body,this::result);
         }catch(Exception error){notice("Не удалось подготовить приглашение.");}
     }
     private void refresh(){
-        handler.removeCallbacks(tick);if(!active||busy||!supported)return;
-        busy=true;controls();client.read("/",(json,error)->{
-            busy=false;
-            if(!client.available()){matches.removeAllViews();supported=false;notice("Профиль изменился. Откройте игры через главный экран.");controls();return;}
-            if(error!=null)notice("Партии не обновились. Сохранённые действия можно повторить после восстановления связи.");
-            else showMatches(json.optJSONArray("games"));
-            controls();if(active)handler.postDelayed(tick,4000);
+        handler.removeCallbacks(tick);
+        if(!active||busy||!supported)return;
+        if(reading){refreshAgain=true;return;}
+        reading=true;
+        long requestedBeforeAction=actionGeneration;
+        reader.read("/",(json,error)->{
+            reading=false;
+            boolean refreshRequested=refreshAgain;
+            refreshAgain=false;
+            if(requestedBeforeAction!=actionGeneration){refresh();return;}
+            if(!client.available()){matches.removeAllViews();shownRows=null;supported=false;notice("Профиль изменился. Откройте игры через главный экран.");controls();return;}
+            if(error!=null){if(!showingActionError)notice("Партии не обновились. Проверьте связь и обновите список.");}
+            else displayRows(json.optJSONArray("games"));
+            controls();
+            handler.removeCallbacks(tick);
+            if(active)handler.postDelayed(tick,refreshRequested?0:4000);
         });
+    }
+    private void displayRows(JSONArray rows){
+        JSONArray next=rows==null?new JSONArray():rows;
+        if(shownRows!=null&&shownRows.toString().equals(next.toString()))return;
+        shownRows=next;
+        showMatches(next);
+    }
+    private void hideGame(String id){
+        if(shownRows==null||id.isEmpty())return;
+        JSONArray remaining=new JSONArray();
+        for(int i=0;i<shownRows.length();i++){
+            JSONObject game=shownRows.optJSONObject(i);
+            if(game!=null&&!id.equals(game.optString("id")))remaining.put(game);
+        }
+        displayRows(remaining);
     }
     private void showMatches(JSONArray rows){
         matches.removeAllViews();int count=0;
@@ -99,27 +134,57 @@ public class FamilyGameLobbyActivity extends GameScreen {
             if("EXPIRED".equals(status))state="Приглашение или партия истекли";
             else if("DECLINED".equals(status))state="Приглашение отклонено";
             else if("CANCELLED".equals(status))state="Приглашение отменено";
-            matches.addView(label(name+"\n"+state,18));count++;
+            if(!java.util.Arrays.asList("INVITED","SETUP","PLAYING").contains(status))continue;
+            com.google.android.material.card.MaterialCardView card=new com.google.android.material.card.MaterialCardView(this);
+            card.setCardElevation(0);card.setRadius(dp(16));card.setStrokeWidth(dp(1));card.setStrokeColor(getColor(R.color.cw_color_outline_variant));card.setCardBackgroundColor(getColor(R.color.cw_color_surface));
+            LinearLayout row=new LinearLayout(this);row.setOrientation(LinearLayout.VERTICAL);row.setPadding(dp(16),dp(8),dp(16),dp(12));card.addView(row);
+            LinearLayout identity=new LinearLayout(this);identity.setGravity(android.view.Gravity.CENTER_VERTICAL);row.addView(identity);
+            android.widget.ImageView avatar=new android.widget.ImageView(this);android.graphics.drawable.Drawable image=AvatarPresetCatalog.createDrawable(this,peer==null?null:peer.optString("avatarKey"));
+            avatar.setImageDrawable(image==null?LetterAvatarFactory.create(this,name):image);avatar.setScaleType(android.widget.ImageView.ScaleType.CENTER_CROP);avatar.setImportantForAccessibility(android.view.View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            avatar.setOutlineProvider(new android.view.ViewOutlineProvider(){public void getOutline(android.view.View view,android.graphics.Outline outline){outline.setOval(0,0,view.getWidth(),view.getHeight());}});avatar.setClipToOutline(true);identity.addView(avatar,new LinearLayout.LayoutParams(dp(48),dp(48)));
+            android.widget.TextView person=label(name,18);person.setTypeface(null,android.graphics.Typeface.BOLD);LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(0,-2,1);np.leftMargin=dp(12);identity.addView(person,np);row.addView(label(state,16));
+            LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(-1,-2);cp.topMargin=dp(16);matches.addView(card,cp);count++;
             if("INVITED".equals(status)){
-                if(!host)matches.addView(button("Принять приглашение",true,()->action(g,"ACCEPT")));
-                matches.addView(button(host?"Отменить приглашение":"Отклонить",false,()->action(g,host?"CANCEL":"DECLINE")));
-            }else if(!(snake||arcanoid)||realtimeCanOpen(status))matches.addView(button("Открыть поле",true,()->open(g)));
+                if(!host)row.addView(button("Принять приглашение",true,()->action(g,"ACCEPT")));
+                row.addView(button(host?"Отменить приглашение":"Отклонить",false,()->action(g,host?"CANCEL":"DECLINE")));
+            }else {
+                if(!(snake||arcanoid)||realtimeCanOpen(status))row.addView(button("Продолжить партию",true,()->open(g)));
+                row.addView(button("Завершить и убрать",false,()->remove(g)));
+            }
         }
         if(count==0)matches.addView(label("Пока нет партий. Пригласите участника семьи, чтобы сыграть вместе.",16));
+    }
+    private void remove(JSONObject game){
+        if(busy||client.hasPending())return;
+        new MaterialAlertDialogBuilder(this).setTitle("Завершить и убрать?").setMessage("Партия завершится у обоих игроков.")
+            .setNegativeButton("Продолжить играть",null).setPositiveButton("Завершить и убрать",(dialog,which)->{
+                try{JSONObject body=new JSONObject().put("operationId",UUID.randomUUID().toString()).put("version",game.getLong("version")).put("confirmActive",true);
+                    String path="/"+game.getString("id");
+                    beginAction();client.delete(path,body,this::result);
+                }catch(Exception invalid){busy=false;controls();notice("Не удалось подготовить завершение партии.");}
+            }).show();
     }
     private void action(JSONObject g,String action){
         if(busy||client.hasPending())return;
         try{JSONObject body=new JSONObject().put("actionId",UUID.randomUUID().toString()).put("version",g.getLong("version")).put("action",action);
-            busy=true;controls();client.write("/"+g.getString("id")+"/actions",body,this::result);
+            String path="/"+g.getString("id")+"/actions";
+            beginAction();client.write(path,body,this::result);
         }catch(Exception error){notice("Не удалось подготовить действие.");}
     }
+    private void beginAction(){
+        actionGeneration++;
+        busy=true;
+        controls();
+    }
     private void result(JSONObject json,Exception error){
-        busy=false;controls();notice(error==null?"Готово.":GameOnlineBridge.explain(error));
+        busy=false;showingActionError=error!=null;controls();notice(error==null?"Готово.":GameOnlineBridge.explain(error));
         if(error==null&&json.optJSONObject("game")!=null){JSONObject g=json.optJSONObject("game");
-            if("INVITED".equals(g.optString("status"))&&"X".equals(g.optString("myMark")))
+            String status=g.optString("status");
+            if("INVITED".equals(status)&&"X".equals(g.optString("myMark")))
                 notice("Приглашение отправлено. Ждём ответа участника семьи.");
-            if(active&&gameType.equals(g.optString("type"))&&("SETUP".equals(g.optString("status"))||"PLAYING".equals(g.optString("status"))))
+            if(active&&gameType.equals(g.optString("type"))&&("SETUP".equals(status)||"PLAYING".equals(status)))
                 open(g);
+            if(!java.util.Arrays.asList("INVITED","SETUP","PLAYING").contains(status))hideGame(g.optString("id"));
         }
         if(active)refresh();
     }

@@ -17,7 +17,8 @@ class ChatAdapter(
     /** Long press opens the edit and delete actions for that message. */
     private val onMessageLongPress: ((ChatMessage) -> Unit)? = null,
     private val onAttachmentOpen: ((ChatMessage) -> Unit)? = null,
-    private val onAttachmentPreview: ((ChatMessage, android.widget.ImageView) -> Unit)? = null
+    private val onAttachmentPreview: ((ChatMessage, android.widget.ImageView) -> Unit)? = null,
+    private val onQuoteOpen: ((String) -> Unit)? = null
 ) : ListAdapter<ChatMessage, ChatAdapter.MessageViewHolder>(MessageDiffCallback()) {
 
     private fun isOutgoing(message: ChatMessage) =
@@ -67,10 +68,14 @@ class ChatAdapter(
 
     inner class MessageViewHolder(itemView: View, private val isOutgoing: Boolean) :
         RecyclerView.ViewHolder(itemView) {
+        private val dayDivider: TextView = itemView.findViewById(R.id.chatDayDivider)
+        private val unreadDivider: View = itemView.findViewById(R.id.chatUnreadDivider)
+        private val bubble: View = itemView.findViewById(R.id.chatMessageBubble)
+        private val quoteBlock: View = itemView.findViewById(R.id.chatQuoteBlock)
+        private val quoteText: TextView? = itemView.findViewById(R.id.chatQuoteText)
         private val messageText: TextView = itemView.findViewById(R.id.messageText)
         private val timestampText: TextView = itemView.findViewById(R.id.timestampText)
         private val senderText: TextView? = itemView.findViewById(R.id.senderText)
-        private val statusText: TextView? = itemView.findViewById(R.id.statusText)
         private val retryButton: TextView? = itemView.findViewById(R.id.retryButton)
 
         private val attachmentCard: View? = itemView.findViewById(R.id.attachmentCard)
@@ -97,7 +102,36 @@ class ChatAdapter(
 
         fun bind(message: ChatMessage) {
             val withdrawn = message.deletedAt != null
+            dayDivider.text = message.dayLabel
+            dayDivider.visibility = if (message.dayLabel == null) View.GONE else View.VISIBLE
+            unreadDivider.visibility = if (message.unreadBoundary) View.VISIBLE else View.GONE
+            val tone = if (isOutgoing) R.drawable.cw_chat_bubble_outgoing else R.drawable.cw_chat_bubble_incoming
             val attachment = message.attachments.firstOrNull().takeUnless { withdrawn }
+            val emotionOnly = attachment?.type in setOf("GIF", "STICKER") && message.text.isBlank() && message.quoteLabel == null
+            bubble.setBackgroundResource(if (emotionOnly) 0 else tone)
+            val space = itemView.resources.displayMetrics.density
+            bubble.setPaddingRelative((12 * space).toInt(), (8 * space).toInt(), (12 * space).toInt(), (8 * space).toInt())
+            itemView.setBackgroundColor(if (message.historyTarget && !message.unreadBoundary)
+                itemView.context.getColor(R.color.cw_color_surface_variant) else android.graphics.Color.TRANSPARENT)
+            val quote = message.quoteLabel.takeUnless { withdrawn }
+            val target = message.replyToMessageId.takeUnless { withdrawn }
+            quoteBlock.visibility = if (quote == null) View.GONE else View.VISIBLE
+            quoteText?.text = quote?.let {
+                android.text.SpannableString(it).apply {
+                    val authorEnd = it.indexOf('\n')
+                    if (authorEnd > 0) {
+                        setSpan(android.text.style.StyleSpan(android.graphics.Typeface.BOLD), 0, authorEnd, 0)
+                        setSpan(android.text.style.ForegroundColorSpan(itemView.context.getColor(R.color.cw_color_primary)),
+                            0, authorEnd, 0)
+                    }
+                }
+            }
+            val canOpen = quote != null && target != null && onQuoteOpen != null
+            quoteBlock.setOnClickListener(if (canOpen) View.OnClickListener {
+                target?.let { onQuoteOpen?.invoke(it) }
+            } else null)
+            quoteBlock.isClickable = canOpen
+            quoteBlock.isFocusable = canOpen
             attachmentCard?.visibility = if (attachment == null) View.GONE else View.VISIBLE
             attachmentImage?.apply {
                 // Cancel the old target while its attachment tag still identifies its ownership.
@@ -109,8 +143,8 @@ class ChatAdapter(
             val emotion = attachment?.type in listOf("GIF", "STICKER")
             val density = itemView.resources.displayMetrics.density
             attachmentCard?.apply {
-                setBackgroundColor(if (emotion) android.graphics.Color.TRANSPARENT else context.getColor(R.color.cw_color_primary_container))
-                val pad = if (emotion) 0 else (12 * density).toInt()
+                setBackgroundResource(if (emotion) 0 else R.drawable.cw_chat_quote_surface)
+                val pad = if (emotion) 0 else (8 * density).toInt()
                 setPadding(pad, pad, pad, pad)
                 minimumWidth = if (emotion) 0 else (160 * density).toInt()
             }
@@ -124,7 +158,6 @@ class ChatAdapter(
             attachmentMeta?.visibility = if (emotion) View.GONE else View.VISIBLE
             attachmentOpen?.visibility = if (emotion) View.GONE else View.VISIBLE
             timestampText.setTextColor(itemView.context.getColor(R.color.cw_color_on_surface_variant))
-            senderText?.setTextColor(itemView.context.getColor(R.color.cw_color_on_surface_variant))
             attachmentName?.text = attachment?.filename.orEmpty()
             attachmentMeta?.text = attachment?.let {
                 val size = android.text.format.Formatter.formatShortFileSize(itemView.context, it.sizeBytes)
@@ -147,7 +180,7 @@ class ChatAdapter(
             }
             messageText.alpha = if (withdrawn) 0.6f else 1f
             // An edited message says so, the way messengers mark a rewrite.
-            timestampText.text = if (!withdrawn && message.editedAt != null) {
+            val timestamp = if (!withdrawn && message.editedAt != null) {
                 itemView.context.getString(
                     R.string.chat_message_edited_time,
                     message.getFormattedTime()
@@ -163,7 +196,7 @@ class ChatAdapter(
             }
 
             val senderName = message.getSenderName().trim()
-            if (senderName.isNotEmpty()) {
+            if (!isOutgoing && senderName.isNotEmpty()) {
                 senderText?.apply {
                     visibility = View.VISIBLE
                     text = senderName
@@ -172,30 +205,35 @@ class ChatAdapter(
                 senderText?.visibility = View.GONE
             }
 
-            statusText?.let { view ->
-                if (isOutgoing) {
-                    view.visibility = View.VISIBLE
-                    view.text = when (message.status) {
-                        ChatMessage.MessageStatus.SENDING ->
-                            itemView.context.getString(R.string.chat_status_sending)
-                        ChatMessage.MessageStatus.SENT ->
-                            itemView.context.getString(R.string.chat_status_sent)
-                        ChatMessage.MessageStatus.DELIVERED ->
-                            itemView.context.getString(R.string.chat_status_delivered)
-                        ChatMessage.MessageStatus.READ ->
-                            itemView.context.getString(R.string.chat_status_read)
-                        ChatMessage.MessageStatus.FAILED ->
-                            itemView.context.getString(R.string.chat_status_failed)
-                    }
-                    val statusColor = if (message.status == ChatMessage.MessageStatus.READ) {
-                        0xFF4CAF50.toInt()
-                    } else {
-                        0xFFB3B3B3.toInt()
-                    }
-                    view.setTextColor(statusColor)
-                } else {
-                    view.visibility = View.GONE
+            if (isOutgoing) {
+                val context = itemView.context
+                val statusName = context.getString(when (message.status) {
+                    ChatMessage.MessageStatus.QUEUED -> R.string.chat_status_queued
+                    ChatMessage.MessageStatus.SENDING -> R.string.chat_status_sending
+                    ChatMessage.MessageStatus.SENT -> R.string.chat_status_sent
+                    ChatMessage.MessageStatus.DELIVERED -> R.string.chat_status_delivered
+                    ChatMessage.MessageStatus.READ -> R.string.chat_status_read
+                    ChatMessage.MessageStatus.FAILED -> R.string.chat_status_failed
+                })
+                val statusLabel = when (message.status) {
+                    ChatMessage.MessageStatus.SENT -> "✓"
+                    ChatMessage.MessageStatus.DELIVERED, ChatMessage.MessageStatus.READ -> "✓✓"
+                    else -> statusName
                 }
+                val label = context.getString(R.string.chat_message_meta, timestamp, statusLabel)
+                val color = when (message.status) {
+                    ChatMessage.MessageStatus.READ -> R.color.cw_color_primary
+                    ChatMessage.MessageStatus.FAILED -> R.color.cw_color_error
+                    else -> R.color.cw_color_on_surface_variant
+                }
+                timestampText.text = android.text.SpannableString(label).apply {
+                    val statusStart = label.lastIndexOf(statusLabel).coerceAtLeast(0)
+                    setSpan(android.text.style.ForegroundColorSpan(context.getColor(color)), statusStart, length, 0)
+                }
+                timestampText.contentDescription = context.getString(R.string.chat_message_meta, timestamp, statusName)
+            } else {
+                timestampText.text = timestamp
+                timestampText.contentDescription = null
             }
 
             retryButton?.let { button ->

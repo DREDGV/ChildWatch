@@ -339,6 +339,8 @@
     <string name="chat_presence_online">в сети</string>
     <string name="chat_presence_connecting">подключение...</string>
     <string name="chat_presence_offline">не в сети</string>
+    <string name="chat_draft_preview">Черновик · %1$s</string>
+    <string name="chat_status_queued">В очереди на отправку</string>
     <string name="chat_status_sending">отправляется...</string>
     <string name="chat_status_sent">отправлено</string>
     <string name="chat_status_delivered">доставлено</string>

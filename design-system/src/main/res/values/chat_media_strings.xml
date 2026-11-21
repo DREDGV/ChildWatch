@@ -13,6 +13,8 @@
     <string name="chat_media_preparing">Подготовка файла…</string>
     <string name="chat_media_downloading">Скачивание · %1$d%%</string>
     <string name="chat_media_uploading">Отправка · %1$d%%</string>
+    <string name="chat_media_finishing">Файл загружен · отправляем сообщение</string>
+    <string name="chat_media_retry_scheduled">Отправка прервалась · повторим автоматически</string>
     <string name="chat_media_failed">Не отправлено · нажмите отправку для повтора</string>
     <string name="chat_media_unsupported">Вложения пока недоступны на сервере</string>
     <string name="chat_media_unavailable">Вложение недоступно или доступ отозван</string>

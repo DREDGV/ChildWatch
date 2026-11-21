@@ -426,6 +426,7 @@ class ChatConversationService {
       text: withdrawn ? "" : message.text,
       editedAt: message.editedAt || null,
       deletedAt: message.deletedAt || null,
+      replyToMessageId: withdrawn ? null : message.replyToMessageId,
       clientSentAt: message.clientSentAt || message.serverCreatedAt,
       serverCreatedAt: message.serverCreatedAt,
       legacyMessageId:
@@ -436,7 +437,7 @@ class ChatConversationService {
     };
   }
 
-  async listConversations(deviceId) {
+  async listConversations(deviceId, { includeGroupAccess = false } = {}) {
     const memberships = await this.resolveDeviceMemberships(deviceId);
     const byId = new Map();
 
@@ -522,7 +523,13 @@ class ChatConversationService {
         String(left.conversationId).localeCompare(String(right.conversationId))
       );
     });
-    return { conversations };
+    if (!includeGroupAccess) return { conversations };
+    const groupAccess = await Promise.all(memberships.map(async ({familyId, memberId}) => ({
+      familyId,
+      actorMemberId: memberId,
+      activeGroupIds: await this.dbManager.listActiveChatGroupIds(familyId, memberId),
+    })));
+    return { conversations, groupAccess };
   }
 
   async createDirectConversation(deviceId, targetMemberId) {
@@ -971,7 +978,11 @@ class ChatConversationService {
       clientSentAt = payload.clientSentAt;
     }
 
-    return { clientMessageId, text, clientSentAt, messageType, attachmentIds };
+    const replyToMessageId = payload?.replyToMessageId == null ? null :
+      this.requireIdentifier(payload.replyToMessageId, {
+        code: "INVALID_REPLY_SOURCE", message: "Invalid reply source"
+      });
+    return { clientMessageId, text, clientSentAt, messageType, attachmentIds, replyToMessageId };
   }
 
   async withReceipts(message) {
@@ -1018,10 +1029,14 @@ class ChatConversationService {
         clientMessageId: input.clientMessageId,
         text: input.text,
         messageType: input.messageType,
+        replyToMessageId: input.replyToMessageId,
         bindAttachments: input.messageType === "TEXT" ? null : (id) => this.attachments.bind(actor, id, input.messageType, input.attachmentIds),
         clientSentAt: input.clientSentAt,
       });
     } catch (error) {
+      if (error?.code === "REPLY_SOURCE_UNAVAILABLE") {
+        throw new ChatConversationError(422, error.code, "Reply source is unavailable");
+      }
       if (
         error?.message ===
         "Client message id is already used in another conversation"
@@ -1092,6 +1107,80 @@ class ChatConversationService {
       ...page,
       conversationId: actor.conversation.id,
       messages,
+      quotedMessages: await this.quotedMessages(actor, visible, hidden),
+    };
+  }
+
+  async quotedMessages(actor, messages, hidden) {
+    const inPage = new Set(messages.map(message => message.id));
+    const ids = [...new Set(messages.filter(message => !message.deletedAt).map(message => message.replyToMessageId)
+      .filter(id => id && !hidden.has(id) && !inPage.has(id)))];
+    const originals = await Promise.all(ids.map(id => this.dbManager.getChatMessageV2ById(id)));
+    return Promise.all(originals.filter(message => message?.conversationId === actor.conversation.id)
+      .map(message => this.withReceipts(message)));
+  }
+
+  async getMessageContext(deviceId, conversationId, { messageId, unread } = {}) {
+    const actor = await this.resolveConversationActor(deviceId, conversationId);
+    const id = actor.conversation.id;
+    const visible = `conversation_id = ? AND NOT EXISTS (
+      SELECT 1 FROM chat_message_deletions_v2 d WHERE d.message_id = chat_messages_v2.id AND d.device_id = ?
+    )`;
+    const scope = [id, actor.deviceId];
+    const anchor = unread
+      ? await this.dbManager.get(
+          `SELECT sequence FROM chat_messages_v2 WHERE ${visible} AND sequence > ?
+           AND (sender_member_id IS NULL OR sender_member_id != ?) AND deleted_at IS NULL
+           ORDER BY sequence LIMIT 1`,
+          [...scope, Number(actor.conversation.lastReadSequence) || 0, actor.memberId]
+        )
+      : await this.dbManager.get(
+          `SELECT sequence FROM chat_messages_v2 WHERE ${visible} AND id = ?`,
+          [...scope, this.requireIdentifier(messageId, { code: "INVALID_MESSAGE_ID", message: "Invalid message id" })]
+        );
+    if (!anchor) return { conversationId: id, messages: [], anchorSequence: null };
+    const [before, after] = await Promise.all([
+      this.dbManager.all(`SELECT * FROM chat_messages_v2 WHERE ${visible} AND sequence < ?
+        ORDER BY sequence DESC LIMIT 15`, [...scope, anchor.sequence]),
+      this.dbManager.all(`SELECT * FROM chat_messages_v2 WHERE ${visible} AND sequence >= ?
+        ORDER BY sequence LIMIT 36`, [...scope, anchor.sequence]),
+    ]);
+    const rows = [...before.reverse(), ...after.slice(0, 35)].map(row => this.dbManager.mapChatMessageV2Row(row));
+    const hidden = new Set(await this.dbManager.getChatMessageDeletionsForDevice(id, actor.deviceId));
+    return {
+      conversationId: id,
+      anchorSequence: anchor.sequence,
+      hasMore: after.length > 35,
+      messages: await Promise.all(rows.map(row => this.withReceipts(row))),
+      quotedMessages: await this.quotedMessages(actor, rows, hidden)
+    };
+  }
+
+  async searchMessages(deviceId, conversationId, query) {
+    const actor = await this.resolveConversationActor(deviceId, conversationId);
+    const text = typeof query === "string" ? query.trim() : "";
+    if (!text || text.length > 120) {
+      throw new ChatConversationError(400, "INVALID_SEARCH", "Search must contain 1 to 120 characters");
+    }
+    // SQLite's LIKE only folds ASCII. Character classes support Russian and
+    // Latin case pairs while treating asterisks and brackets as literal input.
+    const pattern = [...text.normalize("NFC")].map(char => {
+      if ("*?[".includes(char)) return `[${char}]`;
+      const upper = char.toUpperCase(), lower = char.toLowerCase();
+      return upper !== lower && [...upper].length === 1 && [...lower].length === 1
+        ? `[${upper}${lower}]` : char;
+    }).join("");
+    const rows = await this.dbManager.all(
+      `SELECT * FROM chat_messages_v2 m WHERE m.conversation_id = ? AND m.deleted_at IS NULL
+       AND m.text GLOB ? AND NOT EXISTS (
+         SELECT 1 FROM chat_message_deletions_v2 d WHERE d.message_id = m.id AND d.device_id = ?
+       ) ORDER BY m.sequence DESC LIMIT 41`,
+      [actor.conversation.id, `*${pattern}*`, actor.deviceId]
+    );
+    return {
+      conversationId: actor.conversation.id,
+      hasMore: rows.length > 40,
+      messages: rows.slice(0, 40).map(row => this.formatMessage(this.dbManager.mapChatMessageV2Row(row)))
     };
   }
 

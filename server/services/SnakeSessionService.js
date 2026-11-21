@@ -17,11 +17,15 @@ class SnakeSessionService {
     countdownMs = 2000, leaseMs = 12000, maxRooms = 100 } = {}) {
     this.games = games; this.db = games.db; this.clock = clock; this.wallClock = wallClock;
     this.countdownMs = countdownMs; this.leaseMs = leaseMs; this.maxRooms = maxRooms;
-    this.rooms = new Map(); this.chain = Promise.resolve(); this.pulsing = false;
+    this.rooms = new Map(); this.pulseBusy = new Set(); this.games.sessionServices.push(this);
   }
-  serial(work) {
-    const result = this.chain.then(work);
-    this.chain = result.catch(() => {}); return result;
+  serial(id, work) { return this.games.runRoom(id, work); }
+  releaseGame(id) {
+    const room = this.rooms.get(id); if (!room) return;
+    this.rooms.delete(id);
+    room.closed = true;
+    for (const connection of room.connections) if (connection) connection.send({gameId:id, code:'GAME_CLOSED'});
+    room.connections = [null,null];
   }
   async ensure() {
     await this.games.ensure();
@@ -56,7 +60,8 @@ class SnakeSessionService {
     return room;
   }
   state(room) {
-    return { protocolVersion: 1, gameId: room.id, epoch: room.epoch, revision: room.revision,
+    return { protocolVersion: 2, gameId: room.id, epoch: room.epoch, revision: room.revision,
+      inputSequences: [...room.sequences], queuedInputs: room.inputs.map(queue=>queue.map(input=>({...input}))),
       phase: room.phase, reason: room.reason, ready: [...room.ready],
       connected: room.connections.map(Boolean), countdownMs: room.phase === 'COUNTDOWN' ? Math.max(0, room.due - this.clock()) : 0,
       snake: Snake.view(room.engine) };
@@ -64,9 +69,11 @@ class SnakeSessionService {
   publish(room) {
     const payload = this.state(room);
     for (const connection of room.connections) if (connection) connection.send(payload);
+    if (room.phase === 'FINISHED' && !room.checkpointPending) this.rooms.delete(room.id);
     return payload;
   }
   async checkpoint(room) {
+    if (room.closed) return;
     room.checkpointPending = true;
     const snapshot = JSON.stringify(Snake.snapshot(room.engine));
     await this.db.withTransaction(async () => {
@@ -75,11 +82,12 @@ class SnakeSessionService {
         epoch=excluded.epoch,revision=excluded.revision,updated_at=excluded.updated_at`,
       [room.id, snapshot, room.epoch, room.revision, this.wallClock()]);
       const status = room.phase === 'FINISHED' ? (room.engine.state === 'WON' ? 'WON' : 'LOST') : 'PLAYING';
-      await this.db.run(`UPDATE family_games SET board=?,status=?,version=version+1,updated_at=?
-        WHERE id=? AND status IN ('SETUP','PLAYING')`, [snapshot, status, this.wallClock(), room.id]);
+      await this.db.run(`UPDATE family_games SET board=?,status=?,version=version+1,updated_at=?,closed_at=CASE WHEN ? IN ('WON','LOST') THEN COALESCE(closed_at,?) ELSE closed_at END
+        WHERE id=? AND status IN ('SETUP','PLAYING')`, [snapshot, status, this.wallClock(), status, this.wallClock(), room.id]);
     });
     room.checkpointAt = this.clock();
     room.checkpointPending = false;
+    if (room.phase === 'FINISHED') { const actor=room.connections.find(Boolean)?.actor; if (actor) await this.games.changed(await this.games.get(actor,room.id)); }
   }
   async pause(room, reason) {
     if (room.phase === 'FINISHED') return;
@@ -89,7 +97,7 @@ class SnakeSessionService {
     await this.checkpoint(room); this.publish(room);
   }
   join(actor, id, token, send, validate = null) {
-    return this.serial(async () => {
+    return this.serial(id, async () => {
       if (typeof token !== 'string' || !token || typeof send !== 'function') fail(400, 'SNAKE_INVALID_CONNECTION');
       const room = await this.room(actor, id), player = room.members.indexOf(actor.memberId);
       const previous = room.connections[player];
@@ -108,7 +116,7 @@ class SnakeSessionService {
     connection.lastSeen = this.clock(); return { room, player };
   }
   command(actor, id, token, input) {
-    return this.serial(async () => {
+    return this.serial(id, async () => {
       const { room, player } = await this.connection(actor, id, token);
       if (!input || input.epoch !== room.epoch) fail(409, 'SNAKE_EPOCH_CHANGED');
       if (input.action === 'PING') return this.state(room);
@@ -145,19 +153,20 @@ class SnakeSessionService {
     });
   }
   leave(token) {
-    return this.serial(async () => {
-      for (const room of this.rooms.values()) {
-        const player = room.connections.findIndex(c => c?.token === token);
-        if (player < 0) continue;
-        room.connections[player] = null; await this.pause(room, 'PLAYER_DISCONNECTED');
-      }
-    });
+    return Promise.all([...this.rooms.values()].map(room => this.serial(room.id, async () => {
+      if (this.rooms.get(room.id) !== room) return;
+      const player = room.connections.findIndex(c => c?.token === token);
+      if (player < 0) return;
+      room.connections[player] = null; await this.pause(room, 'PLAYER_DISCONNECTED');
+    })));
   }
   pulse() {
-    // A slow database must not accumulate a backlog of scheduled ticks.
-    if (this.pulsing) return Promise.resolve(); this.pulsing = true;
-    return this.serial(async () => {
-      for (const room of this.rooms.values()) {
+    const jobs = [];
+    for (const room of this.rooms.values()) {
+      if (this.pulseBusy.has(room.id)) continue;
+      this.pulseBusy.add(room.id);
+      jobs.push(this.serial(room.id, async () => {
+        if (this.rooms.get(room.id) !== room) return;
         const recheck = this.clock() - room.authorizedAt >= 250;
         let pauseReason = null;
         for (let player = 0; player < 2; player++) {
@@ -173,17 +182,18 @@ class SnakeSessionService {
           if (reason) { room.connections[player] = null; pauseReason = reason; }
         }
         if (recheck) room.authorizedAt = this.clock();
+        if (room.closed) return;
         if (pauseReason) await this.pause(room, pauseReason);
         if (room.checkpointPending) { await this.checkpoint(room); this.publish(room); }
         if (!['PLAYING', 'COUNTDOWN'].includes(room.phase)) {
           if (!room.connections.some(Boolean)) this.rooms.delete(room.id);
-          continue;
+          return;
         }
-        const now = this.clock(); if (now < room.due) continue;
-        if (now - room.due > 500) { await this.pause(room, 'SERVER_DELAY'); continue; }
+        const now = this.clock(); require('./GameTiming').sample('Snake.tickDelay',Math.max(0,now-room.due)); if (now < room.due) return;
+        if (now - room.due > 500) { await this.pause(room, 'SERVER_DELAY'); return; }
         if (room.phase === 'COUNTDOWN') {
           Snake.launchOrResume(room.engine); room.phase = 'PLAYING'; room.revision++;
-          room.due = now + Snake.view(room.engine).tickMs; this.publish(room); continue;
+          room.due = now + Snake.view(room.engine).tickMs; this.publish(room); return;
         }
         const tick = tickNumber(room.engine) + 1;
         for (let player = 0; player < 2; player++) {
@@ -195,11 +205,18 @@ class SnakeSessionService {
         if (['GAME_OVER', 'WON'].includes(room.engine.state)) { room.phase = 'FINISHED'; room.reason = null; }
         if (room.phase === 'FINISHED' || now - room.checkpointAt >= 2000) await this.checkpoint(room);
         this.publish(room);
-      }
-    }).finally(() => { this.pulsing = false; });
+
+      }).finally(() => this.pulseBusy.delete(room.id)));
+    }
+    return Promise.all(jobs);
   }
   async close() {
-    await this.serial(async () => { for (const room of this.rooms.values()) await this.pause(room, 'SERVER_STOPPED'); this.rooms.clear(); });
+    await Promise.all([...this.rooms.values()].map(room => this.serial(room.id, async () => {
+      if (this.rooms.get(room.id) !== room) return;
+      if (room.phase !== 'FINISHED') await this.pause(room, 'SERVER_STOPPED');
+      else if (room.checkpointPending) await this.checkpoint(room);
+      this.rooms.delete(room.id);
+    })));
   }
 }
 module.exports = SnakeSessionService;

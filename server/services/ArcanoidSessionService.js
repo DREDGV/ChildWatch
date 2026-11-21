@@ -12,9 +12,16 @@ class ArcanoidSessionService {
     countdownMs = 2000, leaseMs = 12000, maxRooms = 100} = {}) {
     this.games = games; this.db = games.db; this.clock = clock; this.wallClock = wallClock;
     this.countdownMs = countdownMs; this.leaseMs = leaseMs; this.maxRooms = maxRooms;
-    this.rooms = new Map(); this.chain = Promise.resolve(); this.pulsing = false;
+    this.rooms = new Map(); this.pulseBusy = new Set(); this.games.sessionServices.push(this);
   }
-  serial(work) { const result = this.chain.then(work); this.chain = result.catch(() => {}); return result; }
+  serial(id, work) { return this.games.runRoom(id, work); }
+  releaseGame(id) {
+    const room = this.rooms.get(id); if (!room) return;
+    this.rooms.delete(id);
+    room.closed = true;
+    for (const connection of room.connections) if (connection) connection.send({gameId:id, code:'GAME_CLOSED'});
+    room.connections = [null,null];
+  }
   async ensure() {
     await this.games.ensure();
     if (!this.schema) this.schema = this.db.run(`CREATE TABLE IF NOT EXISTS family_arcanoid_sessions (
@@ -50,17 +57,19 @@ class ArcanoidSessionService {
     return room;
   }
   state(room) {
-    return {protocolVersion: 1, gameId: room.id, epoch: room.epoch, revision: room.revision,
-      phase: room.phase, reason: room.reason, ready: [...room.ready], connected: room.connections.map(Boolean),
+    return {protocolVersion: 2, gameId: room.id, epoch: room.epoch, revision: room.revision,
+      inputSequences: [...room.sequences], phase: room.phase, reason: room.reason, ready: [...room.ready], connected: room.connections.map(Boolean),
       countdownMs: room.phase === 'COUNTDOWN' ? Math.max(0, room.due - this.clock()) : 0,
       arcanoid: {...Rules.view(room.engine), tick: room.tick}};
   }
   publish(room) {
     const state = this.state(room); room.broadcastAt = this.clock();
     for (const connection of room.connections) if (connection) connection.send(state);
+    if (room.phase === 'FINISHED' && !room.checkpointPending) this.rooms.delete(room.id);
     return state;
   }
   async checkpoint(room) {
+    if (room.closed) return;
     room.checkpointPending = true; const saved = JSON.stringify(Rules.snapshot(room.engine));
     await this.db.withTransaction(async () => {
       await this.db.run(`INSERT INTO family_arcanoid_sessions(game_id,snapshot,epoch,revision,tick,updated_at)
@@ -68,10 +77,11 @@ class ArcanoidSessionService {
         epoch=excluded.epoch,revision=excluded.revision,tick=excluded.tick,updated_at=excluded.updated_at`,
       [room.id, saved, room.epoch, room.revision, room.tick, this.wallClock()]);
       const status = room.phase === 'FINISHED' ? room.engine.state === 'WON' ? 'WON' : 'LOST' : 'PLAYING';
-      await this.db.run(`UPDATE family_games SET board=?,status=?,version=version+1,updated_at=?
-        WHERE id=? AND status IN ('SETUP','PLAYING')`, [saved, status, this.wallClock(), room.id]);
+      await this.db.run(`UPDATE family_games SET board=?,status=?,version=version+1,updated_at=?,closed_at=CASE WHEN ? IN ('WON','LOST') THEN COALESCE(closed_at,?) ELSE closed_at END
+        WHERE id=? AND status IN ('SETUP','PLAYING')`, [saved, status, this.wallClock(), status, this.wallClock(), room.id]);
     });
-    room.checkpointAt = this.clock(); room.checkpointPending = false; room.errorFrozen = false;
+    room.checkpointAt = this.clock(); room.checkpointPending = false;
+    if (room.phase === 'FINISHED') { const actor=room.connections.find(Boolean)?.actor; if (actor) await this.games.changed(await this.games.get(actor,room.id)); } room.errorFrozen = false;
   }
   freeze(room, reason) {
     if (room.phase === 'FINISHED') return;
@@ -87,7 +97,7 @@ class ArcanoidSessionService {
     this.freeze(room, reason); await this.checkpoint(room); this.publish(room);
   }
   join(actor, id, token, send, validate = null) {
-    return this.serial(async () => {
+    return this.serial(id, async () => {
       if (typeof token !== 'string' || !token || typeof send !== 'function') fail(400, 'ARKANOID_INVALID_CONNECTION');
       const room = await this.room(actor, id), player = room.members.indexOf(actor.memberId);
       if (player < 0) fail(404, 'GAME_NOT_FOUND');
@@ -106,7 +116,7 @@ class ArcanoidSessionService {
     connection.lastSeen = this.clock(); return {room, player};
   }
   command(actor, id, token, input) {
-    return this.serial(async () => {
+    return this.serial(id, async () => {
       const {room, player} = await this.connection(actor, id, token);
       if (!input || input.epoch !== room.epoch) fail(409, 'ARKANOID_EPOCH_CHANGED');
       if (input.action === 'PING') return this.state(room);
@@ -131,7 +141,7 @@ class ArcanoidSessionService {
         return {replayed: true, sequence: input.sequence, ...this.state(room)};
       }
       if (room.phase !== 'PLAYING') fail(409, 'ARKANOID_NOT_PLAYING');
-      if (input.sequence !== room.sequences[player] + 1) fail(409, 'ARKANOID_SEQUENCE_CONFLICT');
+      if (input.sequence <= room.sequences[player]) return {replayed:true, sequence:input.sequence, ...this.state(room)};
       const quota = room.moveQuota[player], now = this.clock();
       if (now - quota.at >= 1000) { quota.at = now; quota.count = 0; }
       if (quota.count >= 25) fail(429, 'ARKANOID_MOVE_RATE');
@@ -142,18 +152,20 @@ class ArcanoidSessionService {
     });
   }
   leave(token) {
-    return this.serial(async () => {
-      for (const room of this.rooms.values()) {
-        const player = room.connections.findIndex(connection => connection?.token === token);
-        if (player < 0) continue;
-        room.connections[player] = null; await this.pause(room, 'PLAYER_DISCONNECTED');
-      }
-    });
+    return Promise.all([...this.rooms.values()].map(room => this.serial(room.id, async () => {
+      if (this.rooms.get(room.id) !== room) return;
+      const player = room.connections.findIndex(connection => connection?.token === token);
+      if (player < 0) return;
+      room.connections[player] = null; await this.pause(room, 'PLAYER_DISCONNECTED');
+    })));
   }
   pulse() {
-    if (this.pulsing) return Promise.resolve(); this.pulsing = true;
-    return this.serial(async () => {
-      for (const room of this.rooms.values()) {
+    const jobs = [];
+    for (const room of this.rooms.values()) {
+      if (this.pulseBusy.has(room.id)) continue;
+      this.pulseBusy.add(room.id);
+      jobs.push(this.serial(room.id, async () => {
+        if (this.rooms.get(room.id) !== room) return;
         const recheck = this.clock() - room.authorizedAt >= 250; let pauseReason = null;
         for (let player = 0; player < 2; player++) {
           const connection = room.connections[player]; if (!connection) continue;
@@ -168,17 +180,18 @@ class ArcanoidSessionService {
           if (reason) { room.connections[player] = null; pauseReason = reason; }
         }
         if (recheck) room.authorizedAt = this.clock();
+        if (room.closed) return;
         if (pauseReason) await this.pause(room, pauseReason);
         if (room.checkpointPending) { await this.checkpoint(room); this.publish(room); }
         if (!['COUNTDOWN','PLAYING'].includes(room.phase)) {
           if (!room.connections.some(Boolean) && !room.checkpointPending) this.rooms.delete(room.id);
-          continue;
+          return;
         }
-        const now = this.clock(); if (now < room.due) continue;
-        if (now - room.due > 250) { await this.pause(room, 'SERVER_DELAY'); continue; }
+        const now = this.clock(); require('./GameTiming').sample('Arcanoid.tickDelay',Math.max(0,now-room.due)); if (now < room.due) return;
+        if (now - room.due > 250) { await this.pause(room, 'SERVER_DELAY'); return; }
         if (room.phase === 'COUNTDOWN') {
           Rules.launchOrResume(room.engine); room.phase = 'PLAYING'; room.revision++;
-          room.due = now + STEP_MS; this.publish(room); continue;
+          room.due = now + STEP_MS; this.publish(room); return;
         }
         let boundary = false;
         while (room.phase === 'PLAYING' && now + 1e-7 >= room.due) {
@@ -198,25 +211,24 @@ class ArcanoidSessionService {
         }
         if (room.phase === 'FINISHED' || now - room.checkpointAt >= 2000) await this.checkpoint(room);
         if (boundary || now - room.broadcastAt + 1e-7 >= 50) this.publish(room);
-      }
-    }).finally(() => { this.pulsing = false; });
+
+      }).finally(() => this.pulseBusy.delete(room.id)));
+    }
+    return Promise.all(jobs);
   }
   failSafe() {
-    return this.serial(async () => {
-      for (const room of this.rooms.values()) {
-        if (room.phase === 'FINISHED' || room.errorFrozen) continue;
-        this.freeze(room, 'SERVER_ERROR'); room.errorFrozen = true; this.publish(room);
-      }
-    });
+    return Promise.all([...this.rooms.values()].map(room => this.serial(room.id, async () => {
+      if (this.rooms.get(room.id) !== room || room.phase === 'FINISHED' || room.errorFrozen) return;
+      this.freeze(room, 'SERVER_ERROR'); room.errorFrozen = true; this.publish(room);
+    })));
   }
   async close() {
-    await this.serial(async () => {
-      for (const room of this.rooms.values()) {
-        if (room.phase !== 'FINISHED') await this.pause(room, 'SERVER_STOPPED');
-        else if (room.checkpointPending) await this.checkpoint(room);
-      }
-      this.rooms.clear();
-    });
+    await Promise.all([...this.rooms.values()].map(room => this.serial(room.id, async () => {
+      if (this.rooms.get(room.id) !== room) return;
+      if (room.phase !== 'FINISHED') await this.pause(room, 'SERVER_STOPPED');
+      else if (room.checkpointPending) await this.checkpoint(room);
+      this.rooms.delete(room.id);
+    })));
   }
 }
 module.exports = ArcanoidSessionService;

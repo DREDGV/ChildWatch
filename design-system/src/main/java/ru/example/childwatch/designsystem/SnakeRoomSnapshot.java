@@ -19,7 +19,7 @@ public final class SnakeRoomSnapshot {
     private final JSONObject json;
     private SnakeRoomSnapshot(JSONObject input) throws JSONException {
         json = new JSONObject(input.toString());
-        if (integer(json,"protocolVersion",1,1) != 1) throw invalid();
+        if (integer(json,"protocolVersion",2,2) != 2) throw invalid();
         gameId = text(json,"gameId",128); epoch = text(json,"epoch",128);
         revision = integer(json,"revision",0,MAX_SAFE_INTEGER);
         phase = choice(json,"phase",new String[]{"PAUSED","COUNTDOWN","PLAYING","FINISHED"});
@@ -66,8 +66,8 @@ public final class SnakeRoomSnapshot {
                 if(i>0 && distance(cell,bodies[p][i-1])!=1) throw invalid();
             }
             int head=bodies[p][0], neck=bodies[p][1];
-            if(head%SnakeEngine.COLUMNS-neck%SnakeEngine.COLUMNS!=directions[p].dx
-                    ||head/SnakeEngine.COLUMNS-neck/SnakeEngine.COLUMNS!=directions[p].dy) throw invalid();
+            if(Math.floorMod(neck%SnakeEngine.COLUMNS+directions[p].dx,SnakeEngine.COLUMNS)!=head%SnakeEngine.COLUMNS
+                    ||Math.floorMod(neck/SnakeEngine.COLUMNS+directions[p].dy,SnakeEngine.ROWS)!=head/SnakeEngine.COLUMNS) throw invalid();
         }
         if(occupied.size()!=6+score/10 || (foodX>=0 && occupied.contains(foodY*SnakeEngine.COLUMNS+foodX))
                 || (engineState.equals("WON") ? occupied.size()!=SnakeEngine.COLUMNS*SnakeEngine.ROWS || foodX!=-1 : foodX<0)) throw invalid();
@@ -94,7 +94,7 @@ public final class SnakeRoomSnapshot {
     public int[] body(int player){ return bodies[player].clone(); }
     public SnakeEngine.Direction direction(int player){ return directions[player]; }
     public JSONObject json() throws JSONException { return new JSONObject(json.toString()); }
-    private static int distance(int a,int b){return Math.abs(a%SnakeEngine.COLUMNS-b%SnakeEngine.COLUMNS)+Math.abs(a/SnakeEngine.COLUMNS-b/SnakeEngine.COLUMNS);}
+    private static int distance(int a,int b){int x=Math.abs(a%SnakeEngine.COLUMNS-b%SnakeEngine.COLUMNS),y=Math.abs(a/SnakeEngine.COLUMNS-b/SnakeEngine.COLUMNS);return Math.min(x,SnakeEngine.COLUMNS-x)+Math.min(y,SnakeEngine.ROWS-y);}
     private static boolean[] pair(JSONObject data,String key)throws JSONException {
         JSONArray values=data.getJSONArray(key);if(values.length()!=2)throw invalid();
         boolean[] result=new boolean[2];for(int i=0;i<2;i++){Object value=values.get(i);if(!(value instanceof Boolean))throw invalid();result[i]=(Boolean)value;}return result;

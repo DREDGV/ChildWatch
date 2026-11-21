@@ -60,4 +60,13 @@
     <string name="family_places_journal_invalid">Сервер вернул несовместимые данные. История не обновлена; можно повторить запрос.</string>
     <string name="family_places_journal_enter">Вход в зону «%1$s»</string>
     <string name="family_places_journal_exit">Выход из зоны «%1$s»</string>
+    <string name="family_places_key">Ключевое место</string>
+    <string name="family_places_batch">Уведомления для нескольких мест</string>
+    <string name="family_places_batch_hint">%1$s · уведомления будут приходить только по выбранным сохранённым местам. Пауза отдельных мест сохраняется.</string>
+    <string name="family_places_batch_all">Все сохранённые места</string>
+    <string name="family_places_batch_key">Ключевые места</string>
+    <string name="family_places_batch_selected">Выбрать места</string>
+    <string name="family_places_batch_validation">Выберите хотя бы одно место и событие.</string>
+    <string name="family_places_batch_empty">В этом наборе нет мест.</string>
+    <string name="family_places_notifications_disabled">Уведомления выключены</string>
 </resources>

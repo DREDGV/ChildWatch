@@ -26,7 +26,9 @@ public class BattleshipActivity extends GameScreen {
     private BattleshipBoardView board;
     private TextView status,details;
     private MaterialButton primary,random,rotate,toggle,retry,resign;
-    private GameOnlineBridge.Client online;
+    private GameOnlineBridge.Client online,reader;
+    private boolean reading;
+    private long actionGeneration;
     private String gameId;
     private JSONObject game;
     private String draftKey;
@@ -51,7 +53,10 @@ public class BattleshipActivity extends GameScreen {
             try { engine=BattleshipEngine.restore(prefs.getString("solo-match",""));setup=false; }
             catch(Exception badSave) { notice("Сохранённая партия недоступна. Можно начать новую."); }
         }
-        if(gameId!=null)online=new GameOnlineBridge.Client(this);
+        if(gameId!=null){
+            online=new GameOnlineBridge.Client(this);
+            reader=new GameOnlineBridge.Client(this);
+        }
         status=label("Расставьте корабли",22);content.addView(status);
         details=label("",14);content.addView(details);
         board=new BattleshipBoardView(this);content.addView(board,new android.widget.LinearLayout.LayoutParams(-1,-2));
@@ -61,7 +66,9 @@ public class BattleshipActivity extends GameScreen {
         rotate=addButton("Повернуть выбранный корабль",false,this::rotate);
         random=addButton("Расставить заново",false,()->{fleet=BattleshipEngine.randomFleet(new Random());ship=0;selected=-1;saveDraft();render();});
         retry=addButton("Повторить отправку",true,()->{
-            if(online==null||busy)return;busy=true;render();online.retry(this::response);
+            if(online==null||busy)return;
+            beginAction();
+            online.retry(this::actionResponse);
         });
         content.removeView(retry);content.addView(retry,1);
         addButton(gameId==null?"Новая партия":"Обновить поле",false,()->{
@@ -77,11 +84,12 @@ public class BattleshipActivity extends GameScreen {
             new MaterialAlertDialogBuilder(this).setTitle("Завершить партию?").setMessage("Сопернику будет засчитана победа.")
                 .setNegativeButton("Продолжить",null).setPositiveButton("Завершить",(d,w)->action("RESIGN",null,null)).show();
         });
+        if(gameId!=null)results=new GameResultActions(this,content,gameId);
         render();
     }
-    @Override protected void onResume(){super.onResume();active=true;if(online!=null)poll();else scheduleAi();}
-    @Override protected void onPause(){active=false;handler.removeCallbacks(tick);handler.removeCallbacks(ai);super.onPause();}
-    @Override protected void onDestroy(){if(online!=null)online.close();super.onDestroy();}
+    @Override protected void onResume(){super.onResume();active=true;GameOnlineBridge.observe(changed);if(online!=null)poll();else scheduleAi();}
+    @Override protected void onPause(){active=false;GameOnlineBridge.unobserve(changed);handler.removeCallbacks(tick);handler.removeCallbacks(ai);super.onPause();}
+    @Override protected void onDestroy(){if(online!=null){online.close();reader.close();}if(results!=null)results.close();super.onDestroy();}
     private void saveDraft(){JSONArray a=new JSONArray();for(int n:fleet)a.put(n);prefs.edit().putString(draftKey,a.toString()).apply();}
     private void save(){if(engine!=null)prefs.edit().putString("solo-match",engine.snapshot()).apply();}
     private void select(int cell){
@@ -116,12 +124,28 @@ public class BattleshipActivity extends GameScreen {
         selected=-1;save();render();scheduleAi();
     }
     private void scheduleAi(){handler.removeCallbacks(ai);if(active&&engine!=null&&engine.currentPlayer()==1&&engine.state()==BattleshipEngine.State.PLAYING)handler.postDelayed(ai,650);}
+    private final Runnable changed=()->{if(active&&!terminal()){handler.removeCallbacks(tick);handler.postDelayed(tick,150);}};
     private void poll(){
-        handler.removeCallbacks(tick);if(!active||busy||blocked||online==null)return;
-        busy=true;render();online.read("/"+gameId,this::response);
+        handler.removeCallbacks(tick);
+        if(!active||busy||blocked||reader==null)return;
+        if(reading){schedulePoll();return;}
+        reading=true;
+        long requestedBeforeAction=actionGeneration;
+        reader.read("/"+gameId,(value,error)->{
+            reading=false;
+            if(requestedBeforeAction==actionGeneration)response(value,error);
+        });
+    }
+    private void beginAction(){
+        actionGeneration++;
+        busy=true;
+        render();
+    }
+    private void actionResponse(JSONObject value,Exception error){
+        busy=false;
+        response(value,error);
     }
     private void response(JSONObject value,Exception error){
-        busy=false;
         if(!online.available()){game=null;selected=-1;render();notice("Профиль изменился. Вернитесь на главный экран и откройте игры заново.");return;}
         if(error instanceof GameOnlineBridge.Failure){int code=((GameOnlineBridge.Failure)error).status;
             if(code==409||code==401||code==403){game=null;selected=-1;}
@@ -129,12 +153,19 @@ public class BattleshipActivity extends GameScreen {
         }
         if(error!=null)notice(online.hasPending()?"Ответ не пришёл. Можно безопасно повторить отправку.":GameOnlineBridge.explain(error));
         else {JSONObject next=value.optJSONObject("game");if(next!=null&&gameId.equals(next.optString("id"))){boolean changed=game==null||next.optLong("version")!=game.optLong("version");game=next;if(changed){selected=-1;notice("");}}else notice("Не удалось подтвердить выбранную партию. Обновите поле.");}
-        render();if(active&&!blocked&&!terminal())handler.postDelayed(tick,3000);
+        render();schedulePoll();
     }
+    private void schedulePoll(){
+        handler.removeCallbacks(tick);
+        if(active&&!blocked&&!terminal())handler.postDelayed(tick,4000);
+    }
+    private GameResultActions results;
     private void action(String kind,String key,Object value){
         if(game==null||busy||online.hasPending())return;
         try{JSONObject body=new JSONObject().put("actionId",UUID.randomUUID().toString()).put("version",game.getLong("version")).put("action",kind);
-            if(key!=null)body.put(key,value);busy=true;render();online.write("/"+gameId+"/actions",body,this::response);
+            if(key!=null)body.put(key,value);
+            beginAction();
+            online.write("/"+gameId+"/actions",body,this::actionResponse);
         }catch(Exception error){busy=false;notice("Не удалось подготовить действие.");render();}
     }
     private boolean terminal(){return game!=null&&!Arrays.asList("INVITED","SETUP","PLAYING").contains(game.optString("status"));}
@@ -169,8 +200,9 @@ public class BattleshipActivity extends GameScreen {
         board.setBoard(cells,selected);
         details.setText(setup?"10 кораблей · не должны соприкасаться. Выберите корабль, затем новое начало.":
             (own?"Мой флот":"Поле соперника")+" · × попадание, ● промах"+(engine!=null?"\nОсталось кораблей: у вас "+engine.remainingShips(0)+", у соперника "+engine.remainingShips(1):""));
+        if(results!=null)results.show(done);
         boolean pending=online!=null&&online.hasPending();
-        if(pending)status.setText(busy?"Отправляем действие…":"Действие ждёт подтверждения");
+        if(busy||pending)status.setText(busy?"Отправляем действие…":"Действие ждёт подтверждения");
         primary.setText(setup?"Флот готов":selected<0?"Выберите клетку":"Выстрелить в "+BattleshipBoardView.coordinate(selected));
         primary.setEnabled(!busy&&!pending&&(setup||(turn&&!own&&selected>=0&&cells[selected]==BattleshipEngine.Cell.UNKNOWN)));
         primary.setVisibility(done?View.GONE:View.VISIBLE);

@@ -187,6 +187,7 @@ class MainActivity : AppCompatActivity() {
             context = this,
             scope = lifecycleScope,
             noticeContainer = findViewById(R.id.updateNoticeContainer),
+            checkSummary = findViewById(R.id.updateCheckSummary),
             // The very address the network client talks to, so the manifest and the
             // file can never be looked for on two different hosts.
             serverUrlProvider = { networkClient.resolveConfiguredServerUrl() }
@@ -255,6 +256,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ru.childwatch.shared.attention.android.IncomingAttentionMessages.bind(this) {
+            val resolver = ru.example.parentwatch.session.ChildEffectiveContextResolver(this)
+            ru.childwatch.shared.attention.android.IncomingAttentionMessages.scope(
+                resolver.resolveServerUrl(), resolver.resolveFamilyId(), resolver.resolveChildDeviceId()
+            )
+        }
         setContentView(R.layout.activity_main)
         ru.example.childwatch.designsystem.FamilyProfileEditor.restore(this, savedInstanceState) { openProfileEditor() }
         findViewById<android.view.View>(R.id.checkUpdatesButton).setOnClickListener {
@@ -379,20 +386,6 @@ class MainActivity : AppCompatActivity() {
         findViewById<View>(R.id.homeGamesButton).setOnClickListener {
             ru.example.parentwatch.games.FamilyGamesHost.register(this)
             ru.example.childwatch.designsystem.GamesMenu.show(this)
-        }
-        // The sheet temporarily reparents notices out of the activity's view tree.
-        // Keep the original views instead of looking them up during that transition.
-        val notices = findViewById<android.widget.LinearLayout>(R.id.updateNoticeContainer)
-        val updateButton = findViewById<View>(R.id.homeUpdateButton)
-        updateButton.setOnClickListener {
-            if (homeSheet?.isShowing != true) homeSheet = ru.example.childwatch.designsystem.HomeDetailSheet.show(
-                notices, getString(R.string.cw_home_update_available)
-            )
-        }
-        findViewById<View>(R.id.homeContent).viewTreeObserver.addOnGlobalLayoutListener {
-            val hasUpdate = (0 until notices.childCount).any { notices.getChildAt(it).visibility == View.VISIBLE }
-            val visibility = if (hasUpdate) View.VISIBLE else View.GONE
-            if (updateButton.visibility != visibility) updateButton.visibility = visibility
         }
         // Find UI elements
     titleText = findViewById(R.id.titleText)
@@ -1109,8 +1102,35 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
+    private var listeningPresenceJob: kotlinx.coroutines.Job? = null
+
+    private fun refreshListeningPresence() {
+        listeningPresenceJob?.cancel()
+        val label = findViewById<android.widget.TextView>(R.id.listeningPresenceText)
+        val resolver = ru.example.parentwatch.session.ChildEffectiveContextResolver(this)
+        fun scope() = listOf(resolver.resolveServerUrl(), resolver.resolveChildDeviceId(),
+            resolver.resolveFamilyId().orEmpty(), resolver.resolveSelfMemberId().orEmpty())
+        listeningPresenceJob = lifecycleScope.launch {
+            var previous: List<String>? = null
+            while (kotlinx.coroutines.currentCoroutineContext().isActive) {
+                val captured = scope()
+                if (captured != previous) {
+                    label.text = ru.example.childwatch.designsystem.ListeningPresenceLabel.text(this@MainActivity, null)
+                    previous = captured
+                }
+                val status = if (captured.all { it.isNotBlank() })
+                    networkClient.getStreamingStatus(captured[0], captured[1], quick = true) else null
+                if (scope() == captured)
+                    label.text = ru.example.childwatch.designsystem.ListeningPresenceLabel.text(this@MainActivity, status?.listeningPresence)
+                else label.text = ru.example.childwatch.designsystem.ListeningPresenceLabel.text(this@MainActivity, null)
+                kotlinx.coroutines.delay(4_000L)
+            }
+        }
+    }
+
     override fun onResume() {
         super.onResume()
+        refreshListeningPresence()
         homePickupCard.resume()
         lifecycleScope.launch(kotlinx.coroutines.Dispatchers.IO) {
             try {
@@ -1215,6 +1235,9 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        listeningPresenceJob?.cancel()
+        listeningPresenceJob = null
+        findViewById<android.widget.TextView>(R.id.listeningPresenceText).setText(ru.example.childwatch.designsystem.R.string.cw_listening_unknown)
         homePickupCard.pause()
         badgeRefreshJob?.cancel()
         // The screen is no longer visible, so it is no longer the place the installer's

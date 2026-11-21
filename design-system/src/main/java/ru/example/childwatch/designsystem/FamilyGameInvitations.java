@@ -49,7 +49,7 @@ public final class FamilyGameInvitations implements Application.ActivityLifecycl
         if(instance==null)instance=new FamilyGameInvitations(app,provider);
     }
     /** Wakeup contains no trusted name/state. Always re-authorize through HTTP. */
-    public static void changed() { if(instance!=null)instance.main.post(()->instance.refresh(true)); }
+    public static void changed() { if(instance!=null)instance.main.post(()->{GameOnlineBridge.changed();instance.refresh(true);}); }
     private GameOnlineBridge.Host host() {
         try { return provider.create(); } catch(RuntimeException invalid) { return null; }
     }

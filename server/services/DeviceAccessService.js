@@ -201,7 +201,7 @@ class DeviceAccessService {
           targetMemberId: membership.targetMemberId,
           feature: "AUDIO_LISTENING",
         });
-        if (permission?.allowed === 1) return { allowed: true, deviceId: target };
+        if (permission?.allowed === 1) return { allowed: true, deviceId: target, membership };
       }
     }
     return { allowed: false, code: "AUDIO_PERMISSION_DENIED" };

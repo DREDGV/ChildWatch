@@ -32,10 +32,10 @@ public class GamesActivity extends AppCompatActivity {
             modes=R.string.cw_catalog_battleship_modes;
         } else if(GameArtworkView.SNAKE.equals(game)) {
             title=R.string.cw_catalog_snake_title; description=R.string.cw_catalog_snake_desc;
-            modes=R.string.cw_catalog_solo;
+            modes=R.string.cw_catalog_modes;
         } else {
             title=R.string.cw_arcanoid_title; description=R.string.cw_catalog_arkanoid_desc;
-            modes=R.string.cw_catalog_solo;
+            modes=R.string.cw_catalog_modes;
         }
         findViewById(card).setContentDescription(getString(title)+". "+getString(description)+" "+getString(modes)+". "+getString(R.string.cw_catalog_choose));
         findViewById(card).setOnClickListener(view -> startActivity(

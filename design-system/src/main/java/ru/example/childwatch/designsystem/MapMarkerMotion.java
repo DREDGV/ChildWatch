@@ -28,8 +28,10 @@ public final class MapMarkerMotion {
     private final Map<String, Entry> entries = new HashMap<>();
     private String scope;
     private FrameListener frameListener;
+    private MapMotionWake wake;
 
     public void setFrameListener(FrameListener listener) { frameListener = listener; }
+    public void setWake(MapMotionWake wake) { this.wake = wake; }
 
     public DisplayedPosition displayedPosition(String key) {
         Entry entry = entries.get(key);
@@ -54,11 +56,15 @@ public final class MapMarkerMotion {
         for (Entry entry : entries.values()) cancel(entry);
         entries.clear();
         scope = null;
+        if (wake != null) wake.clear();
     }
 
     public void retain(Set<String> keys) {
         for (String key : new HashSet<>(entries.keySet())) {
-            if (!keys.contains(key)) cancel(entries.remove(key));
+            if (!keys.contains(key)) {
+                cancel(entries.remove(key));
+                if (wake != null) wake.discard(key);
+            }
         }
     }
 
@@ -73,7 +79,8 @@ public final class MapMarkerMotion {
         }
         if (!nextScope.equals(scope)) { clear(); scope = nextScope; }
         Entry existing = entries.get(key);
-        if (existing != null && MapMarkerMotionPolicy.sameMeasurement(existing.fix, next)) {
+        if (existing != null && (MapMarkerMotionPolicy.sameMeasurement(existing.fix, next)
+                || MapMarkerMotionPolicy.isOlder(existing.fix, next))) {
             // Map pan/zoom recreates markers. Rebind the view without ending a live transition.
             existing.position = position;
             existing.invalidate = invalidate;
@@ -91,6 +98,7 @@ public final class MapMarkerMotion {
         entry.longitude = next.longitude;
         entries.put(key, entry);
         if (previous == null || !MapMarkerMotionPolicy.shouldAnimate(previous.fix, next, System.currentTimeMillis())) {
+            if (wake != null) wake.discard(key);
             render(key, entry);
             return;
         }
@@ -99,6 +107,7 @@ public final class MapMarkerMotion {
         final double fromLongitude = previous.longitude;
         entry.latitude = fromLatitude;
         entry.longitude = fromLongitude;
+        if (wake != null) wake.sample(key, fromLatitude, fromLongitude);
         entry.animator = ValueAnimator.ofFloat(0f, 1f);
         entry.animator.setDuration(MapMarkerMotionPolicy.durationMs(previous.fix, next));
         entry.animator.setInterpolator(new LinearInterpolator());
@@ -106,6 +115,7 @@ public final class MapMarkerMotion {
             float fraction = (Float) animation.getAnimatedValue();
             entry.latitude = fromLatitude + (next.latitude - fromLatitude) * fraction;
             entry.longitude = MapMarkerMotionPolicy.longitudeAt(fromLongitude, next.longitude, fraction);
+            if (wake != null) wake.sample(key, entry.latitude, entry.longitude);
             render(key, entry);
         });
         render(key, entry);

@@ -66,13 +66,15 @@ test('positions are finite normalized values; receipt dedup and25Hz movement quo
     await f.start();const input={sequence:1,position:.9};await f.command(0,'MOVE',input);
     assert.equal((await f.command(0,'MOVE',input)).replayed,true);
     await assert.rejects(f.command(0,'MOVE',{...input,position:.8}),{code:'ARKANOID_SEQUENCE_REUSED'});
-    await assert.rejects(f.command(0,'MOVE',{sequence:3,position:.8}),{code:'ARKANOID_SEQUENCE_CONFLICT'});
+    await f.command(0,'MOVE',{sequence:3,position:.8});
+    assert.equal((await f.command(0,'MOVE',{sequence:2,position:.1})).replayed,true);
+    assert.equal(f.sessions.rooms.get(f.game.id).targets[0],800);
     for(const position of [NaN,Infinity,-Infinity,-.1,1.1,'0.4',null])
       await assert.rejects(f.command(0,'MOVE',{sequence:2,position}),{code:'ARKANOID_INVALID_INPUT'});
-    for(let sequence=2;sequence<=25;sequence++)await f.command(0,'MOVE',{sequence,position:.4});
-    await assert.rejects(f.command(0,'MOVE',{sequence:26,position:.5}),{code:'ARKANOID_MOVE_RATE'});
+    for(let sequence=4;sequence<=26;sequence++)await f.command(0,'MOVE',{sequence,position:.4});
+    await assert.rejects(f.command(0,'MOVE',{sequence:27,position:.5}),{code:'ARKANOID_MOVE_RATE'});
     assert.equal((await f.command(0,'MOVE',input)).replayed,true);
-    f.advance(1000);await f.command(0,'MOVE',{sequence:26,position:.5});
+    f.advance(1000);await f.command(0,'MOVE',{sequence:27,position:.5});
     assert.equal(f.sessions.rooms.get(f.game.id).receipts[0].size,26);
   }finally{await f.close();}
 });
@@ -196,7 +198,8 @@ test('final campaign win persists FINISHED and cannot advance or lose its result
     room.engine=Rules.restore(saved);assert.ok(room.engine);Rules.launchOrResume(room.engine);
     f.advance(STEP);await f.sessions.pulse();assert.equal(room.phase,'FINISHED');assert.equal(room.engine.state,'WON');
     assert.equal(Rules.view(room.engine).level,6);assert.equal((await f.games.get(f.actors.host,f.game.id)).status,'WON');
-    await assert.rejects(f.command(0,'READY'),{code:'ARKANOID_NOT_PAUSED'});
+    assert.equal(f.sessions.rooms.has(f.game.id),false,'Terminal room released after final snapshot');
+    await assert.rejects(f.sessions.command(f.actors.host,f.game.id,'a',{epoch:room.epoch,action:'READY'}),{code:'ARKANOID_CONNECTION_CHANGED'});
     const restored=await new Sessions(f.games,f.options).join(f.actors.guest,f.game.id,'new',()=>{});
     assert.equal(restored.phase,'FINISHED');assert.equal(restored.arcanoid.level,6);
     assert.equal(restored.arcanoid.score,Rules.view(room.engine).score);
@@ -211,7 +214,7 @@ test('forgotten move receipt cannot be replayed and checkpoint error failsafe ke
       await f.command(0,'MOVE',{sequence,position:.2});
     }
     assert.equal(room.receipts[0].size,32);
-    await assert.rejects(f.command(0,'MOVE',{sequence:1,position:.2}),{code:'ARKANOID_SEQUENCE_CONFLICT'});
+    assert.equal((await f.command(0,'MOVE',{sequence:1,position:.2})).replayed,true);
     await f.sessions.failSafe();const epoch=room.epoch;
     assert.equal(room.phase,'PAUSED');assert.equal(room.reason,'SERVER_ERROR');assert.equal(room.checkpointPending,true);
     await f.sessions.failSafe();assert.equal(room.epoch,epoch);

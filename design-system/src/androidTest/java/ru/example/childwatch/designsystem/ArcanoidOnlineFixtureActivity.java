@@ -33,7 +33,7 @@ public class ArcanoidOnlineFixtureActivity extends ArcanoidOnlineActivity {
                     .put("paddleY",new JSONArray().put(1250).put(150)).put("ball",new JSONObject().put("x",500+tick*10).put("y",900).put("vx",200).put("vy",300))
                     .put("bricks",won?0:0x3fffffff).put("level",level).put("levelCount",6).put("lives",3).put("score",won?300:40)
                     .put("state",won?"WON":"PLAYING".equals(phase)?"PLAYING":"PAUSED".equals(phase)?"PAUSED":"READY");
-                listener.onState(ArcanoidRoomSnapshot.parse(new JSONObject().put("protocolVersion",1).put("gameId",id).put("epoch",epoch).put("revision",++revision)
+                listener.onState(ArcanoidRoomSnapshot.parse(new JSONObject().put("protocolVersion",2).put("gameId",id).put("epoch",epoch).put("revision",++revision)
                     .put("phase",phase).put("reason",won?"LEVEL_COMPLETE":"PAUSED".equals(phase)?"PLAYER_PAUSED":JSONObject.NULL)
                     .put("countdownMs","COUNTDOWN".equals(phase)?2000:0).put("ready",new JSONArray().put(ready).put(ready))
                     .put("connected",new JSONArray().put(true).put(true)).put("arcanoid",game)));

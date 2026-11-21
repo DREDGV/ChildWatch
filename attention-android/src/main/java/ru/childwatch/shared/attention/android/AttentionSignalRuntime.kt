@@ -15,6 +15,7 @@ import ru.childwatch.shared.attention.AttentionSignalReceiverCoordinator
 class AttentionSignalRuntime(
     context: Context,
     private val ownDeviceId: () -> String,
+    private val messageScope: (AttentionSignalRequest) -> String?,
     private val emitStatus: (JSONObject) -> Unit,
     private val serviceClass: Class<*>,
     private val mainActivityClass: Class<*>,
@@ -53,6 +54,7 @@ class AttentionSignalRuntime(
 
     override fun onStarted(request: AttentionSignalRequest) {
         showNotification(request)
+        showMessageNotification(request)
         coordinator.onStarted(request)
     }
 
@@ -103,6 +105,25 @@ class AttentionSignalRuntime(
             .build()
         runCatching { notificationManager.notify(notificationId(request.requestId), notification) }
             .onFailure { Log.w(TAG, "Unable to show attention notification", it) }
+    }
+
+    private fun showMessageNotification(request: AttentionSignalRequest) {
+        val scope = messageScope(request) ?: return
+        val key = IncomingAttentionMessages.save(appContext, scope, request) ?: return
+        val open = PendingIntent.getActivity(appContext, 0,
+            Intent(appContext, mainActivityClass).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP),
+            PendingIntent.FLAG_IMMUTABLE)
+        val notification = NotificationCompat.Builder(appContext, CHANNEL_ID)
+            .setSmallIcon(notificationIcon)
+            .setContentTitle("Сообщение к сигналу")
+            .setContentText("Откройте ChildWatch, чтобы прочитать")
+            .setVisibility(NotificationCompat.VISIBILITY_PRIVATE)
+            .setContentIntent(open)
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .build()
+        runCatching { notificationManager.notify(key, IncomingAttentionMessages.NOTIFICATION_ID, notification) }
+            .onFailure { Log.w(TAG, "Unable to show attention message notification", it) }
     }
 
     private fun createNotificationChannel() {

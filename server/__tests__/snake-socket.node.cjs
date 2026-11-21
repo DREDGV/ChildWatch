@@ -113,7 +113,20 @@ async function fixture() {
     }
   };
 }
-const join = (client, gameId, actorMemberId) => client.call('snake:join', { gameId, familyId: 'family', actorMemberId });
+const join = (client, gameId, actorMemberId) => client.call('snake:join', { gameId, familyId: 'family', actorMemberId, protocolVersion:2 });
+test('v2 takes two pipelined turns without BUSY or losing the second corner',async()=>{
+  const f=await fixture();try{
+    const host=await f.client('host'),guest=await f.client('guest');
+    assert.equal((await host.call('snake:join',{gameId:f.game.id,familyId:'family',actorMemberId:'host'})).code,'GAME_UPDATE_REQUIRED');
+    await join(host,f.game.id,'host');const state=await join(guest,f.game.id,'guest');
+    await command(host,state,'READY');await command(guest,state,'READY');f.advance(2000);await f.sessions.pulse();
+    const playing=await host.state(value=>value.phase==='PLAYING');
+    const [a,b]=await Promise.all([command(host,playing,'INPUT',{sequence:1,targetTick:1,direction:'UP'}),command(host,playing,'INPUT',{sequence:2,targetTick:2,direction:'LEFT'})]);
+    assert.equal(a.success,true);assert.equal(b.success,true);
+    f.advance(180);await f.sessions.pulse();f.advance(180);await f.sessions.pulse();
+    const final=await host.state(value=>value.snake?.tick==='2');assert.equal(final.snake.players[0].body[0],144);
+  }finally{await f.close();}
+});
 const command = (client, state, action, extra = {}) => client.call('snake:command', {
   gameId: state.gameId, epoch: state.epoch, action, ...extra
 });

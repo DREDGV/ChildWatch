@@ -36,7 +36,7 @@
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp"
                         android:text="@string/cw_catalog_arkanoid_desc" android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp"
-                        android:text="@string/cw_catalog_solo" android:textSize="14sp" android:textColor="@color/cw_color_on_surface_variant" />
+                        android:text="@string/cw_catalog_modes" android:textSize="14sp" android:textColor="@color/cw_color_on_surface_variant" />
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp"
                         android:text="@string/cw_catalog_choose" android:textSize="16sp" android:textStyle="bold"
                         android:textColor="@color/cw_color_primary" />
@@ -82,7 +82,7 @@
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp"
                         android:text="@string/cw_catalog_snake_desc" android:textAppearance="@style/TextAppearance.ChildWatch.Body" />
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp"
-                        android:text="@string/cw_catalog_solo" android:textSize="14sp" android:textColor="@color/cw_color_on_surface_variant" />
+                        android:text="@string/cw_catalog_modes" android:textSize="14sp" android:textColor="@color/cw_color_on_surface_variant" />
                     <TextView android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp"
                         android:text="@string/cw_catalog_choose" android:textSize="16sp" android:textStyle="bold"
                         android:textColor="@color/cw_color_primary" />

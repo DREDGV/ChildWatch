@@ -27,7 +27,8 @@ class FamilyPlacesService {
       await this.db.run('CREATE INDEX IF NOT EXISTS idx_place_events_owner ON family_place_events(family_id, owner_member_id, id)');
       await this.db.run('CREATE INDEX IF NOT EXISTS idx_place_events_history ON family_place_events(family_id, owner_member_id, target_member_id, id)');
       const additions = {
-        family_place_watches: { last_certain_timestamp: 'INTEGER NOT NULL DEFAULT 0', observation_reason: 'TEXT', last_accuracy: 'REAL', last_distance: 'REAL' },
+        family_place_watches: { last_certain_timestamp: 'INTEGER NOT NULL DEFAULT 0', observation_reason: 'TEXT', last_accuracy: 'REAL', last_distance: 'REAL',
+          is_key: 'INTEGER NOT NULL DEFAULT 0', notifications_enabled: 'INTEGER NOT NULL DEFAULT 1' },
         family_place_events: { evidence_json: 'TEXT', policy_version: 'INTEGER NOT NULL DEFAULT 1' }
       };
       for (const [table, columns] of Object.entries(additions)) {
@@ -107,11 +108,11 @@ class FamilyPlacesService {
   }
   async createInternal(actor, input) {
     await this.ensure();
-    const { targetMemberId, name, latitude, longitude, radius, onEnter, onExit } = input;
+    const { targetMemberId, name, latitude, longitude, radius, onEnter, onExit, isKey = false } = input;
     if (typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 80 ||
         !Number.isFinite(latitude) || Math.abs(latitude) > 90 || !Number.isFinite(longitude) || Math.abs(longitude) > 180 ||
         !Number.isFinite(radius) || radius < 100 || radius > 2000 ||
-        typeof onEnter !== 'boolean' || typeof onExit !== 'boolean' || (!onEnter && !onExit))
+        typeof isKey !== 'boolean' || typeof onEnter !== 'boolean' || typeof onExit !== 'boolean' || (!onEnter && !onExit))
       throw Object.assign(new Error('Invalid place'), { status: 400 });
     if (!await this.allowed(actor.familyId, actor.memberId, targetMemberId))
       throw Object.assign(new Error('Location and history permission required'), { status: 403 });
@@ -121,15 +122,15 @@ class FamilyPlacesService {
     if (previous) {
       if (previous.family_id === actor.familyId && previous.owner_member_id === actor.memberId &&
           previous.target_member_id === targetMemberId && previous.name === name.trim() && previous.latitude === latitude &&
-          previous.longitude === longitude && previous.radius === radius && previous.on_enter === Number(onEnter) && previous.on_exit === Number(onExit)) return id;
+          previous.longitude === longitude && previous.radius === radius && previous.on_enter === Number(onEnter) && previous.on_exit === Number(onExit) && previous.is_key === Number(isKey)) return id;
       throw Object.assign(new Error('Request already saved with different values'), { status: 409 });
     }
     const count = await this.db.get('SELECT COUNT(*) AS count FROM family_place_watches WHERE family_id=? AND owner_member_id=?', [actor.familyId, actor.memberId]);
     if (count.count >= 50) throw Object.assign(new Error('Limit of 50 places reached'), { status: 409 });
     await this.db.run(`INSERT INTO family_place_watches
-      (id, family_id, owner_member_id, target_member_id, name, latitude, longitude, radius, on_enter, on_exit, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [id, actor.familyId, actor.memberId, targetMemberId, name.trim(), latitude, longitude, radius, onEnter ? 1 : 0, onExit ? 1 : 0, Date.now()]);
+      (id, family_id, owner_member_id, target_member_id, name, latitude, longitude, radius, on_enter, on_exit, is_key, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [id, actor.familyId, actor.memberId, targetMemberId, name.trim(), latitude, longitude, radius, Number(onEnter), Number(onExit), Number(isKey), Date.now()]);
     return id;
   }
   async removeInternal(actor, id) {
@@ -158,16 +159,41 @@ class FamilyPlacesService {
     const row = await this.db.get('SELECT * FROM family_place_watches WHERE id=? AND family_id=? AND owner_member_id=?', [id, actor.familyId, actor.memberId]);
     if (!row || input.targetMemberId !== row.target_member_id || !await this.allowed(actor.familyId, actor.memberId, row.target_member_id))
       throw Object.assign(new Error('Place access denied'), { status: 403 });
-    const { name, latitude, longitude, radius, onEnter, onExit } = input;
+    const { name, latitude, longitude, radius, onEnter, onExit, isKey = row.is_key === 1 } = input;
     if (typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 80 ||
         !Number.isFinite(latitude) || Math.abs(latitude) > 90 || !Number.isFinite(longitude) || Math.abs(longitude) > 180 ||
-        !Number.isFinite(radius) || radius < 100 || radius > 2000 || typeof onEnter !== 'boolean' || typeof onExit !== 'boolean' || (!onEnter && !onExit))
+        !Number.isFinite(radius) || radius < 100 || radius > 2000 || typeof isKey !== 'boolean' || typeof onEnter !== 'boolean' || typeof onExit !== 'boolean' || (!onEnter && !onExit))
       throw Object.assign(new Error('Invalid place'), { status: 400 });
-    await this.db.run(`UPDATE family_place_watches SET name=?, latitude=?, longitude=?, radius=?, on_enter=?, on_exit=?,
+    await this.db.run(`UPDATE family_place_watches SET name=?, latitude=?, longitude=?, radius=?, on_enter=?, on_exit=?, is_key=?,
       side=NULL, candidate=NULL, candidate_since=NULL, candidate_count=0, last_timestamp=0, last_device_id=NULL,
       last_certain_timestamp=0, observation_reason=NULL, last_accuracy=NULL, last_distance=NULL WHERE id=?`,
-      [name.trim(), latitude, longitude, radius, Number(onEnter), Number(onExit), id]);
+      [name.trim(), latitude, longitude, radius, Number(onEnter), Number(onExit), Number(isKey), id]);
   }); }
+  changeNotifications(actor, { targetMemberId, mode, ids, onEnter, onExit } = {}) {
+    if (typeof targetMemberId !== 'string' || !targetMemberId.trim() ||
+        !['ALL', 'KEY', 'SELECTED'].includes(mode) || typeof onEnter !== 'boolean' ||
+        typeof onExit !== 'boolean' || (!onEnter && !onExit) ||
+        (mode === 'SELECTED' && (!Array.isArray(ids) || ids.length < 1 || ids.length > 50 ||
+          ids.some(id => typeof id !== 'string' || !id)))) {
+      throw Object.assign(new Error('Invalid place notification settings'), { status: 400 });
+    }
+    return this.atomicActor(actor, async fresh => {
+      if (!await this.allowed(fresh.familyId, fresh.memberId, targetMemberId))
+        throw Object.assign(new Error('Place access denied'), { status: 403 });
+      const scope = [fresh.familyId, fresh.memberId, targetMemberId];
+      const owned = await this.db.all('SELECT id, is_key FROM family_place_watches WHERE family_id=? AND owner_member_id=? AND target_member_id=?', scope);
+      const filter = mode === 'SELECTED' ? new Set(ids) : null;
+      const selected = owned.filter(row => mode === 'ALL' || (filter ? filter.has(row.id) : row.is_key === 1));
+      if (filter && selected.length !== filter.size)
+        throw Object.assign(new Error('Place selection changed'), { status: 409 });
+      if (!selected.length) return 0;
+      await this.db.run('UPDATE family_place_watches SET notifications_enabled=0 WHERE family_id=? AND owner_member_id=? AND target_member_id=?', scope);
+      await this.db.run(`UPDATE family_place_watches SET notifications_enabled=1, on_enter=?, on_exit=?
+        WHERE family_id=? AND owner_member_id=? AND target_member_id=? AND id IN (${selected.map(() => '?').join(',')})`,
+        [Number(onEnter), Number(onExit), ...scope, ...selected.map(row => row.id)]);
+      return selected.length;
+    });
+  }
   events(actor, after) { return this.atomicActor(actor, fresh => this.eventsInternal(fresh, after)); }
   history(actor, targetMemberId, options = {}) {
     return this.atomicActor(actor, fresh => this.historyInternal(fresh, targetMemberId, options));
@@ -179,7 +205,12 @@ class FamilyPlacesService {
     if (!await this.allowed(actor.familyId, actor.memberId, target))
       throw Object.assign(new Error('Location and history permission required'), { status: 403 });
     if (!options || typeof options !== 'object' || Array.isArray(options)) throw invalid('Invalid history options');
-    const { before, snapshot: requestedSnapshot, limit = 30 } = options;
+    const { before, snapshot: requestedSnapshot, limit = 30, from, to, deviceId } = options;
+    const ranged = from !== undefined || to !== undefined || deviceId !== undefined;
+    if (ranged && (!Number.isSafeInteger(from) || !Number.isSafeInteger(to) ||
+        from < 0 || to < from || to - from > 48 * 60 * 60 * 1000 ||
+        typeof deviceId !== 'string' || !deviceId.trim() || deviceId.length > 256))
+      throw invalid('Invalid history range or device');
     if (!Number.isSafeInteger(limit) || limit < 1 || limit > 50) throw invalid('Invalid history limit');
     if (requestedSnapshot !== undefined && (!Number.isSafeInteger(requestedSnapshot) || requestedSnapshot < 0))
       throw invalid('Invalid history snapshot');
@@ -193,12 +224,15 @@ class FamilyPlacesService {
     if (before !== undefined && before > snapshot) throw invalid('History cursor exceeds snapshot');
     const rows = await this.db.all(`SELECT * FROM family_place_events
       WHERE family_id=? AND owner_member_id=? AND target_member_id=? AND id<=? AND created_at>=?
+      ${ranged ? 'AND device_id=? AND measured_at BETWEEN ? AND ?' : ''}
       ${before !== undefined ? 'AND id<?' : ''} ORDER BY id DESC LIMIT ?`,
-      [...scope, snapshot, Date.now() - 30 * 86400000, ...(before !== undefined ? [before] : []), limit + 1]);
+      [...scope, snapshot, Date.now() - 30 * 86400000, ...(ranged ? [deviceId, from, to] : []),
+        ...(before !== undefined ? [before] : []), limit + 1]);
     const hasMore = rows.length > limit;
     const events = rows.slice(0, limit);
     return { success: true, familyId: actor.familyId, ownerMemberId: actor.memberId, targetMemberId: target,
-      events, snapshot, nextBefore: hasMore ? events[events.length - 1].id : null, hasMore, retentionDays: 30 };
+      events, snapshot, nextBefore: hasMore ? events[events.length - 1].id : null, hasMore, retentionDays: 30,
+      ...(ranged ? { from, to, deviceId } : {}) };
   }
   async eventsInternal(actor, after) {
     if (!Number.isSafeInteger(after) || after < 0) throw Object.assign(new Error('Invalid cursor'), { status: 400 });
@@ -208,8 +242,10 @@ class FamilyPlacesService {
       AND created_at>=? ORDER BY id LIMIT 100`, [actor.familyId, actor.memberId, after, Date.now() - 7 * 86400000]);
     const visible = [];
     for (const row of rows) {
-      const watch = await this.db.get('SELECT enabled FROM family_place_watches WHERE id=?', [row.watch_id]);
-      if (watch?.enabled === 1 && await this.allowed(row.family_id, actor.memberId, row.target_member_id)) visible.push(row);
+      const watch = await this.db.get('SELECT enabled, notifications_enabled, on_enter, on_exit FROM family_place_watches WHERE id=?', [row.watch_id]);
+      const direction = row.transition === 'ENTER' ? watch?.on_enter : watch?.on_exit;
+      if (watch?.enabled === 1 && watch.notifications_enabled === 1 && direction === 1 &&
+          await this.allowed(row.family_id, actor.memberId, row.target_member_id)) visible.push(row);
     }
     return { familyId: actor.familyId, ownerMemberId: actor.memberId,
       events: visible, cursor: rows.length ? rows[rows.length - 1].id : after };

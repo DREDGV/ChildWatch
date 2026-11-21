@@ -21,6 +21,10 @@ public final class GameOnlineBridge {
         }
     }
     public static volatile Host host;
+    private static final java.util.Set<Runnable> observers=new java.util.concurrent.CopyOnWriteArraySet<>();
+    static void observe(Runnable observer){observers.add(observer);}
+    static void unobserve(Runnable observer){observers.remove(observer);}
+    static void changed(){for(Runnable observer:observers)observer.run();}
     public static class Failure extends Exception {
         public final int status;
         public Failure(int status, String message) { super(message); this.status = status; }
@@ -29,13 +33,13 @@ public final class GameOnlineBridge {
     public static final class Client {
         private final Host captured = host;
         private final String scope = captured == null ? "" : captured.scopeKey();
-        private final SharedPreferences prefs;
+        private final SharedPreferences prefs;private final Context appContext;
         private final ExecutorService worker = Executors.newSingleThreadExecutor();
         private final Handler main = new Handler(Looper.getMainLooper());
         private volatile boolean closed;
         private boolean busy;
         public Client(Context context) {
-            prefs = context.getSharedPreferences("family-games-outbox", Context.MODE_PRIVATE);
+            appContext=context.getApplicationContext();prefs = context.getSharedPreferences("family-games-outbox", Context.MODE_PRIVATE);
         }
         private String key() { return "pending:" + scope; }
         public boolean available() { return captured != null && !scope.isEmpty() && scope.equals(captured.scopeKey()); }
@@ -45,10 +49,14 @@ public final class GameOnlineBridge {
             if (hasPending()) { result.done(null, new Failure(409,"Сначала повторите неподтверждённое действие")); return; }
             request("POST", path, body, true, result);
         }
+        public void delete(String path,JSONObject body,Result result) {
+            if(hasPending()){result.done(null,new Failure(409,"Сначала повторите неподтверждённое действие"));return;}
+            request("DELETE",path,body,true,result);
+        }
         public void retry(Result result) {
             try {
                 JSONObject saved = new JSONObject(prefs.getString(key(), ""));
-                request("POST", saved.getString("path"), saved.getJSONObject("body"), true, result);
+                request(saved.optString("method","POST"), saved.getString("path"), saved.getJSONObject("body"), true, result);
             } catch (Exception error) { result.done(null, error); }
         }
         private void request(String method, String path, JSONObject body, boolean durable, Result result) {
@@ -57,7 +65,7 @@ public final class GameOnlineBridge {
             final JSONObject frozen;
             try {
                 frozen = body == null ? null : new JSONObject(body.toString());
-                if (durable && !prefs.edit().putString(key(),new JSONObject().put("path",path).put("body",frozen).toString()).commit())
+                if (durable && !prefs.edit().putString(key(),new JSONObject().put("method",method).put("path",path).put("body",frozen).toString()).commit())
                     throw new IllegalStateException("Не удалось сохранить действие");
             } catch (Exception error) { result.done(null,error); return; }
             busy = true;
@@ -66,10 +74,15 @@ public final class GameOnlineBridge {
                 try {
                     if (!available()) throw new Failure(403,"Семейный профиль изменился");
                     value = captured.request(method,path,frozen);
+                    java.util.List<String> avatarKeys=new java.util.ArrayList<>();org.json.JSONArray games=value.optJSONArray("games");
+                    if(games!=null)for(int i=0;i<games.length();i++){JSONObject game=games.optJSONObject(i);if(game==null)continue;
+                        for(String side:new String[]{"host","guest"}){JSONObject person=game.optJSONObject(side);if(person!=null)avatarKeys.add(person.optString("avatarKey"));}}
+                    AvatarPresetCatalog.warmUp(appContext,avatarKeys);
                     if (!available()) throw new Failure(403,"Семейный профиль изменился");
                     if (durable) prefs.edit().remove(key()).commit();
                 } catch (Exception failure) {
                     error = failure;
+                    GameTiming.requestFailed(method,failure);
                     if (durable && failure instanceof Failure && ((Failure)failure).status >= 400 && ((Failure)failure).status < 500
                         && ((Failure)failure).status != 408 && ((Failure)failure).status != 429)
                         prefs.edit().remove(key()).commit();

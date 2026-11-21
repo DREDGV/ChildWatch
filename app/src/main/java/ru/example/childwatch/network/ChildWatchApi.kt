@@ -304,6 +304,19 @@ interface ChildWatchApi : ChatMediaApi {
         @Query("limit") limit: Int = 50
     ): Response<ChatV2MessagesResponse>
 
+    @GET("api/chat/v2/conversations/{conversationId}/messages/context")
+    suspend fun getChatV2MessageContext(
+        @Path("conversationId") conversationId: String,
+        @Query("messageId") messageId: String?,
+        @Query("unread") unread: Boolean
+    ): Response<ChatV2MessagesResponse>
+
+    @POST("api/chat/v2/conversations/{conversationId}/messages/search")
+    suspend fun searchChatV2Messages(
+        @Path("conversationId") conversationId: String,
+        @Body request: ru.childwatch.shared.chat.ChatV2SearchRequest
+    ): Response<ChatV2MessagesResponse>
+
     @POST("api/chat/v2/conversations/{conversationId}/messages")
     suspend fun sendChatV2Message(
         @Path("conversationId") conversationId: String,

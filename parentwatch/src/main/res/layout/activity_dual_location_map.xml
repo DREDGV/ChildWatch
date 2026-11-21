@@ -275,6 +275,15 @@
                     tools:text="В движении" />
 
                 <TextView
+                    android:id="@+id/lastPointText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/map_last_point_unavailable"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="12sp" />
+
+                <TextView
                     android:id="@+id/pointMetaText"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

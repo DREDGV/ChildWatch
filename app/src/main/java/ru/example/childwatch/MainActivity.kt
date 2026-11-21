@@ -166,6 +166,7 @@ class MainActivity : AppCompatActivity() {
             context = this,
             scope = lifecycleScope,
             noticeContainer = binding.updateNoticeContainer,
+            checkSummary = binding.updateCheckSummary,
             // The very address the network client talks to, so the manifest and the
             // file can never be looked for on two different hosts.
             serverUrlProvider = { networkClient.resolveConfiguredServerUrl() }
@@ -251,6 +252,12 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        ru.childwatch.shared.attention.android.IncomingAttentionMessages.bind(this) {
+            val resolver = effectiveContextResolver
+            ru.childwatch.shared.attention.android.IncomingAttentionMessages.scope(
+                resolver.resolveServerUrl(), resolver.resolveFamilyId(), resolver.resolveOwnParentId()
+            )
+        }
 
         lifecycleScope.launch { ru.example.childwatch.location.FamilyPlaceSync.sync(this@MainActivity) }
         binding = ActivityMainMenuBinding.inflate(layoutInflater)
@@ -333,11 +340,6 @@ class MainActivity : AppCompatActivity() {
             ru.example.childwatch.games.FamilyGamesHost.register(this)
             ru.example.childwatch.designsystem.GamesMenu.show(this)
         }
-        binding.homeUpdateButton.setOnClickListener {
-            if (homeSheet?.isShowing != true) homeSheet = HomeDetailSheet.show(
-                binding.updateNoticeContainer, getString(R.string.cw_home_update_available)
-            )
-        }
         binding.selectedChildLocation.doAfterTextChanged {
             binding.deviceInfoDistance.text = it?.toString().orEmpty()
             binding.deviceInfoDistance.isVisible = binding.selectedChildLocation.isVisible
@@ -364,10 +366,6 @@ class MainActivity : AppCompatActivity() {
             val needsAttention = binding.setupNoticeCard.visibility == View.VISIBLE ||
                 binding.powerSettingsCard.visibility == View.VISIBLE
             if (binding.homeAttentionButton.isVisible != needsAttention) binding.homeAttentionButton.isVisible = needsAttention
-            val hasUpdate = (0 until binding.updateNoticeContainer.childCount).any {
-                binding.updateNoticeContainer.getChildAt(it).visibility == View.VISIBLE
-            }
-            if (binding.homeUpdateButton.isVisible != hasUpdate) binding.homeUpdateButton.isVisible = hasUpdate
         }
         binding.deviceUsageCard.setOnClickListener { binding.deviceUsageButton.performClick() }
         binding.familyStrip.render(emptyList(), null,

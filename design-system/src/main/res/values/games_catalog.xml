@@ -23,6 +23,11 @@
     <string name="cw_catalog_family">С участником семьи</string>
     <string name="cw_catalog_family_connection">У каждого своё поле на своём телефоне. Нужна связь с сервером и поддержка игры.</string>
     <string name="cw_catalog_arkanoid_rules">Двигайте платформу пальцем и удерживайте мяч в игре. Выбейте все блоки, чтобы пройти уровень. Если мяч упадёт, вы потеряете жизнь.</string>
-    <string name="cw_catalog_snake_rules">Меняйте направление свайпом. Собирайте еду и не врезайтесь в стену или свой хвост. Поворот назад недоступен.</string>
+    <string name="cw_catalog_snake_rules">Меняйте направление свайпом. Собирайте еду. Края соединены: выходите с одной стороны и появляйтесь с противоположной. Избегайте столкновений со змейками. Поворот назад недоступен.</string>
     <string name="cw_catalog_battleship_rules">Сначала расставьте корабли. Затем выбирайте клетку и подтверждайте выстрел. Попадание даёт ещё один ход. Побеждает тот, кто первым потопит весь флот соперника.</string>
+    <string name="cw_catalog_modes">Одному без интернета или вместе с семьёй</string>
+    <string name="cw_game_update_required">Для совместной игры обновите приложение.</string>
+    <string name="cw_game_closed_by_player">Партия завершена участником. Можно сыграть ещё.</string>
+    <color name="cw_game_brick_blue">#9AC4FF</color>
+    <color name="cw_game_brick_lilac">#BFABED</color>
 </resources>

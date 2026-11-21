@@ -117,12 +117,12 @@ class WebSocketManager {
     return connected;
   }
 
-  emitToExactDevice(deviceId, eventName, payload) {
+  emitToExactDevice(deviceId, eventName, payload, acceptsSocket = () => true) {
     const socketIds = this.getConnectedSocketIdsForDevice(deviceId);
     let delivered = 0;
     for (const socketId of socketIds) {
       const socket = this.io.sockets.sockets.get(socketId);
-      if (!socket || !socket.connected) continue;
+      if (!socket || !socket.connected || !acceptsSocket(socket)) continue;
       socket.emit(eventName, payload);
       delivered += 1;
     }
@@ -1863,6 +1863,7 @@ class WebSocketManager {
           }
 
           parentSocket.emit("audio_chunk", metadata, binaryData);
+          this.commandManager?.noteAudioDelivery?.(deviceId, parentSocket.parentDeviceId);
           if (this.shouldLogAudioChunk(sequence)) {
             console.log(
               `Audio route detail: #${sequence} ${deviceId} ${socket.id} -> ${parentSocketId}`

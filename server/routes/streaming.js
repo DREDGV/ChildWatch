@@ -42,7 +42,10 @@ async function requireStreamingAccess(req, res, requestedDeviceId) {
         return null;
     }
     const decision = await deviceAccess.authorizeAudioAccess(req.deviceId, requestedDeviceId);
-    if (decision.allowed) return decision.deviceId;
+    if (decision.allowed) {
+        req.streamingFamilyId = decision.membership?.familyId;
+        return decision.deviceId;
+    }
     res.status(decision.code === 'AUTH_REQUIRED' ? 401 :
         decision.code === 'MISSING_DEVICE_ID' ? 400 : 403).json({
         success: false,
@@ -587,6 +590,12 @@ router.get('/chunks/:deviceId', async (req, res) => {
             });
         }
         const chunks = commandManager.getAudioChunks(authorizedDeviceId, count);
+        const now = Date.now();
+        const start = commandManager.getSessionInfo(authorizedDeviceId)?.startTime;
+        const newest = chunks.at(-1)?.timestamp;
+        if (start && newest >= start && newest <= now) {
+            commandManager.noteAudioDelivery?.(authorizedDeviceId, req.deviceId, newest);
+        }
 
         res.json({
             success: true,
@@ -613,6 +622,27 @@ router.get('/chunks/:deviceId', async (req, res) => {
  * GET /api/streaming/status/:deviceId
  * Get streaming session status including WebSocket connection state
  */
+async function listeningPresence(deviceId, viewerFamilyId) {
+    const candidates = commandManager.recentStreamingListeners?.(deviceId) || [];
+    const known = new Map();
+    for (const id of candidates) {
+        if (await deviceAccess.isDeviceRevoked(id)) continue;
+        const decision = await deviceAccess.authorizeAudioAccess(id, deviceId);
+        const membership = decision.membership;
+        if (decision.allowed && membership?.actorDisplayName?.trim() &&
+            (!viewerFamilyId || viewerFamilyId === membership.familyId)) {
+            known.set(id, { memberId: membership.actorMemberId, name: membership.actorDisplayName.trim() });
+        }
+    }
+    const current = commandManager.recentStreamingListeners?.(deviceId) || [];
+    const people = new Map(current.map(id => known.get(id)).filter(Boolean).map(person => [person.memberId, person.name]));
+    return {
+        state: current.length ? 'ACTIVE' : commandManager.getSessionInfo(deviceId) ? 'WAITING' : 'IDLE',
+        names: [...people.values()],
+        unknownListener: current.some(id => !known.has(id))
+    };
+}
+
 router.get('/status/:deviceId', async (req, res) => {
     try {
         const { deviceId } = req.params;
@@ -629,6 +659,8 @@ router.get('/status/:deviceId', async (req, res) => {
             return undefined;
         }
 
+        res.set('Cache-Control', 'no-store');
+        const presence = await listeningPresence(authorizedDeviceId, req.streamingFamilyId);
         const session = commandManager.getSessionInfo(authorizedDeviceId);
         const wsStats = wsManager.getStats();
         const childConnected = wsManager.isChildConnected(authorizedDeviceId);
@@ -640,6 +672,7 @@ router.get('/status/:deviceId', async (req, res) => {
                 streaming: false,
                 active: false,
                 recording: false,
+                listeningPresence: presence,
                 deviceId: authorizedDeviceId,
                 webSocket: {
                     childConnected,
@@ -654,6 +687,7 @@ router.get('/status/:deviceId', async (req, res) => {
             streaming: true,
             active: true,
             recording: session.recording,
+            listeningPresence: presence,
             deviceId: authorizedDeviceId,
             parentId: session.parentId,
             ownerParentId: session.ownerParentId,

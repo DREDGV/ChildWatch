@@ -39,6 +39,49 @@ async function fixture(filename = ':memory:') {
 }
 const invite = () => ({ gameId:randomUUID(),targetMemberId:'guest',type:'TIC_TAC_TOE' });
 const command = (game,action,cell) => ({ actionId:randomUUID(),version:game.version,action,...(cell === undefined ? {} : {cell}) });
+test('finished invitations disappear immediately; terminal GET survives for24h then all dependent rows are purged',async()=>{
+  const f=await fixture();try{
+    const game=(await f.service.create(f.actors.host,invite())).game;
+    await f.service.action(f.actors.guest,game.id,command(game,'DECLINE'));
+    assert.deepEqual(await f.service.list(f.actors.host),[]);
+    assert.deepEqual(await f.service.list(f.actors.guest),[]);
+    assert.equal((await f.service.get(f.actors.host,game.id)).status,'DECLINED');
+    for(const table of ['family_snake_sessions','family_arcanoid_sessions']){
+      await f.db.run(`CREATE TABLE ${table}(game_id TEXT PRIMARY KEY)`);await f.db.run(`INSERT INTO ${table} VALUES (?)`,[game.id]);
+    }
+    f.advance(86399999);assert.equal(await f.service.cleanup(),0);
+    f.advance(1);assert.equal(await f.service.cleanup(),1);
+    await assert.rejects(f.service.get(f.actors.host,game.id),{code:'GAME_NOT_FOUND'});
+    for(const table of ['family_game_actions','family_snake_sessions','family_arcanoid_sessions'])
+      assert.equal((await f.db.get(`SELECT COUNT(*) AS count FROM ${table}`)).count,0);
+  }finally{await f.close();}
+});
+test('manual close requires participant, confirmation and version; replay cannot close another game',async()=>{
+  const f=await fixture();try{
+    const game=await playing(f), body={operationId:randomUUID(),version:game.version};
+    await assert.rejects(f.service.remove(f.actors.other,game.id,body),{code:'GAME_NOT_FOUND'});
+    await assert.rejects(f.service.remove(f.actors.host,game.id,body),{code:'GAME_CONFIRM_REQUIRED'});
+    await assert.rejects(f.service.remove(f.actors.host,game.id,{...body,version:1,confirmActive:true}),{code:'GAME_VERSION_CONFLICT'});
+    const events=[];f.service.notifyChanged=async value=>events.push(value.id);
+    f.service.sessionServices.push({releaseGame(id){assert.deepEqual(events,[id]);events.push('released');}});
+    const removed=await f.service.remove(f.actors.guest,game.id,{...body,confirmActive:true});
+    assert.equal(removed.game.status,'CANCELLED');assert.equal(removed.replayed,false);
+    assert.equal((await f.service.remove(f.actors.guest,game.id,{...body,confirmActive:true})).replayed,true);
+    assert.deepEqual(await f.service.list(f.actors.host),[]);
+    await assert.rejects(f.service.remove(f.actors.host,game.id,{...body,confirmActive:true}),{code:'GAME_ACTION_ID_REUSED'});
+    f.service.sessionServices.length=0;f.advance(86400000);assert.equal(await f.service.cleanup(),1);
+  }finally{await f.close();}
+});
+test('room queues preserve command ordering without blocking a different game',async()=>{
+  const f=await fixture();try{
+    let release;const gate=new Promise(resolve=>release=resolve),order=[];
+    const slow=f.service.runRoom('slow',async()=>{order.push('start');await gate;order.push('end');});
+    const next=f.service.runRoom('slow',()=>order.push('next'));
+    await f.service.runRoom('other',()=>order.push('other'));
+    assert.deepEqual(order,['start','other']);release();await Promise.all([slow,next]);
+    assert.deepEqual(order,['start','other','end','next']);await Promise.resolve();assert.equal(f.service.roomQueues.size,0);
+  }finally{await f.close();}
+});
 async function playing(f) {
   let result = await f.service.create(f.actors.host,invite());
   result = await f.service.action(f.actors.guest,result.game.id,command(result.game,'ACCEPT'));
@@ -239,6 +282,11 @@ test('HTTP routes require actor context and keep rooms private',async () => {
     assert.equal((await request('c','other','/'+input.gameId)).status,404);
     const accepted = await request('b','guest','/'+input.gameId+'/actions',command(created.body.game,'ACCEPT'));
     assert.equal(accepted.status,200); assert.equal(accepted.body.game.status,'PLAYING');
+    const deletion={operationId:randomUUID(),version:accepted.body.game.version,confirmActive:true};
+    assert.equal((await request('c','other','/'+input.gameId,deletion,'DELETE')).status,404);
+    assert.equal((await request('a','host','/'+input.gameId,deletion,'DELETE')).body.game.status,'CANCELLED');
+    assert.equal((await request('a','host','/'+input.gameId,deletion,'DELETE')).body.replayed,true);
+    assert.deepEqual((await request('b','guest')).body.games,[]);
     const missing = await request('a','host','/'+randomUUID()); assert.equal(missing.status,404);
   } finally { await new Promise(resolve => server.close(resolve)); await f.close(); }
 });

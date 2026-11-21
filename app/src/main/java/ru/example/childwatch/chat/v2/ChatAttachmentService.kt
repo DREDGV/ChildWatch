@@ -125,18 +125,27 @@ class ChatAttachmentService internal constructor(
         }, discard = { staged.file.delete() })
     }
     suspend fun send(id: String, caption: String, senderName: String, senderRole: ConversationMemberRole) {
-        val draft = drafts.get(id) ?: throw IllegalArgumentException("DRAFT_UNAVAILABLE")
-        checkScope(draft)
-        check(draft.state !in setOf("CANCELLED", "ENQUEUED")) { "DRAFT_ALREADY_FINISHED" }
         if (caption.isNotBlank()) require(ChatTextPolicy.validate(caption) is ChatTextValidation.Valid) { "CAPTION_SIZE_LIMIT" }
-        drafts.update(draft.copy(caption = caption, senderName = senderName, senderRole = senderRole.name,
-            state = "QUEUED", errorCode = null, nextAttemptAt = clock(), updatedAt = clock()))
-        retry(id)
+        uploadMutex.withLock {
+            val draft = drafts.get(id) ?: throw IllegalArgumentException("DRAFT_UNAVAILABLE")
+            checkScope(draft)
+            check(draft.state in setOf("DRAFT", "RETRY", "FAILED")) { "DRAFT_ALREADY_SUBMITTED" }
+            val queued = draft.copy(caption = caption, senderName = senderName, senderRole = senderRole.name,
+                state = "QUEUED", errorCode = null, attemptCount = 0, nextAttemptAt = clock(), updatedAt = clock())
+            drafts.update(queued)
+            uploadLocked(queued)
+        }
     }
+
     suspend fun retry(id: String) = uploadMutex.withLock {
         val draft = drafts.get(id) ?: return@withLock
         checkScope(draft)
-        if (draft.state in setOf("DRAFT", "CANCELLED", "ENQUEUED")) return@withLock
+        if (draft.state !in setOf("QUEUED", "UPLOADING", "UPLOADED", "RETRY") || draft.nextAttemptAt > clock()) return@withLock
+        uploadLocked(draft)
+    }
+
+    private suspend fun uploadLocked(draft: ChatAttachmentDraftV2Entity) {
+        val id = draft.clientMessageId
         val job = currentCoroutineContext()[Job]
         if (job != null) active[id] = job
         try {

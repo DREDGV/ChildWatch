@@ -599,7 +599,42 @@ object WebSocketManager {
         }
     }
 
+    private data class LocationWatch(
+        val server: String, val familyId: String?, val devices: List<String>, val listener: () -> Unit
+    )
+
+    @Volatile private var locationWatch: LocationWatch? = null
+
+    fun watchLocation(server: String, familyId: String?, devices: List<String>, listener: () -> Unit) {
+        val next = LocationWatch(server, familyId, devices, listener)
+        if (locationWatch == next) return
+        locationWatch = next
+        emitLocationWatch(next)
+    }
+
+    fun stopWatchingLocation(listener: () -> Unit) {
+        val watch = locationWatch?.takeIf { it.listener === listener } ?: return
+        locationWatch = null
+        if (isReadyForServer(watch.server)) webSocketClient?.emit("location:watch", JSONObject())
+    }
+
+    private fun emitLocationWatch(watch: LocationWatch) {
+        if (!isReadyForServer(watch.server)) return
+        webSocketClient?.emit("location:watch", JSONObject()
+            .put("familyId", watch.familyId)
+            .put("deviceIds", org.json.JSONArray(watch.devices)))
+    }
+
     private fun configureChatV2Callbacks() {
+        val client = webSocketClient
+        client?.setLocationCallbacks(onReady = {
+            if (webSocketClient === client) locationWatch?.takeIf { isReadyForServer(it.server) }?.let {
+                emitLocationWatch(it)
+                it.listener()
+            }
+        }, onChanged = {
+            if (webSocketClient === client) locationWatch?.takeIf { isReadyForServer(it.server) }?.listener?.invoke()
+        })
         webSocketClient?.setChatV2Callbacks(
             onMessage = { dispatchChatV2(chatV2MessageListeners, it, "message") },
             onReceiptUpdated = { dispatchChatV2(chatV2ReceiptListeners, it, "receipt") },
@@ -705,6 +740,7 @@ object WebSocketManager {
         clientMessageId: String,
         text: String,
         clientSentAt: Long,
+        replyToMessageId: String? = null,
         callback: (JSONObject) -> Unit
     ): Boolean {
         val client = webSocketClient?.takeIf { it.isReady() } ?: return false
@@ -713,6 +749,7 @@ object WebSocketManager {
             put("clientMessageId", clientMessageId)
             put("text", text)
             put("clientSentAt", clientSentAt)
+            put("replyToMessageId", replyToMessageId)
         }
         return client.emitWithAck("chat_v2:send", payload, callback)
     }

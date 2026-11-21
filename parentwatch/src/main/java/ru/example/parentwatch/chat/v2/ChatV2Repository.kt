@@ -8,6 +8,8 @@ import org.json.JSONObject
 import com.google.gson.JsonParser
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import retrofit2.Response
 import ru.childwatch.shared.chat.ChatDeliveryState
 import ru.childwatch.shared.chat.ChatDeliveryStateReducer
@@ -28,6 +30,8 @@ import ru.childwatch.shared.chat.ChatV2RetryPolicy
 import ru.childwatch.shared.chat.ChatV2ReceiptScope
 import ru.childwatch.shared.chat.ChatV2ReadReceiptPolicy
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import ru.childwatch.shared.chat.ChatV2UnreadMergePolicy
 import ru.childwatch.shared.chat.ChatV2SendMessageRequest
 import ru.childwatch.shared.chat.ChatV2TransferGroupAdminRequest
@@ -39,6 +43,9 @@ import ru.childwatch.shared.chat.ConversationMessage
 import ru.childwatch.shared.chat.ConversationPage
 import ru.childwatch.shared.chat.ConversationType
 import ru.childwatch.shared.chat.toDomain
+import ru.childwatch.shared.chat.ChatV2SearchRequest
+import ru.childwatch.shared.chat.ConversationAnchor
+import ru.childwatch.shared.chat.ConversationSearch
 import ru.example.parentwatch.database.ParentWatchDatabase
 import ru.example.parentwatch.database.entity.ChatConversationMemberV2Entity
 import ru.example.parentwatch.database.entity.ChatConversationV2Entity
@@ -121,6 +128,8 @@ class ChatV2Repository(
     private val outbox = database.chatOutboxV2Dao()
 
     companion object {
+        // The background coordinator and screens share this Room cache.
+        private val conversationRefresh = Mutex()
         private const val TAG = "ChatV2Repository"
         private const val DEFAULT_PAGE_SIZE = ChatV2PagingPolicy.DEFAULT_SERVER_PAGE_SIZE
         private const val OUTBOX_BATCH_SIZE = 50
@@ -158,8 +167,8 @@ class ChatV2Repository(
         }
     }
 
-    fun observeConversations(): Flow<List<Conversation>> = conversations.observeAll().map { rows ->
-        rows.map { it.toModel() }
+    fun observeConversations(): Flow<List<Conversation>> = conversations.observeAll(receiptScope?.member).map { rows ->
+        rows.mapNotNull { visibleCachedConversation(it) }
     }
 
     fun observeMessages(
@@ -172,15 +181,28 @@ class ChatV2Repository(
 
     fun observePendingOutboxCount(): Flow<Int> = outbox.observePendingCount()
 
-    suspend fun getCachedConversations(): List<Conversation> = conversations.getAll().map { row ->
-        val memberModels = members.getForConversation(row.conversationId).map { it.toModel() }
-        row.toModel(memberModels)
-    }
+    suspend fun getCachedConversations(): List<Conversation> =
+        conversations.getAll().mapNotNull { visibleCachedConversation(it) }
 
     suspend fun getCachedConversation(conversationId: String): Conversation? =
-        conversations.getById(conversationId)?.let { row ->
-            row.toModel(members.getForConversation(row.conversationId).map { it.toModel() })
+        conversations.getById(conversationId)?.let { visibleCachedConversation(it) }
+
+    private suspend fun visibleCachedConversation(row: ChatConversationV2Entity): Conversation? {
+        val scope = mediaScope()
+        val roster = members.getForConversation(row.conversationId)
+        if (row.type.equals("GROUP", true)) {
+            if (scope == null || scope != mediaScope() || row.familyId != scope.family) return null
+            if (roster.none { it.memberId == scope.member && it.isLocalUser }) return null
         }
+        return row.toModel(roster.map { it.toModel() })
+    }
+
+    suspend fun isGroupAccessLost(conversationId: String): Boolean {
+        val scope = mediaScope() ?: return false
+        val row = conversations.getById(conversationId) ?: return false
+        return row.familyId == scope.family && row.type.equals("GROUP", true) &&
+            members.get(conversationId, scope.member) == null && mediaScope() == scope
+    }
 
     suspend fun getCachedPage(
         conversationId: String,
@@ -206,27 +228,49 @@ class ChatV2Repository(
         legacyChildDeviceId: String? = null,
         legacyChildId: Long? = null
     ): List<Conversation> {
-        val response = api.getChatV2Conversations()
-        val body = requireSuccessful(response, "LIST_CONVERSATIONS")
-        if (!body.success) throw ChatV2RepositoryException("LIST_CONVERSATIONS_REJECTED")
+        conversationRefresh.withLock {
+            val scope = mediaScope()
+            if (receiptScope != null && scope == null) throw ChatV2RepositoryException("CONTEXT_CHANGED")
+            val response = api.getChatV2Conversations()
+            val body = requireSuccessful(response, "LIST_CONVERSATIONS")
+            if (!body.success) throw ChatV2RepositoryException("LIST_CONVERSATIONS_REJECTED")
 
-        database.withTransaction {
-            val serverFamilyCount = body.conversations.count { it.type.equals("FAMILY", true) }
-            val unmappedLocalFamilies = conversations.getAll().filter {
-                it.type.equals(ChatConversationV2Entity.TYPE_FAMILY, true) &&
-                    it.serverConversationId.isNullOrBlank() &&
-                    it.conversationId.startsWith(ChatV2LegacyReconcilePolicy.LOCAL_FAMILY_PREFIX)
-            }
-            val unambiguousFallback = unmappedLocalFamilies.singleOrNull()
-                ?.takeIf { serverFamilyCount == 1 }
+            if (scope != mediaScope()) throw ChatV2RepositoryException("CONTEXT_CHANGED")
+            database.withTransaction {
+                if (scope != mediaScope()) throw ChatV2RepositoryException("CONTEXT_CHANGED")
+                val serverFamilyCount = body.conversations.count { it.type.equals("FAMILY", true) }
+                val unmappedLocalFamilies = conversations.getAll().filter {
+                    it.type.equals(ChatConversationV2Entity.TYPE_FAMILY, true) &&
+                        it.serverConversationId.isNullOrBlank() &&
+                        it.conversationId.startsWith(ChatV2LegacyReconcilePolicy.LOCAL_FAMILY_PREFIX)
+                }
+                val unambiguousFallback = unmappedLocalFamilies.singleOrNull()
+                    ?.takeIf { serverFamilyCount == 1 }
 
-            body.conversations.forEach { dto ->
-                cacheConversation(
-                    dto = dto,
-                    legacyChildDeviceId = legacyChildDeviceId,
-                    legacyChildId = legacyChildId,
-                    fallbackLocalConversation = unambiguousFallback
-                )
+                val activeGroups = body.activeGroupIdsFor(scope)
+                body.conversations.forEach { dto ->
+                    if (dto.type.equals("GROUP", true) &&
+                        (scope == null || dto.familyId != scope.family || dto.actorMemberId != scope.member ||
+                            dto.members.none { it.memberId == scope.member } ||
+                            (activeGroups != null && dto.conversationId !in activeGroups))
+                    ) return@forEach
+                    cacheConversation(
+                        dto = dto,
+                        legacyChildDeviceId = legacyChildDeviceId,
+                        legacyChildId = legacyChildId,
+                        fallbackLocalConversation = unambiguousFallback
+                    )
+                }
+                if (scope != null && activeGroups != null) {
+                    members.getConversationsForMember(scope.member).forEach { membership ->
+                        if (membership.conversationId in activeGroups) return@forEach
+                        val row = conversations.getById(membership.conversationId) ?: return@forEach
+                        if (row.familyId == scope.family && row.type.equals("GROUP", true)) {
+                            members.deleteMember(row.conversationId, scope.member)
+                        }
+                    }
+                }
+                if (scope != mediaScope()) throw ChatV2RepositoryException("CONTEXT_CHANGED")
             }
         }
         flushReadReceipts()
@@ -245,6 +289,22 @@ class ChatV2Repository(
         return dto.toDomain()
     }
 
+    private suspend fun confirmGroupAccessLost(conversationId: String): Boolean =
+        conversationRefresh.withLock {
+            val scope = mediaScope() ?: return@withLock false
+            val row = conversations.getById(conversationId) ?: return@withLock false
+            if (row.familyId != scope.family || !row.type.equals("GROUP", true)) return@withLock false
+            val denied = kotlinx.coroutines.withTimeoutOrNull(4_000L) {
+                val reply = api.getChatV2GroupSettings(conversationId)
+                val code = reply.errorBody()?.use { JSONObject(it.string()).optString("code") }
+                (reply.code() == 403 && code in setOf("CONVERSATION_ACCESS_DENIED", "CHAT_MEMBERSHIP_REQUIRED")) ||
+                    (reply.code() == 404 && code == "CONVERSATION_NOT_FOUND")
+            } ?: false
+            if (!denied || scope != mediaScope()) return@withLock false
+            members.deleteMember(conversationId, scope.member)
+            true
+        }
+
     suspend fun syncMessagesPage(
         conversationId: String,
         beforeSequence: Long? = null,
@@ -253,12 +313,26 @@ class ChatV2Repository(
         require(beforeSequence == null || beforeSequence > 0) { "beforeSequence must be positive" }
         val boundedLimit = ChatV2PagingPolicy.serverPageSize(limit)
         val response = api.getChatV2Messages(conversationId, beforeSequence, boundedLimit)
+        if (response.code() in setOf(403, 404)) {
+            val accessLost = try {
+                confirmGroupAccessLost(conversationId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                false
+            }
+            if (accessLost) {
+                response.errorBody()?.close()
+                throw ChatV2RepositoryException("GROUP_ACCESS_REVOKED")
+            }
+        }
         val body = requireSuccessful(response, "GET_MESSAGES")
         if (!body.success) throw ChatV2RepositoryException("GET_MESSAGES_REJECTED")
         database.withTransaction {
             requireNotNull(conversations.getById(body.conversationId)) {
                 "Conversation must be synchronized before messages"
             }
+            body.quotedMessages.orEmpty().filter { it.conversationId == conversationId }.forEach { importServerMessage(it) }
             body.messages.forEach { importServerMessage(it) }
         }
         return ConversationPage(
@@ -267,6 +341,72 @@ class ChatV2Repository(
             nextBeforeSequence = body.nextBeforeSequence,
             hasMore = body.hasMore
         )
+    }
+
+    suspend fun loadMessageAnchor(conversationId: String, messageId: String? = null, unread: Boolean = false): ConversationAnchor? {
+        val scope = activeNavigationScope(conversationId)
+        val body = try {
+            requireSuccessful(api.getChatV2MessageContext(conversationId, messageId, unread), "MESSAGE_CONTEXT")
+        } catch (offline: IOException) {
+            check(scope == activeNavigationScope(conversationId)) { "CONTEXT_CHANGED" }
+            val conversation = getCachedConversation(conversationId) ?: return null
+            val cached = if (unread) messages.firstCachedUnread(conversationId, conversation.lastReadSequence, scope.member)
+                else messageId?.let { messages.getByServerMessageId(it) }?.takeIf { it.conversationId == conversationId }
+            val anchor = cached?.serverSequence ?: return null
+            // A cached window can contain holes. Open only the known anchor offline.
+            return ConversationAnchor(anchor, anchor, anchor, fromCache = true)
+        }
+        check(body.success && body.conversationId == conversationId && scope == activeNavigationScope(conversationId)) {
+            "CONTEXT_CHANGED"
+        }
+        val sequence = body.anchorSequence ?: return null
+        val page = body.messages.filter { it.conversationId == conversationId }
+        if (page.none { it.serverSequence == sequence }) return null
+        database.withTransaction {
+            check(scope == activeNavigationScope(conversationId)) { "CONTEXT_CHANGED" }
+            body.quotedMessages.orEmpty().filter { it.conversationId == conversationId }.forEach { importServerMessage(it) }
+            page.forEach { importServerMessage(it) }
+        }
+        return ConversationAnchor(sequence, page.minOf { it.serverSequence }, page.maxOf { it.serverSequence }, body.hasMore)
+    }
+
+    fun observeMessageAnchor(conversationId: String, anchor: ConversationAnchor): Flow<List<ConversationMessage>> =
+        messages.observeContext(conversationId, anchor.firstSequence, anchor.lastSequence)
+            .map { rows -> rows.map { it.toModel() } }
+
+    suspend fun quoteSources(conversationId: String, ids: List<String>): Map<String, ConversationMessage> =
+        ids.distinct().chunked(200).flatMap { messages.getQuoteSources(conversationId, it) }
+            .map { it.toModel() }.associateBy { it.messageId }
+
+    suspend fun searchMessages(conversationId: String, query: String): ConversationSearch {
+        val scope = activeNavigationScope(conversationId)
+        val body = try {
+            requireSuccessful(api.searchChatV2Messages(conversationId, ChatV2SearchRequest(query)), "MESSAGE_SEARCH")
+        } catch (offline: IOException) {
+            val pattern = query.map { char ->
+                when (char) {
+                    '*', '?', '[' -> "[$char]"
+                    else -> if (char.uppercaseChar() != char.lowercaseChar())
+                        "[${char.uppercaseChar()}${char.lowercaseChar()}]" else char.toString()
+                }
+            }.joinToString("", prefix = "*", postfix = "*")
+            val cached = messages.searchCached(conversationId, pattern)
+            check(scope == activeNavigationScope(conversationId)) { "CONTEXT_CHANGED" }
+            return ConversationSearch(cached.take(40).map { it.toModel() }, cached.size > 40, fromCache = true)
+        }
+        check(body.success && body.conversationId == conversationId && scope == activeNavigationScope(conversationId)) {
+            "CONTEXT_CHANGED"
+        }
+        return ConversationSearch(body.messages.filter { it.conversationId == conversationId }.map { it.toDomain() }, body.hasMore, fromCache = false)
+    }
+
+    private suspend fun activeNavigationScope(conversationId: String): ru.childwatch.shared.chat.ChatV2ReceiptScope {
+        val scope = mediaScope() ?: throw ChatV2RepositoryException("CONTEXT_CHANGED")
+        val conversation = getCachedConversation(conversationId) ?: throw ChatV2RepositoryException("CONTEXT_CHANGED")
+        if (conversation.familyId != scope.family || conversation.localMemberId != scope.member) {
+            throw ChatV2RepositoryException("CONTEXT_CHANGED")
+        }
+        return scope
     }
 
     /** Stores the canonical message already carried by a WebSocket event. */
@@ -290,7 +430,8 @@ class ChatV2Repository(
         senderDeviceId: String? = null,
         clientMessageId: String = idFactory(),
         attachments: List<ru.childwatch.shared.chat.ChatV2AttachmentDto> = emptyList(),
-        messageType: String = "TEXT"
+        messageType: String = "TEXT",
+        replyToMessageId: String? = null
     ): ConversationMessage {
         require(attachments.size <= 1) { "ONE_ATTACHMENT_SUPPORTED" }
         require((messageType == "TEXT") == attachments.isEmpty()) { "MESSAGE_ATTACHMENT_TYPE_MISMATCH" }
@@ -304,7 +445,7 @@ class ChatV2Repository(
         }
         require(clientMessageId.isNotBlank()) { "clientMessageId must not be blank" }
         val now = clock()
-        val request = ChatV2SendMessageRequest(clientMessageId, text, now, messageType, attachments.map { it.attachmentId })
+        val request = ChatV2SendMessageRequest(clientMessageId, text, now, messageType, attachments.map { it.attachmentId }, replyToMessageId)
         val model = ConversationMessage(
             messageId = clientMessageId,
             clientMessageId = clientMessageId,
@@ -317,11 +458,15 @@ class ChatV2Repository(
             clientSentAt = now,
             deliveryState = ChatDeliveryState.QUEUED,
             messageType = messageType,
-            attachments = attachments
+            attachments = attachments,
+            replyToMessageId = replyToMessageId
         )
 
         return database.withTransaction {
-            requireNotNull(conversations.getById(conversationId)) { "Unknown conversation: $conversationId" }
+            val row = requireNotNull(conversations.getById(conversationId)) { "Unknown conversation: $conversationId" }
+            if (row.type.equals("GROUP", true) && visibleCachedConversation(row) == null) {
+                throw ChatV2RepositoryException("GROUP_ACCESS_REVOKED")
+            }
             messages.getByClientMessageId(clientMessageId)?.let { return@withTransaction it.toModel() }
             messages.insertIfAbsent(model.toEntity())
             outbox.enqueueIfAbsent(
@@ -367,19 +512,19 @@ class ChatV2Repository(
 
             val mediaDraft = database.chatAttachmentDraftV2Dao().get(item.clientMessageId)
             if (mediaDraft != null && !ChatAttachmentService.matchesScope(mediaDraft, mediaScope())) {
-                outbox.scheduleNextAttempt(item.outboxId, ChatOutboxV2Entity.STATE_RETRY,
-                    item.attemptCount, clock() + 30_000, "CONTEXT_CHANGED", clock())
+                rescheduleInterruptedSend(item, leaseToken,
+                    30_000, "CONTEXT_CHANGED")
                 continue
             }
-            setLocalMessageState(item.clientMessageId, ChatDeliveryState.SENDING, null)
             try {
+                setLocalMessageState(item.clientMessageId, ChatDeliveryState.SENDING, null)
                 val response = api.sendChatV2Message(
                     item.conversationId,
                     gson.fromJson(item.payloadJson, ChatV2SendMessageRequest::class.java)
                 )
                 if (mediaDraft != null && !ChatAttachmentService.matchesScope(mediaDraft, mediaScope())) {
-                    outbox.scheduleNextAttempt(item.outboxId, ChatOutboxV2Entity.STATE_RETRY,
-                        item.attemptCount, clock() + 30_000, "CONTEXT_CHANGED", clock())
+                    rescheduleInterruptedSend(item, leaseToken,
+                        30_000, "CONTEXT_CHANGED")
                     continue
                 }
                 val body = response.body()
@@ -393,16 +538,17 @@ class ChatV2Repository(
                     attachmentContext?.let { attachments(it).accepted(item.clientMessageId) }
                     sent++
                 } else {
-                    val result = scheduleFailure(item, "HTTP_${response.code()}", isPermanent(response.code()))
+                    val result = scheduleFailure(item, leaseToken, "HTTP_${response.code()}", isPermanent(response.code()))
                     if (result) permanentlyFailed++ else retryScheduled++
                 }
             } catch (error: CancellationException) {
-                outbox.scheduleNextAttempt(item.outboxId, ChatOutboxV2Entity.STATE_RETRY,
-                    item.attemptCount, clock() + 1_000, "SEND_INTERRUPTED", clock())
+                withContext(NonCancellable) {
+                    rescheduleInterruptedSend(item, leaseToken, 1_000, "SEND_INTERRUPTED")
+                }
                 throw error
             } catch (error: Exception) {
                 val code = if (error is IOException) "NETWORK_IO" else "SEND_EXCEPTION"
-                val result = scheduleFailure(item, code, permanent = false)
+                val result = scheduleFailure(item, leaseToken, code, permanent = false)
                 if (result) permanentlyFailed++ else retryScheduled++
             }
         }
@@ -534,18 +680,22 @@ class ChatV2Repository(
      * named here has to belong to the family, which the server enforces so a group
      * cannot reach outside it.
      */
-    suspend fun createGroup(title: String, memberIds: List<String>): Conversation {
+    suspend fun createGroup(title: String, memberIds: List<String>): Conversation = conversationRefresh.withLock {
         val name = title.trim()
         require(name.isNotEmpty()) { "title must not be empty" }
         val members = memberIds.map(String::trim).filter(String::isNotEmpty).distinct()
         require(members.isNotEmpty()) { "A group needs at least one other member" }
+        val scope = mediaScope() ?: throw ChatV2RepositoryException("CONTEXT_CHANGED")
         val response = api.createChatV2Group(ChatV2CreateGroupRequest(name, members))
         val body = requireGroupAnswer(response, "CREATE_GROUP")
         val dto = body.conversation
             ?.takeIf { body.success }
             ?: throw ChatV2RepositoryException("CREATE_GROUP_REJECTED")
+        if (scope != mediaScope() || dto.familyId != scope.family || dto.actorMemberId != scope.member) {
+            throw ChatV2RepositoryException("CONTEXT_CHANGED")
+        }
         database.withTransaction { cacheConversation(dto, null, null, null) }
-        return dto.toDomain()
+        dto.toDomain()
     }
 
     /**
@@ -846,6 +996,14 @@ class ChatV2Repository(
         }
         val current = conversations.getById(dto.conversationId)
         conversations.upsert(mergeConversation(current, serverEntity))
+        if (dto.type.equals("GROUP", true)) {
+            val memberIds = dto.members.mapTo(hashSetOf()) { it.memberId }
+            members.getForConversation(dto.conversationId).forEach { cachedMember ->
+                if (cachedMember.memberId !in memberIds) {
+                    members.deleteMember(dto.conversationId, cachedMember.memberId)
+                }
+            }
+        }
         dto.members.forEach { memberDto ->
             val old = members.get(dto.conversationId, memberDto.memberId)
             val model = memberDto.toDomain()
@@ -967,29 +1125,44 @@ class ChatV2Repository(
         )
     }
 
+    private suspend fun rescheduleInterruptedSend(
+        item: ChatOutboxV2Entity,
+        leaseToken: String,
+        delayMs: Long,
+        reason: String
+    ) = database.withTransaction {
+        val now = clock()
+        val updated = outbox.scheduleNextAttempt(item.outboxId, leaseToken, ChatOutboxV2Entity.STATE_RETRY,
+            item.attemptCount, now + delayMs, reason, now)
+        if (updated == 1) setLocalMessageState(item.clientMessageId, ChatDeliveryState.QUEUED, reason)
+    }
+
     /** @return true when the row reached a terminal FAILED state. */
     private suspend fun scheduleFailure(
         item: ChatOutboxV2Entity,
+        leaseToken: String,
         errorCode: String,
         permanent: Boolean
-    ): Boolean {
+    ): Boolean = database.withTransaction {
         val now = clock()
         val attempts = item.attemptCount + 1
         val exhausted = permanent || ChatV2RetryPolicy.isExhausted(attempts)
-        outbox.scheduleNextAttempt(
+        val updated = outbox.scheduleNextAttempt(
             item.outboxId,
+            leaseToken,
             if (exhausted) ChatOutboxV2Entity.STATE_FAILED else ChatOutboxV2Entity.STATE_RETRY,
             attempts,
             if (exhausted) now else ChatV2RetryPolicy.nextAttemptAt(now, attempts),
             errorCode,
             now
         )
+        if (updated != 1) return@withTransaction false
         setLocalMessageState(
             item.clientMessageId,
             if (exhausted) ChatDeliveryState.FAILED else ChatDeliveryState.QUEUED,
             errorCode
         )
-        return exhausted
+        exhausted
     }
 
     private fun ChatV2ConversationDto.toEntity(

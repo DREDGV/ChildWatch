@@ -9,6 +9,8 @@ object AttentionSignalContract {
     const val EVENT_STOP = "attention_signal_stop"
     const val EVENT_STATUS = "attention_signal_status"
 
+    const val MAX_MESSAGE_LENGTH = 240
+    val messageDisplayDurationsSeconds = listOf(0, 15, 30, 60)
     const val MIN_DURATION_MS = 2_000L
     const val MAX_DURATION_MS = 60_000L
     const val DEFAULT_DURATION_MS = 15_000L
@@ -80,7 +82,9 @@ data class AttentionSignalRequest(
     val vibrate: Boolean = true,
     val vibrationPattern: AttentionVibrationPattern = AttentionVibrationPattern.PULSE,
     val createdAt: Long = System.currentTimeMillis(),
-    val expiresAt: Long = createdAt + AttentionSignalContract.DEFAULT_TTL_MS
+    val expiresAt: Long = createdAt + AttentionSignalContract.DEFAULT_TTL_MS,
+    val note: String? = null,
+    val noteDurationSeconds: Int = 0
 ) {
     fun normalized(now: Long = System.currentTimeMillis()): AttentionSignalRequest {
         val normalizedCreatedAt = createdAt.coerceAtMost(now + AttentionSignalContract.MAX_CLOCK_SKEW_MS)
@@ -100,6 +104,7 @@ data class AttentionSignalRequest(
             volumePercent = AttentionSignalContract.clampVolume(volumePercent),
             vibrationPattern = if (vibrate) vibrationPattern else AttentionVibrationPattern.OFF,
             createdAt = normalizedCreatedAt,
+            note = note.normalizedOrNull(),
             expiresAt = normalizedExpiresAt
         )
     }
@@ -112,6 +117,8 @@ data class AttentionSignalRequest(
             value.requesterDeviceId.isBlank() -> "MISSING_REQUESTER_DEVICE"
             value.targetDeviceId == value.requesterDeviceId -> "TARGET_EQUALS_REQUESTER"
             value.requesterDisplayName.isBlank() -> "MISSING_REQUESTER_NAME"
+            (value.note?.length ?: 0) > AttentionSignalContract.MAX_MESSAGE_LENGTH -> "INVALID_NOTE"
+            value.noteDurationSeconds !in AttentionSignalContract.messageDisplayDurationsSeconds -> "INVALID_NOTE_DURATION"
             value.expiresAt <= now -> "REQUEST_EXPIRED"
             else -> null
         }

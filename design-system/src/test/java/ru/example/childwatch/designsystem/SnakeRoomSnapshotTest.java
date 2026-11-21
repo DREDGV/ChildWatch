@@ -8,7 +8,7 @@ import static org.junit.Assert.*;
 
 public class SnakeRoomSnapshotTest {
     static JSONObject room()throws Exception{
-        return new JSONObject().put("protocolVersion",1).put("gameId","game-one").put("epoch","epoch-one").put("revision",1)
+        return new JSONObject().put("protocolVersion",2).put("gameId","game-one").put("epoch","epoch-one").put("revision",1)
             .put("phase","PAUSED").put("reason",JSONObject.NULL).put("ready",new JSONArray().put(false).put(false))
             .put("connected",new JSONArray().put(true).put(true)).put("countdownMs",0)
             .put("snake",new JSONObject().put("columns",20).put("rows",36).put("tick","0").put("score",0)

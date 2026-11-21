@@ -95,7 +95,7 @@ object UpdateManifest {
             fileName = fileName,
             url = url,
             signingCertSha256 = entry.optString("signingCertSha256").trim().lowercase(),
-            notes = entry.optString("notes").trim()
+            notes = (entry.opt("notes") as? String).orEmpty().trim()
         )
     }
 

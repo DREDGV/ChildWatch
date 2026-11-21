@@ -77,6 +77,21 @@ interface ChatMessageV2Dao {
     )
     suspend fun search(conversationId: String, query: String, limit: Int): List<ChatMessageV2Entity>
 
+    @Query("SELECT * FROM chat_messages_v2 WHERE conversation_id = :id AND server_message_id IN (:ids)")
+    suspend fun getQuoteSources(id: String, ids: List<String>): List<ChatMessageV2Entity>
+
+    @Query("SELECT * FROM chat_messages_v2 WHERE conversation_id = :id " +
+        "AND server_sequence BETWEEN :first AND :last ORDER BY server_sequence")
+    fun observeContext(id: String, first: Long, last: Long): Flow<List<ChatMessageV2Entity>>
+
+    @Query("SELECT * FROM chat_messages_v2 WHERE conversation_id = :id AND server_sequence IS NOT NULL " +
+        "AND deleted_at IS NULL AND text GLOB :pattern ORDER BY server_sequence DESC LIMIT 41")
+    suspend fun searchCached(id: String, pattern: String): List<ChatMessageV2Entity>
+
+    @Query("SELECT * FROM chat_messages_v2 WHERE conversation_id = :id AND server_sequence > :afterSequence " +
+        "AND deleted_at IS NULL AND (sender_member_id IS NULL OR sender_member_id != :memberId) ORDER BY server_sequence LIMIT 1")
+    suspend fun firstCachedUnread(id: String, afterSequence: Long, memberId: String): ChatMessageV2Entity?
+
     @Query("SELECT COUNT(*) FROM chat_messages_v2 WHERE conversation_id = :conversationId AND is_read = 0")
     fun observeUnreadCount(conversationId: String): Flow<Int>
 

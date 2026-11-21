@@ -22,11 +22,22 @@ final class SnakeCellMotion {
     void snap(int cell){legs.clear();x=fromX=targetX=cell%20;y=fromY=targetY=cell/20;}
     void append(int cell,long now,int duration){
         advance(now);
-        float nextX=cell%20,nextY=cell/20;
+        float nextX=targetX+SnakeTopology.delta(SnakeTopology.wrap(targetX,20),cell%20,20),nextY=targetY+SnakeTopology.delta(SnakeTopology.wrap(targetY,36),cell/20,36);
         if(nextX==targetX&&nextY==targetY)return;
         if(duration<=0||Math.abs(nextX-targetX)+Math.abs(nextY-targetY)>1||legs.size()>=MAX_LEGS){snap(cell);return;}
         if(legs.isEmpty()){fromX=x;fromY=y;started=now;}
         legs.addLast(new Leg(nextX,nextY,duration));targetX=nextX;targetY=nextY;
+        // A burst of confirmed ticks must not leave the display several ticks behind.
+        cap(now,duration);
+    }
+    private void cap(long now,int budget){
+        long remaining=0;boolean first=true;
+        for(Leg leg:legs){remaining+=first?Math.max(1,leg.duration-(now-started)):leg.duration;first=false;}
+        if(remaining<=budget)return;
+        ArrayDeque<Leg> compressed=new ArrayDeque<>();first=true;
+        for(Leg leg:legs){long time=first?Math.max(1,leg.duration-(now-started)):leg.duration;first=false;
+            compressed.addLast(new Leg(leg.x,leg.y,Math.max(1,time*budget/remaining)));}
+        legs.clear();legs.addAll(compressed);fromX=x;fromY=y;started=now;
     }
     void advance(long now){
         while(!legs.isEmpty()){
@@ -36,14 +47,14 @@ final class SnakeCellMotion {
             x=fromX=leg.x;y=fromY=leg.y;started+=leg.duration;legs.removeFirst();
         }
     }
-    float x(){return x;}
-    float y(){return y;}
+    float x(){return SnakeTopology.wrap(x,20);}
+    float y(){return SnakeTopology.wrap(y,36);}
     boolean moving(){return !legs.isEmpty();}
     int buffered(){return legs.size();}
-    float bendX(){return fromX;}
-    float bendY(){return fromY;}
+    float bendX(){return SnakeTopology.wrap(fromX,20);}
+    float bendY(){return SnakeTopology.wrap(fromY,36);}
     boolean joinsViaBend(float tailX,float tailY){
-        return (tailX==fromX||tailY==fromY)&&(x==fromX||y==fromY);
+        return (tailX==bendX()||tailY==bendY())&&(x()==bendX()||y()==bendY());
     }
     float axisX(){return legs.isEmpty()?0:Math.signum(legs.peekFirst().x-fromX);}
     float axisY(){return legs.isEmpty()?0:Math.signum(legs.peekFirst().y-fromY);}

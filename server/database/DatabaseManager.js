@@ -632,6 +632,7 @@ class DatabaseManager {
     // production, so the columns have to be brought in separately.
     await this.addColumnIfNotExists("chat_messages_v2", "edited_at", "INTEGER");
     await this.addColumnIfNotExists("chat_messages_v2", "deleted_at", "INTEGER");
+    await this.addColumnIfNotExists("chat_messages_v2", "reply_to_message_id", "TEXT");
 
     // Shared picture of the group chat.
     await this.addColumnIfNotExists("families", "avatar_key", "TEXT");
@@ -3740,6 +3741,20 @@ class DatabaseManager {
     );
   }
 
+  async listActiveChatGroupIds(familyId, memberId) {
+    const rows = await this.all(
+      `SELECT c.id
+       FROM chat_conversations c
+       JOIN chat_conversation_members cm ON cm.conversation_id = c.id
+       JOIN family_members fm ON fm.id = cm.member_id AND fm.family_id = c.family_id
+       JOIN families f ON f.id = c.family_id
+       WHERE c.family_id = ? AND cm.member_id = ? AND c.type = 'GROUP'
+         AND c.is_active = 1 AND cm.is_active = 1 AND fm.is_active = 1 AND f.is_active = 1`,
+      [familyId, memberId]
+    );
+    return rows.map(row => row.id);
+  }
+
   mapChatMessageV2Row(row) {
     if (!row) return null;
     return {
@@ -3756,6 +3771,7 @@ class DatabaseManager {
       serverCreatedAt: row.server_created_at,
       editedAt: row.edited_at || null,
       deletedAt: row.deleted_at || null,
+      replyToMessageId: row.reply_to_message_id || null,
       legacyMessageId: row.legacy_message_id || null,
       legacyDelivered:
         row.legacy_delivered === null || row.legacy_delivered === undefined
@@ -3848,6 +3864,7 @@ class DatabaseManager {
     clientMessageId,
     text,
     messageType = "TEXT",
+    replyToMessageId = null,
     bindAttachments = null,
     clientSentAt = null,
     serverCreatedAt = Date.now(),
@@ -3905,6 +3922,21 @@ class DatabaseManager {
         };
       }
 
+      if (replyToMessageId) {
+        const original = await this.get(
+          `SELECT id FROM chat_messages_v2 WHERE id = ? AND conversation_id = ?
+           AND deleted_at IS NULL AND NOT EXISTS (
+             SELECT 1 FROM chat_message_deletions_v2 WHERE message_id = ? AND device_id = ?
+           )`,
+          [replyToMessageId, normalizedConversationId, replyToMessageId, senderDeviceId]
+        );
+        if (!original) {
+          const error = new Error("Reply source is unavailable");
+          error.code = "REPLY_SOURCE_UNAVAILABLE";
+          throw error;
+        }
+      }
+
       const sequence = await this.allocateChatSequenceRecord(
         normalizedConversationId
       );
@@ -3934,10 +3966,11 @@ class DatabaseManager {
            sender_display_name_snapshot,
            client_message_id,
            text,
+           reply_to_message_id,
            client_sent_at,
            server_created_at,
            created_at
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           messageId,
           normalizedConversationId,
@@ -3948,6 +3981,7 @@ class DatabaseManager {
           displayName,
           normalizedClientMessageId,
           normalizedText,
+          replyToMessageId,
           normalizedClientSentAt,
           now,
           now,
@@ -4857,7 +4891,7 @@ class DatabaseManager {
   /**
    * Save location
    */
-  async saveLocation(deviceId, locationData) {
+  async saveLocation(deviceId, locationData, onStored = () => {}) {
     const { latitude, longitude, accuracy, timestamp } = locationData;
 
     const sql = `
@@ -4868,6 +4902,7 @@ class DatabaseManager {
     const result = await this.run(sql, [deviceId, latitude, longitude, accuracy, timestamp]);
     try { await require('../services/LocationMotionStore').save(this, deviceId, locationData); }
     catch (error) { console.error('Motion storage failed', error.message); }
+    onStored(deviceId);
     // A notification failure must not discard an accepted measurement.
     try { await require('../services/FamilyPlacesService').forDatabase(this).onLocation(deviceId, locationData); }
     catch (error) { console.error('Place notification processing failed', error.message); }

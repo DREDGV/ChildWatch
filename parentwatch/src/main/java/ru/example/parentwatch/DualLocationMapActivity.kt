@@ -76,6 +76,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         private const val LOCATION_PERMISSION_REQUEST = 1001
         private const val AUTO_REFRESH_INTERVAL = 30_000L
         private const val LIVE_MODE_REFRESH_INTERVAL = 10_000L
+        private const val PRIORITY_REFRESH_INTERVAL = 3_000L
         private const val LIVE_MODE_DURATION_MS = 10 * 60 * 1000L
         private const val STALE_THRESHOLD_MS = 10 * 60 * 1000L
         private const val HISTORY_LIMIT = 1000
@@ -148,6 +149,7 @@ class DualLocationMapActivity : AppCompatActivity() {
             while (isActive) {
                 delay(1_000L)
                 if (isMapReady && !isViewingHistory && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+                    renderLastPoint()
                     val nextKey = currentFamilyCandidates.joinToString("|") {
                         it.memberId.ifBlank { it.deviceId } + ":" + familyMarkerSpeedText(it.memberId.ifBlank { it.deviceId }, it.timestamp).orEmpty()
                     }
@@ -268,6 +270,9 @@ class DualLocationMapActivity : AppCompatActivity() {
     private var lastLinkedSourceRes: Int? = null
     private val mapOptions by lazy { ru.example.childwatch.designsystem.FamilyMapOptions(this) }
     private val markerMotion = ru.example.childwatch.designsystem.MapMarkerMotion()
+    private val markerWake by lazy {
+        ru.example.childwatch.designsystem.MapMotionWake(this).also(markerMotion::setWake)
+    }
     private val mapFollow = ru.example.childwatch.designsystem.MapFollowSelection()
     private var followTouchX = 0f
     private var followTouchY = 0f
@@ -749,6 +754,8 @@ class DualLocationMapActivity : AppCompatActivity() {
         updateFollowUi()
         // Center once on the explicitly selected last known point; its age stays visible.
         mapView.controller.setCenter(GeoPoint(point.latitude, point.longitude))
+        startAutoRefresh()
+        loadLocations(quiet = true)
         if (!ru.example.childwatch.designsystem.MapFollowSelection.hasFreshLocation(point.time, System.currentTimeMillis()))
             Toast.makeText(this, R.string.map_follow_waiting_explanation, Toast.LENGTH_LONG).show()
     }
@@ -1014,6 +1021,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         collapseStatsCard()
         markerMotion.clear()
         stopMapFollow()
+        loadLocationsJob?.cancel()
         isViewingHistory = true
         historyBoundKey = target
         historyBoundServer = networkClient.resolveConfiguredServerUrl()
@@ -1047,16 +1055,19 @@ class DualLocationMapActivity : AppCompatActivity() {
             object : ru.example.childwatch.designsystem.MapHistoryPanel.Listener {
                 override fun onPoint(point: MapRouteSegments.Fix?) {
                     if (!valid() || !::mapView.isInitialized) return
-                    clearHistoryCursor()
-                    if (point == null) return
-                    historyCursor = Marker(mapView).apply {
-                        position = GeoPoint(point.latitude, point.longitude)
+                    if (point == null) {
+                        clearHistoryCursor()
+                        return
+                    }
+                    val marker = historyCursor ?: Marker(mapView).apply {
                         title = historyPersonName()
-                        snippet = formatTimestamp(point.timestampMs)
                         icon = tintedDrawable(R.drawable.ic_route_start_marker, historyAccentColor())
                         setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                        mapView.overlays.add(this)
+                        historyCursor = this
                     }
-                    mapView.overlays.add(historyCursor)
+                    marker.position = GeoPoint(point.latitude, point.longitude)
+                    marker.snippet = formatTimestamp(point.timestampMs)
                     if (centeredAt != point.timestampMs) {
                         mapView.controller.setCenter(GeoPoint(point.latitude, point.longitude))
                         centeredAt = point.timestampMs
@@ -1237,16 +1248,19 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
     }
 
-    private fun loadLocations() {
+    private fun loadLocations(quiet: Boolean = false, fromEvent: Boolean = false) {
+        watchMapLocations()
         ensureHistoryContext()
         if (!dependenciesReady || !isMapReady || !::mapView.isInitialized || isFinishing || isDestroyed) return
         if (loadLocationsJob?.isActive == true) return
-        binding.loadingIndicator.visibility = View.VISIBLE
-        binding.errorCard.visibility = View.GONE
+        if (!quiet) {
+            binding.loadingIndicator.visibility = View.VISIBLE
+            binding.errorCard.visibility = View.GONE
+        }
         loadLocationsJob = lifecycleScope.launch {
             try {
-                refreshFamilyAvatars()
-                if (myRole == ROLE_CHILD) {
+                if (!quiet) refreshFamilyAvatars()
+                if (!quiet && myRole == ROLE_CHILD) {
                     runCatching { participantNameResolver.refreshCanonicalDirectory() }
                         .onFailure { Log.w(TAG, "Canonical family directory refresh failed", it) }
                     // The refresh above can bring a new picture; decode it now rather
@@ -1255,7 +1269,7 @@ class DualLocationMapActivity : AppCompatActivity() {
                 }
                 val cachedMy = loadCachedLocation(cacheKeyMy())?.takeIfUsable()
                 val cachedOther = if (limitedMode) null else loadCachedLocation(cacheKeyOther())?.takeIfUsable()
-                if (cachedMy != null || cachedOther != null) {
+                if (!fromEvent && (cachedMy != null || cachedOther != null)) {
                     lastLinkedSourceRes = cachedOther?.let { R.string.map_stats_source_cache_short }
                     displayAvailableLocations(
                         cachedMy?.latitude,
@@ -1266,7 +1280,7 @@ class DualLocationMapActivity : AppCompatActivity() {
                     binding.loadingIndicator.visibility = View.GONE
                 }
 
-                val myLocation = if (hasLocationPermission()) withContext(Dispatchers.IO) { locationManager.getCurrentLocation() } else null
+                val myLocation = if (!fromEvent && hasLocationPermission()) withContext(Dispatchers.IO) { locationManager.getCurrentLocation() } else null
                 if (myLocation != null && isValidCoordinate(myLocation.latitude, myLocation.longitude)) {
                     lastOwnMotionLocation = android.location.Location(myLocation)
                     myLatitude = myLocation.latitude
@@ -1292,6 +1306,7 @@ class DualLocationMapActivity : AppCompatActivity() {
                 if (localResolvedOtherId.isNotBlank()) {
                     resolvedOtherId = localResolvedOtherId
                 }
+                watchMapLocations()
                 updateTimelineButtonVisibility()
 
                 val serverSelfLocation = when (myRole) {
@@ -1512,6 +1527,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
         binding.statsCard.visibility = View.GONE
         binding.movementStatusText.text = ""
+        updateLastPoint(null)
         binding.pointMetaText.text = ""
         mapView.invalidate()
     }
@@ -1829,6 +1845,8 @@ class DualLocationMapActivity : AppCompatActivity() {
         val motionScope = networkClient.resolveConfiguredServerUrl() + "\n" + ChildEffectiveContextResolver(this).resolveFamilyId().orEmpty()
         val motionEnabled = mapOptions.motion() && !isViewingHistory &&
             lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)
+        val wake = markerWake
+        if (!mapView.overlays.contains(wake)) mapView.overlays.add(0, wake)
         markerMotion.retain(candidates.mapTo(mutableSetOf()) { it.memberId.ifBlank { it.deviceId } })
         val activeMarkerIds = candidates.mapTo(mutableSetOf()) { it.memberId.ifBlank { it.deviceId } }
         familyMarkers.keys.filter { it !in activeMarkerIds }.forEach { id ->
@@ -1843,12 +1861,10 @@ class DualLocationMapActivity : AppCompatActivity() {
                 }
             MapAvatarIcon.create(this, portrait, accent, isStale(candidate.timestamp), familyMarkerSpeedText(candidate.memberId.ifBlank { candidate.deviceId }, candidate.timestamp))
         }
-        val truePoints = candidates.map { GeoPoint(it.latitude, it.longitude) }
         candidates.forEachIndexed { index, candidate ->
             val key = candidate.memberId.ifBlank { candidate.deviceId }
             val marker = (familyMarkers[key] ?: Marker(mapView)).apply {
                 setInfoWindow(null) // Participant details use the closeable app card.
-                position = truePoints[index]
                 title = candidate.title
                 snippet = formatMarkerSnippet(candidate.title, candidate.timestamp)
                 setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_CENTER)
@@ -1923,6 +1939,7 @@ class DualLocationMapActivity : AppCompatActivity() {
         binding.distanceText.text = mapDistance(location, candidate.deviceId == myId)
         binding.etaText.text = "—"
         binding.movementStatusText.text = familySpeedText(candidate.memberId.ifBlank { candidate.deviceId }, candidate.timestamp).orEmpty()
+        updateLastPoint(location.timestamp)
         binding.pointMetaText.text = buildPointMetaText(location) + if (mapOptions.speeds()) "\n" +
             ru.example.childwatch.designsystem.MapSpeedPresentation.details(this,
                 familySpeedResult(candidate.memberId.ifBlank { candidate.deviceId }, candidate.timestamp), System.currentTimeMillis()) else ""
@@ -2168,6 +2185,7 @@ class DualLocationMapActivity : AppCompatActivity() {
                 linkedLocation.longitude, linkedLocation.timestamp, linkedLocation.accuracy), ownDistancePoint))
             etaText ?: "—" else "—"
         binding.movementStatusText.text = getString(resolveMovementStatusText(linkedLocation))
+        updateLastPoint(linkedLocation.timestamp)
         binding.pointMetaText.text = buildPointMetaText(linkedLocation)
         binding.statsCard.visibility = if (isStatsCardCollapsed) View.GONE else View.VISIBLE
     }
@@ -2261,12 +2279,30 @@ class DualLocationMapActivity : AppCompatActivity() {
         }
     }
 
+    private var lastPointMeasuredAt: Long? = null
+
+    private fun updateLastPoint(timestamp: Long?) {
+        lastPointMeasuredAt = normalizeTimestampMillis(timestamp)
+        renderLastPoint()
+    }
+
+    private fun renderLastPoint() {
+        val measuredAt = lastPointMeasuredAt
+        val label = if (measuredAt == null) {
+            getString(R.string.map_last_point_unavailable)
+        } else {
+            val date = java.util.Date(measuredAt)
+            val day = android.text.format.DateFormat.getDateFormat(this).format(date)
+            val time = java.text.DateFormat.getTimeInstance(java.text.DateFormat.MEDIUM).format(date)
+            val format = if (isStale(measuredAt)) R.string.map_last_point_stale else R.string.map_last_point_time
+            getString(format, day, time)
+        }
+        if (binding.lastPointText.text.toString() != label) binding.lastPointText.text = label
+    }
+
     private fun buildPointMetaText(linkedLocation: ParentLocationData): String {
         val parts = mutableListOf<String>()
         lastLinkedSourceRes?.let { parts += getString(it) }
-        normalizeTimestampMillis(linkedLocation.timestamp)?.let { timestamp ->
-            parts += getString(R.string.map_stats_meta_updated, formatRelativeTimestamp(timestamp))
-        }
         if (linkedLocation.accuracy.isFinite() && linkedLocation.accuracy > 0f) {
             parts += getString(
                 R.string.map_stats_meta_accuracy,
@@ -2783,7 +2819,10 @@ class DualLocationMapActivity : AppCompatActivity() {
         return true
     }
 
+    private fun priorityRefreshActive(): Boolean = !isViewingHistory && (isLiveModeActive() || mapFollow.active())
+
     private fun currentAutoRefreshInterval(): Long {
+        if (priorityRefreshActive()) return PRIORITY_REFRESH_INTERVAL
         return if (isLiveModeActive() || currentFamilyCandidates.isNotEmpty()) {
             LIVE_MODE_REFRESH_INTERVAL
         } else {
@@ -3192,19 +3231,46 @@ class DualLocationMapActivity : AppCompatActivity() {
         )
     }
 
+    private var eventRefreshJob: Job? = null
+    private var mapAcceptsLocationEvents = false
+    private val locationChanged: () -> Unit = {
+        runOnUiThread {
+            if (mapAcceptsLocationEvents && !isViewingHistory && eventRefreshJob?.isActive != true) {
+                eventRefreshJob = lifecycleScope.launch {
+                    loadLocationsJob?.join()
+                    if (mapAcceptsLocationEvents && !isViewingHistory) loadLocations(quiet = true, fromEvent = true)
+                }
+            }
+        }
+    }
+
+    private fun watchMapLocations() {
+        if (!dependenciesReady || !mapAcceptsLocationEvents) return
+        val server = networkClient.resolveConfiguredServerUrl()?.takeIf { it.isNotBlank() } ?: return
+        val family = ChildEffectiveContextResolver(this).resolveFamilyId()
+        val devices = listOf(myId, resolvedOtherId.ifBlank { otherId }).filter { it.isNotBlank() }.distinct()
+        ru.example.parentwatch.network.WebSocketManager.watchLocation(
+            server, family,
+            if (family.isNullOrBlank()) devices else emptyList(), locationChanged
+        )
+    }
+
     private fun startAutoRefresh() {
         autoRefreshJob?.cancel()
         autoRefreshJob = lifecycleScope.launch {
             while (isActive) {
                 delay(currentAutoRefreshInterval())
                 updateLiveModeUi()
-                if (isMapReady) loadLocations()
+                if (isMapReady && !isViewingHistory) loadLocations(quiet = true)
             }
         }
     }
 
     override fun onResume() {
         super.onResume()
+        mapAcceptsLocationEvents = true
+        watchMapLocations()
+        if (isMapReady && dependenciesReady && !isViewingHistory) loadLocations(quiet = true)
         startSpeedFreshness()
         setupPickupEntry()
         binding.root.post {
@@ -3219,6 +3285,11 @@ class DualLocationMapActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        mapAcceptsLocationEvents = false
+        ru.example.parentwatch.network.WebSocketManager.stopWatchingLocation(locationChanged)
+        eventRefreshJob?.cancel()
+        eventRefreshJob = null
+        historyPanel?.pausePlayback()
         speedFreshnessJob?.cancel()
         stopMapFollow()
         markerMotion.clear()

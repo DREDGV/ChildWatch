@@ -3,6 +3,7 @@ const FamilyGameService = require('../services/FamilyGameService');
 
 module.exports = function createFamilyGameRoutes(db, service = new FamilyGameService(db), { notifyChanged = async () => {} } = {}) {
   const router = express.Router();
+  service.notifyChanged = notifyChanged;
   async function notify(result) {
     if (!result.replayed && result.game) {
       try { await notifyChanged(result.game); }
@@ -21,7 +22,7 @@ module.exports = function createFamilyGameRoutes(db, service = new FamilyGameSer
   });
   router.get('/capabilities',(req,res) => res.json({ success:true, protocolVersion:1,
     games:['TIC_TAC_TOE','BATTLESHIP','SNAKE_COOP','ARKANOID_COOP'], invitationTtlSeconds:900, gameTtlSeconds:86400,
-    realtime:{ protocolVersion:1, namespace:'/family-games', games:['SNAKE_COOP','ARKANOID_COOP'],
+    realtime:{ protocolVersion:2, namespace:'/family-games', games:['SNAKE_COOP','ARKANOID_COOP'],
       countdownMs:2000, leaseMs:12000, inputWindowTicks:3,
       arkanoid:{ simulationHz:60, snapshotHz:20, width:1000, height:1400, maxMoveHz:25 } } }));
   router.get('/',async(req,res,next) => {
@@ -36,6 +37,10 @@ module.exports = function createFamilyGameRoutes(db, service = new FamilyGameSer
   });
   router.get('/:id',async(req,res,next) => {
     try { res.json({ success:true,game:await service.get(req.gameActor,req.params.id) }); } catch(error) { next(error); }
+  });
+  router.delete('/:id',async(req,res,next) => {
+    try { res.json({success:true,...await service.remove(req.gameActor,req.params.id,req.body || {})}); }
+    catch(error) { next(error); }
   });
   router.post('/:id/actions',async(req,res,next) => {
     try {

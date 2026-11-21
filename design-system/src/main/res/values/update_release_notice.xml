@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="cw_update_whats_new">Что нового</string>
+    <string name="cw_update_available_channel">Новые версии приложения</string>
+</resources>

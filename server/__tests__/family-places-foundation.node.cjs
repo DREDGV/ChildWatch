@@ -158,6 +158,30 @@ test('owners cannot list, replay, modify or remove another owners watches', asyn
   await assert.rejects(f.initial.events(f.a, 0), { status: 403 });
 });
 
+test('key and selected subscriptions affect only watches owned for the requested member', async t => {
+  const f = await fixture(t);
+  const key = await f.initial.create(f.a, f.input({ isKey: true }));
+  const ordinary = await f.initial.create(f.a, f.input());
+  const otherOwner = await f.initial.create(f.b, f.input({ isKey: true }));
+  const exits = { targetMemberId: 'c', onEnter: false, onExit: true };
+  assert.equal(await f.initial.changeNotifications(f.a, { ...exits, mode: 'KEY' }), 1);
+  assert.equal((await f.state(key)).on_enter, 0);
+  assert.equal((await f.state(ordinary)).on_enter, 1);
+  assert.equal((await f.state(ordinary)).notifications_enabled, 0);
+  assert.equal((await f.state(otherOwner)).on_enter, 1);
+  assert.equal((await f.state(otherOwner)).notifications_enabled, 1);
+  await assert.rejects(f.initial.changeNotifications(f.a, {
+    ...exits, mode: 'SELECTED', ids: [ordinary, otherOwner]
+  }), { status: 409 });
+  assert.equal((await f.state(ordinary)).on_enter, 1);
+  assert.equal(await f.initial.changeNotifications(f.a, { ...exits, mode: 'SELECTED', ids: [ordinary] }), 1);
+  assert.equal((await f.state(ordinary)).on_enter, 0);
+  assert.equal((await f.state(key)).notifications_enabled, 0);
+  assert.equal((await f.state(ordinary)).notifications_enabled, 1);
+  assert.equal(await f.initial.changeNotifications(f.a, { ...exits, mode: 'ALL' }), 2);
+  assert.equal((await f.state(key)).notifications_enabled, 1);
+});
+
 test('SQLite ambiguous measurements cannot conceal offline certainty gap', async t => {
   const f = await fixture(t);
   const id = await f.initial.create(f.a, f.input());

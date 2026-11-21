@@ -13,8 +13,8 @@
                 </com.google.android.material.card.MaterialCardView>
             </LinearLayout>
             <ru.example.childwatch.designsystem.HomeFamilyStrip android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/familyStrip" android:layout_marginTop="2dp" android:minHeight="64dp" />
+            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/updateNoticeContainer" android:orientation="vertical" />
             <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/homeNoticeRow" android:orientation="horizontal" android:gravity="center_vertical">
-                <com.google.android.material.button.MaterialButton android:id="@+id/homeUpdateButton" android:layout_width="0dp" android:layout_height="wrap_content" android:layout_weight="1" android:text="@string/cw_home_update_available" android:textSize="12sp" android:minHeight="48dp" android:visibility="gone" android:textAllCaps="false" style="@style/Widget.ChildWatch.Button.Secondary" />
                 <com.google.android.material.button.MaterialButton android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/homeAttentionButton" android:text="@string/cw_home_attention_short" android:textAllCaps="false" android:minHeight="48dp" android:visibility="gone" android:textSize="12sp" style="@style/Widget.ChildWatch.Button.Secondary" android:layout_weight="1" />
             </LinearLayout>
             <com.google.android.material.card.MaterialCardView android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/childSelectionCard" android:layout_marginTop="6dp" style="@style/Widget.ChildWatch.Home.Card" app:cardCornerRadius="22dp">
@@ -126,9 +126,23 @@
                     <com.google.android.material.button.MaterialButton android:layout_width="48dp" android:layout_height="wrap_content" android:id="@+id/monitoringToggleBtn" android:text="" android:textAllCaps="false" android:minHeight="48dp" android:textSize="12sp" android:paddingHorizontal="10dp" android:minWidth="0dp" style="@style/Widget.ChildWatch.Button.Secondary" android:padding="0dp" android:contentDescription="@string/parent_service_start" app:icon="@drawable/cw_home_toggle_off" app:iconSize="40dp" app:iconPadding="0dp" app:iconTint="@null" app:strokeWidth="0dp" />
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
-                <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/appVersionText" android:textSize="10sp" android:layout_weight="1" android:maxLines="2" android:textColor="@color/cw_color_on_surface_variant" />
-                <com.google.android.material.button.MaterialButton android:layout_width="wrap_content" android:layout_height="wrap_content" android:id="@+id/checkUpdatesButton" android:text="@string/update_check_button" android:textAllCaps="false" android:minHeight="48dp" android:textSize="11sp" android:paddingHorizontal="4dp" android:minWidth="0dp" style="@style/Widget.MaterialComponents.Button.TextButton" />
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical">
+                <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:orientation="horizontal" android:gravity="center_vertical">
+                    <TextView android:layout_width="0dp" android:layout_height="wrap_content" android:id="@+id/appVersionText" android:textSize="10sp" android:layout_weight="1" android:maxLines="2" android:textColor="@color/cw_color_on_surface_variant" />
+                    <com.google.android.material.button.MaterialButton android:layout_width="wrap_content" android:layout_height="wrap_content" android:id="@+id/checkUpdatesButton" android:text="@string/update_check_button" android:textAllCaps="false" android:minHeight="48dp" android:textSize="11sp" android:paddingHorizontal="4dp" android:minWidth="0dp" style="@style/Widget.MaterialComponents.Button.TextButton" />
+                </LinearLayout>
+                <TextView
+                    android:id="@+id/updateCheckSummary"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginBottom="8dp"
+                    android:accessibilityLiveRegion="polite"
+                    android:text="@string/update_check_no_summary"
+                    android:textColor="@color/cw_color_on_surface_variant"
+                    android:textSize="12sp" />
             </LinearLayout>
         </LinearLayout>
     </ru.example.childwatch.designsystem.HomeScrollView>
@@ -205,6 +219,5 @@
         <com.google.android.material.button.MaterialButton android:id="@+id/startMonitoringBtn" android:layout_width="wrap_content" android:layout_height="wrap_content" />
         <com.google.android.material.button.MaterialButton android:id="@+id/stopMonitoringBtn" android:layout_width="wrap_content" android:layout_height="wrap_content" />
         <com.google.android.material.button.MaterialButton android:id="@+id/emergencyStopBtn" android:layout_width="wrap_content" android:layout_height="wrap_content" />
-        <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content" android:id="@+id/updateNoticeContainer" android:orientation="vertical" />
     </LinearLayout>
 </FrameLayout>

@@ -136,6 +136,33 @@ describe("attention signal protocol", () => {
     ).toMatchObject({ status: "STARTED", targetDeviceId: targetId });
   });
 
+  test("delivers private notes only to the exact updated recipient and omits text from receipts", async () => {
+    target.handshake = { auth: { attentionNotes: "1" } };
+    const oldSocket = createSocket("older-socket", targetId);
+    sockets.set(oldSocket.id, oldSocket);
+    wsManager.registerDeviceSocket(oldSocket, targetId);
+    const save = jest.spyOn(db, "saveAttentionSignalEvent");
+    const note = "Позвони домой";
+    await attentionManager.handleRequest(requester, request({ note, noteDurationSeconds: 30, volumePercent: 0 }));
+    expect(target.emit).toHaveBeenCalledWith("attention_signal_start",
+      expect.objectContaining({ note, noteDurationSeconds: 30, volumePercent: 0, vibrate: true }));
+    expect(oldSocket.emit).not.toHaveBeenCalled();
+    expect(otherTarget.emit).not.toHaveBeenCalled();
+    expect(save.mock.calls[0][0]).not.toHaveProperty("note");
+  });
+
+  test("explains when a connected phone must be updated to receive a note", async () => {
+    const result = await attentionManager.handleRequest(requester, request({ note: "Позвони домой" }));
+    expect(result).toMatchObject({ status: "FAILED", errorCode: "TARGET_UPDATE_REQUIRED" });
+    expect(target.emit).not.toHaveBeenCalled();
+  });
+
+  test("rejects invalid note timing", async () => {
+    const result = await attentionManager.handleRequest(requester, request({ note: "Позвони домой", noteDurationSeconds: 5 }));
+    expect(result).toMatchObject({ errorCode: "INVALID_NOTE_DURATION" });
+    expect(target.emit).not.toHaveBeenCalled();
+  });
+
   test("fails immediately when the exact target is offline", async () => {
     wsManager.unregisterDeviceSocket(target);
     const result = await attentionManager.handleRequest(

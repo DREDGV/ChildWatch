@@ -19,7 +19,9 @@ import org.json.JSONObject;
 /** Shared cooperative game. App monitoring and the local solo save remain untouched. */
 public class ArcanoidOnlineActivity extends AppCompatActivity {
     protected interface Session {void start();void command(String action);void move(double normalized);void close();}
-    private Session session;private GameOnlineBridge.Client names;
+    private boolean endedExternally;
+    private Session session;
+    private GameResultActions results;private GameOnlineBridge.Client names;
     private TextView status,fullStatus,score,peer;private MaterialButton ready,pause;private MaterialCheckBox buttons;
     ArcanoidOnlineView field;ArcanoidRoomSnapshot snapshot;
     private boolean active,connected,retry,localPause,detailsExpanded;private int player=-1,generation;
@@ -38,7 +40,8 @@ public class ArcanoidOnlineActivity extends AppCompatActivity {
         findViewById(R.id.arcanoidOnlineDetails).setOnClickListener(v->{if(!detailsExpanded&&playing())requestPause();setDetails(!detailsExpanded);});
         findViewById(R.id.arcanoidOnlineLeft).setOnClickListener(v->step(-.12));findViewById(R.id.arcanoidOnlineRight).setOnClickListener(v->step(.12));
         icon(R.id.arcanoidOnlineBack,"back");icon(R.id.arcanoidOnlinePause,"pause");icon(R.id.arcanoidOnlineDetails,"details");icon(R.id.arcanoidOnlineLeft,"left");icon(R.id.arcanoidOnlineRight,"right");
-        findViewById(R.id.arcanoidOnlineRoot).addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->sizeDetails());setStatus(R.string.cw_arcanoid_online_loading);setDetails(false);refresh();
+        findViewById(R.id.arcanoidOnlineRoot).addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->sizeDetails());results=new GameResultActions(this,(android.widget.LinearLayout)findViewById(R.id.arcanoidOnlineRoot),gameId);
+        setStatus(R.string.cw_arcanoid_online_loading);setDetails(false);refresh();
     }
     protected Session createSession(String id,ArcanoidRealtimeBridge.Listener listener){ArcanoidRealtimeBridge.Connection connection=new ArcanoidRealtimeBridge.Connection(id,listener);return new Session(){public void start(){connection.start();}public void command(String action){connection.command(action);}public void move(double value){connection.move(value);}public void close(){connection.close();}};}
     private void connect(){
@@ -55,11 +58,15 @@ public class ArcanoidOnlineActivity extends AppCompatActivity {
     }
     protected void setPeerName(String value){if(value!=null&&!value.trim().isEmpty()){peerName=value;refresh();}}
     private void showStatus(String code){
+        if("GAME_CLOSED".equals(code)){endedExternally=true;connected=false;field.freeze();setStatus(R.string.cw_game_closed_by_player);refresh();return;}
+        if(endedExternally||(snapshot!=null&&"FINISHED".equals(snapshot.phase))){connected=false;field.freeze();refresh();return;}
+
         if("CONNECTED".equals(code)){connected=snapshot!=null;retry=false;if(snapshot!=null)showState();refresh();return;}
         if("ARKANOID_COMMAND_TIMEOUT".equals(code)){localPause=false;setStatus(R.string.cw_arcanoid_online_command_timeout);refresh();return;}
         connected=false;requestedLocal=null;field.freeze();retry=false;int text=R.string.cw_arcanoid_online_reconnecting;
         if("ARKANOID_UNSUPPORTED".equals(code))text=R.string.cw_arcanoid_online_unsupported;
         else if("ARKANOID_CONNECTION_REPLACED".equals(code)){text=R.string.cw_arcanoid_online_replaced;retry=true;}
+        else if("GAME_UPDATE_REQUIRED".equals(code))text=R.string.cw_game_update_required;
         else if(code.startsWith("GAME_"))text=R.string.cw_arcanoid_online_unavailable;
         else if("CONNECTING".equals(code))text=R.string.cw_arcanoid_online_loading;
         else retry=true;setStatus(text);refresh();
@@ -77,11 +84,11 @@ public class ArcanoidOnlineActivity extends AppCompatActivity {
         else setStatus(R.string.cw_arcanoid_online_paused);
     }
     private boolean playing(){return active&&connected&&!localPause&&player>=0&&snapshot!=null&&"PLAYING".equals(snapshot.phase);}
-    private void move(double local){if(!playing()||session==null)return;requestedLocal=Math.max(0,Math.min(1,local));requestedAt=SystemClock.elapsedRealtime();session.move(ArcanoidRoomSnapshot.serverPosition(requestedLocal,player));}
+    private void move(double local){if(!playing()||session==null)return;requestedLocal=Math.max(0,Math.min(1,local));requestedAt=SystemClock.elapsedRealtime();field.requestPosition(requestedLocal);session.move(ArcanoidRoomSnapshot.serverPosition(requestedLocal,player));}
     private void step(double value){if(!playing())return;double current=requestedLocal!=null&&SystemClock.elapsedRealtime()-requestedAt<500?requestedLocal:snapshot.localX(snapshot.paddle(player),player)/1000;move(current+value);}
     private void requestPause(){if(!playing()||session==null)return;localPause=true;requestedLocal=null;field.freeze();setStatus(R.string.cw_arcanoid_online_pausing);refresh();session.command("PAUSE");}
     private void refresh(){
-        if(field==null)return;boolean playing=playing();field.setCanMove(playing);text(peer,getString(R.string.cw_arcanoid_online_legend,peerName));boolean paused=connected&&player>=0&&snapshot!=null&&"PAUSED".equals(snapshot.phase);
+        if(field==null)return;if(results!=null)results.show(endedExternally||(snapshot!=null&&"FINISHED".equals(snapshot.phase)));boolean playing=playing();field.setCanMove(playing);text(peer,getString(R.string.cw_arcanoid_online_legend,peerName));boolean paused=connected&&player>=0&&snapshot!=null&&"PAUSED".equals(snapshot.phase);
         ready.setText(retry?R.string.cw_arcanoid_online_retry:snapshot!=null&&"WON".equals(snapshot.engineState)?R.string.cw_arcanoid_online_next:R.string.cw_arcanoid_online_ready);ready.setVisibility(retry||paused?View.VISIBLE:View.GONE);ready.setEnabled(active&&(retry||paused&&!snapshot.ready(player)));
         pause.setVisibility(playing?View.VISIBLE:View.GONE);pause.setEnabled(playing);findViewById(R.id.arcanoidOnlineControls).setVisibility(buttons.isChecked()?View.VISIBLE:View.GONE);findViewById(R.id.arcanoidOnlineLeft).setEnabled(playing);findViewById(R.id.arcanoidOnlineRight).setEnabled(playing);
         if(playing)getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -122,5 +129,5 @@ public class ArcanoidOnlineActivity extends AppCompatActivity {
     }
     @Override protected void onResume(){super.onResume();if(field==null)return;active=true;field.setActive(true);connect();}
     @Override protected void onPause(){active=false;generation++;connected=false;requestedLocal=null;if(field!=null){field.setActive(false);refresh();}if(session!=null){session.close();session=null;}if(names!=null){names.close();names=null;}super.onPause();}
-    @Override protected void onDestroy(){if(session!=null)session.close();if(names!=null)names.close();super.onDestroy();}
+    @Override protected void onDestroy(){if(session!=null)session.close();if(names!=null)names.close();if(results!=null)results.close();super.onDestroy();}
 }

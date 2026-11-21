@@ -10,6 +10,8 @@
     <string name="server_url_hint">http://31.28.27.96:3000</string>
     <string name="notification_channel_name">Отслеживание местоположения</string>
     <string name="notification_channel_description">Уведомления о работе службы отслеживания</string>
+    <string name="chat_draft_preview">Черновик · %1$s</string>
+    <string name="chat_status_queued">В очереди на отправку</string>
     <string name="chat_status_sending">Отправляется…</string>
     <string name="chat_status_sent">Отправлено</string>
     <string name="chat_status_delivered">Доставлено</string>

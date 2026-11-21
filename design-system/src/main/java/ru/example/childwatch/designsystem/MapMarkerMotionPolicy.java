@@ -43,6 +43,18 @@ public final class MapMarkerMotionPolicy {
             && java.util.Objects.equals(first.elapsedRealtimeNanos, second.elapsedRealtimeNanos);
     }
 
+    public static boolean isOlder(Fix previous, Fix next) {
+        if (previous == null || next == null || previous.deviceId == null
+                || !previous.deviceId.equals(next.deviceId)
+                || !java.util.Objects.equals(previous.bootId, next.bootId)) return false;
+        if (previous.bootId != null && !previous.bootId.isEmpty()
+                && previous.elapsedRealtimeNanos != null && next.elapsedRealtimeNanos != null
+                && previous.elapsedRealtimeNanos >= 0 && next.elapsedRealtimeNanos >= 0) {
+            return next.elapsedRealtimeNanos < previous.elapsedRealtimeNanos;
+        }
+        return next.timeMs > 0 && next.timeMs < previous.timeMs;
+    }
+
     private static long intervalMs(Fix previous, Fix next) {
         if (!java.util.Objects.equals(previous.bootId, next.bootId)) return -1;
         if ((previous.elapsedRealtimeNanos == null) != (next.elapsedRealtimeNanos == null)) return -1;

@@ -1,7 +1,7 @@
 'use strict';
 
 // Exact integer port of design-system SnakeEngine: one authoritative cell move per tick.
-const COLUMNS = 20, ROWS = 36, CELLS = COLUMNS * ROWS, VERSION = 1;
+const COLUMNS = 20, ROWS = 36, CELLS = COLUMNS * ROWS, VERSION = 2;
 const DIRECTIONS = ['UP', 'RIGHT', 'DOWN', 'LEFT'];
 const DIFFICULTIES = ['CALM', 'NORMAL', 'FAST'];
 const STATES = ['READY', 'PLAYING', 'PAUSED', 'WON', 'GAME_OVER'];
@@ -57,9 +57,8 @@ function tick(state) {
   let collision = false;
   const heads = state.players.map((player, p) => {
     const direction = DIRECTIONS.indexOf(directions[p]);
-    const x = player.body[0] % COLUMNS + DX[direction];
-    const y = Math.floor(player.body[0] / COLUMNS) + DY[direction];
-    if (x < 0 || x >= COLUMNS || y < 0 || y >= ROWS) collision = true;
+    const x = (player.body[0] % COLUMNS + DX[direction] + COLUMNS) % COLUMNS;
+    const y = (Math.floor(player.body[0] / COLUMNS) + DY[direction] + ROWS) % ROWS;
     return y * COLUMNS + x;
   });
   const grows = heads.map(head => head === state.food);
@@ -100,7 +99,7 @@ function restore(data) {
   try {
     let i = 0;
     const values = data.map(long);
-    if (values[i++] !== BigInt(VERSION) || values[i++] !== 1n) return null;
+    const version=values[i++]; if ((version !== 1n && version !== BigInt(VERSION)) || values[i++] !== 1n) return null;
     const difficulty = DIFFICULTIES[index(values[i++], 3)], phase = STATES[index(values[i++], 5)];
     const scoreLong = values[i++], ticks = values[i++], random = values[i++], initialSeed = values[i++], foodLong = values[i++];
     if (scoreLong < 0n || scoreLong > BigInt((CELLS - 6) * 10) || scoreLong % 10n !== 0n
@@ -113,12 +112,11 @@ function restore(data) {
         const cell = index(values[i++], CELLS);
         if (occupied.has(cell)) return null;
         occupied.add(cell); body.push(cell);
-        if (n > 0 && Math.abs(body[n - 1] % COLUMNS - cell % COLUMNS)
-            + Math.abs(Math.floor(body[n - 1] / COLUMNS) - Math.floor(cell / COLUMNS)) !== 1) return null;
+        if (n > 0 && distance(body[n - 1], cell) !== 1) return null;
       }
       const d = DIRECTIONS.indexOf(direction);
-      if (body[0] % COLUMNS - body[1] % COLUMNS !== DX[d]
-          || Math.floor(body[0] / COLUMNS) - Math.floor(body[1] / COLUMNS) !== DY[d]) return null;
+      if ((body[1] % COLUMNS + DX[d] + COLUMNS) % COLUMNS !== body[0] % COLUMNS
+          || (Math.floor(body[1] / COLUMNS) + DY[d] + ROWS) % ROWS !== Math.floor(body[0] / COLUMNS)) return null;
       let last = direction;
       for (let n = 0; n < count; n++) {
         const next = DIRECTIONS[index(values[i++], 4)], nextIndex = DIRECTIONS.indexOf(next), lastIndex = DIRECTIONS.indexOf(last);
@@ -139,3 +137,5 @@ function view(state) {
     players: state.players.map(player => ({body: [...player.body], direction: player.direction}))};
 }
 module.exports = {COLUMNS, ROWS, initial, turn, tick, snapshot, restore, view, launchOrResume, pause};
+
+function distance(a,b) { const x=Math.abs(a%COLUMNS-b%COLUMNS), y=Math.abs(Math.floor(a/COLUMNS)-Math.floor(b/COLUMNS)); return Math.min(x,COLUMNS-x)+Math.min(y,ROWS-y); }

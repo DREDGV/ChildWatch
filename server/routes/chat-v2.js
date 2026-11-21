@@ -49,7 +49,7 @@ function createChatV2Routes(
 
   router.get("/conversations", async (req, res) => {
     try {
-      const result = await chatService.listConversations(req.deviceId);
+      const result = await chatService.listConversations(req.deviceId, { includeGroupAccess: true });
       res.json({ success: true, ...result });
     } catch (error) {
       handleError(res, error);
@@ -89,6 +89,28 @@ function createChatV2Routes(
         beforeSequence: req.query.beforeSequence,
         limit: req.query.limit,
       });
+      res.json({ success: true, ...result });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  router.get("/conversations/:id/messages/context", async (req, res) => {
+    try {
+      res.set("Cache-Control", "no-store");
+      const result = await chatService.getMessageContext(req.deviceId, req.params.id, {
+        messageId: req.query.messageId, unread: req.query.unread === "true"
+      });
+      res.json({ success: true, ...result });
+    } catch (error) {
+      handleError(res, error);
+    }
+  });
+
+  router.post("/conversations/:id/messages/search", async (req, res) => {
+    try {
+      res.set("Cache-Control", "no-store");
+      const result = await chatService.searchMessages(req.deviceId, req.params.id, req.body?.query);
       res.json({ success: true, ...result });
     } catch (error) {
       handleError(res, error);

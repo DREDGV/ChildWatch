@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/chatMessageBubble"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:gravity="start"
+    android:orientation="vertical"
+    android:paddingHorizontal="12dp"
+    android:paddingVertical="8dp">
+
+    <TextView
+        android:id="@+id/senderText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="2dp"
+        android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Sender"
+        android:visibility="gone" />
+
+    <LinearLayout
+        android:id="@+id/chatQuoteBlock"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="4dp"
+        android:background="@drawable/cw_chat_quote_surface"
+        android:gravity="center_vertical"
+        android:minHeight="48dp"
+        android:orientation="horizontal"
+        android:visibility="gone">
+        <View
+            android:layout_width="3dp"
+            android:layout_height="match_parent"
+            android:background="@color/cw_color_primary"
+            android:importantForAccessibility="no" />
+        <TextView
+            android:id="@+id/chatQuoteText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="3"
+            android:paddingHorizontal="8dp"
+            android:paddingVertical="4dp"
+            android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Notice" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/attachmentCard"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+        <ImageView
+            android:id="@+id/attachmentImage"
+            android:layout_width="200dp"
+            android:layout_height="150dp"
+            android:contentDescription="@string/chat_media_preview"
+            android:scaleType="centerCrop"
+            android:visibility="gone" />
+        <TextView
+            android:id="@+id/attachmentName"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:ellipsize="end"
+            android:maxLines="3"
+            android:textColor="@color/cw_color_on_surface"
+            android:textSize="15sp" />
+        <TextView
+            android:id="@+id/attachmentMeta"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.ChildWatch.Chat.Notice" />
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/attachmentOpen"
+            style="@style/Widget.Material3.Button.TextButton"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:minHeight="48dp"
+            android:text="@string/chat_media_open" />
+    </LinearLayout>
+
+    <com.vanniktech.emoji.EmojiTextView
+        android:id="@+id/messageText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:maxWidth="280dp"
+        android:textColor="@color/cw_color_on_surface"
+        android:textSize="16sp" />
+
+    <TextView
+        android:id="@+id/timestampText"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:layout_marginTop="3dp"
+        android:textColor="@color/cw_color_on_surface_variant"
+        android:textSize="12sp" />
+
+    <TextView
+        android:id="@+id/retryButton"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="end"
+        android:gravity="center_vertical"
+        android:minHeight="48dp"
+        android:text="@string/chat_media_retry"
+        android:textColor="@color/cw_color_primary"
+        android:visibility="gone" />
+</LinearLayout>

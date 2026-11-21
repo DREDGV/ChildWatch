@@ -1,4 +1,12 @@
 <resources>
+    <string name="cw_day_places">Посещения мест</string>
+    <string name="cw_day_places_loading">Загружаем журнал мест…</string>
+    <string name="cw_day_places_empty">Подтверждённых событий в журнале за этот день нет</string>
+    <string name="cw_day_places_partial">Показана часть записей дня</string>
+    <string name="cw_day_places_unavailable">Не удалось загрузить посещения</string>
+    <string name="cw_day_places_retry">Повторить загрузку посещений</string>
+    <string name="cw_day_place_enter">%1$s · Вход · %2$s</string>
+    <string name="cw_day_place_exit">%1$s · Выход · %2$s</string>
     <string name="cw_history_loading">Загружаем маршрут…</string>
     <string name="cw_history_unavailable">Не удалось получить историю. Проверьте связь и доступ к геолокации. Попробуйте повторить загрузку позже.</string>
     <string name="cw_history_retry">Повторить</string>
@@ -29,4 +37,18 @@
     <string name="cw_history_gap_between">%1$s — %2$s · маршрут неизвестен</string>
     <string name="cw_history_measured_at">Измерено в %1$s</string>
     <string name="cw_history_more_events">Следующие участки</string>
+    <string name="cw_history_play">Воспроизвести ×%1$d</string>
+    <string name="cw_history_pause">Пауза</string>
+    <string name="cw_history_next_segment">К следующему участку</string>
+    <string name="cw_history_playback_gap">Воспроизведение остановлено у разрыва маршрута.</string>
+    <string name="cw_history_playback_end">Последняя записанная точка.</string>
+    <string name="cw_history_playback_loaded_end">Конец загруженного участка истории.</string>
+    <string name="cw_day_summary">Наблюдение %1$s\nОстановки %2$d · Пропуски %3$d</string>
+    <string name="cw_day_summary_partial">По загруженной части · %1$s наблюдения\nОстановки %2$d · Пропуски %3$d</string>
+    <string name="cw_day_gap">Нет координат\n%1$s – %2$s · %3$s</string>
+    <string name="cw_day_stop">Остановка\n%1$s – %2$s · %3$s</string>
+    <string name="cw_day_more_events">Показать ещё события</string>
+    <string name="cw_day_duration_hours">%1$d ч %2$d мин</string>
+    <string name="cw_day_duration_minutes">%1$d мин</string>
+    <string name="cw_day_duration_seconds">%1$d с</string>
 </resources>

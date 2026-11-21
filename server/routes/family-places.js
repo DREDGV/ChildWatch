@@ -40,12 +40,17 @@ router.get('/history', async (req, res, next) => {
     if (typeof req.query.targetMemberId !== 'string' || !req.query.targetMemberId.trim())
       return res.status(400).json({ success: false, error: 'Target member required' });
     res.json(await service.history(req.placeActor, req.query.targetMemberId, {
-      before: integerQuery('before'), snapshot: integerQuery('snapshot'), limit: integerQuery('limit')
+      before: integerQuery('before'), snapshot: integerQuery('snapshot'), limit: integerQuery('limit'),
+      from: integerQuery('from'), to: integerQuery('to'), deviceId: req.query.deviceId
     }));
   } catch (error) { next(error); }
 });
 router.post('/', async (req, res, next) => {
   try { res.status(201).json({ success: true, id: await service.create(req.placeActor, req.body) }); }
+  catch (error) { next(error); }
+});
+router.patch('/notifications', async (req, res, next) => {
+  try { res.json({ success: true, updated: await service.changeNotifications(req.placeActor, req.body || {}) }); }
   catch (error) { next(error); }
 });
 router.patch('/:id', async (req, res, next) => {
