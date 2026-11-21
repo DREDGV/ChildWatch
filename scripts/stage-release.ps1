@@ -17,10 +17,16 @@
 
 param(
     [string]$OutputDirectory = "",
-    [switch]$UseDebugBuilds
+    [switch]$UseDebugBuilds,
+    [switch]$UseChildDebugBuild,
+    [string]$ReleaseNotesFile = ""
 )
 
 $ErrorActionPreference = "Stop"
+$releaseNotes = if ($ReleaseNotesFile) {
+    $notesPath = (Resolve-Path -LiteralPath $ReleaseNotesFile).ProviderPath
+    [System.IO.File]::ReadAllText($notesPath, (New-Object System.Text.UTF8Encoding($false, $true))).Trim()
+} else { "" }
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 
@@ -156,7 +162,7 @@ $apps = @{}
 $stamp = Get-Date -Format "yyyyMMdd-HHmmss"
 
 foreach ($target in $targets) {
-    $buildType = if ($UseDebugBuilds) { "debug" } else { "release" }
+    $buildType = if ($UseDebugBuilds -or ($UseChildDebugBuild -and $target.Key -eq "child")) { "debug" } else { "release" }
     $apkDirectory = Join-Path $repo "$($target.Project)\build\outputs\apk\$buildType"
     if (-not (Test-Path $apkDirectory)) {
         Step "SKIP $($target.Label): no $buildType build in $apkDirectory"
@@ -219,7 +225,7 @@ foreach ($target in $targets) {
         sha256         = $hash
         file           = $publishedName
         signingCertSha256 = Get-SignerFingerprint $publishedPath $apksigner $signingJavaHome
-        notes          = ""
+        notes          = $releaseNotes
     }
 }
 

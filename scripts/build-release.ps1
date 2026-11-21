@@ -17,14 +17,19 @@
 param(
     # Stage for publishing as well as building.
     [switch]$Stage,
+    [switch]$UseChildDebugBuild,
     # Build only one application. Both by default.
     [ValidateSet("both", "parent", "child")]
     [string]$Target = "both",
     [ValidateRange(0, 2100000000)]
-    [int]$VersionCode = 0
+    [int]$VersionCode = 0,
+    [string]$ReleaseNotesFile = ""
 )
 
 $ErrorActionPreference = "Stop"
+if ($Stage -and $ReleaseNotesFile) {
+    $ReleaseNotesFile = (Resolve-Path -LiteralPath $ReleaseNotesFile).ProviderPath
+}
 $repo = Split-Path -Parent $PSScriptRoot
 Set-Location $repo
 
@@ -130,7 +135,10 @@ Step "Building signed release APKs"
 
 $tasks = @()
 if ($Target -eq "both" -or $Target -eq "parent") { $tasks += ":app:assembleRelease" }
-if ($Target -eq "both" -or $Target -eq "child") { $tasks += ":parentwatch:assembleRelease" }
+$childBuildType = if ($UseChildDebugBuild) { "debug" } else { "release" }
+if ($Target -eq "both" -or $Target -eq "child") {
+    $tasks += if ($UseChildDebugBuild) { ":parentwatch:assembleDebug" } else { ":parentwatch:assembleRelease" }
+}
 if ($VersionCode -gt 0) { $tasks += "-PcwVersionCode=$VersionCode" }
 
 $env:CW_SIGNING_PASSWORD = $plain
@@ -176,7 +184,8 @@ if ($Target -eq "both" -or $Target -eq "child") {
 }
 
 foreach ($apkTarget in $targets) {
-    $directory = Join-Path $repo "$($apkTarget.Project)\build\outputs\apk\release"
+    $buildType = if ($apkTarget.Key -eq "child") { $childBuildType } else { "release" }
+    $directory = Join-Path $repo "$($apkTarget.Project)\build\outputs\apk\$buildType"
     $apk = Get-ChildItem $directory -Filter "*.apk" -ErrorAction SilentlyContinue |
         Sort-Object LastWriteTime -Descending | Select-Object -First 1
     if (-not $apk) { Fail "No release APK was produced for $($apkTarget.Label)." }
@@ -208,8 +217,11 @@ foreach ($apkTarget in $targets) {
 # ---------------------------------------------------------------------------
 if ($Stage) {
     Step "Staging for publishing"
+    $stageArgs = @()
+    if ($UseChildDebugBuild) { $stageArgs += "-UseChildDebugBuild" }
+    if ($ReleaseNotesFile) { $stageArgs += @("-ReleaseNotesFile", $ReleaseNotesFile) }
     & powershell -NoProfile -ExecutionPolicy Bypass -File `
-        (Join-Path $PSScriptRoot "stage-release.ps1") 2>&1 | ForEach-Object { Write-Host $_ }
+        (Join-Path $PSScriptRoot "stage-release.ps1") @stageArgs 2>&1 | ForEach-Object { Write-Host $_ }
     if ($LASTEXITCODE -ne 0) { Fail "Staging failed. Read the output above." }
 }
 

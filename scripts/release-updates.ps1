@@ -16,7 +16,8 @@
 param(
     [switch]$PreflightOnly,
     [ValidateRange(0, 2100000000)]
-    [int]$VersionCode = 0
+    [int]$VersionCode = 0,
+    [string]$ReleaseNotesFile = ""
 )
 
 $ErrorActionPreference = 'Continue'
@@ -93,7 +94,9 @@ if ($LASTEXITCODE -ne 0) { Stop-With 'the build did not succeed' }
 Say 'build finished'
 
 Head 'step 2 of 5: staging the release and checking the signature'
-& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'stage-release.ps1') -UseDebugBuilds 2>&1 |
+$stageArgs = @('-UseDebugBuilds')
+if ($ReleaseNotesFile) { $stageArgs += @('-ReleaseNotesFile', $ReleaseNotesFile) }
+& powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $PSScriptRoot 'stage-release.ps1') @stageArgs 2>&1 |
     ForEach-Object { $_.ToString() }
 if ($LASTEXITCODE -ne 0) { Stop-With 'staging failed' }
 $manifestPath = Join-Path $updatesDir 'manifest.json'
